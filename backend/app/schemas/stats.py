@@ -62,3 +62,20 @@ class StatsOverviewResponse(BaseModel):
     daily_volume: list[DailyVolumePoint]
     feed_breakdown: list[FeedStats]
     top_domains: list[DomainPoint]
+
+
+class FeedTimeSeriesPoint(BaseModel):
+    date: str
+    count: int
+
+
+class FeedTimeSeriesSeries(BaseModel):
+    feed_id: str
+    feed_name: str
+    points: list[FeedTimeSeriesPoint]
+
+
+class FeedTimeSeriesResponse(BaseModel):
+    generated_at: datetime
+    window_days: int
+    series: list[FeedTimeSeriesSeries]

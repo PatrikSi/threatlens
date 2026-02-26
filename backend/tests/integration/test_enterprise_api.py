@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -505,6 +505,65 @@ def test_stats_overview_supports_feed_filters(client: TestClient, auth_headers, 
     assert payload["totals"]["items_total"] == 1
     assert len(payload["feed_breakdown"]) == 1
     assert payload["feed_breakdown"][0]["feed_id"] == feed_one_id
+
+
+def test_stats_feed_timeseries_returns_daily_points(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Timeseries Feed",
+            "url": "https://example.com/timeseries.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="timeseries-1",
+                url="https://example.com/timeseries/1",
+                canonical_url="https://example.com/timeseries/1",
+                title="Timeseries Item 1",
+                summary="day one",
+                published_at=now - timedelta(days=2),
+                first_seen_at=now - timedelta(days=2),
+                dedupe_key="test:timeseries-1",
+                content_hash="7" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="timeseries-2",
+                url="https://example.com/timeseries/2",
+                canonical_url="https://example.com/timeseries/2",
+                title="Timeseries Item 2",
+                summary="day zero",
+                published_at=now - timedelta(days=1),
+                first_seen_at=now - timedelta(days=1),
+                dedupe_key="test:timeseries-2",
+                content_hash="8" * 64,
+                status="content_fetched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/feed-timeseries?days=7&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window_days"] == 7
+    assert len(payload["series"]) == 1
+    assert payload["series"][0]["feed_id"] == str(feed_id)
+    assert len(payload["series"][0]["points"]) == 7
+    assert sum(point["count"] for point in payload["series"][0]["points"]) >= 2
 
 
 def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
