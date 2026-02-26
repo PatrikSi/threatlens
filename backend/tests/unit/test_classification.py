@@ -40,3 +40,14 @@ def test_classify_multi_when_two_classes_are_strong():
     labels = {result.primary_category, *result.secondary_categories}
     assert "supply_chain" in labels
     assert "vulnerability" in labels
+
+
+def test_malware_title_does_not_default_to_technology_ai():
+    result = classify_item_content(
+        title="Arkanix Stealer: a C++ and Python infostealer",
+        summary="The report details malware deployment techniques and stealer behavior.",
+        article_text="Security researchers analyzed the infostealer campaign and payload delivery.",
+        feed_name="Securelist",
+    )
+    labels = {result.primary_category, *result.secondary_categories}
+    assert "malware_ransomware" in labels
