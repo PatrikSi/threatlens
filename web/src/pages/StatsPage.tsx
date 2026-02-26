@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -256,12 +256,29 @@ export function StatsPage() {
 }
 
 function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
+  const hostRef = useRef<HTMLDivElement | null>(null)
   const [hiddenFeedIds, setHiddenFeedIds] = useState<string[]>([])
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [chartWidth, setChartWidth] = useState(980)
 
   useEffect(() => {
     setHiddenFeedIds((current) => current.filter((feedId) => data.series.some((series) => series.feed_id === feedId)))
   }, [data.series])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const target = hostRef.current
+    if (!target) return
+
+    const updateWidth = () => {
+      setChartWidth(Math.max(560, Math.floor(target.clientWidth)))
+    }
+
+    updateWidth()
+    const observer = new ResizeObserver(updateWidth)
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [])
 
   const visibleSeries = useMemo(
     () => data.series.filter((series) => !hiddenFeedIds.includes(series.feed_id)),
@@ -269,26 +286,31 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
   )
 
   const dates = data.series[0]?.points.map((point) => point.date) ?? []
-  const yMax = Math.max(
-    1,
-    ...visibleSeries.flatMap((series) => series.points.map((point) => point.count)),
-  )
+  const yMax = Math.max(1, ...visibleSeries.flatMap((series) => series.points.map((point) => point.count)))
 
-  const chartWidth = 920
   const chartHeight = 320
-  const paddingX = 52
-  const paddingY = 26
-  const innerWidth = chartWidth - paddingX * 2
-  const innerHeight = chartHeight - paddingY * 2
+  const paddingLeft = 38
+  const paddingRight = 14
+  const paddingTop = 14
+  const paddingBottom = 24
+  const innerWidth = Math.max(1, chartWidth - paddingLeft - paddingRight)
+  const innerHeight = Math.max(1, chartHeight - paddingTop - paddingBottom)
 
   if (!data.series.length) {
     return <p className="mt-3 text-sm text-slate dark:text-slate-300">No feed time-series data in this window.</p>
   }
 
-  const xForIndex = (index: number) =>
-    paddingX + (dates.length <= 1 ? 0 : (index / (dates.length - 1)) * innerWidth)
+  if (!visibleSeries.length) {
+    return (
+      <div className="mt-3 rounded border border-slate/20 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+        All feed series are hidden. Re-enable at least one feed chip to view the graph.
+      </div>
+    )
+  }
 
-  const yForCount = (count: number) => paddingY + innerHeight - (count / yMax) * innerHeight
+  const xForIndex = (index: number) => paddingLeft + (dates.length <= 1 ? 0 : (index / (dates.length - 1)) * innerWidth)
+
+  const yForCount = (count: number) => paddingTop + innerHeight - (count / yMax) * innerHeight
 
   const buildPath = (counts: number[]) =>
     counts
@@ -296,6 +318,17 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
       .join(' ')
 
   const hoverDate = hoverIndex !== null ? dates[hoverIndex] : null
+  const hoverLegend =
+    hoverIndex === null
+      ? []
+      : visibleSeries
+          .map((series, index) => ({
+            series,
+            count: series.points[hoverIndex]?.count ?? 0,
+            color: FEED_CHART_COLORS[data.series.findIndex((entry) => entry.feed_id === series.feed_id) % FEED_CHART_COLORS.length],
+            sortOrder: index,
+          }))
+          .sort((a, b) => (b.count === a.count ? a.sortOrder - b.sortOrder : b.count - a.count))
 
   return (
     <div className="mt-3">
@@ -325,36 +358,53 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
         })}
       </div>
 
-      <div className="overflow-x-auto rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+      <div
+        ref={hostRef}
+        className="relative rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70"
+      >
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          className="h-[320px] min-w-[900px] w-full"
+          className="h-[320px] w-full"
           onMouseMove={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect()
             const relativeX = event.clientX - bounds.left
             const normalizedX = (relativeX / bounds.width) * chartWidth
-            const clamped = Math.max(paddingX, Math.min(chartWidth - paddingX, normalizedX))
-            const index = Math.round(((clamped - paddingX) / innerWidth) * Math.max(0, dates.length - 1))
+            const clamped = Math.max(paddingLeft, Math.min(chartWidth - paddingRight, normalizedX))
+            const index = Math.round(((clamped - paddingLeft) / innerWidth) * Math.max(0, dates.length - 1))
             setHoverIndex(Math.max(0, Math.min(dates.length - 1, index)))
           }}
           onMouseLeave={() => setHoverIndex(null)}
         >
-          <rect x={paddingX} y={paddingY} width={innerWidth} height={innerHeight} fill="transparent" />
+          <rect
+            x={paddingLeft}
+            y={paddingTop}
+            width={innerWidth}
+            height={innerHeight}
+            fill="rgba(2, 6, 23, 0.03)"
+            className="dark:fill-[rgba(2,6,23,0.45)]"
+          />
 
-          {[0, 0.25, 0.5, 0.75, 1].map((ratio) => {
-            const y = paddingY + innerHeight - innerHeight * ratio
+          {[0, 0.2, 0.4, 0.6, 0.8, 1].map((ratio) => {
+            const y = paddingTop + innerHeight - innerHeight * ratio
             const value = Math.round(yMax * ratio)
             return (
               <g key={ratio}>
-                <line x1={paddingX} y1={y} x2={paddingX + innerWidth} y2={y} stroke="rgba(148, 163, 184, 0.25)" strokeWidth={1} />
-                <text x={paddingX - 8} y={y + 4} textAnchor="end" fontSize={11} fill="#64748b">
+                <line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={paddingLeft + innerWidth}
+                  y2={y}
+                  stroke="rgba(148, 163, 184, 0.2)"
+                  strokeWidth={1}
+                />
+                <text x={paddingLeft - 8} y={y + 4} textAnchor="end" fontSize={11} fill="#64748b">
                   {value}
                 </text>
               </g>
             )
           })}
 
-          {visibleSeries.map((series, index) => {
+          {visibleSeries.map((series) => {
             const color = FEED_CHART_COLORS[data.series.findIndex((entry) => entry.feed_id === series.feed_id) % FEED_CHART_COLORS.length]
             return (
               <path
@@ -372,41 +422,44 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
           {hoverIndex !== null && dates.length > 0 && (
             <line
               x1={xForIndex(hoverIndex)}
-              y1={paddingY}
+              y1={paddingTop}
               x2={xForIndex(hoverIndex)}
-              y2={paddingY + innerHeight}
+              y2={paddingTop + innerHeight}
               stroke="rgba(6, 182, 212, 0.55)"
               strokeDasharray="4 3"
               strokeWidth={1.2}
             />
           )}
 
-          {dates.length > 0 && (
-            <>
-              <text x={paddingX} y={chartHeight - 8} fontSize={11} fill="#64748b">
-                {dates[0]}
-              </text>
-              <text x={paddingX + innerWidth} y={chartHeight - 8} textAnchor="end" fontSize={11} fill="#64748b">
-                {dates[dates.length - 1]}
-              </text>
-            </>
-          )}
-        </svg>
-      </div>
-
-      {hoverDate && (
-        <div className="mt-2 rounded border border-slate/20 bg-white/70 p-2 text-xs dark:border-cyan-900/40 dark:bg-[#072019]/70">
-          <p className="font-semibold">{hoverDate}</p>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {visibleSeries.map((series) => {
-              const count = series.points[hoverIndex ?? 0]?.count ?? 0
-              return (
-                <span key={series.feed_id} className="rounded border border-slate/30 px-2 py-0.5 dark:border-cyan-900/40">
-                  {series.feed_name}: {count}
-                </span>
-              )
+          {hoverIndex !== null &&
+            dates.length > 0 &&
+            visibleSeries.map((series) => {
+              const color = FEED_CHART_COLORS[data.series.findIndex((entry) => entry.feed_id === series.feed_id) % FEED_CHART_COLORS.length]
+              const count = series.points[hoverIndex]?.count ?? 0
+              return <circle key={`hover-${series.feed_id}`} cx={xForIndex(hoverIndex)} cy={yForCount(count)} r={3} fill={color} />
             })}
+        </svg>
+        {hoverDate && hoverLegend.length > 0 && (
+          <div className="pointer-events-none absolute right-4 top-4 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95">
+            <p className="font-semibold">{hoverDate}</p>
+            <div className="mt-1 space-y-1">
+              {hoverLegend.map(({ series, count, color }) => (
+                <div key={`legend-${series.feed_id}`} className="flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: color }} />
+                    <span className="max-w-40 truncate">{series.feed_name}</span>
+                  </span>
+                  <span className="font-semibold">{count}</span>
+                </div>
+              ))}
+            </div>
           </div>
+        )}
+      </div>
+      {dates.length > 0 && (
+        <div className="mt-1 flex items-center justify-between text-[11px] text-slate dark:text-slate-300">
+          <span>{dates[0]}</span>
+          <span>{dates[dates.length - 1]}</span>
         </div>
       )}
     </div>
