@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
+from croniter import croniter
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -82,17 +83,39 @@ def dispatch_due_feeds():
     with db_session() as db:
         feeds = db.scalars(select(Feed).where(Feed.enabled.is_(True))).all()
         for feed in feeds:
-            if feed.last_fetch_at is None:
-                fetch_feed.delay(str(feed.id))
-                queued += 1
-                continue
-
-            elapsed = (now - feed.last_fetch_at).total_seconds()
-            if elapsed >= feed.fetch_interval_seconds:
+            if _is_feed_due(feed, now):
                 fetch_feed.delay(str(feed.id))
                 queued += 1
 
     return {"queued": queued}
+
+
+def _is_feed_due(feed: Feed, now: datetime) -> bool:
+    if feed.fetch_mode == "schedule":
+        return _is_scheduled_feed_due(feed, now)
+
+    if feed.last_fetch_at is None:
+        return True
+
+    elapsed = (now - feed.last_fetch_at).total_seconds()
+    return elapsed >= feed.fetch_interval_seconds
+
+
+def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
+    if not feed.schedule_cron:
+        return False
+
+    base = feed.last_fetch_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+
+    if not croniter.is_valid(feed.schedule_cron):
+        return False
+
+    next_run = croniter(feed.schedule_cron, base).get_next(datetime)
+    if next_run.tzinfo is None:
+        next_run = next_run.replace(tzinfo=timezone.utc)
+    return next_run <= now
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
