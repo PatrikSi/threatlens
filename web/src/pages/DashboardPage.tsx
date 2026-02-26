@@ -4,12 +4,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { Feed, ItemDetail, ItemListResponse, SavedView, Tag } from '../types/api'
+import { Feed, ItemDetail, ItemListEntry, ItemListResponse, SavedView, Tag } from '../types/api'
 
 type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
 type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
+type DashboardViewMode = 'expanded' | 'compact'
 
 type PanelRect = {
   x: number
@@ -24,6 +25,8 @@ interface DashboardSavedViewQuery {
   q: string
   read_status: ReadStatusFilter
   star_status: StarStatusFilter
+  view_mode: DashboardViewMode
+  page_size: number
   time_range: TimeRangeFilter
   custom_since_date: string
   custom_until_date: string
@@ -51,6 +54,7 @@ const PANEL_OUTER_GAP = 12
 const PANEL_MIN_WIDTH = 860
 const PANEL_MIN_HEIGHT = 520
 const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 
 export function DashboardPage() {
   const queryClient = useQueryClient()
@@ -62,6 +66,7 @@ export function DashboardPage() {
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
   const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
+  const [viewMode, setViewMode] = useState<DashboardViewMode>('expanded')
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all')
   const [customSinceDate, setCustomSinceDate] = useState('')
   const [customUntilDate, setCustomUntilDate] = useState('')
@@ -71,7 +76,7 @@ export function DashboardPage() {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
   const [page, setPage] = useState(1)
-  const pageSize = 25
+  const [pageSize, setPageSize] = useState<number>(25)
   const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
 
@@ -189,7 +194,7 @@ export function DashboardPage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: ['items', feedIdsParam, selectedTagsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
+    queryKey: ['items', feedIdsParam, selectedTagsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page, pageSize],
     retry: 1,
     queryFn: () => {
       const params = new URLSearchParams()
@@ -244,7 +249,7 @@ export function DashboardPage() {
   const totalPages = useMemo(() => {
     const total = itemsQuery.data?.total ?? 0
     return Math.max(1, Math.ceil(total / pageSize))
-  }, [itemsQuery.data?.total])
+  }, [itemsQuery.data?.total, pageSize])
 
   const handleToggleItem = (itemId: string, isRead: boolean) => {
     if (expandedItemId === itemId) {
@@ -271,6 +276,8 @@ export function DashboardPage() {
           q,
           read_status: readStatus,
           star_status: starStatus,
+          view_mode: viewMode,
+          page_size: pageSize,
           time_range: timeRange,
           custom_since_date: customSinceDate,
           custom_until_date: customUntilDate,
@@ -290,6 +297,8 @@ export function DashboardPage() {
     setQ(parsed.filters.q)
     setReadStatus(parsed.filters.read_status)
     setStarStatus(parsed.filters.star_status)
+    setViewMode(parsed.filters.view_mode)
+    setPageSize(parsed.filters.page_size)
     setTimeRange(parsed.filters.time_range)
     setCustomSinceDate(parsed.filters.custom_since_date)
     setCustomUntilDate(parsed.filters.custom_until_date)
@@ -584,6 +593,30 @@ export function DashboardPage() {
               <option value="first_seen_desc">Seen newest</option>
               <option value="first_seen_asc">Seen oldest</option>
             </select>
+            <div className="flex rounded border border-slate/25 p-0.5 dark:border-cyan-900/40">
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs font-semibold ${viewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                onClick={() => {
+                  setPage(1)
+                  setActiveSavedViewId(null)
+                  setViewMode('expanded')
+                }}
+              >
+                Expanded
+              </button>
+              <button
+                type="button"
+                className={`rounded px-2 py-1 text-xs font-semibold ${viewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                onClick={() => {
+                  setPage(1)
+                  setActiveSavedViewId(null)
+                  setViewMode('compact')
+                }}
+              >
+                Compact
+              </button>
+            </div>
             <button
               type="button"
               className="rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
@@ -657,11 +690,13 @@ export function DashboardPage() {
             {itemsQuery.data?.items.map((item) => {
               const expanded = expandedItemId === item.id
               const detail = expanded ? detailQuery.data : null
+              const compact = viewMode === 'compact'
+              const density = computeInformationDensity(item)
 
               return (
                 <article
                   key={item.id}
-                  className={`rounded border p-3 transition ${
+                  className={`rounded border ${compact ? 'p-2' : 'p-3'} transition ${
                     expanded
                       ? 'border-cyan bg-cyan/5 dark:border-cyan-700/50 dark:bg-cyan-950/25'
                       : 'border-slate/20 dark:border-cyan-900/40'
@@ -669,7 +704,7 @@ export function DashboardPage() {
                 >
                   <div className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-[15px] font-semibold leading-snug">
+                      <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-semibold leading-snug`}>
                         <a
                           href={item.canonical_url || item.url}
                           target="_blank"
@@ -680,7 +715,12 @@ export function DashboardPage() {
                           {item.title}
                         </a>
                       </h3>
-                      <span className="shrink-0 text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 dark:bg-teal-900/35 dark:text-teal-200">
+                          {density.label} {density.score}
+                        </span>
+                        <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
+                      </div>
                     </div>
                     <button type="button" className="mt-1 w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
@@ -699,7 +739,7 @@ export function DashboardPage() {
                           </span>
                         ))}
                       </div>
-                      <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
+                      {!compact && <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>}
                     </button>
                   </div>
 
@@ -819,13 +859,31 @@ export function DashboardPage() {
           <span>
             Page {page} / {totalPages}
           </span>
-          <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-            disabled={page >= totalPages}
-            onClick={() => setPage((current) => current + 1)}
-          >
-            Next
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-slate dark:text-slate-300">Per page</label>
+            <select
+              className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+              value={pageSize}
+              onChange={(event) => {
+                setActiveSavedViewId(null)
+                setPage(1)
+                setPageSize(Number(event.target.value))
+              }}
+            >
+              {PAGE_SIZE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+            <button
+              className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+              disabled={page >= totalPages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Next
+            </button>
+          </div>
         </div>
 
         {isWideLayout && (
@@ -910,6 +968,25 @@ function formatClassificationLabel(value: string): string {
     .join(' ')
 }
 
+function computeInformationDensity(item: ItemListEntry): { score: number; label: string } {
+  const titleWords = item.title.trim().split(/\s+/).filter(Boolean).length
+  const summaryLength = (item.summary || '').trim().length
+  const visibleTagCount = item.tags.filter((tagName) => !HIDDEN_TAGS.has(tagName)).length
+
+  let score = 0
+  score += Math.min(24, titleWords * 2)
+  score += Math.min(40, Math.floor(summaryLength / 8))
+  score += Math.min(18, visibleTagCount * 6)
+  if (item.classification) score += 10
+  if (item.status === 'error') score += 6
+  if (item.published_at) score += 4
+
+  const normalized = Math.max(1, Math.min(100, score))
+  if (normalized >= 70) return { score: normalized, label: 'High' }
+  if (normalized >= 40) return { score: normalized, label: 'Medium' }
+  return { score: normalized, label: 'Low' }
+}
+
 function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect: PanelRect): DashboardSavedViewState {
   const rawFilters = isRecord(raw.filters) ? raw.filters : raw
   const rawUi = isRecord(raw.ui) ? raw.ui : {}
@@ -924,6 +1001,11 @@ function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect
   const readStatus = rawFilters.read_status === 'read' || rawFilters.read_status === 'unread' ? rawFilters.read_status : 'all'
   const starStatus =
     rawFilters.star_status === 'starred' || rawFilters.star_status === 'unstarred' ? rawFilters.star_status : 'all'
+  const viewMode = rawFilters.view_mode === 'compact' ? 'compact' : 'expanded'
+  const pageSize =
+    typeof rawFilters.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(rawFilters.page_size)
+      ? rawFilters.page_size
+      : 25
   const timeRange =
     rawFilters.time_range === '24h' ||
     rawFilters.time_range === '7d' ||
@@ -966,6 +1048,8 @@ function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect
       q: typeof rawFilters.q === 'string' ? rawFilters.q : '',
       read_status: readStatus,
       star_status: starStatus,
+      view_mode: viewMode,
+      page_size: pageSize,
       time_range: timeRange,
       custom_since_date: typeof rawFilters.custom_since_date === 'string' ? rawFilters.custom_since_date : '',
       custom_until_date: typeof rawFilters.custom_until_date === 'string' ? rawFilters.custom_until_date : '',

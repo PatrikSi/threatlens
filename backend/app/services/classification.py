@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from typing import Pattern
 
-CLASSIFICATION_RULES_VERSION = "v1"
+CLASSIFICATION_RULES_VERSION = "v2"
 
 # Derived from the current live feed corpus and constrained to 10 labels.
 CLASSIFICATION_CATEGORIES = (
@@ -47,26 +47,37 @@ def classify_item_content(
     article_text: str | None,
     feed_name: str | None = None,
 ) -> ClassificationResult:
-    full_text = " ".join(
-        part.strip()
-        for part in [
-            title or "",
-            summary or "",
-            article_text or "",
-            feed_name or "",
-        ]
-        if part and part.strip()
-    ).lower()
+    title_text = (title or "").strip().lower()
+    summary_text = (summary or "").strip().lower()
+    article_scoring_text = _trim_text_for_scoring(article_text or "")
+    feed_text = (feed_name or "").strip().lower()
+
+    full_text = " ".join(part for part in [title_text, summary_text, article_scoring_text, feed_text] if part)
     source_hash = compute_classification_source_hash(title=title, summary=summary, article_text=article_text)
 
-    scores, matched_terms = _score_text(full_text, feed_name or "")
+    scores: dict[str, float] = {category: 0.0 for category in CLASSIFICATION_CATEGORIES if category != "multi"}
+    matched_terms: dict[str, list[str]] = {category: [] for category in CLASSIFICATION_CATEGORIES if category != "multi"}
+
+    for partial_scores, partial_terms in (
+        _score_text(title_text, section_weight=2.4, token_prefix="title", max_matches_per_rule=2),
+        _score_text(summary_text, section_weight=1.6, token_prefix="summary", max_matches_per_rule=2),
+        _score_text(article_scoring_text, section_weight=0.55, token_prefix="article", max_matches_per_rule=2),
+    ):
+        _merge_scores(scores, matched_terms, partial_scores, partial_terms)
+
+    _apply_feed_priors(scores, matched_terms, feed_name or "")
+
     ranked = sorted(scores.items(), key=lambda pair: pair[1], reverse=True)
     top_category, top_score = ranked[0]
     second_category, second_score = ranked[1]
     total_score = sum(score for _, score in ranked)
 
     if top_score <= 0:
-        fallback = "technology_ai" if "ai" in full_text or "model" in full_text else "threat_intelligence_research"
+        fallback = (
+            "technology_ai"
+            if re.search(r"\bartificial intelligence\b|\bgenerative ai\b|\bllm\b|\bmachine learning\b", full_text)
+            else "threat_intelligence_research"
+        )
         return ClassificationResult(
             primary_category=fallback,
             secondary_categories=[],
@@ -86,7 +97,7 @@ def classify_item_content(
         confidence = _clamp(top_score / max(total_score, 1.0), 0.35, 0.99)
 
     compact_scores = {category: round(score, 3) for category, score in ranked if score > 0}
-    compact_terms = {category: tokens for category, tokens in matched_terms.items() if tokens}
+    compact_terms = {category: sorted(set(tokens)) for category, tokens in matched_terms.items() if tokens}
 
     return ClassificationResult(
         primary_category=primary,
@@ -109,25 +120,60 @@ def compute_classification_source_hash(*, title: str, summary: str | None, artic
     return hashlib.sha256(payload.encode("utf-8", errors="ignore")).hexdigest()
 
 
-def _score_text(text: str, feed_name: str) -> tuple[dict[str, float], dict[str, list[str]]]:
+def _score_text(
+    text: str,
+    *,
+    section_weight: float,
+    token_prefix: str,
+    max_matches_per_rule: int,
+) -> tuple[dict[str, float], dict[str, list[str]]]:
     scores: dict[str, float] = {category: 0.0 for category in CLASSIFICATION_CATEGORIES if category != "multi"}
     matched_terms: dict[str, list[str]] = {category: [] for category in CLASSIFICATION_CATEGORIES if category != "multi"}
+
+    if not text:
+        return scores, matched_terms
 
     for category, rules in _RULES.items():
         for rule in rules:
             match_count = sum(1 for _ in rule.pattern.finditer(text))
             if match_count <= 0:
                 continue
-            scores[category] += rule.weight * min(match_count, 3)
-            matched_terms[category].append(rule.token)
+            scores[category] += rule.weight * min(match_count, max_matches_per_rule) * section_weight
+            matched_terms[category].append(f"{token_prefix}:{rule.token}")
 
-    feed_lower = feed_name.lower()
+    return scores, matched_terms
+
+
+def _apply_feed_priors(scores: dict[str, float], matched_terms: dict[str, list[str]], feed_name: str):
+    feed_lower = (feed_name or "").lower()
+    if not feed_lower:
+        return
+
     for token, category, weight in _FEED_PRIORS:
         if token in feed_lower:
             scores[category] += weight
             matched_terms[category].append(f"feed:{token}")
 
-    return scores, matched_terms
+
+def _merge_scores(
+    scores: dict[str, float],
+    matched_terms: dict[str, list[str]],
+    partial_scores: dict[str, float],
+    partial_terms: dict[str, list[str]],
+):
+    for category, value in partial_scores.items():
+        scores[category] += value
+
+    for category, tokens in partial_terms.items():
+        if tokens:
+            matched_terms[category].extend(tokens)
+
+
+def _trim_text_for_scoring(text: str, max_chars: int = 8_000) -> str:
+    if not text:
+        return ""
+    compact = re.sub(r"\s+", " ", text).strip()
+    return compact[:max_chars].lower()
 
 
 def _build_rules(raw: dict[str, list[tuple[str, str, float]]]) -> dict[str, list[_Rule]]:
@@ -190,7 +236,7 @@ _RAW_RULES: dict[str, list[tuple[str, str, float]]] = {
     ],
     "threat_intelligence_research": [
         ("threat_intelligence", r"\bthreat intelligence\b|\bexecutive report\b", 2.4),
-        ("analysis", r"\banalysis\b|\bresearch\b|\bobserved\b", 1.2),
+        ("analysis", r"\banalysis\b|\bresearch\b|\bobserved\b", 0.7),
         ("mitre_attck", r"\bmitre\b|\batt&ck\b", 2.2),
         ("landscape", r"\bthreat landscape\b|\btrends?\b", 1.8),
     ],
@@ -201,10 +247,15 @@ _RAW_RULES: dict[str, list[tuple[str, str, float]]] = {
         ("detection", r"\bdetect(?:ing|ion)\b|\bmitigation\b|\bremediation\b", 1.6),
     ],
     "technology_ai": [
-        ("ai", r"\bai\b|\bagentic\b|\bllm\b|\bmodel\b", 2.0),
-        ("release", r"\brelease\b|\bnew feature\b|\bversion\b", 1.6),
-        ("product", r"\bproduct\b|\bplatform\b|\bintegration\b", 1.4),
-        ("cloud", r"\bcloud\b|\bdata center\b|\binfrastructure\b", 1.2),
+        (
+            "ai",
+            r"\bartificial intelligence\b|\bgenerative ai\b|\bgenai\b|\bagentic(?: ai)?\b|\bllm(?:s)?\b|\blarge language model(?:s)?\b|\bmachine learning\b",
+            2.5,
+        ),
+        ("ai_security", r"\bai security\b|\bprompt injection\b|\bmodel poisoning\b", 2.2),
+        ("release", r"\brelease\b|\bnew feature\b|\bversion\b", 0.9),
+        ("product", r"\bproduct\b|\bplatform\b|\bintegration\b", 0.6),
+        ("cloud", r"\bcloud\b|\bdata center\b|\binfrastructure\b", 0.4),
     ],
 }
 
