@@ -2,25 +2,79 @@
 
 ## Purpose
 
-The Feeds page manages RSS source ingestion configuration.
+Manage RSS ingestion sources and scheduling behavior.
 
-## Capabilities
+## Add Feed Form
 
-- Create feeds with URL and metadata.
-- Auto-detect feed metadata.
-- Configure fetch mode:
-  - Interval-based polling
-  - Cron schedule
-- Enable/disable feeds.
-- Trigger manual feed refresh.
+Fields:
 
-## Bulk Operations
+- RSS URL
+- Name (optional; auto-detect available)
+- Description
+- Site URL
+- Language
+- Fetch mode (`interval` or `schedule`)
+- Interval seconds (for interval mode)
+- Cron expression (for schedule mode)
 
-- Export feed definitions to JSON.
-- Import feed definitions from JSON.
-- Optional overwrite behavior for existing feeds.
+Actions:
 
-## Visibility and Access
+- Detect metadata (`POST /feeds/metadata`)
+- Submit new feed (`POST /feeds`)
 
-- Admin/Analyst roles can mutate feed configuration.
-- Viewer role has read-only access.
+## Feed Inventory
+
+### Controls
+
+- Search input
+- Sort select:
+  - `Newest created`
+  - `Name A-Z`
+  - `Name Z-A`
+  - `Last fetched newest`
+  - `Last fetched oldest`
+
+### Per-feed actions
+
+- Refresh (`POST /feeds/{id}/refresh`)
+- Enable/Disable (`PATCH /feeds/{id}`)
+- Switch fetch mode (`PATCH /feeds/{id}`)
+- Update interval/schedule (`PATCH /feeds/{id}`)
+
+### Visible status values
+
+- URL
+- Description
+- Site URL
+- Language
+- Last fetch timestamp
+- Last success timestamp
+- Last error text
+
+## Import / Export
+
+### Export
+
+- `GET /feeds/export`
+- Downloads JSON file `threatlens-feeds-YYYY-MM-DD.json`
+
+### Import
+
+- File accept: `application/json`
+- Accepted formats:
+  - array of feed entries
+  - object with `feeds` array
+- Option: `overwrite existing on import`
+- API call: `POST /feeds/import`
+
+Import result displays:
+
+- `created`
+- `updated`
+- `skipped`
+- number of `errors`
+
+## Access Control
+
+- `admin` and `analyst` can mutate feeds
+- `viewer` is read-only
