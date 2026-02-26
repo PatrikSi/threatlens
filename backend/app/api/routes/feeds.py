@@ -28,7 +28,7 @@ from app.services.url_utils import is_fetchable_url
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
-METADATA_BACKFILL_BATCH_SIZE = 5
+METADATA_BACKFILL_BATCH_SIZE = 25
 
 
 @router.get("", response_model=list[FeedResponse])
@@ -356,7 +356,9 @@ def refresh_feed(
 
 def _needs_metadata_backfill(feed: Feed) -> bool:
     placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
-    return placeholder_name or not feed.description or not feed.site_url or not feed.language
+    # Description and language are optional and absent on many feeds; prioritize
+    # metadata we can reliably fill to avoid repeated no-op probes.
+    return placeholder_name or not feed.site_url
 
 
 def _apply_probe_metadata(feed: Feed, metadata: FeedProbeResult) -> bool:
