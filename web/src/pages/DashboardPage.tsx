@@ -383,6 +383,59 @@ export function DashboardPage() {
         </div>
 
         <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
+          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
+            <input
+              value={savedViewName}
+              onChange={(event) => setSavedViewName(event.target.value)}
+              placeholder="Save dashboard view as..."
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            />
+            <button
+              type="button"
+              className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+              onClick={saveCurrentView}
+              disabled={saveView.isPending || !savedViewName.trim()}
+            >
+              Save View
+            </button>
+            <select
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+              value={activeSavedViewId ?? ''}
+              onChange={(event) => {
+                const value = event.target.value
+                if (!value) {
+                  setActiveSavedViewId(null)
+                  return
+                }
+                const selected = viewsQuery.data?.find((view) => view.id === value)
+                if (selected) {
+                  applySavedView(selected)
+                }
+              }}
+            >
+              <option value="">Load Dashboard View</option>
+              {viewsQuery.data?.map((view) => (
+                <option key={view.id} value={view.id}>
+                  {view.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {activeSavedViewId && (
+            <div className="mt-2 flex justify-end">
+              <button
+                type="button"
+                className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                onClick={() => deleteView.mutate(activeSavedViewId)}
+                disabled={deleteView.isPending}
+              >
+                Delete Active View
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
           <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <button
               type="button"
@@ -528,56 +581,6 @@ export function DashboardPage() {
                   disabled={timeRange !== 'custom'}
                 />
               </div>
-              <div className="col-span-full grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                <input
-                  value={savedViewName}
-                  onChange={(event) => setSavedViewName(event.target.value)}
-                  placeholder="Save dashboard view as..."
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                />
-                <button
-                  type="button"
-                  className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
-                  onClick={saveCurrentView}
-                  disabled={saveView.isPending || !savedViewName.trim()}
-                >
-                  Save View
-                </button>
-                <select
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                  value={activeSavedViewId ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    if (!value) {
-                      setActiveSavedViewId(null)
-                      return
-                    }
-                    const selected = viewsQuery.data?.find((view) => view.id === value)
-                    if (selected) {
-                      applySavedView(selected)
-                    }
-                  }}
-                >
-                  <option value="">Load Dashboard View</option>
-                  {viewsQuery.data?.map((view) => (
-                    <option key={view.id} value={view.id}>
-                      {view.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {activeSavedViewId && (
-                <div className="col-span-full flex justify-end">
-                  <button
-                    type="button"
-                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                    onClick={() => deleteView.mutate(activeSavedViewId)}
-                    disabled={deleteView.isPending}
-                  >
-                    Delete Active View
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
