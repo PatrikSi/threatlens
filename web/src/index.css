@@ -40,3 +40,20 @@ select,
 textarea {
   font-family: inherit;
 }
+
+.dark input,
+.dark select,
+.dark textarea {
+  color: #dbe8ff;
+  caret-color: #67e8f9;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #8ea0bf;
+}
+
+.dark select option {
+  background-color: #060d19;
+  color: #dbe8ff;
+}
