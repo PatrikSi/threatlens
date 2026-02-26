@@ -1,4 +1,9 @@
+import uuid
+from datetime import datetime, timezone
+
 from fastapi.testclient import TestClient
+
+from app.models.item import Item
 
 
 def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
@@ -124,3 +129,141 @@ def test_stats_overview_endpoint(client: TestClient, auth_headers):
     assert payload["window_days"] == 30
     assert "totals" in payload
     assert "feed_breakdown" in payload
+
+
+def test_stats_overview_supports_feed_filters(client: TestClient, auth_headers, db_session):
+    feed_one_response = client.post(
+        "/feeds",
+        json={
+            "name": "StatsFilteredOne",
+            "url": "https://example.com/stats-filter-one.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    feed_two_response = client.post(
+        "/feeds",
+        json={
+            "name": "StatsFilteredTwo",
+            "url": "https://example.com/stats-filter-two.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_one_response.status_code == 201
+    assert feed_two_response.status_code == 201
+
+    feed_one_id = feed_one_response.json()["id"]
+    feed_two_id = feed_two_response.json()["id"]
+
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.UUID(feed_one_id),
+                source_guid="feed-one-item",
+                url="https://example.com/one",
+                canonical_url="https://example.com/one",
+                title="Feed One Item",
+                summary="alpha",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:feed-one-item",
+                content_hash="a" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.UUID(feed_two_id),
+                source_guid="feed-two-item",
+                url="https://example.net/two",
+                canonical_url="https://example.net/two",
+                title="Feed Two Item",
+                summary="beta",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:feed-two-item",
+                content_hash="b" * 64,
+                status="error",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    stats_response = client.get(f"/stats/overview?days=30&feed_ids={feed_one_id}", headers=auth_headers["viewer"])
+    assert stats_response.status_code == 200
+    payload = stats_response.json()
+    assert payload["totals"]["items_total"] == 1
+    assert len(payload["feed_breakdown"]) == 1
+    assert payload["feed_breakdown"][0]["feed_id"] == feed_one_id
+
+
+def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
+    feed_one_response = client.post(
+        "/feeds",
+        json={
+            "name": "DashFilteredOne",
+            "url": "https://example.com/dash-filter-one.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    feed_two_response = client.post(
+        "/feeds",
+        json={
+            "name": "DashFilteredTwo",
+            "url": "https://example.com/dash-filter-two.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_one_response.status_code == 201
+    assert feed_two_response.status_code == 201
+
+    feed_one_id = feed_one_response.json()["id"]
+    feed_two_id = feed_two_response.json()["id"]
+
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.UUID(feed_one_id),
+                source_guid="dash-feed-one-item",
+                url="https://dash.example.com/one",
+                canonical_url="https://dash.example.com/one",
+                title="Dash Feed One Item",
+                summary="one",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:dash-feed-one-item",
+                content_hash="c" * 64,
+                status="new",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.UUID(feed_two_id),
+                source_guid="dash-feed-two-item",
+                url="https://dash.example.net/two",
+                canonical_url="https://dash.example.net/two",
+                title="Dash Feed Two Item",
+                summary="two",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:dash-feed-two-item",
+                content_hash="d" * 64,
+                status="new",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    one_response = client.get(f"/items?page=1&page_size=50&feed_ids={feed_one_id}", headers=auth_headers["viewer"])
+    assert one_response.status_code == 200
+    assert one_response.json()["total"] == 1
+
+    both_response = client.get(
+        f"/items?page=1&page_size=50&feed_ids={feed_one_id},{feed_two_id}",
+        headers=auth_headers["viewer"],
+    )
+    assert both_response.status_code == 200
+    assert both_response.json()["total"] == 2
