@@ -75,6 +75,45 @@ def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
     assert payload["feed_type"] == "rss20"
 
 
+def test_feed_list_backfills_missing_metadata(client: TestClient, auth_headers, monkeypatch):
+    create_response = client.post(
+        "/feeds",
+        json={
+            "name": "Legacy Feed",
+            "url": "https://example.com/legacy.xml",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+
+    monkeypatch.setattr(
+        "app.api.routes.feeds.probe_feed_metadata",
+        lambda _url: FeedProbeResult(
+            name="Detected Legacy",
+            description="Backfilled description",
+            site_url="https://example.com",
+            language="en",
+            etag="etag-legacy",
+            last_modified="Wed, 26 Feb 2026 00:00:00 GMT",
+            resolved_url="https://example.com/legacy.xml",
+            feed_type="rss20",
+        ),
+    )
+
+    list_response = client.get("/feeds", headers=auth_headers["viewer"])
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    assert len(payload) == 1
+    assert payload[0]["name"] == "Legacy Feed"
+    assert payload[0]["description"] == "Backfilled description"
+    assert payload[0]["site_url"] == "https://example.com"
+    assert payload[0]["language"] == "en"
+    assert payload[0]["etag"] == "etag-legacy"
+
+
 def test_feed_create_supports_schedule_mode(client: TestClient, auth_headers):
     response = client.post(
         "/feeds",

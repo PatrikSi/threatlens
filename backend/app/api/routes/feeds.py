@@ -23,11 +23,12 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
-from app.services.feed_probe import FeedProbeError, probe_feed_metadata
+from app.services.feed_probe import FeedProbeError, FeedProbeResult, probe_feed_metadata
 from app.services.url_utils import is_fetchable_url
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
+METADATA_BACKFILL_BATCH_SIZE = 5
 
 
 @router.get("", response_model=list[FeedResponse])
@@ -36,6 +37,28 @@ def list_feeds(
     _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
+    backfilled = 0
+    did_update = False
+
+    for feed in feeds:
+        if backfilled >= METADATA_BACKFILL_BATCH_SIZE:
+            break
+        if not _needs_metadata_backfill(feed):
+            continue
+
+        try:
+            metadata = probe_feed_metadata(feed.url)
+        except FeedProbeError:
+            continue
+
+        if _apply_probe_metadata(feed, metadata):
+            db.add(feed)
+            did_update = True
+        backfilled += 1
+
+    if did_update:
+        db.commit()
+
     return list(feeds)
 
 
@@ -329,3 +352,34 @@ def refresh_feed(
     )
     db.commit()
     return {"status": "queued"}
+
+
+def _needs_metadata_backfill(feed: Feed) -> bool:
+    placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
+    return placeholder_name or not feed.description or not feed.site_url or not feed.language
+
+
+def _apply_probe_metadata(feed: Feed, metadata: FeedProbeResult) -> bool:
+    changed = False
+    is_placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
+
+    if is_placeholder_name and metadata.name:
+        feed.name = metadata.name
+        changed = True
+    if not feed.description and metadata.description:
+        feed.description = metadata.description
+        changed = True
+    if not feed.site_url and metadata.site_url:
+        feed.site_url = metadata.site_url
+        changed = True
+    if not feed.language and metadata.language:
+        feed.language = metadata.language
+        changed = True
+    if not feed.etag and metadata.etag:
+        feed.etag = metadata.etag
+        changed = True
+    if not feed.last_modified and metadata.last_modified:
+        feed.last_modified = metadata.last_modified
+        changed = True
+
+    return changed
