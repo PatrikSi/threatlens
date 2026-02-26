@@ -355,9 +355,64 @@ export function DashboardPage() {
   }
 
   return (
-    <div ref={rootRef} className="relative w-full min-h-[calc(100vh-110px)]">
+    <div className="w-full">
+      <div className="mb-3 rounded-xl border border-slate/20 bg-white/85 px-3 py-2 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
+        <div className="grid gap-2 md:grid-cols-[180px_1fr_auto_auto] md:items-center">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Dashboard Views</p>
+          <input
+            value={savedViewName}
+            onChange={(event) => setSavedViewName(event.target.value)}
+            placeholder="Save dashboard view as..."
+            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+          />
+          <button
+            type="button"
+            className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+            onClick={saveCurrentView}
+            disabled={saveView.isPending || !savedViewName.trim()}
+          >
+            Save View
+          </button>
+          <select
+            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            value={activeSavedViewId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value
+              if (!value) {
+                setActiveSavedViewId(null)
+                return
+              }
+              const selected = viewsQuery.data?.find((view) => view.id === value)
+              if (selected) {
+                applySavedView(selected)
+              }
+            }}
+          >
+            <option value="">Load Dashboard View</option>
+            {viewsQuery.data?.map((view) => (
+              <option key={view.id} value={view.id}>
+                {view.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {activeSavedViewId && (
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+              onClick={() => deleteView.mutate(activeSavedViewId)}
+              disabled={deleteView.isPending}
+            >
+              Delete Active View
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div ref={rootRef} className="relative min-h-[calc(100vh-170px)]">
       <section
-        className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#041612]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
+        className="flex h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#041612]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
         style={
           isWideLayout
             ? {
@@ -380,59 +435,6 @@ export function DashboardPage() {
           <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
             {itemsQuery.data?.total ?? 0} items
           </span>
-        </div>
-
-        <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
-          <div className="grid gap-2 md:grid-cols-[1fr_auto_auto]">
-            <input
-              value={savedViewName}
-              onChange={(event) => setSavedViewName(event.target.value)}
-              placeholder="Save dashboard view as..."
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-            />
-            <button
-              type="button"
-              className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
-              onClick={saveCurrentView}
-              disabled={saveView.isPending || !savedViewName.trim()}
-            >
-              Save View
-            </button>
-            <select
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-              value={activeSavedViewId ?? ''}
-              onChange={(event) => {
-                const value = event.target.value
-                if (!value) {
-                  setActiveSavedViewId(null)
-                  return
-                }
-                const selected = viewsQuery.data?.find((view) => view.id === value)
-                if (selected) {
-                  applySavedView(selected)
-                }
-              }}
-            >
-              <option value="">Load Dashboard View</option>
-              {viewsQuery.data?.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          {activeSavedViewId && (
-            <div className="mt-2 flex justify-end">
-              <button
-                type="button"
-                className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                onClick={() => deleteView.mutate(activeSavedViewId)}
-                disabled={deleteView.isPending}
-              >
-                Delete Active View
-              </button>
-            </div>
-          )}
         </div>
 
         <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
@@ -742,6 +744,7 @@ export function DashboardPage() {
           />
         )}
       </section>
+      </div>
     </div>
   )
 }
