@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { RoleRoute } from './components/RoleRoute'
 import { ThemeProvider } from './components/ThemeContext'
 import { AccountPage } from './pages/AccountPage'
+import { AlertsPage } from './pages/AlertsPage'
 import { AuditLogsPage } from './pages/AuditLogsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FeedsPage } from './pages/FeedsPage'
@@ -43,6 +44,7 @@ export default function App() {
               }
             >
               <Route index element={<DashboardPage />} />
+              <Route path="alerts" element={<AlertsPage />} />
               <Route path="feeds" element={<FeedsPage />} />
               <Route path="stats" element={<StatsPage />} />
               <Route path="settings" element={<SettingsLayout />}>

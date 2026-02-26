@@ -254,3 +254,4 @@ cat threatlens_backup.sql | docker compose exec -T db psql -U postgres threatlen
 - OpenAI enrichment remains intentionally unimplemented for now (future async pipeline stage).
 - API token plaintext is shown only once at creation time.
 - Audit logs are append-only records for operational traceability.
+- Structured UI documentation is available under `docs/`.

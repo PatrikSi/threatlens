@@ -397,7 +397,7 @@ def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_header
     list_response = client.get("/tokens", headers=auth_headers["admin"])
     assert list_response.status_code == 200
     created = next(token for token in list_response.json() if token["name"] == "default-scope-token")
-    assert created["scopes"] == ["read:feeds", "read:items", "read:stats"]
+    assert created["scopes"] == ["read:feeds", "read:items", "read:stats", "read:alerts"]
 
 
 def test_audit_log_endpoint(client: TestClient, auth_headers):
@@ -663,3 +663,119 @@ def test_items_support_tag_filters(client: TestClient, auth_headers, db_session)
     )
     assert all_response.status_code == 200
     assert all_response.json()["total"] == 1
+
+
+def test_alert_interest_crud_and_matching(client: TestClient, auth_headers, db_session):
+    create_feed = client.post(
+        "/feeds",
+        json={
+            "name": "AlertFeed",
+            "url": "https://example.com/alerts.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_feed.status_code == 201
+    feed_id = uuid.UUID(create_feed.json()["id"])
+
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="alert-item-1",
+                url="https://example.com/alerts/1",
+                canonical_url="https://example.com/alerts/1",
+                title="Microsoft releases patch for Exchange",
+                summary="Patch bundle addresses multiple vulnerabilities.",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:alert-item-1",
+                content_hash="4" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="alert-item-2",
+                url="https://example.com/alerts/2",
+                canonical_url="https://example.com/alerts/2",
+                title="APT29 campaign expands against cloud providers",
+                summary="Cozy Bear activity targets credential theft.",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:alert-item-2",
+                content_hash="5" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="alert-item-3",
+                url="https://example.com/alerts/3",
+                canonical_url="https://example.com/alerts/3",
+                title="General threat roundup",
+                summary="No specific actor or vendor details.",
+                published_at=datetime.now(timezone.utc),
+                dedupe_key="test:alert-item-3",
+                content_hash="6" * 64,
+                status="content_fetched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    vendor_alert = client.post(
+        "/alerts",
+        json={"name": "Microsoft Vendors", "category": "vendor", "keywords": ["Microsoft", "Exchange"], "enabled": True},
+        headers=auth_headers["viewer"],
+    )
+    assert vendor_alert.status_code == 201
+    vendor_id = vendor_alert.json()["id"]
+
+    apt_alert = client.post(
+        "/alerts",
+        json={"name": "APT29", "category": "apt_group", "keywords": ["apt29", "cozy bear"], "enabled": True},
+        headers=auth_headers["viewer"],
+    )
+    assert apt_alert.status_code == 201
+    apt_id = apt_alert.json()["id"]
+
+    list_response = client.get("/alerts", headers=auth_headers["viewer"])
+    assert list_response.status_code == 200
+    assert len(list_response.json()) == 2
+
+    matches_response = client.get("/alerts/matches?page=1&page_size=25", headers=auth_headers["viewer"])
+    assert matches_response.status_code == 200
+    payload = matches_response.json()
+    assert payload["total"] == 2
+    assert len(payload["items"]) == 2
+    assert any(match["category"] == "vendor" for item in payload["items"] for match in item["matches"])
+    assert any(match["category"] == "apt_group" for item in payload["items"] for match in item["matches"])
+
+    category_filtered = client.get("/alerts/matches?categories=apt_group", headers=auth_headers["viewer"])
+    assert category_filtered.status_code == 200
+    filtered_payload = category_filtered.json()
+    assert filtered_payload["total"] == 1
+    assert filtered_payload["items"][0]["title"].lower().startswith("apt29")
+
+    id_filtered = client.get(f"/alerts/matches?alert_ids={vendor_id}", headers=auth_headers["viewer"])
+    assert id_filtered.status_code == 200
+    id_payload = id_filtered.json()
+    assert id_payload["total"] == 1
+    assert id_payload["items"][0]["title"].lower().startswith("microsoft")
+
+    disable_response = client.patch(
+        f"/alerts/{apt_id}",
+        json={"enabled": False},
+        headers=auth_headers["viewer"],
+    )
+    assert disable_response.status_code == 200
+
+    matches_without_disabled = client.get("/alerts/matches", headers=auth_headers["viewer"])
+    assert matches_without_disabled.status_code == 200
+    without_disabled_payload = matches_without_disabled.json()
+    assert without_disabled_payload["total"] == 1
+    assert without_disabled_payload["items"][0]["title"].lower().startswith("microsoft")
+
+    delete_response = client.delete(f"/alerts/{vendor_id}", headers=auth_headers["viewer"])
+    assert delete_response.status_code == 204
