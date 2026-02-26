@@ -4,9 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user
+from app.api.deps import get_admin_user, require_token_scopes
 from app.core.rbac import ALL_ROLES
 from app.core.security import get_password_hash
+from app.core.token_scopes import SCOPE_READ_USERS, SCOPE_WRITE_USERS
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user import UserAdminResponse, UserCreateRequest, UserUpdateRequest
@@ -16,14 +17,23 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 @router.get("", response_model=list[UserAdminResponse])
-def list_users(db: Session = Depends(get_db), admin: User = Depends(get_admin_user)):
+def list_users(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_USERS)),
+):
     _ = admin
     users = db.scalars(select(User).order_by(User.created_at.asc())).all()
     return list(users)
 
 
 @router.post("", response_model=UserAdminResponse, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreateRequest, db: Session = Depends(get_db), admin: User = Depends(get_admin_user)):
+def create_user(
+    payload: UserCreateRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_USERS)),
+):
     if payload.role not in ALL_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid role")
 
@@ -58,6 +68,7 @@ def update_user(
     payload: UserUpdateRequest,
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_USERS)),
 ):
     user = db.scalar(select(User).where(User.id == user_id))
     if user is None:

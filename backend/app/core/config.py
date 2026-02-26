@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,6 +13,7 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24
+    allow_legacy_unscoped_tokens: bool = True
     allow_self_registration: bool = False
     default_api_token_expiry_days: int = 90
 
@@ -25,7 +27,24 @@ class Settings(BaseSettings):
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
     per_domain_concurrency: int = 2
+    allow_private_network_fetch: bool = False
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _parse_cors_origins(cls, value):
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        return value
+
+    @model_validator(mode="after")
+    def _validate_production_security(self):
+        if self.app_env.lower() in {"production", "prod"}:
+            if self.jwt_secret == "change-me" or len(self.jwt_secret) < 32:
+                raise ValueError("jwt_secret must be set and at least 32 characters in production")
+            if self.admin_password == "admin123":
+                raise ValueError("admin_password default is not allowed in production")
+        return self
 
 
 @lru_cache

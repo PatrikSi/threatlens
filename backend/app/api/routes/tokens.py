@@ -5,10 +5,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import require_token_scopes
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
 from app.core.security import generate_api_token
+from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES, SCOPE_READ_TOKENS, SCOPE_WRITE_TOKENS
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/tokens", tags=["tokens"])
 @router.get("", response_model=list[ApiTokenResponse])
 def list_tokens(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_token_scopes(SCOPE_READ_TOKENS)),
     user_id: uuid.UUID | None = Query(default=None),
 ):
     target_user_id = user.id
@@ -39,19 +40,24 @@ def list_tokens(
 
 
 @router.post("", response_model=ApiTokenCreateResponse, status_code=status.HTTP_201_CREATED)
-def create_token(payload: ApiTokenCreateRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_token(
+    payload: ApiTokenCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
+):
     settings = get_settings()
 
     token_value, token_prefix, token_hash = generate_api_token()
     expires_days = payload.expires_in_days or settings.default_api_token_expiry_days
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
+    scopes = payload.scopes or list(DEFAULT_API_TOKEN_SCOPES)
 
     token = ApiToken(
         user_id=user.id,
         name=payload.name,
         token_prefix=token_prefix,
         token_hash=token_hash,
-        scopes=payload.scopes,
+        scopes=scopes,
         expires_at=expires_at,
     )
     db.add(token)
@@ -71,7 +77,11 @@ def create_token(payload: ApiTokenCreateRequest, db: Session = Depends(get_db), 
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
-def revoke_token(token_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def revoke_token(
+    token_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
+):
     token = db.scalar(select(ApiToken).where(ApiToken.id == token_id))
     if token is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")

@@ -39,6 +39,8 @@ Key vars:
 - `ADMIN_PASSWORD`
 - `ALLOW_SELF_REGISTRATION` (default `false`)
 - `DEFAULT_API_TOKEN_EXPIRY_DAYS` (default `90`)
+- `ALLOW_LEGACY_UNSCOPED_TOKENS` (default `true`)
+- `ALLOW_PRIVATE_NETWORK_FETCH` (default `false`)
 
 ## Run (Docker Compose)
 
@@ -127,6 +129,14 @@ curl -X POST http://localhost:8000/tokens \
   -H "Content-Type: application/json" \
   -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
 ```
+
+Notes:
+
+- If `scopes` is omitted, token defaults to `read:feeds`, `read:items`, `read:stats`.
+- Legacy tokens with empty scopes are allowed only when `ALLOW_LEGACY_UNSCOPED_TOKENS=true`.
+- `write:<resource>` implies `read:<resource>`.
+- Wildcards supported: `read:*`, `write:*`, `admin:*`.
+- Supported resources: `feeds`, `items`, `tags`, `views`, `tokens`, `users`, `audit`, `stats`.
 
 Use token:
 
@@ -222,7 +232,7 @@ Run tests in container (recommended):
 
 ```bash
 docker compose build api
-docker compose run --rm api sh -lc "pip install --no-cache-dir -r requirements-dev.txt && pytest"
+docker compose run --rm -e HOME=/tmp api sh -lc "python -m pip install --user --no-cache-dir -r requirements-dev.txt && PATH=/tmp/.local/bin:$PATH pytest"
 ```
 
 ## Backup/Restore

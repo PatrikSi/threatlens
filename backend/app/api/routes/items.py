@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_operator_user
+from app.api.deps import get_operator_user, require_token_scopes
+from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
@@ -83,7 +84,7 @@ def list_items(
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(default="published_at_desc"),
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     if feed_id and feed_id not in selected_feed_ids:
@@ -185,7 +186,11 @@ def list_items(
 
 
 @router.get("/{item_id}", response_model=ItemDetailResponse)
-def get_item(item_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def get_item(
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+):
     row = db.execute(
         select(Item, Feed.name.label("feed_name"))
         .join(Feed, Feed.id == Item.feed_id)
@@ -239,6 +244,7 @@ def set_item_read(
     payload: ReadUpdateRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -265,6 +271,7 @@ def set_item_star(
     payload: StarUpdateRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -291,6 +298,7 @@ def set_item_note(
     payload: NoteUpdateRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -316,6 +324,7 @@ def set_item_tags(
     payload: ItemTagsUpdateRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:

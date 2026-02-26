@@ -7,7 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import require_token_scopes
+from app.core.token_scopes import SCOPE_READ_STATS
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
@@ -55,7 +56,7 @@ def get_stats_overview(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
     now = datetime.now(timezone.utc)
@@ -64,35 +65,42 @@ def get_stats_overview(
     feed_filters = [Feed.id.in_(selected_feed_ids)] if selected_feed_ids else []
     item_filters = [Item.feed_id.in_(selected_feed_ids)] if selected_feed_ids else []
 
-    feeds_total_query = select(func.count()).select_from(Feed)
-    feeds_enabled_query = select(func.count()).select_from(Feed).where(Feed.enabled.is_(True))
+    feed_counts_query = select(
+        func.count(Feed.id).label("feeds_total"),
+        func.sum(case((Feed.enabled.is_(True), 1), else_=0)).label("feeds_enabled"),
+    )
     if feed_filters:
-        feeds_total_query = feeds_total_query.where(*feed_filters)
-        feeds_enabled_query = feeds_enabled_query.where(*feed_filters)
+        feed_counts_query = feed_counts_query.where(*feed_filters)
 
-    feeds_total = db.scalar(feeds_total_query) or 0
-    feeds_enabled = db.scalar(feeds_enabled_query) or 0
+    feed_counts = db.execute(feed_counts_query).one()
+    feeds_total = int(feed_counts.feeds_total or 0)
+    feeds_enabled = int(feed_counts.feeds_enabled or 0)
 
-    def _count_items(*extra_filters):
-        stmt = select(func.count()).select_from(Item)
-        filters = [*item_filters, *extra_filters]
-        if filters:
-            stmt = stmt.where(*filters)
-        return db.scalar(stmt) or 0
+    item_counts_query = select(
+        func.count(Item.id).label("items_total"),
+        func.sum(case((Item.status == "new", 1), else_=0)).label("items_new"),
+        func.sum(case((Item.status == "content_fetched", 1), else_=0)).label("items_content_fetched"),
+        func.sum(case((Item.status == "error", 1), else_=0)).label("items_error"),
+        func.sum(case((Item.first_seen_at >= now - timedelta(hours=24), 1), else_=0)).label("items_last_24h"),
+        func.sum(case((Item.first_seen_at >= now - timedelta(days=7), 1), else_=0)).label("items_last_7d"),
+        func.sum(case((Item.first_seen_at >= now - timedelta(days=30), 1), else_=0)).label("items_last_30d"),
+    )
+    if item_filters:
+        item_counts_query = item_counts_query.where(*item_filters)
 
-    items_total = _count_items()
-    items_new = _count_items(Item.status == "new")
-    items_content_fetched = _count_items(Item.status == "content_fetched")
-    items_error = _count_items(Item.status == "error")
+    item_counts = db.execute(item_counts_query).one()
+    items_total = int(item_counts.items_total or 0)
+    items_new = int(item_counts.items_new or 0)
+    items_content_fetched = int(item_counts.items_content_fetched or 0)
+    items_error = int(item_counts.items_error or 0)
+    items_last_24h = int(item_counts.items_last_24h or 0)
+    items_last_7d = int(item_counts.items_last_7d or 0)
+    items_last_30d = int(item_counts.items_last_30d or 0)
 
     articles_query = select(func.count()).select_from(Article)
     if item_filters:
         articles_query = articles_query.join(Item, Item.id == Article.item_id).where(*item_filters)
     articles_total = db.scalar(articles_query) or 0
-
-    items_last_24h = _count_items(Item.first_seen_at >= now - timedelta(hours=24))
-    items_last_7d = _count_items(Item.first_seen_at >= now - timedelta(days=7))
-    items_last_30d = _count_items(Item.first_seen_at >= now - timedelta(days=30))
 
     status_query = select(Item.status, func.count())
     if item_filters:
