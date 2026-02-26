@@ -602,19 +602,31 @@ export function DashboardPage() {
                       : 'border-slate/20 dark:border-cyan-900/40'
                   } ${item.is_read ? 'opacity-85' : ''}`}
                 >
-                  <button className="w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
+                  <div className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-[15px] font-semibold leading-snug">{item.title}</h3>
+                      <h3 className="text-[15px] font-semibold leading-snug">
+                        <a
+                          href={item.canonical_url || item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:text-cyan hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {item.title}
+                        </a>
+                      </h3>
                       <span className="shrink-0 text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
-                      <span>Published {formatPublishedAt(item.published_at)}</span>
-                      <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
-                      {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
-                      {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
-                  </button>
+                    <button type="button" className="mt-1 w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
+                        <span>Published {formatPublishedAt(item.published_at)}</span>
+                        <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
+                        {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
+                        {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
+                    </button>
+                  </div>
 
                   {expanded && (
                     <div className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
