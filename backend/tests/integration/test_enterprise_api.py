@@ -214,6 +214,69 @@ def test_items_include_classification_fields(client: TestClient, auth_headers, d
     assert detail["classification"]["confidence"] == 0.87
 
 
+def test_item_graph_endpoint_returns_related_nodes(client: TestClient, auth_headers, db_session):
+    feed = Feed(name="Graph Feed", url="https://example.com/graph.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    root_item = Item(
+        feed_id=feed.id,
+        source_guid="graph-root",
+        url="https://example.com/root",
+        title="CVE-2026-9999 vulnerability report",
+        summary="Patch Tuesday update",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="graph-root",
+        content_hash="c" * 64,
+        status="content_fetched",
+        last_error=None,
+    )
+    related_item = Item(
+        feed_id=feed.id,
+        source_guid="graph-related",
+        url="https://example.com/related",
+        title="Patch Tuesday highlights CVE-2026-8888",
+        summary="vulnerability and updates",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="graph-related",
+        content_hash="d" * 64,
+        status="content_fetched",
+        last_error=None,
+    )
+    db_session.add_all([root_item, related_item])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ItemClassification(
+                item_id=root_item.id,
+                primary_category="vulnerability",
+                secondary_categories=["technology_ai"],
+                confidence=0.9,
+                scores_json={"vulnerability": 8.0},
+                matched_terms_json={"vulnerability": ["cve"]},
+                source_hash="e" * 64,
+            ),
+            ItemClassification(
+                item_id=related_item.id,
+                primary_category="vulnerability",
+                secondary_categories=[],
+                confidence=0.8,
+                scores_json={"vulnerability": 6.0},
+                matched_terms_json={"vulnerability": ["patch_tuesday"]},
+                source_hash="f" * 64,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/items/{root_item.id}/graph", headers=auth_headers["admin"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(node["type"] == "item" and node["metadata"]["item_id"] == str(root_item.id) for node in payload["nodes"])
+    assert any(edge["relation"] == "related" for edge in payload["edges"])
+
+
 def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
     create_user = client.post(
         "/users",

@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, cast, func, or_, select
@@ -17,6 +18,9 @@ from app.models.tag import ItemTag, Tag
 from app.models.user import User
 from app.schemas.item import (
     ItemDetailResponse,
+    ItemGraphEdgeResponse,
+    ItemGraphNodeResponse,
+    ItemGraphResponse,
     ItemClassificationResponse,
     ItemListEntry,
     ItemListResponse,
@@ -29,6 +33,7 @@ from app.schemas.item import (
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/items", tags=["items"])
+TITLE_TOKEN_RE = re.compile(r"[a-z0-9]{4,}")
 
 
 def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
@@ -254,6 +259,164 @@ def get_item(
     )
 
 
+@router.get("/{item_id}/graph", response_model=ItemGraphResponse)
+def get_item_graph(
+    item_id: uuid.UUID,
+    limit: int = Query(default=12, ge=1, le=30),
+    since_days: int = Query(default=30, ge=1, le=180),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+):
+    base_row = db.execute(
+        select(Item, Feed.name.label("feed_name"), ItemClassification)
+        .join(Feed, Feed.id == Item.feed_id)
+        .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
+        .where(Item.id == item_id)
+    ).first()
+    if base_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    base_item = base_row.Item
+    base_feed_name = base_row.feed_name
+    base_classification = base_row.ItemClassification
+
+    if base_classification is None:
+        center_node = ItemGraphNodeResponse(
+            id=f"item:{base_item.id}",
+            type="item",
+            label=base_item.title,
+            metadata={
+                "item_id": str(base_item.id),
+                "feed_name": base_feed_name,
+                "classification": None,
+            },
+        )
+        return ItemGraphResponse(nodes=[center_node], edges=[])
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
+    candidate_rows = db.execute(
+        select(Item, Feed.name.label("feed_name"), ItemClassification)
+        .join(Feed, Feed.id == Item.feed_id)
+        .join(ItemClassification, ItemClassification.item_id == Item.id)
+        .where(
+            and_(
+                Item.id != item_id,
+                Item.first_seen_at >= cutoff,
+            )
+        )
+        .order_by(Item.first_seen_at.desc())
+        .limit(500)
+    ).all()
+
+    scored: list[tuple[float, object]] = []
+    base_secondary = set(base_classification.secondary_categories or [])
+    base_primary = base_classification.primary_category
+    base_tokens = _tokenize_title(base_item.title)
+
+    for row in candidate_rows:
+        classification = row.ItemClassification
+        score = 0.0
+
+        if classification.primary_category == base_primary:
+            score += 3.0
+
+        candidate_secondary = set(classification.secondary_categories or [])
+        overlap = len(base_secondary.intersection(candidate_secondary))
+        if overlap:
+            score += overlap * 1.5
+
+        if row.Item.feed_id == base_item.feed_id:
+            score += 0.7
+
+        token_overlap = len(base_tokens.intersection(_tokenize_title(row.Item.title)))
+        if token_overlap:
+            score += min(2.0, token_overlap * 0.35)
+
+        if score >= 1.5:
+            scored.append((score, row))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    top_rows = scored[:limit]
+
+    center_id = f"item:{base_item.id}"
+    nodes: dict[str, ItemGraphNodeResponse] = {
+        center_id: ItemGraphNodeResponse(
+            id=center_id,
+            type="item",
+            label=base_item.title,
+            metadata={
+                "item_id": str(base_item.id),
+                "feed_name": base_feed_name,
+                "classification": base_primary,
+                "confidence": base_classification.confidence,
+                "published_at": base_item.published_at.isoformat() if base_item.published_at else None,
+            },
+        )
+    }
+    edges: list[ItemGraphEdgeResponse] = []
+
+    base_category_id = f"category:{base_primary}"
+    nodes[base_category_id] = ItemGraphNodeResponse(
+        id=base_category_id,
+        type="category",
+        label=base_primary,
+        metadata={},
+    )
+    edges.append(
+        ItemGraphEdgeResponse(
+            source=center_id,
+            target=base_category_id,
+            relation="classified_as",
+            weight=1.0,
+        )
+    )
+
+    for score, row in top_rows:
+        item = row.Item
+        feed_name = row.feed_name
+        classification = row.ItemClassification
+        node_id = f"item:{item.id}"
+        nodes[node_id] = ItemGraphNodeResponse(
+            id=node_id,
+            type="item",
+            label=item.title,
+            metadata={
+                "item_id": str(item.id),
+                "feed_name": feed_name,
+                "classification": classification.primary_category,
+                "confidence": classification.confidence,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+            },
+        )
+        edges.append(
+            ItemGraphEdgeResponse(
+                source=center_id,
+                target=node_id,
+                relation="related",
+                weight=round(float(score), 3),
+            )
+        )
+
+        category_id = f"category:{classification.primary_category}"
+        if category_id not in nodes:
+            nodes[category_id] = ItemGraphNodeResponse(
+                id=category_id,
+                type="category",
+                label=classification.primary_category,
+                metadata={},
+            )
+        edges.append(
+            ItemGraphEdgeResponse(
+                source=node_id,
+                target=category_id,
+                relation="classified_as",
+                weight=1.0,
+            )
+        )
+
+    return ItemGraphResponse(nodes=list(nodes.values()), edges=edges)
+
+
 @router.post("/{item_id}/read", status_code=status.HTTP_200_OK)
 def set_item_read(
     item_id: uuid.UUID,
@@ -279,6 +442,10 @@ def set_item_read(
     )
     db.commit()
     return {"status": "ok"}
+
+
+def _tokenize_title(value: str) -> set[str]:
+    return set(TITLE_TOKEN_RE.findall((value or "").lower()))
 
 
 @router.post("/{item_id}/star", status_code=status.HTTP_200_OK)

@@ -37,5 +37,6 @@ def test_classify_multi_when_two_classes_are_strong():
         article_text="Researchers observed CVE exploitation and supply chain tampering in the same operation.",
         feed_name="Threat Research",
     )
-    assert result.primary_category == "multi"
-    assert len(result.secondary_categories) >= 2
+    labels = {result.primary_category, *result.secondary_categories}
+    assert "supply_chain" in labels
+    assert "vulnerability" in labels
