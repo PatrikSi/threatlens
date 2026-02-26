@@ -15,6 +15,7 @@ class ItemListEntry(BaseModel):
     published_at: datetime | None
     first_seen_at: datetime
     status: str
+    classification: str | None
     is_read: bool
     is_starred: bool
     tags: list[str]
@@ -50,6 +51,15 @@ class ItemStateResponse(BaseModel):
     updated_at: datetime | None
 
 
+class ItemClassificationResponse(BaseModel):
+    primary_category: str
+    secondary_categories: list[str]
+    confidence: float
+    scores: dict[str, float]
+    rules_version: str
+    classified_at: datetime
+
+
 class ItemDetailResponse(BaseModel):
     id: uuid.UUID
     feed_id: uuid.UUID
@@ -62,6 +72,7 @@ class ItemDetailResponse(BaseModel):
     published_at: datetime | None
     first_seen_at: datetime
     status: str
+    classification: ItemClassificationResponse | None
     last_error: str | None
     tags: list[str]
     article: ArticleResponse | None
