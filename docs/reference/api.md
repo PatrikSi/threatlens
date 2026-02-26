@@ -312,6 +312,19 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `logs[]`
   - `total`, `page`, `page_size`
 
+### `GET /audit-logs/export`
+
+- Auth: role `admin`, scope `read:audit`
+- Query params:
+  - `action?`: exact action string
+  - `actor_user_id?`: UUID
+  - `limit`: `1..20000` (default `5000`)
+- Response (`AuditLogExportResponse`):
+  - `exported_at`
+  - `total`: total matching rows before limit
+  - `truncated`: `true` when `total > limit`
+  - `logs[]`: newest-first export rows
+
 ## Stats
 
 ### `GET /stats/overview`

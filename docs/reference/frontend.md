@@ -332,10 +332,14 @@ UI elements:
   - actor
   - status
 - Pagination controls (`Prev/Next`)
+- Export button:
+  - downloads filtered logs as JSON
+  - surfaces truncation message when backend export limit is hit
 
 API calls:
 
 - `GET /audit-logs?page=<n>&page_size=50&action=<...>&actor_user_id=<...>`
+- `GET /audit-logs/export?action=<...>&actor_user_id=<...>&limit=10000`
 
 ## Hook and Guard Components
 
@@ -374,6 +378,7 @@ API calls:
 | `pages/TokensPage.tsx` | `POST` | `/tokens` |
 | `pages/TokensPage.tsx` | `DELETE` | `/tokens/{id}` |
 | `pages/AuditLogsPage.tsx` | `GET` | `/audit-logs` |
+| `pages/AuditLogsPage.tsx` | `GET` | `/audit-logs/export` |
 | `pages/FeedsPage.tsx` | `GET` | `/feeds` |
 | `pages/FeedsPage.tsx` | `POST` | `/feeds/metadata` |
 | `pages/FeedsPage.tsx` | `POST` | `/feeds` |

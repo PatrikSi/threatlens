@@ -100,5 +100,6 @@ Evaluation rules:
 | `/tokens` | authenticated user | `read:tokens` / `write:tokens` |
 | `/users` | `admin` | `read:users` / `write:users` |
 | `/audit-logs` | `admin` | `read:audit` |
+| `/audit-logs/export` | `admin` | `read:audit` |
 | `/stats/*` | authenticated user | `read:stats` |
 | `/health` | none | none |
