@@ -25,7 +25,7 @@ export function AuditLogsPage() {
   const totalPages = Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize))
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl">Audit Logs</h2>
         <div className="flex flex-wrap gap-2">
@@ -36,7 +36,7 @@ export function AuditLogsPage() {
               setAction(event.target.value)
             }}
             placeholder="Action filter"
-            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
           />
           <input
             value={actorUserId}
@@ -45,7 +45,7 @@ export function AuditLogsPage() {
               setActorUserId(event.target.value)
             }}
             placeholder="Actor user ID"
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
           />
         </div>
       </div>
@@ -53,7 +53,7 @@ export function AuditLogsPage() {
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-left text-sm">
           <thead>
-            <tr className="border-b border-slate/20 dark:border-slate-700">
+            <tr className="border-b border-slate/20 dark:border-cyan-900/40">
               <th className="px-2 py-2">Time</th>
               <th className="px-2 py-2">Action</th>
               <th className="px-2 py-2">Resource</th>
@@ -63,7 +63,7 @@ export function AuditLogsPage() {
           </thead>
           <tbody>
             {auditQuery.data?.logs.map((log) => (
-              <tr key={log.id} className="border-b border-slate/10 dark:border-slate-800">
+              <tr key={log.id} className="border-b border-slate/10 dark:border-cyan-950/40">
                 <td className="px-2 py-2 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
                 <td className="px-2 py-2 font-mono text-xs">{log.action}</td>
                 <td className="px-2 py-2">

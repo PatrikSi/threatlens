@@ -126,12 +126,12 @@ export function DashboardPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr_1.2fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <h2 className="font-display text-xl">Filters</h2>
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Feed</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={selectedFeedId}
           onChange={(event) => {
             setPage(1)
@@ -154,12 +154,12 @@ export function DashboardPage() {
             setQ(event.target.value)
           }}
           placeholder="ransomware, cve..."
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
         />
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Time Range</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={timeRange}
           onChange={(event) => {
             setPage(1)
@@ -178,7 +178,7 @@ export function DashboardPage() {
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">From</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={customSinceDate}
               onChange={(event) => {
                 setPage(1)
@@ -188,7 +188,7 @@ export function DashboardPage() {
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">To</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={customUntilDate}
               onChange={(event) => {
                 setPage(1)
@@ -200,7 +200,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Read Status</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={readStatus}
           onChange={(event) => {
             setPage(1)
@@ -214,7 +214,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Starred</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={starStatus}
           onChange={(event) => {
             setPage(1)
@@ -228,7 +228,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Sort</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={sort}
           onChange={(event) => {
             setPage(1)
@@ -242,7 +242,7 @@ export function DashboardPage() {
         </select>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-xl">Items</h2>
           <span className="text-xs text-slate dark:text-slate-300">{itemsQuery.data?.total ?? 0} total</span>
@@ -255,7 +255,7 @@ export function DashboardPage() {
               className={`w-full rounded border p-3 text-left transition ${
                 selectedItemId === item.id
                   ? 'border-cyan bg-cyan/5 dark:bg-cyan/10'
-                  : 'border-slate/20 hover:border-slate/40 dark:border-slate-700 dark:hover:border-slate-500'
+                  : 'border-slate/20 hover:border-slate/40 dark:border-cyan-900/40 dark:hover:border-slate-500'
               } ${item.is_read ? 'opacity-70' : ''}`}
               onClick={() => handleSelectItem(item.id, item.is_read)}
             >
@@ -281,7 +281,7 @@ export function DashboardPage() {
 
         <div className="mt-4 flex items-center justify-between text-sm">
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-slate-600"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
           >
@@ -291,7 +291,7 @@ export function DashboardPage() {
             Page {page} / {totalPages}
           </span>
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-slate-600"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}
           >
@@ -300,7 +300,7 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         {!detailQuery.data && <p className="text-sm text-slate dark:text-slate-300">Select an item to inspect details.</p>}
 
         {detailQuery.data && (
@@ -311,7 +311,7 @@ export function DashboardPage() {
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-slate-600"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
                 disabled={!canManage}
                 onClick={() =>
                   updateRead.mutate({
@@ -323,7 +323,7 @@ export function DashboardPage() {
                 {detailQuery.data.state.is_read ? 'Mark Unread' : 'Mark Read'}
               </button>
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-slate-600"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
                 disabled={!canManage}
                 onClick={() =>
                   updateStar.mutate({
@@ -338,7 +338,7 @@ export function DashboardPage() {
 
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Analyst Note</label>
             <textarea
-              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={noteDraft}
               onChange={(event) => setNoteDraft(event.target.value)}
               disabled={!canManage}
@@ -351,12 +351,12 @@ export function DashboardPage() {
               Save Note
             </button>
 
-            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
               <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
               <p className="mt-1 whitespace-pre-wrap text-sm">{detailQuery.data.summary || 'No summary.'}</p>
             </div>
 
-            <div className="mt-4 rounded border border-slate/20 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/80">
+            <div className="mt-4 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
               <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Extracted Full Text</p>
               {detailQuery.data.article?.text ? (
                 <pre className="mt-2 max-h-[450px] overflow-auto whitespace-pre-wrap text-sm leading-6">
