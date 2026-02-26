@@ -23,6 +23,11 @@ type DashboardViewMode = 'expanded' | 'compact'
 type AlertViewMode = 'expanded' | 'compact'
 type DashboardWindowType = 'rss' | 'alerts' | 'notes'
 type DashboardWindowSnap = 'free' | 'full' | 'left' | 'right' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
+type WindowTimeFilter = {
+  time_range: TimeRangeFilter
+  custom_since_date: string
+  custom_until_date: string
+}
 
 type PanelRect = {
   x: number
@@ -39,6 +44,7 @@ interface DashboardWindow {
   rect: PanelRect
   controls_collapsed: boolean
   scratch_note: string
+  time_override: WindowTimeFilter | null
 }
 
 interface DashboardSavedViewQuery {
@@ -88,6 +94,7 @@ const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
 const DRAG_MIDLINE_SNAP_THRESHOLD = 8
+const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
@@ -115,9 +122,9 @@ export function DashboardPage() {
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
   const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
   const [viewMode, setViewMode] = useState<DashboardViewMode>('compact')
-  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all')
-  const [customSinceDate, setCustomSinceDate] = useState('')
-  const [customUntilDate, setCustomUntilDate] = useState('')
+  const [dashboardTimeRange, setDashboardTimeRange] = useState<TimeRangeFilter>('all')
+  const [dashboardCustomSinceDate, setDashboardCustomSinceDate] = useState('')
+  const [dashboardCustomUntilDate, setDashboardCustomUntilDate] = useState('')
   const [sort, setSort] = useState<TimeSort>('published_at_desc')
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
 
@@ -125,9 +132,6 @@ export function DashboardPage() {
   const [alertSelectedCategories, setAlertSelectedCategories] = useState<string[]>([])
   const [alertQ, setAlertQ] = useState('')
   const [alertViewMode, setAlertViewMode] = useState<AlertViewMode>('expanded')
-  const [alertTimeRange, setAlertTimeRange] = useState<TimeRangeFilter>('all')
-  const [alertCustomSinceDate, setAlertCustomSinceDate] = useState('')
-  const [alertCustomUntilDate, setAlertCustomUntilDate] = useState('')
   const [alertSort, setAlertSort] = useState<TimeSort>('published_at_desc')
 
   const [savedViewName, setSavedViewName] = useState('')
@@ -194,15 +198,28 @@ export function DashboardPage() {
   const alertIdsParam = useMemo(() => alertSelectedIds.slice().sort().join(','), [alertSelectedIds])
   const alertCategoriesParam = useMemo(() => alertSelectedCategories.slice().sort().join(','), [alertSelectedCategories])
 
-  const { sinceIso, untilIso } = useMemo(
-    () => deriveTimeWindow(timeRange, customSinceDate, customUntilDate),
-    [timeRange, customSinceDate, customUntilDate],
+  const dashboardTimeFilter = useMemo<WindowTimeFilter>(
+    () => ({
+      time_range: dashboardTimeRange,
+      custom_since_date: dashboardCustomSinceDate,
+      custom_until_date: dashboardCustomUntilDate,
+    }),
+    [dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate],
   )
 
-  const { sinceIso: alertSinceIso, untilIso: alertUntilIso } = useMemo(
-    () => deriveTimeWindow(alertTimeRange, alertCustomSinceDate, alertCustomUntilDate),
-    [alertTimeRange, alertCustomSinceDate, alertCustomUntilDate],
-  )
+  const rssQueryTimeWindow = useMemo(() => {
+    const filters = windows
+      .filter((window) => window.type === 'rss')
+      .map((window) => resolveWindowTimeFilter(window, dashboardTimeFilter))
+    return combineTimeWindows(filters)
+  }, [dashboardTimeFilter, windows])
+
+  const alertQueryTimeWindow = useMemo(() => {
+    const filters = windows
+      .filter((window) => window.type === 'alerts')
+      .map((window) => resolveWindowTimeFilter(window, dashboardTimeFilter))
+    return combineTimeWindows(filters)
+  }, [dashboardTimeFilter, windows])
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -279,7 +296,19 @@ export function DashboardPage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: ['items', feedIdsParam, selectedTagsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page, pageSize],
+    queryKey: [
+      'items',
+      feedIdsParam,
+      selectedTagsParam,
+      debouncedQ,
+      readStatus,
+      starStatus,
+      rssQueryTimeWindow.sinceIso,
+      rssQueryTimeWindow.untilIso,
+      sort,
+      page,
+      pageSize,
+    ],
     retry: 1,
     queryFn: () => {
       const params = new URLSearchParams()
@@ -290,8 +319,8 @@ export function DashboardPage() {
       if (feedIdsParam) params.set('feed_ids', feedIdsParam)
       if (selectedTagsParam) params.set('tags', selectedTagsParam)
       if (debouncedQ) params.set('q', debouncedQ)
-      if (sinceIso) params.set('since', sinceIso)
-      if (untilIso) params.set('until', untilIso)
+      if (rssQueryTimeWindow.sinceIso) params.set('since', rssQueryTimeWindow.sinceIso)
+      if (rssQueryTimeWindow.untilIso) params.set('until', rssQueryTimeWindow.untilIso)
 
       if (readStatus === 'read') params.set('is_read', 'true')
       if (readStatus === 'unread') params.set('is_read', 'false')
@@ -308,8 +337,8 @@ export function DashboardPage() {
       alertIdsParam,
       alertCategoriesParam,
       debouncedAlertQ,
-      alertSinceIso,
-      alertUntilIso,
+      alertQueryTimeWindow.sinceIso,
+      alertQueryTimeWindow.untilIso,
       alertSort,
       alertPage,
       alertPageSize,
@@ -323,8 +352,8 @@ export function DashboardPage() {
       if (alertIdsParam) params.set('alert_ids', alertIdsParam)
       if (alertCategoriesParam) params.set('categories', alertCategoriesParam)
       if (debouncedAlertQ) params.set('q', debouncedAlertQ)
-      if (alertSinceIso) params.set('since', alertSinceIso)
-      if (alertUntilIso) params.set('until', alertUntilIso)
+      if (alertQueryTimeWindow.sinceIso) params.set('since', alertQueryTimeWindow.sinceIso)
+      if (alertQueryTimeWindow.untilIso) params.set('until', alertQueryTimeWindow.untilIso)
 
       return apiFetch<AlertMatchListResponse>(`/alerts/matches?${params.toString()}`)
     },
@@ -606,9 +635,9 @@ export function DashboardPage() {
           star_status: starStatus,
           view_mode: viewMode,
           page_size: pageSize,
-          time_range: timeRange,
-          custom_since_date: customSinceDate,
-          custom_until_date: customUntilDate,
+          time_range: dashboardTimeRange,
+          custom_since_date: dashboardCustomSinceDate,
+          custom_until_date: dashboardCustomUntilDate,
           sort,
         },
         {
@@ -617,9 +646,9 @@ export function DashboardPage() {
           q: alertQ,
           view_mode: alertViewMode,
           page_size: alertPageSize,
-          time_range: alertTimeRange,
-          custom_since_date: alertCustomSinceDate,
-          custom_until_date: alertCustomUntilDate,
+          time_range: dashboardTimeRange,
+          custom_since_date: dashboardCustomSinceDate,
+          custom_until_date: dashboardCustomUntilDate,
           sort: alertSort,
         },
         windows,
@@ -642,9 +671,18 @@ export function DashboardPage() {
     setStarStatus(parsed.rss_filters.star_status)
     setViewMode(parsed.rss_filters.view_mode)
     setPageSize(parsed.rss_filters.page_size)
-    setTimeRange(parsed.rss_filters.time_range)
-    setCustomSinceDate(parsed.rss_filters.custom_since_date)
-    setCustomUntilDate(parsed.rss_filters.custom_until_date)
+    const nextDashboardTimeRange =
+      parsed.rss_filters.time_range !== 'all' || parsed.rss_filters.custom_since_date || parsed.rss_filters.custom_until_date
+        ? parsed.rss_filters.time_range
+        : parsed.alert_filters.time_range
+    const nextDashboardCustomSinceDate =
+      parsed.rss_filters.custom_since_date || parsed.alert_filters.custom_since_date || ''
+    const nextDashboardCustomUntilDate =
+      parsed.rss_filters.custom_until_date || parsed.alert_filters.custom_until_date || ''
+
+    setDashboardTimeRange(nextDashboardTimeRange)
+    setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
+    setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
     setSort(parsed.rss_filters.sort)
     setShowAdvancedFilters(parsed.ui.show_advanced_filters)
 
@@ -653,9 +691,6 @@ export function DashboardPage() {
     setAlertQ(parsed.alert_filters.q)
     setAlertViewMode(parsed.alert_filters.view_mode)
     setAlertPageSize(parsed.alert_filters.page_size)
-    setAlertTimeRange(parsed.alert_filters.time_range)
-    setAlertCustomSinceDate(parsed.alert_filters.custom_since_date)
-    setAlertCustomUntilDate(parsed.alert_filters.custom_until_date)
     setAlertSort(parsed.alert_filters.sort)
 
     setWindows(parsed.windows)
@@ -736,6 +771,83 @@ export function DashboardPage() {
     setActiveSavedViewId(null)
   }
 
+  const updateDashboardTimeRange = (nextRange: TimeRangeFilter) => {
+    setActiveSavedViewId(null)
+    setPage(1)
+    setAlertPage(1)
+    setDashboardTimeRange(nextRange)
+  }
+
+  const updateDashboardCustomSinceDate = (nextDate: string) => {
+    setActiveSavedViewId(null)
+    setPage(1)
+    setAlertPage(1)
+    setDashboardCustomSinceDate(nextDate)
+  }
+
+  const updateDashboardCustomUntilDate = (nextDate: string) => {
+    setActiveSavedViewId(null)
+    setPage(1)
+    setAlertPage(1)
+    setDashboardCustomUntilDate(nextDate)
+  }
+
+  const updateWindowTimeRange = (windowId: string, nextValue: string) => {
+    setActiveSavedViewId(null)
+    setPage(1)
+    setAlertPage(1)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.type === 'notes') {
+          return window
+        }
+
+        if (nextValue === DASHBOARD_TIME_INHERIT_VALUE) {
+          return {
+            ...window,
+            time_override: null,
+          }
+        }
+
+        if (!isTimeRangeFilter(nextValue)) {
+          return window
+        }
+
+        const base = window.time_override ?? dashboardTimeFilter
+        return {
+          ...window,
+          time_override: {
+            ...base,
+            time_range: nextValue,
+          },
+        }
+      }),
+    )
+  }
+
+  const updateWindowCustomTimeDate = (windowId: string, key: 'custom_since_date' | 'custom_until_date', value: string) => {
+    setActiveSavedViewId(null)
+    setPage(1)
+    setAlertPage(1)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.type === 'notes') {
+          return window
+        }
+
+        const base = window.time_override ?? dashboardTimeFilter
+        return {
+          ...window,
+          time_override: {
+            ...base,
+            time_range: 'custom',
+            [key]: value,
+          },
+        }
+      }),
+    )
+  }
+
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
@@ -744,7 +856,7 @@ export function DashboardPage() {
   return (
     <div className="w-full">
       <div className="border-b border-slate/20 bg-white/85 px-3 py-2 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
-        <div className="grid gap-2 xl:grid-cols-[210px_1fr_auto_auto_auto_auto] xl:items-center">
+        <div className="grid gap-2 xl:grid-cols-[160px_1fr_auto_auto_auto_auto_auto] xl:items-center">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Dashboard Views</p>
           <input
             value={savedViewName}
@@ -767,6 +879,33 @@ export function DashboardPage() {
           >
             Manage Views
           </button>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+              value={dashboardTimeRange}
+              onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
+            >
+              <option value="all">All time</option>
+              <option value="24h">Last 24h</option>
+              <option value="7d">Last 7d</option>
+              <option value="30d">Last 30d</option>
+              <option value="custom">Custom</option>
+            </select>
+            <input
+              type="date"
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+              value={dashboardCustomSinceDate}
+              onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
+              disabled={dashboardTimeRange !== 'custom'}
+            />
+            <input
+              type="date"
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+              value={dashboardCustomUntilDate}
+              onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+              disabled={dashboardTimeRange !== 'custom'}
+            />
+          </div>
           <div className="relative">
             <button
               type="button"
@@ -835,6 +974,15 @@ export function DashboardPage() {
             windowLayout.snap === 'free'
               ? normalizePanelRect(windowLayout.rect, containerDimensions.width, containerDimensions.height)
               : getSnapRect(windowLayout.snap, containerDimensions.width, containerDimensions.height)
+          const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
+          const rssWindowItems =
+            windowLayout.type === 'rss'
+              ? filterEntriesByTimeWindow(itemsQuery.data?.items ?? [], effectiveWindowTimeFilter)
+              : []
+          const alertWindowItems =
+            windowLayout.type === 'alerts'
+              ? filterEntriesByTimeWindow(alertMatchesQuery.data?.items ?? [], effectiveWindowTimeFilter)
+              : []
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
           const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border border-slate/20 bg-white/85 text-[13px] dark:border-cyan-900/40 dark:bg-[#041612]/96 ${
@@ -874,9 +1022,9 @@ export function DashboardPage() {
                 <div className="flex items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
                   <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
                     {windowLayout.type === 'rss'
-                      ? `${itemsQuery.data?.total ?? 0} items`
+                      ? `${rssWindowItems.length} shown`
                       : windowLayout.type === 'alerts'
-                        ? `${alertMatchesQuery.data?.total ?? 0} matches`
+                        ? `${alertWindowItems.length} shown`
                         : 'Scratch Pad'}
                   </span>
                   {windowLayout.type !== 'notes' && (
@@ -1014,12 +1162,10 @@ export function DashboardPage() {
                       />
                       <select
                         className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={timeRange}
-                        onChange={(event) => {
-                          clearRssSelection()
-                          setTimeRange(event.target.value as TimeRangeFilter)
-                        }}
+                        value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
+                        onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
+                        <option value={DASHBOARD_TIME_INHERIT_VALUE}>Dashboard Time</option>
                         <option value="all">All time</option>
                         <option value="24h">24h</option>
                         <option value="7d">7d</option>
@@ -1103,22 +1249,16 @@ export function DashboardPage() {
                           <input
                             type="date"
                             className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
-                            value={customSinceDate}
-                            onChange={(event) => {
-                              clearRssSelection()
-                              setCustomSinceDate(event.target.value)
-                            }}
-                            disabled={timeRange !== 'custom'}
+                            value={effectiveWindowTimeFilter.custom_since_date}
+                            onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
+                            disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                           />
                           <input
                             type="date"
                             className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
-                            value={customUntilDate}
-                            onChange={(event) => {
-                              clearRssSelection()
-                              setCustomUntilDate(event.target.value)
-                            }}
-                            disabled={timeRange !== 'custom'}
+                            value={effectiveWindowTimeFilter.custom_until_date}
+                            onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
+                            disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                           />
                         </div>
                         </div>
@@ -1128,7 +1268,7 @@ export function DashboardPage() {
 
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
-                      {itemsQuery.data?.items.map((item) => {
+                      {rssWindowItems.map((item) => {
                         const expanded = expandedItemId === item.id
                         const detail = expanded ? detailQuery.data : null
                         const compact = viewMode === 'compact'
@@ -1299,7 +1439,7 @@ export function DashboardPage() {
                           Failed to load items. {(itemsQuery.error as Error | undefined)?.message ?? ''}
                         </p>
                       )}
-                      {!itemsQuery.isLoading && !itemsQuery.data?.items.length && (
+                      {!itemsQuery.isLoading && !rssWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items match current filters.</p>
                       )}
                     </div>
@@ -1439,12 +1579,10 @@ export function DashboardPage() {
                       />
                       <select
                         className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={alertTimeRange}
-                        onChange={(event) => {
-                          clearAlertSelection()
-                          setAlertTimeRange(event.target.value as TimeRangeFilter)
-                        }}
+                        value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
+                        onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
+                        <option value={DASHBOARD_TIME_INHERIT_VALUE}>Dashboard Time</option>
                         <option value="all">All time</option>
                         <option value="24h">24h</option>
                         <option value="7d">7d</option>
@@ -1489,22 +1627,16 @@ export function DashboardPage() {
                       <input
                         type="date"
                         className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={alertCustomSinceDate}
-                        onChange={(event) => {
-                          clearAlertSelection()
-                          setAlertCustomSinceDate(event.target.value)
-                        }}
-                        disabled={alertTimeRange !== 'custom'}
+                        value={effectiveWindowTimeFilter.custom_since_date}
+                        onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
+                        disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                       />
                       <input
                         type="date"
                         className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={alertCustomUntilDate}
-                        onChange={(event) => {
-                          clearAlertSelection()
-                          setAlertCustomUntilDate(event.target.value)
-                        }}
-                        disabled={alertTimeRange !== 'custom'}
+                        value={effectiveWindowTimeFilter.custom_until_date}
+                        onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
+                        disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                       />
                     </div>
                     </div>
@@ -1512,7 +1644,7 @@ export function DashboardPage() {
 
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
-                      {alertMatchesQuery.data?.items.map((item) => {
+                      {alertWindowItems.map((item) => {
                         const compactAlerts = alertViewMode === 'compact'
                         return (
                         <article key={item.id} className={`rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-3'} dark:border-cyan-900/40`}>
@@ -1560,7 +1692,7 @@ export function DashboardPage() {
                           Failed to load alert matches. {(alertMatchesQuery.error as Error | undefined)?.message ?? ''}
                         </p>
                       )}
-                      {!alertMatchesQuery.isLoading && !alertMatchesQuery.data?.items.length && (
+                      {!alertMatchesQuery.isLoading && !alertWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items matched current alert filters.</p>
                       )}
                     </div>
@@ -1761,6 +1893,84 @@ function parseEndOfDay(date: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+function isTimeRangeFilter(value: unknown): value is TimeRangeFilter {
+  return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'custom'
+}
+
+function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter | null {
+  if (!isRecord(value)) return null
+  if (!isTimeRangeFilter(value.time_range)) return null
+  return {
+    time_range: value.time_range,
+    custom_since_date: typeof value.custom_since_date === 'string' ? value.custom_since_date : '',
+    custom_until_date: typeof value.custom_until_date === 'string' ? value.custom_until_date : '',
+  }
+}
+
+function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter): WindowTimeFilter {
+  if (windowLayout.type === 'notes') {
+    return dashboardTimeFilter
+  }
+  return windowLayout.time_override ?? dashboardTimeFilter
+}
+
+function combineTimeWindows(filters: WindowTimeFilter[]): { sinceIso: string; untilIso: string } {
+  if (!filters.length) {
+    return { sinceIso: '', untilIso: '' }
+  }
+
+  const windows = filters.map((filter) =>
+    deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date),
+  )
+
+  if (windows.some((entry) => !entry.sinceIso && !entry.untilIso)) {
+    return { sinceIso: '', untilIso: '' }
+  }
+
+  const sinceDates = windows
+    .map((entry) => (entry.sinceIso ? new Date(entry.sinceIso) : null))
+    .filter((entry): entry is Date => entry instanceof Date && !Number.isNaN(entry.getTime()))
+  const untilDates = windows
+    .map((entry) => (entry.untilIso ? new Date(entry.untilIso) : null))
+    .filter((entry): entry is Date => entry instanceof Date && !Number.isNaN(entry.getTime()))
+
+  const sinceIso =
+    sinceDates.length === windows.length
+      ? new Date(Math.min(...sinceDates.map((entry) => entry.getTime()))).toISOString()
+      : ''
+  const untilIso =
+    untilDates.length === windows.length
+      ? new Date(Math.max(...untilDates.map((entry) => entry.getTime()))).toISOString()
+      : ''
+
+  return { sinceIso, untilIso }
+}
+
+function filterEntriesByTimeWindow<T extends { published_at: string | null; first_seen_at: string }>(
+  entries: T[],
+  filter: WindowTimeFilter,
+): T[] {
+  const { sinceIso, untilIso } = deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date)
+  if (!sinceIso && !untilIso) {
+    return entries
+  }
+
+  const since = sinceIso ? new Date(sinceIso) : null
+  const until = untilIso ? new Date(untilIso) : null
+
+  return entries.filter((entry) => {
+    const reference = entry.published_at || entry.first_seen_at
+    if (!reference) return false
+
+    const candidate = new Date(reference)
+    if (Number.isNaN(candidate.getTime())) return false
+
+    if (since && candidate < since) return false
+    if (until && candidate > until) return false
+    return true
+  })
+}
+
 function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId: string) {
   queryClient.invalidateQueries({ queryKey: ['items'] })
   queryClient.invalidateQueries({ queryKey: ['item', itemId] })
@@ -1836,6 +2046,7 @@ function loadDashboardWindows(): DashboardWindow[] {
         rect: normalizePanelRect(rect, width, height),
         controls_collapsed: entry.controls_collapsed === true,
         scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
+        time_override: parseWindowTimeFilterCandidate(entry.time_override),
       })
     }
 
@@ -1905,6 +2116,7 @@ function createWindowLayout(
     rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
     controls_collapsed: false,
     scratch_note: '',
+    time_override: null,
   }
 }
 
@@ -1979,6 +2191,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
         rect,
         controls_collapsed: entry.controls_collapsed === true,
         scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
+        time_override: parseWindowTimeFilterCandidate(entry.time_override),
       })
     }
   }
@@ -1992,6 +2205,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
       rect: legacyFeedRect,
       controls_collapsed: false,
       scratch_note: '',
+      time_override: null,
     })
   }
 
@@ -2114,6 +2328,7 @@ function buildDashboardSavedViewState(
       rect: { ...window.rect },
       controls_collapsed: window.controls_collapsed,
       scratch_note: window.scratch_note,
+      time_override: window.time_override ? { ...window.time_override } : null,
     })),
     ui: {
       show_advanced_filters: showAdvancedFilters,
