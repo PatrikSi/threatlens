@@ -7,7 +7,7 @@ import { useTheme } from './ThemeContext'
 
 export function AppShell() {
   const { setAuthToken } = useAuth()
-  const { mode, toggleMode } = useTheme()
+  const { mode, setMode, darkThemes } = useTheme()
   const meQuery = useCurrentUser()
   const navigate = useNavigate()
   const location = useLocation()
@@ -53,12 +53,21 @@ export function AppShell() {
                 {meQuery.data.email} ({meQuery.data.role})
               </div>
             )}
-            <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
-              onClick={toggleMode}
-            >
-              {mode === 'dark' ? 'Light' : 'Dark'}
-            </button>
+            <label className="rounded border border-slate/30 px-2 py-1 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100">
+              <span className="sr-only">Theme</span>
+              <select
+                value={mode}
+                onChange={(event) => setMode(event.target.value as typeof mode)}
+                className="bg-transparent text-sm outline-none"
+              >
+                <option value="light">Light</option>
+                {darkThemes.map((theme) => (
+                  <option key={theme.id} value={theme.id}>
+                    {theme.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button
               className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={() => {
