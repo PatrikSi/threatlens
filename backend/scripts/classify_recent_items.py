@@ -12,6 +12,7 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
 
 
@@ -33,6 +34,7 @@ def main() -> int:
     session = SessionLocal()
     processed = 0
     skipped_up_to_date = 0
+    tags_synced = 0
 
     try:
         query = (
@@ -64,6 +66,13 @@ def main() -> int:
                 and classification.rules_version == result.rules_version
                 and classification.primary_category == result.primary_category
             ):
+                applied = sync_item_algorithm_tags(
+                    session,
+                    item_id=row.id,
+                    primary_category=classification.primary_category,
+                    secondary_categories=classification.secondary_categories,
+                )
+                tags_synced += len(applied)
                 skipped_up_to_date += 1
                 continue
 
@@ -77,6 +86,13 @@ def main() -> int:
             classification.classified_at = datetime.now(timezone.utc)
 
             session.add(classification)
+            applied = sync_item_algorithm_tags(
+                session,
+                item_id=row.id,
+                primary_category=result.primary_category,
+                secondary_categories=result.secondary_categories,
+            )
+            tags_synced += len(applied)
             processed += 1
 
         session.commit()
@@ -86,6 +102,7 @@ def main() -> int:
                 "rows_seen": len(rows),
                 "updated": processed,
                 "already_up_to_date": skipped_up_to_date,
+                "tags_synced": tags_synced,
             }
         )
     finally:

@@ -20,6 +20,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.services.connectors.rss import RSSConnector
+from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
@@ -482,6 +483,13 @@ def classify_item(item_id: str):
 
         row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
+            sync_item_algorithm_tags(
+                db,
+                item_id=parsed_item_id,
+                primary_category=row.primary_category,
+                secondary_categories=row.secondary_categories,
+            )
+            db.commit()
             extract_item_iocs.delay(item_id)
             return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
 
@@ -498,6 +506,12 @@ def classify_item(item_id: str):
         row.classified_at = datetime.now(timezone.utc)
 
         db.add(row)
+        sync_item_algorithm_tags(
+            db,
+            item_id=parsed_item_id,
+            primary_category=result.primary_category,
+            secondary_categories=result.secondary_categories,
+        )
         db.commit()
 
     extract_item_iocs.delay(item_id)
