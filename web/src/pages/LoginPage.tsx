@@ -31,16 +31,19 @@ export function LoginPage() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
-      <form className="w-full max-w-sm rounded-2xl border border-slate/20 bg-white/80 p-6 shadow-sm" onSubmit={onSubmit}>
+      <form
+        className="w-full max-w-sm rounded-2xl border border-slate/20 bg-white/80 p-6 shadow-sm dark:border-slate-700 dark:bg-slate-900/70"
+        onSubmit={onSubmit}
+      >
         <h2 className="font-display text-3xl">Analyst Login</h2>
-        <p className="mt-1 text-sm text-slate">Sign in to manage feeds and triage articles.</p>
+        <p className="mt-1 text-sm text-slate dark:text-slate-300">Sign in to manage feeds and triage articles.</p>
 
         <label className="mt-5 block text-sm font-semibold">Email</label>
         <input
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           type="email"
-          className="mt-1 w-full rounded border border-slate/30 px-3 py-2"
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
           required
         />
 
@@ -49,7 +52,7 @@ export function LoginPage() {
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           type="password"
-          className="mt-1 w-full rounded border border-slate/30 px-3 py-2"
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
           required
         />
 
@@ -57,7 +60,7 @@ export function LoginPage() {
 
         <button
           type="submit"
-          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate"
+          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate dark:bg-cyan dark:text-ink"
           disabled={login.isPending}
         >
           {login.isPending ? 'Signing in...' : 'Sign in'}

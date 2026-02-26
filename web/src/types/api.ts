@@ -1,12 +1,64 @@
 export interface User {
   id: string
   email: string
+  role: 'admin' | 'analyst' | 'viewer'
+  is_active: boolean
   created_at: string
 }
 
 export interface TokenResponse {
   access_token: string
   token_type: string
+}
+
+export interface UserCreateRequest {
+  email: string
+  password: string
+  role: 'admin' | 'analyst' | 'viewer'
+  is_active: boolean
+}
+
+export interface UserUpdateRequest {
+  email?: string
+  password?: string
+  role?: 'admin' | 'analyst' | 'viewer'
+  is_active?: boolean
+}
+
+export interface ApiToken {
+  id: string
+  user_id: string
+  name: string
+  token_prefix: string
+  scopes: string[]
+  last_used_at: string | null
+  expires_at: string | null
+  revoked_at: string | null
+  created_at: string
+}
+
+export interface ApiTokenCreateResponse {
+  token: string
+  token_prefix: string
+  expires_at: string | null
+}
+
+export interface AuditLog {
+  id: string
+  actor_user_id: string | null
+  action: string
+  resource_type: string
+  resource_id: string | null
+  success: boolean
+  metadata_json: Record<string, unknown>
+  created_at: string
+}
+
+export interface AuditLogListResponse {
+  logs: AuditLog[]
+  total: number
+  page: number
+  page_size: number
 }
 
 export interface Feed {

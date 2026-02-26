@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { Feed, ItemDetail, ItemListResponse } from '../types/api'
 
 type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
@@ -12,6 +13,7 @@ type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | '
 
 export function DashboardPage() {
   const queryClient = useQueryClient()
+  const meQuery = useCurrentUser()
   const [selectedFeedId, setSelectedFeedId] = useState<string>('')
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
@@ -24,6 +26,7 @@ export function DashboardPage() {
   const pageSize = 25
   const [selectedItemId, setSelectedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
+  const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
 
   const debouncedQ = useDebouncedValue(q)
 
@@ -116,19 +119,19 @@ export function DashboardPage() {
 
   const handleSelectItem = (itemId: string, isRead: boolean) => {
     setSelectedItemId(itemId)
-    if (!isRead) {
+    if (!isRead && canManage) {
       updateRead.mutate({ itemId, isRead: true })
     }
   }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr_1.2fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
         <h2 className="font-display text-xl">Filters</h2>
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Feed</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
           value={selectedFeedId}
           onChange={(event) => {
             setPage(1)
@@ -151,12 +154,12 @@ export function DashboardPage() {
             setQ(event.target.value)
           }}
           placeholder="ransomware, cve..."
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
         />
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Time Range</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
           value={timeRange}
           onChange={(event) => {
             setPage(1)
@@ -175,7 +178,7 @@ export function DashboardPage() {
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">From</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
               value={customSinceDate}
               onChange={(event) => {
                 setPage(1)
@@ -185,7 +188,7 @@ export function DashboardPage() {
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">To</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
               value={customUntilDate}
               onChange={(event) => {
                 setPage(1)
@@ -197,7 +200,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Read Status</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
           value={readStatus}
           onChange={(event) => {
             setPage(1)
@@ -211,7 +214,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Starred</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
           value={starStatus}
           onChange={(event) => {
             setPage(1)
@@ -225,7 +228,7 @@ export function DashboardPage() {
 
         <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Sort</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
           value={sort}
           onChange={(event) => {
             setPage(1)
@@ -239,10 +242,10 @@ export function DashboardPage() {
         </select>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-xl">Items</h2>
-          <span className="text-xs text-slate">{itemsQuery.data?.total ?? 0} total</span>
+          <span className="text-xs text-slate dark:text-slate-300">{itemsQuery.data?.total ?? 0} total</span>
         </div>
 
         <div className="space-y-2">
@@ -250,18 +253,20 @@ export function DashboardPage() {
             <button
               key={item.id}
               className={`w-full rounded border p-3 text-left transition ${
-                selectedItemId === item.id ? 'border-cyan bg-cyan/5' : 'border-slate/20 hover:border-slate/40'
+                selectedItemId === item.id
+                  ? 'border-cyan bg-cyan/5 dark:bg-cyan/10'
+                  : 'border-slate/20 hover:border-slate/40 dark:border-slate-700 dark:hover:border-slate-500'
               } ${item.is_read ? 'opacity-70' : ''}`}
               onClick={() => handleSelectItem(item.id, item.is_read)}
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="line-clamp-1 font-semibold">{item.title}</p>
-                <span className="text-xs text-slate">{item.feed_name}</span>
+                <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
               </div>
-              <p className="mt-1 text-xs text-slate">
+              <p className="mt-1 text-xs text-slate dark:text-slate-300">
                 Published: {formatPublishedAt(item.published_at)}
               </p>
-              <p className="mt-1 line-clamp-2 text-sm text-slate">{item.summary || 'No summary available.'}</p>
+              <p className="mt-1 line-clamp-2 text-sm text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
               <div className="mt-2 flex items-center gap-2 text-xs">
                 {item.is_starred && <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">Starred</span>}
                 {!item.is_read && <span className="rounded bg-cyan/20 px-2 py-0.5 text-cyan">Unread</span>}
@@ -270,13 +275,13 @@ export function DashboardPage() {
             </button>
           ))}
 
-          {itemsQuery.isLoading && <p className="text-sm text-slate">Loading items...</p>}
+          {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
           {itemsQuery.isError && <p className="text-sm text-red-600">Failed to load items.</p>}
         </div>
 
         <div className="mt-4 flex items-center justify-between text-sm">
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-slate-600"
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
           >
@@ -286,7 +291,7 @@ export function DashboardPage() {
             Page {page} / {totalPages}
           </span>
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-slate-600"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}
           >
@@ -295,17 +300,19 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
-        {!detailQuery.data && <p className="text-sm text-slate">Select an item to inspect details.</p>}
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+        {!detailQuery.data && <p className="text-sm text-slate dark:text-slate-300">Select an item to inspect details.</p>}
 
         {detailQuery.data && (
           <>
             <h2 className="font-display text-2xl">{detailQuery.data.title}</h2>
-            <p className="mt-1 text-sm text-slate">{detailQuery.data.feed_name}</p>
+            <p className="mt-1 text-sm text-slate dark:text-slate-300">{detailQuery.data.feed_name}</p>
+            {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role is read-only.</p>}
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-slate-600"
+                disabled={!canManage}
                 onClick={() =>
                   updateRead.mutate({
                     itemId: detailQuery.data.id,
@@ -316,7 +323,8 @@ export function DashboardPage() {
                 {detailQuery.data.state.is_read ? 'Mark Unread' : 'Mark Read'}
               </button>
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-slate-600"
+                disabled={!canManage}
                 onClick={() =>
                   updateStar.mutate({
                     itemId: detailQuery.data.id,
@@ -330,30 +338,32 @@ export function DashboardPage() {
 
             <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Analyst Note</label>
             <textarea
-              className="mt-1 h-24 w-full rounded border border-slate/30 px-2 py-2"
+              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-2 py-2 dark:border-slate-600 dark:bg-slate-800"
               value={noteDraft}
               onChange={(event) => setNoteDraft(event.target.value)}
+              disabled={!canManage}
             />
             <button
-              className="mt-2 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white"
+              className="mt-2 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white dark:bg-cyan dark:text-ink"
               onClick={() => updateNote.mutate({ itemId: detailQuery.data.id, note: noteDraft || null })}
+              disabled={!canManage}
             >
               Save Note
             </button>
 
-            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate">RSS Summary</p>
+            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3 dark:border-slate-700 dark:bg-slate-800/80">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
               <p className="mt-1 whitespace-pre-wrap text-sm">{detailQuery.data.summary || 'No summary.'}</p>
             </div>
 
-            <div className="mt-4 rounded border border-slate/20 bg-white p-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate">Extracted Full Text</p>
+            <div className="mt-4 rounded border border-slate/20 bg-white p-3 dark:border-slate-700 dark:bg-slate-800/80">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Extracted Full Text</p>
               {detailQuery.data.article?.text ? (
                 <pre className="mt-2 max-h-[450px] overflow-auto whitespace-pre-wrap text-sm leading-6">
                   {detailQuery.data.article.text}
                 </pre>
               ) : (
-                <p className="mt-2 text-sm text-slate">No extracted article text available yet.</p>
+                <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
               )}
               {detailQuery.data.article?.error && (
                 <p className="mt-2 text-sm text-red-600">Extraction error: {detailQuery.data.article.error}</p>

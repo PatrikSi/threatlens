@@ -10,11 +10,23 @@
     #f6f7f9;
 }
 
+.dark:root {
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(0, 163, 180, 0.22) 0%, transparent 40%),
+    radial-gradient(circle at 0% 100%, rgba(214, 107, 41, 0.18) 0%, transparent 45%),
+    #0b1220;
+}
+
 body {
   margin: 0;
   font-family: 'Source Sans 3', sans-serif;
   min-height: 100vh;
   color: #0e1726;
+}
+
+.dark body {
+  color: #e2e8f0;
 }
 
 * {
