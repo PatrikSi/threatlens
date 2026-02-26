@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import require_token_scopes
+from app.core.token_scopes import SCOPE_READ_VIEWS, SCOPE_WRITE_VIEWS
 from app.db.session import get_db
 from app.models.saved_view import SavedView
 from app.models.user import User
@@ -15,7 +16,10 @@ router = APIRouter(prefix="/views", tags=["views"])
 
 
 @router.get("", response_model=list[SavedViewResponse])
-def list_views(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_views(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_VIEWS)),
+):
     views = db.scalars(
         select(SavedView)
         .where(SavedView.user_id == user.id)
@@ -25,7 +29,11 @@ def list_views(db: Session = Depends(get_db), user: User = Depends(get_current_u
 
 
 @router.post("", response_model=SavedViewResponse, status_code=status.HTTP_201_CREATED)
-def create_view(payload: SavedViewCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def create_view(
+    payload: SavedViewCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+):
     view = SavedView(user_id=user.id, name=payload.name, query_json=payload.query_json)
     db.add(view)
     db.flush()
@@ -43,7 +51,11 @@ def create_view(payload: SavedViewCreate, db: Session = Depends(get_db), user: U
 
 
 @router.delete("/{view_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_view(view_id: uuid.UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_view(
+    view_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+):
     view = db.scalar(select(SavedView).where(SavedView.id == view_id, SavedView.user_id == user.id))
     if view is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="View not found")

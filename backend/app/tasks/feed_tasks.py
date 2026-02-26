@@ -18,10 +18,11 @@ from app.models.item import Item
 from app.services.connectors.rss import RSSConnector
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
-from app.services.url_utils import normalize_url
+from app.services.url_utils import is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
 
 settings = get_settings()
+redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 class ResponseTooLargeError(Exception):
@@ -43,18 +44,20 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
         yield
         return
 
-    client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
     key = f"threatlens:domain:{domain}"
     deadline = time.monotonic() + max_wait_seconds
 
     acquired = False
     while time.monotonic() < deadline:
-        current = client.incr(key)
-        client.expire(key, 30)
+        try:
+            current = redis_client.incr(key)
+            redis_client.expire(key, 30)
+        except redis.RedisError as exc:
+            raise TimeoutError(f"domain slot redis error for {domain}: {exc}") from exc
         if current <= settings.per_domain_concurrency:
             acquired = True
             break
-        client.decr(key)
+        redis_client.decr(key)
         time.sleep(0.2)
 
     if not acquired:
@@ -63,9 +66,12 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
     try:
         yield
     finally:
-        remaining = client.decr(key)
-        if remaining <= 0:
-            client.delete(key)
+        try:
+            remaining = redis_client.decr(key)
+            if remaining <= 0:
+                redis_client.delete(key)
+        except redis.RedisError:
+            pass
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
@@ -101,6 +107,10 @@ def fetch_feed(self, feed_id: str):
             headers["If-None-Match"] = feed.etag
         if feed.last_modified:
             headers["If-Modified-Since"] = feed.last_modified
+
+        if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
+            _mark_feed_failure(db, feed, "unsafe_feed_url")
+            return {"status": "error", "feed_id": feed_id}
 
         try:
             timeout = httpx.Timeout(
@@ -204,6 +214,18 @@ def fetch_article(self, item_id: str):
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
         target_url = item.canonical_url or item.url
+        if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
+            _store_article_error(
+                db,
+                item,
+                final_url=target_url or "",
+                http_status=0,
+                content_type=None,
+                fetch_ms=0,
+                error="unsafe_article_url",
+            )
+            return {"status": "error", "item_id": item_id}
+
         domain = urlsplit(target_url).hostname or "unknown"
         start = time.perf_counter()
 
@@ -301,6 +323,7 @@ def fetch_article(self, item_id: str):
             article = Article(item_id=item.id, final_url=final_url, http_status=status_code)
 
         article.final_url = final_url
+        article.retrieved_at = datetime.now(timezone.utc)
         article.http_status = status_code
         article.content_type = content_type
         article.title_extracted = extracted.get("title")
@@ -342,8 +365,11 @@ def _store_article_error(
         article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
 
     article.final_url = final_url
+    article.retrieved_at = datetime.now(timezone.utc)
     article.http_status = http_status
     article.content_type = content_type
+    article.title_extracted = None
+    article.language = None
     article.fetch_ms = fetch_ms
     article.error = error
     article.text = None

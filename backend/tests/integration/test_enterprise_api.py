@@ -38,6 +38,20 @@ def test_admin_can_manage_feeds_and_analyst_can_view(client: TestClient, auth_he
     assert len(list_response.json()) == 1
 
 
+def test_feed_create_blocks_private_network_urls(client: TestClient, auth_headers):
+    response = client.post(
+        "/feeds",
+        json={
+            "name": "PrivateFeed",
+            "url": "http://127.0.0.1/private.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 422
+
+
 def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
     create_user = client.post(
         "/users",
@@ -89,6 +103,70 @@ def test_api_token_flow(client: TestClient, auth_headers):
 
     denied_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})
     assert denied_response.status_code == 401
+
+
+def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
+    token_response = client.post(
+        "/tokens",
+        json={"name": "scope-limited", "expires_in_days": 30, "scopes": ["read:items"]},
+        headers=auth_headers["admin"],
+    )
+    assert token_response.status_code == 201
+    token_payload = token_response.json()
+
+    denied_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == "Insufficient token scope"
+
+
+def test_api_token_write_scope_allows_feed_mutation(client: TestClient, auth_headers):
+    token_response = client.post(
+        "/tokens",
+        json={"name": "feed-writer", "expires_in_days": 30, "scopes": ["write:feeds"]},
+        headers=auth_headers["admin"],
+    )
+    assert token_response.status_code == 201
+    token_payload = token_response.json()
+    token_auth = {"Authorization": f"Bearer {token_payload['token']}"}
+
+    create_response = client.post(
+        "/feeds",
+        json={
+            "name": "ScopedFeed",
+            "url": "https://example.com/scoped.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=token_auth,
+    )
+    assert create_response.status_code == 201
+
+    list_response = client.get("/feeds", headers=token_auth)
+    assert list_response.status_code == 200
+    assert any(feed["name"] == "ScopedFeed" for feed in list_response.json())
+
+
+def test_token_rejects_invalid_scope_values(client: TestClient, auth_headers):
+    token_response = client.post(
+        "/tokens",
+        json={"name": "invalid-scope", "expires_in_days": 30, "scopes": ["drop:database"]},
+        headers=auth_headers["admin"],
+    )
+    assert token_response.status_code == 422
+
+
+def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_headers):
+    create_response = client.post(
+        "/tokens",
+        json={"name": "default-scope-token", "expires_in_days": 30},
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+
+    list_response = client.get("/tokens", headers=auth_headers["admin"])
+    assert list_response.status_code == 200
+    created = next(token for token in list_response.json() if token["name"] == "default-scope-token")
+    assert created["scopes"] == ["read:feeds", "read:items", "read:stats"]
 
 
 def test_audit_log_endpoint(client: TestClient, auth_headers):

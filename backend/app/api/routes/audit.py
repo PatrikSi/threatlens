@@ -4,7 +4,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user
+from app.api.deps import get_admin_user, require_token_scopes
+from app.core.token_scopes import SCOPE_READ_AUDIT
 from app.db.session import get_db
 from app.models.audit_log import AuditLog
 from app.models.user import User
@@ -21,6 +22,7 @@ def list_audit_logs(
     page_size: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AUDIT)),
 ):
     _ = admin
     query = select(AuditLog)

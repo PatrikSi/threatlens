@@ -1,3 +1,4 @@
+import ipaddress
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 TRACKING_PARAMS = {
@@ -7,6 +8,10 @@ TRACKING_PARAMS = {
     "mc_eid",
     "ref",
     "source",
+}
+
+BLOCKED_HOSTNAMES = {
+    "localhost",
 }
 
 
@@ -46,3 +51,36 @@ def normalize_url(url: str | None) -> str:
     query = urlencode(query_pairs, doseq=True)
 
     return urlunsplit((scheme, netloc, path, query, ""))
+
+
+def is_fetchable_url(url: str | None, allow_private_network: bool = False) -> bool:
+    if not url:
+        return False
+
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return False
+
+    if parts.scheme.lower() not in {"http", "https"}:
+        return False
+
+    hostname = (parts.hostname or "").strip().lower()
+    if not hostname:
+        return False
+
+    if hostname in BLOCKED_HOSTNAMES:
+        return allow_private_network
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True
+
+    if allow_private_network:
+        return True
+
+    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        return False
+
+    return True

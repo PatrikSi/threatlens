@@ -1,4 +1,4 @@
-from app.services.url_utils import normalize_url
+from app.services.url_utils import is_fetchable_url, normalize_url
 
 
 def test_normalize_url_removes_tracking_and_sorts_query():
@@ -10,3 +10,17 @@ def test_normalize_url_removes_tracking_and_sorts_query():
 def test_normalize_url_handles_default_and_empty_path():
     url = "http://Example.com"
     assert normalize_url(url) == "http://example.com/"
+
+
+def test_is_fetchable_url_allows_public_http_urls():
+    assert is_fetchable_url("https://example.com/feed.xml")
+
+
+def test_is_fetchable_url_blocks_non_http_and_private_hosts():
+    assert not is_fetchable_url("ftp://example.com/file")
+    assert not is_fetchable_url("http://127.0.0.1/feed.xml")
+    assert not is_fetchable_url("http://localhost/feed.xml")
+
+
+def test_is_fetchable_url_can_allow_private_hosts_when_explicit():
+    assert is_fetchable_url("http://127.0.0.1/feed.xml", allow_private_network=True)
