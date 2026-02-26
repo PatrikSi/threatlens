@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.saved_view import SavedView
 from app.models.user import User
 from app.schemas.view import SavedViewCreate, SavedViewResponse
+from app.services.audit import record_audit
 
 router = APIRouter(prefix="/views", tags=["views"])
 
@@ -27,6 +28,15 @@ def list_views(db: Session = Depends(get_db), user: User = Depends(get_current_u
 def create_view(payload: SavedViewCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     view = SavedView(user_id=user.id, name=payload.name, query_json=payload.query_json)
     db.add(view)
+    db.flush()
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="views.create",
+        resource_type="saved_view",
+        resource_id=str(view.id),
+        metadata={"name": view.name},
+    )
     db.commit()
     db.refresh(view)
     return view
@@ -39,4 +49,11 @@ def delete_view(view_id: uuid.UUID, db: Session = Depends(get_db), user: User = 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="View not found")
 
     db.delete(view)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="views.delete",
+        resource_type="saved_view",
+        resource_id=str(view_id),
+    )
     db.commit()

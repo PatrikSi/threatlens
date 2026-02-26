@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+
+from app.core.rbac import ROLE_VIEWER
 
 
 class LoginRequest(BaseModel):
@@ -11,7 +13,12 @@ class LoginRequest(BaseModel):
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=256)
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=256)
 
 
 class TokenResponse(BaseModel):
@@ -24,4 +31,6 @@ class UserResponse(BaseModel):
 
     id: uuid.UUID
     email: EmailStr
+    role: str = ROLE_VIEWER
+    is_active: bool
     created_at: datetime

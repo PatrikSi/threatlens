@@ -1,3 +1,5 @@
+import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -7,6 +9,7 @@ from passlib.context import CryptContext
 from app.core.config import get_settings
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+API_TOKEN_MARKER = "tlp"
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -32,3 +35,26 @@ def decode_access_token(token: str) -> str | None:
         return None
     subject = payload.get("sub")
     return str(subject) if subject else None
+
+
+def generate_api_token() -> tuple[str, str, str]:
+    public_id = secrets.token_hex(8)
+    secret = secrets.token_urlsafe(32)
+    token = f"{API_TOKEN_MARKER}_{public_id}_{secret}"
+    return token, f"{API_TOKEN_MARKER}_{public_id}", hash_api_token(token)
+
+
+def extract_api_token_prefix(token: str) -> str | None:
+    parts = token.split("_", 2)
+    if len(parts) != 3:
+        return None
+
+    marker, public_id, _secret = parts
+    if marker != API_TOKEN_MARKER or not public_id:
+        return None
+
+    return f"{marker}_{public_id}"
+
+
+def hash_api_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

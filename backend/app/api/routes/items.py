@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_operator_user
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
@@ -23,8 +23,10 @@ from app.schemas.item import (
     ReadUpdateRequest,
     StarUpdateRequest,
 )
+from app.services.audit import record_audit
 
 router = APIRouter(prefix="/items", tags=["items"])
+
 
 
 def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemState:
@@ -207,7 +209,7 @@ def set_item_read(
     item_id: uuid.UUID,
     payload: ReadUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_operator_user),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -216,6 +218,14 @@ def set_item_read(
     state = _get_or_create_state(db, user.id, item_id)
     state.is_read = payload.is_read
     db.add(state)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="items.set_read",
+        resource_type="item",
+        resource_id=str(item_id),
+        metadata={"is_read": payload.is_read},
+    )
     db.commit()
     return {"status": "ok"}
 
@@ -225,7 +235,7 @@ def set_item_star(
     item_id: uuid.UUID,
     payload: StarUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_operator_user),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -234,6 +244,14 @@ def set_item_star(
     state = _get_or_create_state(db, user.id, item_id)
     state.is_starred = payload.is_starred
     db.add(state)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="items.set_star",
+        resource_type="item",
+        resource_id=str(item_id),
+        metadata={"is_starred": payload.is_starred},
+    )
     db.commit()
     return {"status": "ok"}
 
@@ -243,7 +261,7 @@ def set_item_note(
     item_id: uuid.UUID,
     payload: NoteUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_operator_user),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
@@ -252,6 +270,13 @@ def set_item_note(
     state = _get_or_create_state(db, user.id, item_id)
     state.note = payload.note
     db.add(state)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="items.set_note",
+        resource_type="item",
+        resource_id=str(item_id),
+    )
     db.commit()
     return {"status": "ok"}
 
@@ -261,21 +286,30 @@ def set_item_tags(
     item_id: uuid.UUID,
     payload: ItemTagsUpdateRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_operator_user),
 ):
     item = db.scalar(select(Item.id).where(Item.id == item_id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    _ = user
     db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(synchronize_session=False)
 
+    applied: list[str] = []
     if payload.tag_ids:
         valid_tags = db.scalars(select(Tag.id).where(Tag.id.in_(payload.tag_ids))).all()
         valid_tag_set = set(valid_tags)
         for tag_id in payload.tag_ids:
             if tag_id in valid_tag_set:
                 db.add(ItemTag(item_id=item_id, tag_id=tag_id))
+                applied.append(str(tag_id))
 
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="items.set_tags",
+        resource_type="item",
+        resource_id=str(item_id),
+        metadata={"tag_ids": applied},
+    )
     db.commit()
     return {"status": "ok"}
