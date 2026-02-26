@@ -29,7 +29,22 @@ interface DashboardSavedViewQuery {
   sort: TimeSort
 }
 
+interface DashboardSavedViewLayout {
+  windows: Record<string, PanelRect>
+}
+
+interface DashboardSavedViewState {
+  version: number
+  filters: DashboardSavedViewQuery
+  layout: DashboardSavedViewLayout
+  ui: {
+    show_advanced_filters: boolean
+  }
+}
+
 const PANEL_STORAGE_KEY = 'threatlens.dashboard.panel.v1'
+const DASHBOARD_VIEW_VERSION = 2
+const FEEDS_WINDOW_ID = 'feeds'
 const LEGACY_PANEL_WIDTH = 1180
 const PANEL_OUTER_GAP = 12
 const PANEL_MIN_WIDTH = 860
@@ -67,10 +82,8 @@ export function DashboardPage() {
       const nextIsWide = window.innerWidth >= 1024
       setIsWideLayout(nextIsWide)
       if (nextIsWide) {
-        const rootBounds = rootRef.current?.getBoundingClientRect()
-        const containerWidth = Math.max(PANEL_MIN_WIDTH, Math.floor(rootBounds?.width ?? window.innerWidth - PANEL_OUTER_GAP * 2))
-        const containerHeight = Math.max(PANEL_MIN_HEIGHT, Math.floor(rootBounds?.height ?? window.innerHeight - 170))
-        setPanelRect((current) => normalizePanelRect(current, containerWidth, containerHeight))
+        const { width, height } = getPanelContainerDimensions(rootRef.current)
+        setPanelRect((current) => normalizePanelRect(current, width, height))
       }
     }
 
@@ -105,7 +118,7 @@ export function DashboardPage() {
   })
 
   const saveView = useMutation({
-    mutationFn: (payload: { name: string; query: DashboardSavedViewQuery }) =>
+    mutationFn: (payload: { name: string; query: DashboardSavedViewState }) =>
       apiFetch<SavedView>('/views', {
         method: 'POST',
         body: JSON.stringify({
@@ -231,30 +244,40 @@ export function DashboardPage() {
 
     saveView.mutate({
       name,
-      query: {
-        selected_feed_ids: selectedFeedIds,
-        q,
-        read_status: readStatus,
-        star_status: starStatus,
-        time_range: timeRange,
-        custom_since_date: customSinceDate,
-        custom_until_date: customUntilDate,
-        sort,
-      },
+      query: buildDashboardSavedViewState(
+        {
+          selected_feed_ids: selectedFeedIds,
+          q,
+          read_status: readStatus,
+          star_status: starStatus,
+          time_range: timeRange,
+          custom_since_date: customSinceDate,
+          custom_until_date: customUntilDate,
+          sort,
+        },
+        panelRect,
+        showAdvancedFilters,
+      ),
     })
   }
 
   const applySavedView = (view: SavedView) => {
-    const parsed = parseDashboardSavedView(view.query_json)
+    const parsed = parseDashboardSavedView(view.query_json, panelRect)
     setPage(1)
-    setSelectedFeedIds(parsed.selected_feed_ids)
-    setQ(parsed.q)
-    setReadStatus(parsed.read_status)
-    setStarStatus(parsed.star_status)
-    setTimeRange(parsed.time_range)
-    setCustomSinceDate(parsed.custom_since_date)
-    setCustomUntilDate(parsed.custom_until_date)
-    setSort(parsed.sort)
+    setSelectedFeedIds(parsed.filters.selected_feed_ids)
+    setQ(parsed.filters.q)
+    setReadStatus(parsed.filters.read_status)
+    setStarStatus(parsed.filters.star_status)
+    setTimeRange(parsed.filters.time_range)
+    setCustomSinceDate(parsed.filters.custom_since_date)
+    setCustomUntilDate(parsed.filters.custom_until_date)
+    setSort(parsed.filters.sort)
+    setShowAdvancedFilters(parsed.ui.show_advanced_filters)
+    const nextFeedWindow = parsed.layout.windows[FEEDS_WINDOW_ID]
+    if (nextFeedWindow) {
+      const { width, height } = getPanelContainerDimensions(rootRef.current)
+      setPanelRect(normalizePanelRect(nextFeedWindow, width, height))
+    }
     setActiveSavedViewId(view.id)
   }
 
@@ -276,6 +299,7 @@ export function DashboardPage() {
 
       const maxX = Math.max(0, rootBounds.width - startRect.width)
       const maxY = Math.max(0, rootBounds.height - startRect.height)
+      setActiveSavedViewId(null)
 
       setPanelRect((current) => ({
         ...current,
@@ -312,6 +336,7 @@ export function DashboardPage() {
 
       const maxWidth = rootBounds.width - startRect.x
       const maxHeight = rootBounds.height - startRect.y
+      setActiveSavedViewId(null)
 
       setPanelRect((current) => ({
         ...current,
@@ -330,9 +355,64 @@ export function DashboardPage() {
   }
 
   return (
-    <div ref={rootRef} className="relative w-full min-h-[calc(100vh-110px)]">
+    <div className="w-full">
+      <div className="mb-3 rounded-xl border border-slate/20 bg-white/85 px-3 py-2 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
+        <div className="grid gap-2 md:grid-cols-[180px_1fr_auto_auto] md:items-center">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Dashboard Views</p>
+          <input
+            value={savedViewName}
+            onChange={(event) => setSavedViewName(event.target.value)}
+            placeholder="Save dashboard view as..."
+            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+          />
+          <button
+            type="button"
+            className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+            onClick={saveCurrentView}
+            disabled={saveView.isPending || !savedViewName.trim()}
+          >
+            Save View
+          </button>
+          <select
+            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            value={activeSavedViewId ?? ''}
+            onChange={(event) => {
+              const value = event.target.value
+              if (!value) {
+                setActiveSavedViewId(null)
+                return
+              }
+              const selected = viewsQuery.data?.find((view) => view.id === value)
+              if (selected) {
+                applySavedView(selected)
+              }
+            }}
+          >
+            <option value="">Load Dashboard View</option>
+            {viewsQuery.data?.map((view) => (
+              <option key={view.id} value={view.id}>
+                {view.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        {activeSavedViewId && (
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+              onClick={() => deleteView.mutate(activeSavedViewId)}
+              disabled={deleteView.isPending}
+            >
+              Delete Active View
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div ref={rootRef} className="relative min-h-[calc(100vh-170px)]">
       <section
-        className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#041612]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
+        className="flex h-[calc(100vh-180px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#041612]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
         style={
           isWideLayout
             ? {
@@ -442,7 +522,10 @@ export function DashboardPage() {
             <button
               type="button"
               className="rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-              onClick={() => setShowAdvancedFilters((current) => !current)}
+              onClick={() => {
+                setActiveSavedViewId(null)
+                setShowAdvancedFilters((current) => !current)
+              }}
             >
               {showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
             </button>
@@ -500,56 +583,6 @@ export function DashboardPage() {
                   disabled={timeRange !== 'custom'}
                 />
               </div>
-              <div className="col-span-full grid gap-2 md:grid-cols-[1fr_auto_auto]">
-                <input
-                  value={savedViewName}
-                  onChange={(event) => setSavedViewName(event.target.value)}
-                  placeholder="Save current filters as..."
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                />
-                <button
-                  type="button"
-                  className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
-                  onClick={saveCurrentView}
-                  disabled={saveView.isPending || !savedViewName.trim()}
-                >
-                  Save View
-                </button>
-                <select
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                  value={activeSavedViewId ?? ''}
-                  onChange={(event) => {
-                    const value = event.target.value
-                    if (!value) {
-                      setActiveSavedViewId(null)
-                      return
-                    }
-                    const selected = viewsQuery.data?.find((view) => view.id === value)
-                    if (selected) {
-                      applySavedView(selected)
-                    }
-                  }}
-                >
-                  <option value="">Load Saved View</option>
-                  {viewsQuery.data?.map((view) => (
-                    <option key={view.id} value={view.id}>
-                      {view.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {activeSavedViewId && (
-                <div className="col-span-full flex justify-end">
-                  <button
-                    type="button"
-                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                    onClick={() => deleteView.mutate(activeSavedViewId)}
-                    disabled={deleteView.isPending}
-                  >
-                    Delete Active View
-                  </button>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -569,19 +602,31 @@ export function DashboardPage() {
                       : 'border-slate/20 dark:border-cyan-900/40'
                   } ${item.is_read ? 'opacity-85' : ''}`}
                 >
-                  <button className="w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
+                  <div className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-[15px] font-semibold leading-snug">{item.title}</h3>
+                      <h3 className="text-[15px] font-semibold leading-snug">
+                        <a
+                          href={item.canonical_url || item.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:text-cyan hover:underline"
+                          onClick={(event) => event.stopPropagation()}
+                        >
+                          {item.title}
+                        </a>
+                      </h3>
                       <span className="shrink-0 text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
-                      <span>Published {formatPublishedAt(item.published_at)}</span>
-                      <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
-                      {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
-                      {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
-                    </div>
-                    <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
-                  </button>
+                    <button type="button" className="mt-1 w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
+                        <span>Published {formatPublishedAt(item.published_at)}</span>
+                        <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
+                        {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
+                        {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                      </div>
+                      <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
+                    </button>
+                  </div>
 
                   {expanded && (
                     <div className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
@@ -711,6 +756,7 @@ export function DashboardPage() {
           />
         )}
       </section>
+      </div>
     </div>
   )
 }
@@ -776,30 +822,89 @@ function formatPublishedAt(value: string | null) {
   return dt.toLocaleString()
 }
 
-function parseDashboardSavedView(raw: Record<string, unknown>): DashboardSavedViewQuery {
-  const selectedFeedIds = Array.isArray(raw.selected_feed_ids)
-    ? raw.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
+function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect: PanelRect): DashboardSavedViewState {
+  const rawFilters = isRecord(raw.filters) ? raw.filters : raw
+  const rawUi = isRecord(raw.ui) ? raw.ui : {}
+
+  const selectedFeedIds = Array.isArray(rawFilters.selected_feed_ids)
+    ? rawFilters.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
     : []
 
-  const readStatus = raw.read_status === 'read' || raw.read_status === 'unread' ? raw.read_status : 'all'
-  const starStatus = raw.star_status === 'starred' || raw.star_status === 'unstarred' ? raw.star_status : 'all'
+  const readStatus = rawFilters.read_status === 'read' || rawFilters.read_status === 'unread' ? rawFilters.read_status : 'all'
+  const starStatus =
+    rawFilters.star_status === 'starred' || rawFilters.star_status === 'unstarred' ? rawFilters.star_status : 'all'
   const timeRange =
-    raw.time_range === '24h' || raw.time_range === '7d' || raw.time_range === '30d' || raw.time_range === 'custom'
-      ? raw.time_range
+    rawFilters.time_range === '24h' ||
+    rawFilters.time_range === '7d' ||
+    rawFilters.time_range === '30d' ||
+    rawFilters.time_range === 'custom'
+      ? rawFilters.time_range
       : 'all'
 
   const sortValues: TimeSort[] = ['published_at_desc', 'published_at_asc', 'first_seen_desc', 'first_seen_asc']
-  const sort = typeof raw.sort === 'string' && sortValues.includes(raw.sort as TimeSort) ? (raw.sort as TimeSort) : 'published_at_desc'
+  const sort =
+    typeof rawFilters.sort === 'string' && sortValues.includes(rawFilters.sort as TimeSort)
+      ? (rawFilters.sort as TimeSort)
+      : 'published_at_desc'
+
+  const parsedLayoutWindows: Record<string, PanelRect> = {}
+  const rawLayout = isRecord(raw.layout) ? raw.layout : {}
+  const rawWindows = isRecord(rawLayout.windows) ? rawLayout.windows : {}
+
+  for (const [windowId, value] of Object.entries(rawWindows)) {
+    const parsedRect = parsePanelRectCandidate(value)
+    if (parsedRect) {
+      parsedLayoutWindows[windowId] = parsedRect
+    }
+  }
+
+  const legacyRect = parsePanelRectCandidate(raw.panel_rect)
+  if (legacyRect && !parsedLayoutWindows[FEEDS_WINDOW_ID]) {
+    parsedLayoutWindows[FEEDS_WINDOW_ID] = legacyRect
+  }
+
+  if (!parsedLayoutWindows[FEEDS_WINDOW_ID]) {
+    parsedLayoutWindows[FEEDS_WINDOW_ID] = { ...fallbackPanelRect }
+  }
 
   return {
-    selected_feed_ids: selectedFeedIds,
-    q: typeof raw.q === 'string' ? raw.q : '',
-    read_status: readStatus,
-    star_status: starStatus,
-    time_range: timeRange,
-    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
-    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
-    sort,
+    version: DASHBOARD_VIEW_VERSION,
+    filters: {
+      selected_feed_ids: selectedFeedIds,
+      q: typeof rawFilters.q === 'string' ? rawFilters.q : '',
+      read_status: readStatus,
+      star_status: starStatus,
+      time_range: timeRange,
+      custom_since_date: typeof rawFilters.custom_since_date === 'string' ? rawFilters.custom_since_date : '',
+      custom_until_date: typeof rawFilters.custom_until_date === 'string' ? rawFilters.custom_until_date : '',
+      sort,
+    },
+    layout: {
+      windows: parsedLayoutWindows,
+    },
+    ui: {
+      show_advanced_filters: typeof rawUi.show_advanced_filters === 'boolean' ? rawUi.show_advanced_filters : false,
+    },
+  }
+}
+
+function buildDashboardSavedViewState(filters: DashboardSavedViewQuery, panelRect: PanelRect, showAdvancedFilters: boolean): DashboardSavedViewState {
+  return {
+    version: DASHBOARD_VIEW_VERSION,
+    filters: {
+      ...filters,
+      selected_feed_ids: [...filters.selected_feed_ids],
+    },
+    layout: {
+      windows: {
+        [FEEDS_WINDOW_ID]: {
+          ...panelRect,
+        },
+      },
+    },
+    ui: {
+      show_advanced_filters: showAdvancedFilters,
+    },
   }
 }
 
@@ -1141,8 +1246,7 @@ function loadPanelRect(): PanelRect {
     return createDefaultPanel(1380, 760)
   }
 
-  const containerWidth = Math.max(PANEL_MIN_WIDTH, window.innerWidth - PANEL_OUTER_GAP * 2)
-  const containerHeight = Math.max(PANEL_MIN_HEIGHT, window.innerHeight - 170)
+  const { width: containerWidth, height: containerHeight } = getPanelContainerDimensions(null)
   const defaultPanel = createDefaultPanel(containerWidth, containerHeight)
   const raw = window.localStorage.getItem(PANEL_STORAGE_KEY)
   if (!raw) {
@@ -1177,6 +1281,44 @@ function loadPanelRect(): PanelRect {
   } catch {
     return defaultPanel
   }
+}
+
+function parsePanelRectCandidate(value: unknown): PanelRect | null {
+  if (!isRecord(value)) return null
+  if (
+    typeof value.x !== 'number' ||
+    typeof value.y !== 'number' ||
+    typeof value.width !== 'number' ||
+    typeof value.height !== 'number'
+  ) {
+    return null
+  }
+
+  if (!Number.isFinite(value.x) || !Number.isFinite(value.y) || !Number.isFinite(value.width) || !Number.isFinite(value.height)) {
+    return null
+  }
+
+  return {
+    x: value.x,
+    y: value.y,
+    width: value.width,
+    height: value.height,
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function getPanelContainerDimensions(rootElement: HTMLDivElement | null): { width: number; height: number } {
+  if (typeof window === 'undefined') {
+    return { width: 1380, height: 760 }
+  }
+
+  const rootBounds = rootElement?.getBoundingClientRect()
+  const width = Math.max(PANEL_MIN_WIDTH, Math.floor(rootBounds?.width ?? window.innerWidth - PANEL_OUTER_GAP * 2))
+  const height = Math.max(PANEL_MIN_HEIGHT, Math.floor(rootBounds?.height ?? window.innerHeight - 170))
+  return { width, height }
 }
 
 function clamp(value: number, min: number, max: number) {
