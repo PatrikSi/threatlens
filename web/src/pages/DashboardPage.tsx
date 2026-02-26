@@ -30,7 +30,8 @@ interface DashboardSavedViewQuery {
 }
 
 const PANEL_STORAGE_KEY = 'threatlens.dashboard.panel.v1'
-const DEFAULT_PANEL: PanelRect = { x: 12, y: 12, width: 1180, height: 760 }
+const LEGACY_PANEL_WIDTH = 1180
+const PANEL_OUTER_GAP = 12
 const PANEL_MIN_WIDTH = 860
 const PANEL_MIN_HEIGHT = 520
 
@@ -62,11 +63,20 @@ export function DashboardPage() {
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
 
   useEffect(() => {
-    const onResize = () => {
-      setIsWideLayout(window.innerWidth >= 1024)
+    const syncLayout = () => {
+      const nextIsWide = window.innerWidth >= 1024
+      setIsWideLayout(nextIsWide)
+      if (nextIsWide) {
+        const rootBounds = rootRef.current?.getBoundingClientRect()
+        const containerWidth = Math.max(PANEL_MIN_WIDTH, Math.floor(rootBounds?.width ?? window.innerWidth - PANEL_OUTER_GAP * 2))
+        const containerHeight = Math.max(PANEL_MIN_HEIGHT, Math.floor(rootBounds?.height ?? window.innerHeight - 170))
+        setPanelRect((current) => normalizePanelRect(current, containerWidth, containerHeight))
+      }
     }
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
+
+    syncLayout()
+    window.addEventListener('resize', syncLayout)
+    return () => window.removeEventListener('resize', syncLayout)
   }, [])
 
   useEffect(() => {
@@ -319,7 +329,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div ref={rootRef} className="relative min-h-[calc(100vh-110px)]">
+    <div ref={rootRef} className="relative w-full min-h-[calc(100vh-110px)]">
       <section
         className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#040913]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
         style={
@@ -800,12 +810,15 @@ function renderArticleParagraphs(text: string): string[] {
 
 function loadPanelRect(): PanelRect {
   if (typeof window === 'undefined') {
-    return DEFAULT_PANEL
+    return createDefaultPanel(1380, 760)
   }
 
+  const containerWidth = Math.max(PANEL_MIN_WIDTH, window.innerWidth - PANEL_OUTER_GAP * 2)
+  const containerHeight = Math.max(PANEL_MIN_HEIGHT, window.innerHeight - 170)
+  const defaultPanel = createDefaultPanel(containerWidth, containerHeight)
   const raw = window.localStorage.getItem(PANEL_STORAGE_KEY)
   if (!raw) {
-    return DEFAULT_PANEL
+    return defaultPanel
   }
 
   try {
@@ -816,17 +829,25 @@ function loadPanelRect(): PanelRect {
       typeof parsed.width !== 'number' ||
       typeof parsed.height !== 'number'
     ) {
-      return DEFAULT_PANEL
+      return defaultPanel
     }
 
-    return {
-      x: Math.max(0, parsed.x),
-      y: Math.max(0, parsed.y),
-      width: Math.max(PANEL_MIN_WIDTH, parsed.width),
-      height: Math.max(PANEL_MIN_HEIGHT, parsed.height),
+    if (parsed.width === LEGACY_PANEL_WIDTH && parsed.x <= PANEL_OUTER_GAP) {
+      return defaultPanel
     }
+
+    return normalizePanelRect(
+      {
+        x: parsed.x,
+        y: parsed.y,
+        width: parsed.width,
+        height: parsed.height,
+      },
+      containerWidth,
+      containerHeight,
+    )
   } catch {
-    return DEFAULT_PANEL
+    return defaultPanel
   }
 }
 
@@ -834,4 +855,34 @@ function clamp(value: number, min: number, max: number) {
   if (value < min) return min
   if (value > max) return max
   return value
+}
+
+function createDefaultPanel(containerWidth: number, containerHeight: number): PanelRect {
+  const maxWidth = Math.max(PANEL_MIN_WIDTH, containerWidth)
+  const maxHeight = Math.max(PANEL_MIN_HEIGHT, containerHeight)
+
+  return {
+    x: 0,
+    y: 8,
+    width: maxWidth,
+    height: clamp(760, PANEL_MIN_HEIGHT, maxHeight),
+  }
+}
+
+function normalizePanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
+  const maxWidth = Math.max(PANEL_MIN_WIDTH, containerWidth)
+  const maxHeight = Math.max(PANEL_MIN_HEIGHT, containerHeight)
+
+  const width = clamp(panel.width, PANEL_MIN_WIDTH, maxWidth)
+  const height = clamp(panel.height, PANEL_MIN_HEIGHT, maxHeight)
+
+  const maxX = Math.max(0, maxWidth - width)
+  const maxY = Math.max(0, maxHeight - height)
+
+  return {
+    x: clamp(panel.x, 0, maxX),
+    y: clamp(panel.y, 0, maxY),
+    width,
+    height,
+  }
 }

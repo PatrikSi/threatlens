@@ -23,7 +23,7 @@ export function AppShell() {
   return (
     <div className="min-h-screen text-ink dark:text-slate-100">
       <header className="border-b border-slate/20 bg-white/70 backdrop-blur dark:border-cyan-900/40 dark:bg-[#030711]/92">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+        <div className="flex w-full flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 lg:px-6">
           <div className="flex items-center gap-6">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
@@ -66,7 +66,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl px-4 py-5">
+      <main className="w-full px-3 py-4 sm:px-4 lg:px-6">
         <Outlet />
       </main>
     </div>
