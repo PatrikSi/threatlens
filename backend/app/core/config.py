@@ -1,0 +1,30 @@
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    app_env: str = "development"
+    database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
+    redis_url: str = "redis://redis:6379/0"
+    jwt_secret: str = "change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_expires_minutes: int = 60 * 24
+
+    admin_email: str = "admin@example.com"
+    admin_password: str = "admin123"
+
+    fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
+    feed_connect_timeout_seconds: int = 5
+    feed_read_timeout_seconds: int = 15
+    article_connect_timeout_seconds: int = 5
+    article_read_timeout_seconds: int = 20
+    article_max_bytes: int = 4_000_000
+    per_domain_concurrency: int = 2
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
