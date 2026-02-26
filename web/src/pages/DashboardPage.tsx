@@ -5,12 +5,21 @@ import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { Feed, ItemDetail, ItemListResponse } from '../types/api'
 
+type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
+type ReadStatusFilter = 'all' | 'read' | 'unread'
+type StarStatusFilter = 'all' | 'starred' | 'unstarred'
+type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
   const [selectedFeedId, setSelectedFeedId] = useState<string>('')
   const [q, setQ] = useState('')
-  const [unreadOnly, setUnreadOnly] = useState(false)
-  const [starredOnly, setStarredOnly] = useState(false)
+  const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
+  const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
+  const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all')
+  const [customSinceDate, setCustomSinceDate] = useState('')
+  const [customUntilDate, setCustomUntilDate] = useState('')
+  const [sort, setSort] = useState<TimeSort>('published_at_desc')
   const [page, setPage] = useState(1)
   const pageSize = 25
   const [selectedItemId, setSelectedItemId] = useState<string>('')
@@ -18,31 +27,75 @@ export function DashboardPage() {
 
   const debouncedQ = useDebouncedValue(q)
 
+  const { sinceIso, untilIso } = useMemo(
+    () => deriveTimeWindow(timeRange, customSinceDate, customUntilDate),
+    [timeRange, customSinceDate, customUntilDate],
+  )
+
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
   })
 
+  const updateRead = useMutation({
+    mutationFn: (payload: { itemId: string; isRead: boolean }) =>
+      apiFetch(`/items/${payload.itemId}/read`, {
+        method: 'POST',
+        body: JSON.stringify({ is_read: payload.isRead }),
+      }),
+    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+  })
+
+  const updateStar = useMutation({
+    mutationFn: (payload: { itemId: string; isStarred: boolean }) =>
+      apiFetch(`/items/${payload.itemId}/star`, {
+        method: 'POST',
+        body: JSON.stringify({ is_starred: payload.isStarred }),
+      }),
+    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+  })
+
+  const updateNote = useMutation({
+    mutationFn: (payload: { itemId: string; note: string | null }) =>
+      apiFetch(`/items/${payload.itemId}/note`, {
+        method: 'POST',
+        body: JSON.stringify({ note: payload.note }),
+      }),
+    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+  })
+
   const itemsQuery = useQuery({
-    queryKey: ['items', selectedFeedId, debouncedQ, unreadOnly, starredOnly, page],
+    queryKey: ['items', selectedFeedId, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
     queryFn: () => {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('page_size', String(pageSize))
-      params.set('sort', 'published_at_desc')
+      params.set('sort', sort)
+
       if (selectedFeedId) params.set('feed_id', selectedFeedId)
       if (debouncedQ) params.set('q', debouncedQ)
-      if (unreadOnly) params.set('is_read', 'false')
-      if (starredOnly) params.set('is_starred', 'true')
+      if (sinceIso) params.set('since', sinceIso)
+      if (untilIso) params.set('until', untilIso)
+
+      if (readStatus === 'read') params.set('is_read', 'true')
+      if (readStatus === 'unread') params.set('is_read', 'false')
+      if (starStatus === 'starred') params.set('is_starred', 'true')
+      if (starStatus === 'unstarred') params.set('is_starred', 'false')
 
       return apiFetch<ItemListResponse>(`/items?${params.toString()}`)
     },
   })
 
   useEffect(() => {
-    const first = itemsQuery.data?.items[0]
-    if (first && !selectedItemId) {
-      setSelectedItemId(first.id)
+    const items = itemsQuery.data?.items ?? []
+    if (!items.length) {
+      setSelectedItemId('')
+      return
+    }
+
+    const selectedExists = items.some((item) => item.id === selectedItemId)
+    if (!selectedExists) {
+      setSelectedItemId(items[0].id)
     }
   }, [itemsQuery.data?.items, selectedItemId])
 
@@ -56,37 +109,17 @@ export function DashboardPage() {
     setNoteDraft(detailQuery.data?.state.note ?? '')
   }, [detailQuery.data?.state.note])
 
-  const updateRead = useMutation({
-    mutationFn: (payload: { itemId: string; isRead: boolean }) =>
-      apiFetch(`/items/${payload.itemId}/read`, {
-        method: 'POST',
-        body: JSON.stringify({ is_read: payload.isRead }),
-      }),
-    onSuccess: () => invalidateLists(queryClient, selectedItemId),
-  })
-
-  const updateStar = useMutation({
-    mutationFn: (payload: { itemId: string; isStarred: boolean }) =>
-      apiFetch(`/items/${payload.itemId}/star`, {
-        method: 'POST',
-        body: JSON.stringify({ is_starred: payload.isStarred }),
-      }),
-    onSuccess: () => invalidateLists(queryClient, selectedItemId),
-  })
-
-  const updateNote = useMutation({
-    mutationFn: (payload: { itemId: string; note: string | null }) =>
-      apiFetch(`/items/${payload.itemId}/note`, {
-        method: 'POST',
-        body: JSON.stringify({ note: payload.note }),
-      }),
-    onSuccess: () => invalidateLists(queryClient, selectedItemId),
-  })
-
   const totalPages = useMemo(() => {
     const total = itemsQuery.data?.total ?? 0
     return Math.max(1, Math.ceil(total / pageSize))
   }, [itemsQuery.data?.total])
+
+  const handleSelectItem = (itemId: string, isRead: boolean) => {
+    setSelectedItemId(itemId)
+    if (!isRead) {
+      updateRead.mutate({ itemId, isRead: true })
+    }
+  }
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr_1.2fr]">
@@ -121,28 +154,89 @@ export function DashboardPage() {
           className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
         />
 
-        <label className="mt-3 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={unreadOnly}
-            onChange={(event) => {
-              setPage(1)
-              setUnreadOnly(event.target.checked)
-            }}
-          />
-          Unread only
-        </label>
-        <label className="mt-1 flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={starredOnly}
-            onChange={(event) => {
-              setPage(1)
-              setStarredOnly(event.target.checked)
-            }}
-          />
-          Starred only
-        </label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Time Range</label>
+        <select
+          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          value={timeRange}
+          onChange={(event) => {
+            setPage(1)
+            setTimeRange(event.target.value as TimeRangeFilter)
+          }}
+        >
+          <option value="all">All time</option>
+          <option value="24h">Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+          <option value="custom">Custom range</option>
+        </select>
+
+        {timeRange === 'custom' && (
+          <>
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">From</label>
+            <input
+              type="date"
+              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              value={customSinceDate}
+              onChange={(event) => {
+                setPage(1)
+                setCustomSinceDate(event.target.value)
+              }}
+            />
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">To</label>
+            <input
+              type="date"
+              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              value={customUntilDate}
+              onChange={(event) => {
+                setPage(1)
+                setCustomUntilDate(event.target.value)
+              }}
+            />
+          </>
+        )}
+
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Read Status</label>
+        <select
+          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          value={readStatus}
+          onChange={(event) => {
+            setPage(1)
+            setReadStatus(event.target.value as ReadStatusFilter)
+          }}
+        >
+          <option value="all">All</option>
+          <option value="unread">Unread only</option>
+          <option value="read">Read only</option>
+        </select>
+
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Starred</label>
+        <select
+          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          value={starStatus}
+          onChange={(event) => {
+            setPage(1)
+            setStarStatus(event.target.value as StarStatusFilter)
+          }}
+        >
+          <option value="all">All</option>
+          <option value="starred">Starred only</option>
+          <option value="unstarred">Unstarred only</option>
+        </select>
+
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Sort</label>
+        <select
+          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          value={sort}
+          onChange={(event) => {
+            setPage(1)
+            setSort(event.target.value as TimeSort)
+          }}
+        >
+          <option value="published_at_desc">Published newest first</option>
+          <option value="published_at_asc">Published oldest first</option>
+          <option value="first_seen_desc">Seen newest first</option>
+          <option value="first_seen_asc">Seen oldest first</option>
+        </select>
       </section>
 
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
@@ -158,7 +252,7 @@ export function DashboardPage() {
               className={`w-full rounded border p-3 text-left transition ${
                 selectedItemId === item.id ? 'border-cyan bg-cyan/5' : 'border-slate/20 hover:border-slate/40'
               } ${item.is_read ? 'opacity-70' : ''}`}
-              onClick={() => setSelectedItemId(item.id)}
+              onClick={() => handleSelectItem(item.id, item.is_read)}
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="line-clamp-1 font-semibold">{item.title}</p>
@@ -269,9 +363,58 @@ export function DashboardPage() {
   )
 }
 
-function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, selectedItemId: string) {
+function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string) {
+  if (timeRange === 'all') {
+    return { sinceIso: '', untilIso: '' }
+  }
+
+  if (timeRange === 'custom') {
+    const since = parseStartOfDay(customSinceDate)
+    const until = parseEndOfDay(customUntilDate)
+
+    if (since && until && since > until) {
+      return { sinceIso: until.toISOString(), untilIso: since.toISOString() }
+    }
+
+    return {
+      sinceIso: since ? since.toISOString() : '',
+      untilIso: until ? until.toISOString() : '',
+    }
+  }
+
+  const now = new Date()
+  const since = new Date(now)
+
+  if (timeRange === '24h') {
+    since.setTime(now.getTime() - 24 * 60 * 60 * 1000)
+  }
+
+  if (timeRange === '7d') {
+    since.setTime(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+  }
+
+  if (timeRange === '30d') {
+    since.setTime(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  }
+
+  return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
+}
+
+function parseStartOfDay(date: string): Date | null {
+  if (!date) return null
+  const parsed = new Date(`${date}T00:00:00`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function parseEndOfDay(date: string): Date | null {
+  if (!date) return null
+  const parsed = new Date(`${date}T23:59:59.999`)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId: string) {
   void queryClient.invalidateQueries({ queryKey: ['items'] })
-  if (selectedItemId) {
-    void queryClient.invalidateQueries({ queryKey: ['item', selectedItemId] })
+  if (itemId) {
+    void queryClient.invalidateQueries({ queryKey: ['item', itemId] })
   }
 }
