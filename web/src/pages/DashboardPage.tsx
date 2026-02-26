@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -628,14 +628,16 @@ export function DashboardPage() {
 
                           <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
-                            <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{detail.summary || 'No summary.'}</p>
+                            <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                              {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
+                            </div>
                           </div>
 
                           <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Full Article</p>
                             {detail.article?.text ? (
                               <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
-                                {renderArticleBlocks(detail.article.text, detail.id)}
+                                {renderRichContent(detail.article.text, detail.id, 'article')}
                               </div>
                             ) : (
                               <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
@@ -808,6 +810,24 @@ type ArticleBlock =
   | { kind: 'numbered-list'; items: string[] }
   | { kind: 'quote'; text: string }
 
+function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {
+  const trimmed = content.trim()
+  if (!trimmed) {
+    return <p>No content.</p>
+  }
+
+  if (!looksLikeHtml(trimmed)) {
+    return renderArticleBlocks(trimmed, `${itemId}-${section}`)
+  }
+
+  const sanitized = sanitizeHtmlFragment(trimmed)
+  if (!sanitized) {
+    return renderArticleBlocks(stripHtml(trimmed), `${itemId}-${section}`)
+  }
+
+  return <div className="rss-rich" dangerouslySetInnerHTML={{ __html: sanitized }} />
+}
+
 function renderArticleBlocks(text: string, itemId: string) {
   const blocks = parseArticleBlocks(text)
 
@@ -855,6 +875,9 @@ function renderArticleBlocks(text: string, itemId: string) {
 function parseArticleBlocks(text: string): ArticleBlock[] {
   const lines = text.replace(/\r/g, '').split('\n')
   const blocks: ArticleBlock[] = []
+  const nonEmptyCount = lines.filter((line) => line.trim()).length
+  const blankCount = lines.length - nonEmptyCount
+  const useLineOrientedMode = nonEmptyCount >= 10 && blankCount <= Math.ceil(nonEmptyCount * 0.12)
 
   let index = 0
   while (index < lines.length) {
@@ -872,10 +895,32 @@ function parseArticleBlocks(text: string): ArticleBlock[] {
       continue
     }
 
+    if (looksLikeSectionHeading(line)) {
+      blocks.push({ kind: 'heading', text: line })
+      index += 1
+      continue
+    }
+
     if (isBulletLine(line)) {
       const items: string[] = []
       while (index < lines.length && isBulletLine(lines[index].trim())) {
         items.push(cleanBullet(lines[index].trim()))
+        index += 1
+      }
+      if (items.length) {
+        blocks.push({ kind: 'bullet-list', items })
+      }
+      continue
+    }
+
+    if (line.includes(' • ')) {
+      const items: string[] = []
+      while (index < lines.length) {
+        const bulletLine = lines[index].trim()
+        if (!bulletLine || !bulletLine.includes(' • ')) {
+          break
+        }
+        items.push(bulletLine)
         index += 1
       }
       if (items.length) {
@@ -906,6 +951,12 @@ function parseArticleBlocks(text: string): ArticleBlock[] {
       if (quoteText) {
         blocks.push({ kind: 'quote', text: quoteText })
       }
+      continue
+    }
+
+    if (useLineOrientedMode) {
+      blocks.push({ kind: 'paragraph', text: line })
+      index += 1
       continue
     }
 
@@ -959,6 +1010,130 @@ function isNumberedLine(line: string): boolean {
 
 function cleanNumbered(line: string): string {
   return line.replace(/^\d+[\.\)]\s+/, '').trim()
+}
+
+function looksLikeSectionHeading(line: string): boolean {
+  if (line.length < 3 || line.length > 72) return false
+  if (/^https?:\/\//i.test(line)) return false
+  if (line.includes(' • ')) return false
+  if (/[.!?]$/.test(line)) return false
+
+  const withoutEmoji = line
+    .replace(/[\p{Emoji_Presentation}\p{Extended_Pictographic}]/gu, '')
+    .replace(/\uFE0F/g, '')
+    .trim()
+
+  if (!withoutEmoji) return false
+  const words = withoutEmoji.split(/\s+/)
+  if (words.length > 10) return false
+  if (words.every((word) => word.length <= 2)) return false
+
+  return true
+}
+
+const ALLOWED_HTML_TAGS = new Set([
+  'a',
+  'b',
+  'blockquote',
+  'br',
+  'code',
+  'em',
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'hr',
+  'i',
+  'li',
+  'ol',
+  'p',
+  'pre',
+  'strong',
+  'u',
+  'ul',
+])
+
+function looksLikeHtml(value: string): boolean {
+  return /<([a-z][a-z0-9]*)\b[^>]*>/i.test(value)
+}
+
+function sanitizeHtmlFragment(html: string): string {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  const parser = new DOMParser()
+  const document = parser.parseFromString(html, 'text/html')
+  const sanitized = Array.from(document.body.childNodes)
+    .map((node) => sanitizeNode(node))
+    .join('')
+    .trim()
+
+  return sanitized
+}
+
+function sanitizeNode(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return escapeHtml(node.textContent ?? '')
+  }
+
+  if (node.nodeType !== Node.ELEMENT_NODE) {
+    return ''
+  }
+
+  const element = node as HTMLElement
+  const tag = element.tagName.toLowerCase()
+  const children = Array.from(element.childNodes)
+    .map((child) => sanitizeNode(child))
+    .join('')
+
+  if (!ALLOWED_HTML_TAGS.has(tag)) {
+    return children
+  }
+
+  if (tag === 'br' || tag === 'hr') {
+    return `<${tag}>`
+  }
+
+  if (tag === 'a') {
+    const href = sanitizeHref(element.getAttribute('href'))
+    if (!href) {
+      return children
+    }
+    return `<a href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${children}</a>`
+  }
+
+  return `<${tag}>${children}</${tag}>`
+}
+
+function sanitizeHref(rawHref: string | null): string | null {
+  if (!rawHref) return null
+  const href = rawHref.trim()
+  if (/^https?:\/\//i.test(href)) return href
+  if (/^mailto:/i.test(href)) return href
+  return null
+}
+
+function stripHtml(value: string): string {
+  if (typeof window === 'undefined') return value
+  const parser = new DOMParser()
+  const document = parser.parseFromString(value, 'text/html')
+  return document.body.textContent?.trim() ?? ''
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+}
+
+function escapeAttribute(value: string): string {
+  return escapeHtml(value)
 }
 
 function loadPanelRect(): PanelRect {
