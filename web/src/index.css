@@ -61,6 +61,7 @@ textarea {
 .dark .bg-white\/80,
 .dark .bg-white\/85,
 .dark .bg-white\/90,
+.dark .bg-white\/70,
 .dark .bg-white {
   background-color: rgba(5, 24, 20, 0.9) !important;
 }
@@ -71,7 +72,28 @@ textarea {
 }
 
 .dark .text-slate-300 {
-  color: #a9c9bc !important;
+  color: #b8ddce !important;
+}
+
+.dark .text-slate {
+  color: #9fc8b8 !important;
+}
+
+.dark .text-slate-400 {
+  color: #95bbae !important;
+}
+
+.dark .text-slate-500 {
+  color: #89ab9f !important;
+}
+
+.dark h1,
+.dark h2,
+.dark h3,
+.dark h4,
+.dark h5,
+.dark h6 {
+  color: #e4fff2;
 }
 
 .rss-reader {
@@ -91,6 +113,28 @@ textarea {
   margin-bottom: 0;
 }
 
+.rss-reader h1,
+.rss-reader h2,
+.rss-reader h3,
+.rss-reader h4 {
+  margin: 1.2rem 0 0.55rem;
+  font-family: 'Space Grotesk', sans-serif;
+  line-height: 1.32;
+}
+
+.rss-reader h1 {
+  font-size: 1.18rem;
+}
+
+.rss-reader h2 {
+  font-size: 1.1rem;
+}
+
+.rss-reader h3,
+.rss-reader h4 {
+  font-size: 1.02rem;
+}
+
 .rss-reader .rss-heading {
   margin: 1.2rem 0 0.45rem;
   font-family: 'Space Grotesk', sans-serif;
@@ -103,11 +147,26 @@ textarea {
   padding-left: 1.2rem;
 }
 
+.rss-reader ul,
+.rss-reader ol {
+  margin: 0.4rem 0 1rem;
+  padding-left: 1.2rem;
+}
+
 .rss-reader .rss-list li {
   margin: 0.25rem 0;
 }
 
+.rss-reader ul li,
+.rss-reader ol li {
+  margin: 0.25rem 0;
+}
+
 .rss-reader .rss-list-ordered {
+  list-style: decimal;
+}
+
+.rss-reader ol {
   list-style: decimal;
 }
 
@@ -118,11 +177,57 @@ textarea {
   color: #345564;
 }
 
+.rss-reader blockquote {
+  margin: 0.5rem 0 1rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid rgba(44, 212, 167, 0.65);
+}
+
+.rss-reader a {
+  color: #0c8f72;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rss-reader pre {
+  margin: 0.75rem 0 1rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.45rem;
+  background: rgba(17, 55, 47, 0.08);
+  overflow-x: auto;
+}
+
+.rss-reader code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.85em;
+}
+
 .dark .rss-reader {
-  color: #d6f7e8;
+  color: #ddfff1;
 }
 
 .dark .rss-reader .rss-quote {
-  color: #9ec9b8;
+  color: #b5dccc;
   border-left-color: rgba(45, 212, 167, 0.75);
+}
+
+.dark .rss-reader h1,
+.dark .rss-reader h2,
+.dark .rss-reader h3,
+.dark .rss-reader h4,
+.dark .rss-reader h5,
+.dark .rss-reader h6,
+.dark .rss-reader p,
+.dark .rss-reader li,
+.dark .rss-reader blockquote {
+  color: #ddfff1;
+}
+
+.dark .rss-reader a {
+  color: #5de6c1;
+}
+
+.dark .rss-reader pre {
+  background: rgba(7, 32, 25, 0.95);
+  border: 1px solid rgba(45, 212, 167, 0.25);
 }
