@@ -7,6 +7,8 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
+from croniter import croniter
+import feedparser
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -82,17 +84,72 @@ def dispatch_due_feeds():
     with db_session() as db:
         feeds = db.scalars(select(Feed).where(Feed.enabled.is_(True))).all()
         for feed in feeds:
-            if feed.last_fetch_at is None:
-                fetch_feed.delay(str(feed.id))
-                queued += 1
-                continue
-
-            elapsed = (now - feed.last_fetch_at).total_seconds()
-            if elapsed >= feed.fetch_interval_seconds:
+            if _is_feed_due(feed, now):
                 fetch_feed.delay(str(feed.id))
                 queued += 1
 
     return {"queued": queued}
+
+
+def _is_feed_due(feed: Feed, now: datetime) -> bool:
+    if feed.fetch_mode == "schedule":
+        return _is_scheduled_feed_due(feed, now)
+
+    if feed.last_fetch_at is None:
+        return True
+
+    elapsed = (now - feed.last_fetch_at).total_seconds()
+    return elapsed >= feed.fetch_interval_seconds
+
+
+def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
+    if not feed.schedule_cron:
+        return False
+
+    base = feed.last_fetch_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+
+    if not croniter.is_valid(feed.schedule_cron):
+        return False
+
+    next_run = croniter(feed.schedule_cron, base).get_next(datetime)
+    if next_run.tzinfo is None:
+        next_run = next_run.replace(tzinfo=timezone.utc)
+    return next_run <= now
+
+
+def _backfill_feed_metadata_from_body(feed: Feed, body: bytes) -> bool:
+    parsed = feedparser.parse(body)
+    metadata = parsed.feed if hasattr(parsed, "feed") else {}
+
+    changed = False
+    feed_title = _clean_text(metadata.get("title"))
+    description = _clean_text(metadata.get("subtitle") or metadata.get("description"))
+    site_url = _clean_text(metadata.get("link"))
+    language = _clean_text(metadata.get("language"))
+
+    if (not feed.name.strip() or feed.name.strip() == feed.url.strip()) and feed_title:
+        feed.name = feed_title
+        changed = True
+    if not feed.description and description:
+        feed.description = description
+        changed = True
+    if not feed.site_url and site_url:
+        feed.site_url = site_url
+        changed = True
+    if not feed.language and language:
+        feed.language = language
+        changed = True
+
+    return changed
+
+
+def _clean_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
@@ -149,6 +206,7 @@ def fetch_feed(self, feed_id: str):
 
         connector = RSSConnector()
         parsed_items, _ = connector.poll({"body": response.content}, None)
+        _backfill_feed_metadata_from_body(feed, response.content)
 
         changed_item_ids: list[uuid.UUID] = []
         for parsed in parsed_items:
