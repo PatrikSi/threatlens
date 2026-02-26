@@ -8,6 +8,7 @@ import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
+import feedparser
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -118,6 +119,39 @@ def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
     return next_run <= now
 
 
+def _backfill_feed_metadata_from_body(feed: Feed, body: bytes) -> bool:
+    parsed = feedparser.parse(body)
+    metadata = parsed.feed if hasattr(parsed, "feed") else {}
+
+    changed = False
+    feed_title = _clean_text(metadata.get("title"))
+    description = _clean_text(metadata.get("subtitle") or metadata.get("description"))
+    site_url = _clean_text(metadata.get("link"))
+    language = _clean_text(metadata.get("language"))
+
+    if (not feed.name.strip() or feed.name.strip() == feed.url.strip()) and feed_title:
+        feed.name = feed_title
+        changed = True
+    if not feed.description and description:
+        feed.description = description
+        changed = True
+    if not feed.site_url and site_url:
+        feed.site_url = site_url
+        changed = True
+    if not feed.language and language:
+        feed.language = language
+        changed = True
+
+    return changed
+
+
+def _clean_text(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
 def fetch_feed(self, feed_id: str):
     with db_session() as db:
@@ -172,6 +206,7 @@ def fetch_feed(self, feed_id: str):
 
         connector = RSSConnector()
         parsed_items, _ = connector.poll({"body": response.content}, None)
+        _backfill_feed_metadata_from_body(feed, response.content)
 
         changed_item_ids: list[uuid.UUID] = []
         for parsed in parsed_items:
