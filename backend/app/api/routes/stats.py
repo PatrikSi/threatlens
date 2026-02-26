@@ -19,6 +19,9 @@ from app.schemas.stats import (
     DailyVolumePoint,
     DerivedSummary,
     DomainPoint,
+    FeedTimeSeriesPoint,
+    FeedTimeSeriesResponse,
+    FeedTimeSeriesSeries,
     FeedStats,
     StatsOverviewResponse,
     StatusPoint,
@@ -212,6 +215,69 @@ def get_stats_overview(
         feed_breakdown=feed_breakdown,
         top_domains=top_domains,
     )
+
+
+@router.get("/feed-timeseries", response_model=FeedTimeSeriesResponse)
+def get_feed_timeseries(
+    days: int = Query(default=30, ge=7, le=365),
+    feed_ids: str | None = Query(default=None),
+    top_feeds: int = Query(default=8, ge=1, le=20),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+):
+    selected_feed_ids = _parse_feed_ids(feed_ids)
+    now = datetime.now(timezone.utc)
+    window_start_date = (now - timedelta(days=days - 1)).date()
+    window_start = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
+
+    target_feed_ids = selected_feed_ids
+    if not target_feed_ids:
+        target_feed_rows = db.execute(
+            select(Item.feed_id, func.count(Item.id).label("count"))
+            .where(Item.first_seen_at >= window_start)
+            .group_by(Item.feed_id)
+            .order_by(func.count(Item.id).desc())
+            .limit(top_feeds)
+        ).all()
+        target_feed_ids = [feed_id for feed_id, _count in target_feed_rows]
+
+    if not target_feed_ids:
+        return FeedTimeSeriesResponse(generated_at=now, window_days=days, series=[])
+
+    feed_rows = db.execute(select(Feed.id, Feed.name).where(Feed.id.in_(target_feed_ids))).all()
+    feed_name_by_id = {feed_id: feed_name for feed_id, feed_name in feed_rows}
+
+    time_rows = db.execute(
+        select(
+            Item.feed_id,
+            func.date(Item.first_seen_at).label("date_key"),
+            func.count(Item.id).label("count"),
+        )
+        .where(Item.feed_id.in_(target_feed_ids), Item.first_seen_at >= window_start)
+        .group_by(Item.feed_id, func.date(Item.first_seen_at))
+        .order_by(func.date(Item.first_seen_at).asc())
+    ).all()
+
+    counts_by_feed_and_date: dict[uuid.UUID, dict[str, int]] = {feed_id: {} for feed_id in target_feed_ids}
+    for feed_id, date_key, count in time_rows:
+        if date_key is None:
+            continue
+        counts_by_feed_and_date.setdefault(feed_id, {})[str(date_key)] = int(count or 0)
+
+    date_axis = [(window_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+    series = [
+        FeedTimeSeriesSeries(
+            feed_id=str(feed_id),
+            feed_name=feed_name_by_id.get(feed_id, str(feed_id)),
+            points=[
+                FeedTimeSeriesPoint(date=date_key, count=counts_by_feed_and_date.get(feed_id, {}).get(date_key, 0))
+                for date_key in date_axis
+            ],
+        )
+        for feed_id in target_feed_ids
+    ]
+
+    return FeedTimeSeriesResponse(generated_at=now, window_days=days, series=series)
 
 
 def _ensure_aware(value: datetime) -> datetime:

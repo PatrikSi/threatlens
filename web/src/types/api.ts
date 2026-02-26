@@ -130,6 +130,23 @@ export interface StatsOverviewResponse {
   top_domains: StatsDomainPoint[]
 }
 
+export interface StatsFeedTimeSeriesPoint {
+  date: string
+  count: number
+}
+
+export interface StatsFeedTimeSeriesSeries {
+  feed_id: string
+  feed_name: string
+  points: StatsFeedTimeSeriesPoint[]
+}
+
+export interface StatsFeedTimeSeriesResponse {
+  generated_at: string
+  window_days: number
+  series: StatsFeedTimeSeriesSeries[]
+}
+
 export interface Feed {
   id: string
   name: string

@@ -36,6 +36,7 @@ interface DashboardWindow {
   title: string
   snap: DashboardWindowSnap
   rect: PanelRect
+  controls_collapsed: boolean
 }
 
 interface DashboardSavedViewQuery {
@@ -108,7 +109,7 @@ export function DashboardPage() {
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
   const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
-  const [viewMode, setViewMode] = useState<DashboardViewMode>('expanded')
+  const [viewMode, setViewMode] = useState<DashboardViewMode>('compact')
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all')
   const [customSinceDate, setCustomSinceDate] = useState('')
   const [customUntilDate, setCustomUntilDate] = useState('')
@@ -419,6 +420,31 @@ export function DashboardPage() {
       }
       return current.filter((window) => window.id !== windowId)
     })
+  }
+
+  const renameWindow = (windowId: string) => {
+    const target = windows.find((window) => window.id === windowId)
+    if (!target) return
+
+    const nextTitle = window.prompt('Rename window', target.title)
+    if (nextTitle === null) return
+
+    const normalized = nextTitle.trim().slice(0, 80)
+    if (!normalized) return
+
+    setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) => (window.id === windowId ? { ...window, title: normalized } : window)),
+    )
+  }
+
+  const toggleWindowControls = (windowId: string) => {
+    setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) =>
+        window.id === windowId ? { ...window, controls_collapsed: !window.controls_collapsed } : window,
+      ),
+    )
   }
 
   const bringWindowToFront = (windowId: string) => {
@@ -801,6 +827,20 @@ export function DashboardPage() {
                   <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
                     {windowLayout.type === 'rss' ? `${itemsQuery.data?.total ?? 0} items` : `${alertMatchesQuery.data?.total ?? 0} matches`}
                   </span>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    onClick={() => toggleWindowControls(windowLayout.id)}
+                  >
+                    {windowLayout.controls_collapsed ? 'Expand Filters' : 'Collapse Filters'}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    onClick={() => renameWindow(windowLayout.id)}
+                  >
+                    Rename
+                  </button>
                   <select
                     className="rounded border border-slate/25 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#041612]"
                     value={windowLayout.snap}
@@ -825,8 +865,9 @@ export function DashboardPage() {
 
               {windowLayout.type === 'rss' ? (
                 <>
-                  <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                  {!windowLayout.controls_collapsed && (
+                    <div className="border-b border-slate/20 px-3 py-1.5 dark:border-cyan-900/40">
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
@@ -839,7 +880,7 @@ export function DashboardPage() {
                           setSelectedFeedIds([])
                         }}
                       >
-                        All Feeds
+                        All
                       </button>
                       {feedsQuery.data?.map((feed) => {
                         const active = selectedFeedIds.includes(feed.id)
@@ -861,9 +902,9 @@ export function DashboardPage() {
                           </button>
                         )
                       })}
-                    </div>
+                      </div>
 
-                    <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
+                      <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-0.5">
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
@@ -876,7 +917,7 @@ export function DashboardPage() {
                           setSelectedTags([])
                         }}
                       >
-                        All Tags
+                        All
                       </button>
                       {tagsQuery.data
                         ?.filter((tag) => !HIDDEN_TAGS.has(tag.name))
@@ -904,10 +945,10 @@ export function DashboardPage() {
                             </button>
                           )
                         })}
-                    </div>
-                    {tagsQuery.isError && <p className="mt-1 text-xs text-red-600">Failed to load tags.</p>}
+                      </div>
+                      {tagsQuery.isError && <p className="mt-0.5 text-xs text-red-600">Failed to load tags.</p>}
 
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <input
                         value={q}
                         onChange={(event) => {
@@ -976,10 +1017,10 @@ export function DashboardPage() {
                       >
                         {showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
                       </button>
-                    </div>
+                      </div>
 
-                    {showAdvancedFilters && (
-                      <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
+                      {showAdvancedFilters && (
+                        <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
                         <select
                           className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                           value={readStatus}
@@ -1026,9 +1067,10 @@ export function DashboardPage() {
                             disabled={timeRange !== 'custom'}
                           />
                         </div>
-                      </div>
-                    )}
-                  </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
@@ -1249,7 +1291,8 @@ export function DashboardPage() {
                 </>
               ) : (
                 <>
-                  <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
+                  {!windowLayout.controls_collapsed && (
+                    <div className="border-b border-slate/20 px-3 py-1.5 dark:border-cyan-900/40">
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
                       <button
                         type="button"
@@ -1388,7 +1431,8 @@ export function DashboardPage() {
                         disabled={alertTimeRange !== 'custom'}
                       />
                     </div>
-                  </div>
+                    </div>
+                  )}
 
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
@@ -1699,6 +1743,7 @@ function loadDashboardWindows(): DashboardWindow[] {
         type: entry.type,
         snap: entry.snap,
         rect: normalizePanelRect(rect, width, height),
+        controls_collapsed: entry.controls_collapsed === true,
       })
     }
 
@@ -1734,7 +1779,7 @@ function normalizeDashboardWindows(windows: DashboardWindow[], containerWidth: n
 }
 
 function defaultWindowTitle(type: DashboardWindowType, index: number): string {
-  return type === 'rss' ? `RSS Feeds ${index}` : `Alerts ${index}`
+  return type === 'rss' ? `RSS Feed ${index}` : `Alerts ${index}`
 }
 
 function createWindowLayout(
@@ -1764,6 +1809,7 @@ function createWindowLayout(
     title: defaultWindowTitle(type, index),
     snap,
     rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
+    controls_collapsed: false,
   }
 }
 
@@ -1836,6 +1882,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
             : defaultWindowTitle(entry.type, parsedWindows.length + 1),
         snap: entry.snap,
         rect,
+        controls_collapsed: entry.controls_collapsed === true,
       })
     }
   }
@@ -1844,9 +1891,10 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
     parsedWindows.push({
       id: fallback.id,
       type: 'rss',
-      title: 'RSS Feeds 1',
+      title: 'RSS Feed 1',
       snap: 'free',
       rect: legacyFeedRect,
+      controls_collapsed: false,
     })
   }
 
@@ -1871,7 +1919,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
   const readStatus = rssSource.read_status === 'read' || rssSource.read_status === 'unread' ? rssSource.read_status : 'all'
   const starStatus =
     rssSource.star_status === 'starred' || rssSource.star_status === 'unstarred' ? rssSource.star_status : 'all'
-  const viewMode = rssSource.view_mode === 'compact' ? 'compact' : 'expanded'
+  const viewMode = rssSource.view_mode === 'expanded' ? 'expanded' : 'compact'
   const pageSize =
     typeof rssSource.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(rssSource.page_size)
       ? rssSource.page_size
@@ -1965,6 +2013,7 @@ function buildDashboardSavedViewState(
       title: window.title,
       snap: window.snap,
       rect: { ...window.rect },
+      controls_collapsed: window.controls_collapsed,
     })),
     ui: {
       show_advanced_filters: showAdvancedFilters,
