@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -11,6 +11,13 @@ type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 
+type PanelRect = {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 interface DashboardSavedViewQuery {
   selected_feed_ids: string[]
   q: string
@@ -22,9 +29,16 @@ interface DashboardSavedViewQuery {
   sort: TimeSort
 }
 
+const PANEL_STORAGE_KEY = 'threatlens.dashboard.panel.v1'
+const DEFAULT_PANEL: PanelRect = { x: 12, y: 12, width: 1180, height: 760 }
+const PANEL_MIN_WIDTH = 860
+const PANEL_MIN_HEIGHT = 520
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
+  const rootRef = useRef<HTMLDivElement | null>(null)
+
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
@@ -35,11 +49,32 @@ export function DashboardPage() {
   const [sort, setSort] = useState<TimeSort>('published_at_desc')
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
+
   const [page, setPage] = useState(1)
   const pageSize = 25
-  const [selectedItemId, setSelectedItemId] = useState<string>('')
+  const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
+
+  const [panelRect, setPanelRect] = useState<PanelRect>(() => loadPanelRect())
+  const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
+
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
+
+  useEffect(() => {
+    const onResize = () => {
+      setIsWideLayout(window.innerWidth >= 1024)
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(panelRect))
+  }, [panelRect])
 
   const debouncedQ = useDebouncedValue(q)
   const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
@@ -81,6 +116,7 @@ export function DashboardPage() {
         method: 'DELETE',
       }),
     onSuccess: () => {
+      setActiveSavedViewId(null)
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
@@ -137,20 +173,24 @@ export function DashboardPage() {
   useEffect(() => {
     const items = itemsQuery.data?.items ?? []
     if (!items.length) {
-      setSelectedItemId('')
+      setExpandedItemId('')
       return
     }
 
-    const selectedExists = items.some((item) => item.id === selectedItemId)
-    if (!selectedExists) {
-      setSelectedItemId(items[0].id)
+    if (!expandedItemId) {
+      return
     }
-  }, [itemsQuery.data?.items, selectedItemId])
+
+    const selectedExists = items.some((item) => item.id === expandedItemId)
+    if (!selectedExists) {
+      setExpandedItemId('')
+    }
+  }, [itemsQuery.data?.items, expandedItemId])
 
   const detailQuery = useQuery({
-    queryKey: ['item', selectedItemId],
-    enabled: Boolean(selectedItemId),
-    queryFn: () => apiFetch<ItemDetail>(`/items/${selectedItemId}`),
+    queryKey: ['item', expandedItemId],
+    enabled: Boolean(expandedItemId),
+    queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
   })
 
   useEffect(() => {
@@ -162,8 +202,13 @@ export function DashboardPage() {
     return Math.max(1, Math.ceil(total / pageSize))
   }, [itemsQuery.data?.total])
 
-  const handleSelectItem = (itemId: string, isRead: boolean) => {
-    setSelectedItemId(itemId)
+  const handleToggleItem = (itemId: string, isRead: boolean) => {
+    if (expandedItemId === itemId) {
+      setExpandedItemId('')
+      return
+    }
+
+    setExpandedItemId(itemId)
     if (!isRead && canManage) {
       updateRead.mutate({ itemId, isRead: true })
     }
@@ -202,245 +247,428 @@ export function DashboardPage() {
     setActiveSavedViewId(view.id)
   }
 
-  return (
-    <div className="grid gap-4 lg:grid-cols-[320px_1fr_1.2fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
-        <h2 className="font-display text-xl">Filters</h2>
+  const startPanelDrag = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isWideLayout) return
 
-        <div className="mt-3 rounded border border-slate/20 p-3 dark:border-cyan-900/40">
-          <label className="block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Saved Views</label>
-          <div className="mt-2 flex gap-2">
-            <input
-              value={savedViewName}
-              onChange={(event) => setSavedViewName(event.target.value)}
-              placeholder="Name this filter set"
-              className="w-full rounded border border-slate/25 bg-white px-2 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
-            />
-            <button
-              type="button"
-              className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-slate-950"
-              onClick={saveCurrentView}
-              disabled={saveView.isPending || !savedViewName.trim()}
-            >
-              Save
-            </button>
+    const rootBounds = rootRef.current?.getBoundingClientRect()
+    if (!rootBounds) return
+
+    event.preventDefault()
+
+    const startMouseX = event.clientX
+    const startMouseY = event.clientY
+    const startRect = panelRect
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startMouseX
+      const deltaY = moveEvent.clientY - startMouseY
+
+      const maxX = Math.max(0, rootBounds.width - startRect.width)
+      const maxY = Math.max(0, rootBounds.height - startRect.height)
+
+      setPanelRect((current) => ({
+        ...current,
+        x: clamp(startRect.x + deltaX, 0, maxX),
+        y: clamp(startRect.y + deltaY, 0, maxY),
+      }))
+    }
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  const startPanelResize = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!isWideLayout) return
+
+    const rootBounds = rootRef.current?.getBoundingClientRect()
+    if (!rootBounds) return
+
+    event.preventDefault()
+    event.stopPropagation()
+
+    const startMouseX = event.clientX
+    const startMouseY = event.clientY
+    const startRect = panelRect
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startMouseX
+      const deltaY = moveEvent.clientY - startMouseY
+
+      const maxWidth = rootBounds.width - startRect.x
+      const maxHeight = rootBounds.height - startRect.y
+
+      setPanelRect((current) => ({
+        ...current,
+        width: clamp(startRect.width + deltaX, PANEL_MIN_WIDTH, maxWidth),
+        height: clamp(startRect.height + deltaY, PANEL_MIN_HEIGHT, maxHeight),
+      }))
+    }
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
+
+  return (
+    <div ref={rootRef} className="relative min-h-[calc(100vh-110px)]">
+      <section
+        className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#040913]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
+        style={
+          isWideLayout
+            ? {
+                left: panelRect.x,
+                top: panelRect.y,
+                width: panelRect.width,
+                height: panelRect.height,
+              }
+            : undefined
+        }
+      >
+        <div
+          className="flex items-center justify-between border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40"
+          onMouseDown={startPanelDrag}
+        >
+          <div>
+            <h2 className="font-display text-lg leading-tight">Feeds</h2>
+            <p className="text-xs text-slate dark:text-slate-300">Drag this window to reposition. Expand items inline to read full content.</p>
           </div>
-          <div className="mt-2 max-h-36 space-y-1 overflow-auto">
-            {viewsQuery.data?.map((view) => (
-              <div
-                key={view.id}
-                className={`flex items-center justify-between rounded border px-2 py-1 text-sm ${
-                  activeSavedViewId === view.id
-                    ? 'border-cyan/50 bg-cyan/10 dark:border-cyan-700/50 dark:bg-cyan-950/40'
-                    : 'border-slate/20 dark:border-cyan-950/40'
-                }`}
-              >
-                <button type="button" className="truncate text-left" onClick={() => applySavedView(view)}>
-                  {view.name}
-                </button>
-                <button
-                  type="button"
-                  className="rounded border border-slate/30 px-2 py-0.5 text-xs dark:border-cyan-900/40"
-                  onClick={() => deleteView.mutate(view.id)}
-                  disabled={deleteView.isPending}
-                >
-                  Delete
-                </button>
-              </div>
-            ))}
-            {!viewsQuery.data?.length && <p className="text-xs text-slate dark:text-slate-300">No saved views yet.</p>}
-          </div>
+          <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
+            {itemsQuery.data?.total ?? 0} items
+          </span>
         </div>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Feeds</label>
-        <select
-          multiple
-          size={Math.min(Math.max(feedsQuery.data?.length ?? 4, 4), 8)}
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
-          value={selectedFeedIds}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setSelectedFeedIds(Array.from(event.target.selectedOptions).map((option) => option.value))
-          }}
-        >
-          {feedsQuery.data?.map((feed) => (
-            <option key={feed.id} value={feed.id}>
-              {feed.name}
-            </option>
-          ))}
-        </select>
-        <div className="mt-1 flex items-center justify-between text-xs text-slate dark:text-slate-300">
-          <span>{selectedFeedIds.length || 'All'} selected</span>
-          <div className="flex gap-2">
+        <div className="border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
             <button
               type="button"
-              className="underline"
-              onClick={() => {
-                setPage(1)
-                setActiveSavedViewId(null)
-                setSelectedFeedIds(feedsQuery.data?.map((feed) => feed.id) ?? [])
-              }}
-            >
-              Select all
-            </button>
-            <button
-              type="button"
-              className="underline"
+              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                selectedFeedIds.length === 0
+                  ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
+                  : 'border-slate/25 dark:border-cyan-900/40'
+              }`}
               onClick={() => {
                 setPage(1)
                 setActiveSavedViewId(null)
                 setSelectedFeedIds([])
               }}
             >
-              Clear
+              All Feeds
             </button>
+            {feedsQuery.data?.map((feed) => {
+              const active = selectedFeedIds.includes(feed.id)
+              return (
+                <button
+                  key={feed.id}
+                  type="button"
+                  className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
+                    active
+                      ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
+                      : 'border-slate/25 dark:border-cyan-900/40'
+                  }`}
+                  onClick={() => {
+                    setPage(1)
+                    setActiveSavedViewId(null)
+                    setSelectedFeedIds((current) =>
+                      current.includes(feed.id) ? current.filter((id) => id !== feed.id) : [...current, feed.id],
+                    )
+                  }}
+                >
+                  {feed.name}
+                </button>
+              )
+            })}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              value={q}
+              onChange={(event) => {
+                setPage(1)
+                setActiveSavedViewId(null)
+                setQ(event.target.value)
+              }}
+              placeholder="Search title, summary, URL"
+              className="min-w-64 flex-1 rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            />
+            <select
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              value={timeRange}
+              onChange={(event) => {
+                setPage(1)
+                setActiveSavedViewId(null)
+                setTimeRange(event.target.value as TimeRangeFilter)
+              }}
+            >
+              <option value="all">All time</option>
+              <option value="24h">24h</option>
+              <option value="7d">7d</option>
+              <option value="30d">30d</option>
+              <option value="custom">Custom</option>
+            </select>
+            <select
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              value={sort}
+              onChange={(event) => {
+                setPage(1)
+                setActiveSavedViewId(null)
+                setSort(event.target.value as TimeSort)
+              }}
+            >
+              <option value="published_at_desc">Newest</option>
+              <option value="published_at_asc">Oldest</option>
+              <option value="first_seen_desc">Seen newest</option>
+              <option value="first_seen_asc">Seen oldest</option>
+            </select>
+            <button
+              type="button"
+              className="rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+              onClick={() => setShowAdvancedFilters((current) => !current)}
+            >
+              {showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
+            </button>
+          </div>
+
+          {showAdvancedFilters && (
+            <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#060d19]/70 md:grid-cols-2 lg:grid-cols-3">
+              <select
+                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                value={readStatus}
+                onChange={(event) => {
+                  setPage(1)
+                  setActiveSavedViewId(null)
+                  setReadStatus(event.target.value as ReadStatusFilter)
+                }}
+              >
+                <option value="all">Read: All</option>
+                <option value="unread">Read: Unread</option>
+                <option value="read">Read: Read</option>
+              </select>
+              <select
+                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                value={starStatus}
+                onChange={(event) => {
+                  setPage(1)
+                  setActiveSavedViewId(null)
+                  setStarStatus(event.target.value as StarStatusFilter)
+                }}
+              >
+                <option value="all">Stars: All</option>
+                <option value="starred">Stars: Starred</option>
+                <option value="unstarred">Stars: Unstarred</option>
+              </select>
+              <div className="flex gap-2">
+                <input
+                  type="date"
+                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#040913]"
+                  value={customSinceDate}
+                  onChange={(event) => {
+                    setPage(1)
+                    setActiveSavedViewId(null)
+                    setCustomSinceDate(event.target.value)
+                  }}
+                  disabled={timeRange !== 'custom'}
+                />
+                <input
+                  type="date"
+                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#040913]"
+                  value={customUntilDate}
+                  onChange={(event) => {
+                    setPage(1)
+                    setActiveSavedViewId(null)
+                    setCustomUntilDate(event.target.value)
+                  }}
+                  disabled={timeRange !== 'custom'}
+                />
+              </div>
+              <div className="col-span-full grid gap-2 md:grid-cols-[1fr_auto_auto]">
+                <input
+                  value={savedViewName}
+                  onChange={(event) => setSavedViewName(event.target.value)}
+                  placeholder="Save current filters as..."
+                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                />
+                <button
+                  type="button"
+                  className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                  onClick={saveCurrentView}
+                  disabled={saveView.isPending || !savedViewName.trim()}
+                >
+                  Save View
+                </button>
+                <select
+                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                  value={activeSavedViewId ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (!value) {
+                      setActiveSavedViewId(null)
+                      return
+                    }
+                    const selected = viewsQuery.data?.find((view) => view.id === value)
+                    if (selected) {
+                      applySavedView(selected)
+                    }
+                  }}
+                >
+                  <option value="">Load Saved View</option>
+                  {viewsQuery.data?.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {activeSavedViewId && (
+                <div className="col-span-full flex justify-end">
+                  <button
+                    type="button"
+                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    onClick={() => deleteView.mutate(activeSavedViewId)}
+                    disabled={deleteView.isPending}
+                  >
+                    Delete Active View
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-auto p-3">
+          <div className="space-y-2">
+            {itemsQuery.data?.items.map((item) => {
+              const expanded = expandedItemId === item.id
+              const detail = expanded ? detailQuery.data : null
+
+              return (
+                <article
+                  key={item.id}
+                  className={`rounded border p-3 transition ${
+                    expanded
+                      ? 'border-cyan bg-cyan/5 dark:border-cyan-700/50 dark:bg-cyan-950/25'
+                      : 'border-slate/20 dark:border-cyan-900/40'
+                  } ${item.is_read ? 'opacity-85' : ''}`}
+                >
+                  <button className="w-full text-left" onClick={() => handleToggleItem(item.id, item.is_read)}>
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-[15px] font-semibold leading-snug">{item.title}</h3>
+                      <span className="shrink-0 text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
+                      <span>Published {formatPublishedAt(item.published_at)}</span>
+                      <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
+                      {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
+                      {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
+                  </button>
+
+                  {expanded && (
+                    <div className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
+                      {detailQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
+                      {detailQuery.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
+
+                      {detail && detail.id === item.id && (
+                        <>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <a
+                              className="rounded border border-slate/30 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                              href={detail.article?.final_url || detail.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open Source Link
+                            </a>
+                            <button
+                              className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                              disabled={!canManage}
+                              onClick={() =>
+                                updateRead.mutate({
+                                  itemId: detail.id,
+                                  isRead: !detail.state.is_read,
+                                })
+                              }
+                            >
+                              {detail.state.is_read ? 'Mark Unread' : 'Mark Read'}
+                            </button>
+                            <button
+                              className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                              disabled={!canManage}
+                              onClick={() =>
+                                updateStar.mutate({
+                                  itemId: detail.id,
+                                  isStarred: !detail.state.is_starred,
+                                })
+                              }
+                            >
+                              {detail.state.is_starred ? 'Unstar' : 'Star'}
+                            </button>
+                            {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
+                          </div>
+
+                          {canManage && (
+                            <div className="mt-3">
+                              <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Analyst Note</label>
+                              <textarea
+                                className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+                                value={noteDraft}
+                                onChange={(event) => setNoteDraft(event.target.value)}
+                              />
+                              <button
+                                className="mt-2 rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
+                                onClick={() => updateNote.mutate({ itemId: detail.id, note: noteDraft || null })}
+                              >
+                                Save Note
+                              </button>
+                            </div>
+                          )}
+
+                          <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
+                            <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{detail.summary || 'No summary.'}</p>
+                          </div>
+
+                          <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Full Article</p>
+                            {detail.article?.text ? (
+                              <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#040913]/80">
+                                {renderArticleParagraphs(detail.article.text).map((paragraph, index) => (
+                                  <p key={`${detail.id}-paragraph-${index}`}>{paragraph}</p>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
+                            )}
+                            {detail.article?.error && <p className="mt-2 text-sm text-red-600">Extraction error: {detail.article.error}</p>}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </article>
+              )
+            })}
+
+            {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
+            {itemsQuery.isError && <p className="text-sm text-red-600">Failed to load items.</p>}
+            {!itemsQuery.isLoading && !itemsQuery.data?.items.length && <p className="text-sm text-slate dark:text-slate-300">No items match current filters.</p>}
           </div>
         </div>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Keyword</label>
-        <input
-          value={q}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setQ(event.target.value)
-          }}
-          placeholder="ransomware, cve..."
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-        />
-
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Time Range</label>
-        <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-          value={timeRange}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setTimeRange(event.target.value as TimeRangeFilter)
-          }}
-        >
-          <option value="all">All time</option>
-          <option value="24h">Last 24 hours</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="custom">Custom range</option>
-        </select>
-
-        {timeRange === 'custom' && (
-          <>
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">From</label>
-            <input
-              type="date"
-              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-              value={customSinceDate}
-              onChange={(event) => {
-                setPage(1)
-                setActiveSavedViewId(null)
-                setCustomSinceDate(event.target.value)
-              }}
-            />
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">To</label>
-            <input
-              type="date"
-              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-              value={customUntilDate}
-              onChange={(event) => {
-                setPage(1)
-                setActiveSavedViewId(null)
-                setCustomUntilDate(event.target.value)
-              }}
-            />
-          </>
-        )}
-
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Read Status</label>
-        <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-          value={readStatus}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setReadStatus(event.target.value as ReadStatusFilter)
-          }}
-        >
-          <option value="all">All</option>
-          <option value="unread">Unread only</option>
-          <option value="read">Read only</option>
-        </select>
-
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Starred</label>
-        <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-          value={starStatus}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setStarStatus(event.target.value as StarStatusFilter)
-          }}
-        >
-          <option value="all">All</option>
-          <option value="starred">Starred only</option>
-          <option value="unstarred">Unstarred only</option>
-        </select>
-
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Sort</label>
-        <select
-          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-          value={sort}
-          onChange={(event) => {
-            setPage(1)
-            setActiveSavedViewId(null)
-            setSort(event.target.value as TimeSort)
-          }}
-        >
-          <option value="published_at_desc">Published newest first</option>
-          <option value="published_at_asc">Published oldest first</option>
-          <option value="first_seen_desc">Seen newest first</option>
-          <option value="first_seen_asc">Seen oldest first</option>
-        </select>
-      </section>
-
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="font-display text-xl">Items</h2>
-          <span className="text-xs text-slate dark:text-slate-300">{itemsQuery.data?.total ?? 0} total</span>
-        </div>
-
-        <div className="space-y-2">
-          {itemsQuery.data?.items.map((item) => (
-            <button
-              key={item.id}
-              className={`w-full rounded border p-3 text-left transition ${
-                selectedItemId === item.id
-                  ? 'border-cyan bg-cyan/5 dark:bg-cyan/10'
-                  : 'border-slate/20 hover:border-slate/40 dark:border-cyan-900/40 dark:hover:border-slate-500'
-              } ${item.is_read ? 'opacity-70' : ''}`}
-              onClick={() => handleSelectItem(item.id, item.is_read)}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <p className="line-clamp-1 font-semibold">{item.title}</p>
-                <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
-              </div>
-              <p className="mt-1 text-xs text-slate dark:text-slate-300">Published: {formatPublishedAt(item.published_at)}</p>
-              <p className="mt-1 line-clamp-2 text-sm text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
-              <div className="mt-2 flex items-center gap-2 text-xs">
-                {item.is_starred && <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">Starred</span>}
-                {!item.is_read && <span className="rounded bg-cyan/20 px-2 py-0.5 text-cyan">Unread</span>}
-                <span className="rounded bg-slate/10 px-2 py-0.5 text-slate">{item.status}</span>
-              </div>
-            </button>
-          ))}
-
-          {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
-          {itemsQuery.isError && <p className="text-sm text-red-600">Failed to load items.</p>}
-        </div>
-
-        <div className="mt-4 flex items-center justify-between text-sm">
+        <div className="flex items-center justify-between border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
           <button
             className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page <= 1}
-            onClick={() => setPage((p) => p - 1)}
+            onClick={() => setPage((current) => current - 1)}
           >
             Prev
           </button>
@@ -450,79 +678,19 @@ export function DashboardPage() {
           <button
             className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page >= totalPages}
-            onClick={() => setPage((p) => p + 1)}
+            onClick={() => setPage((current) => current + 1)}
           >
             Next
           </button>
         </div>
-      </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
-        {!detailQuery.data && <p className="text-sm text-slate dark:text-slate-300">Select an item to inspect details.</p>}
-
-        {detailQuery.data && (
-          <>
-            <h2 className="font-display text-2xl">{detailQuery.data.title}</h2>
-            <p className="mt-1 text-sm text-slate dark:text-slate-300">{detailQuery.data.feed_name}</p>
-            {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role is read-only.</p>}
-
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
-                disabled={!canManage}
-                onClick={() =>
-                  updateRead.mutate({
-                    itemId: detailQuery.data.id,
-                    isRead: !detailQuery.data.state.is_read,
-                  })
-                }
-              >
-                {detailQuery.data.state.is_read ? 'Mark Unread' : 'Mark Read'}
-              </button>
-              <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
-                disabled={!canManage}
-                onClick={() =>
-                  updateStar.mutate({
-                    itemId: detailQuery.data.id,
-                    isStarred: !detailQuery.data.state.is_starred,
-                  })
-                }
-              >
-                {detailQuery.data.state.is_starred ? 'Unstar' : 'Star'}
-              </button>
-            </div>
-
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Analyst Note</label>
-            <textarea
-              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
-              value={noteDraft}
-              onChange={(event) => setNoteDraft(event.target.value)}
-              disabled={!canManage}
-            />
-            <button
-              className="mt-2 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white dark:bg-cyan dark:text-slate-950"
-              onClick={() => updateNote.mutate({ itemId: detailQuery.data.id, note: noteDraft || null })}
-              disabled={!canManage}
-            >
-              Save Note
-            </button>
-
-            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
-              <p className="mt-1 whitespace-pre-wrap text-sm">{detailQuery.data.summary || 'No summary.'}</p>
-            </div>
-
-            <div className="mt-4 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Extracted Full Text</p>
-              {detailQuery.data.article?.text ? (
-                <pre className="mt-2 max-h-[450px] overflow-auto whitespace-pre-wrap text-sm leading-6">{detailQuery.data.article.text}</pre>
-              ) : (
-                <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
-              )}
-              {detailQuery.data.article?.error && <p className="mt-2 text-sm text-red-600">Extraction error: {detailQuery.data.article.error}</p>}
-            </div>
-          </>
+        {isWideLayout && (
+          <button
+            type="button"
+            className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/30 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b1629]"
+            aria-label="Resize dashboard window"
+            onMouseDown={startPanelResize}
+          />
         )}
       </section>
     </div>
@@ -615,4 +783,55 @@ function parseDashboardSavedView(raw: Record<string, unknown>): DashboardSavedVi
     custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
     sort,
   }
+}
+
+function renderArticleParagraphs(text: string): string[] {
+  const normalized = text.replace(/\r/g, '').trim()
+  if (!normalized) return []
+
+  const paragraphBlocks = normalized
+    .split(/\n{2,}/)
+    .map((block) => block.split('\n').map((line) => line.trim()).filter(Boolean).join(' '))
+    .map((block) => block.replace(/\s{2,}/g, ' ').trim())
+    .filter(Boolean)
+
+  return paragraphBlocks.length ? paragraphBlocks : [normalized]
+}
+
+function loadPanelRect(): PanelRect {
+  if (typeof window === 'undefined') {
+    return DEFAULT_PANEL
+  }
+
+  const raw = window.localStorage.getItem(PANEL_STORAGE_KEY)
+  if (!raw) {
+    return DEFAULT_PANEL
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<PanelRect>
+    if (
+      typeof parsed.x !== 'number' ||
+      typeof parsed.y !== 'number' ||
+      typeof parsed.width !== 'number' ||
+      typeof parsed.height !== 'number'
+    ) {
+      return DEFAULT_PANEL
+    }
+
+    return {
+      x: Math.max(0, parsed.x),
+      y: Math.max(0, parsed.y),
+      width: Math.max(PANEL_MIN_WIDTH, parsed.width),
+      height: Math.max(PANEL_MIN_HEIGHT, parsed.height),
+    }
+  } catch {
+    return DEFAULT_PANEL
+  }
+}
+
+function clamp(value: number, min: number, max: number) {
+  if (value < min) return min
+  if (value > max) return max
+  return value
 }

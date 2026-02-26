@@ -57,3 +57,24 @@ textarea {
   background-color: #060d19;
   color: #dbe8ff;
 }
+
+.rss-reader {
+  max-height: 56vh;
+  overflow: auto;
+  line-height: 1.75;
+  color: #182742;
+}
+
+.rss-reader p {
+  margin: 0 0 0.9rem;
+  font-size: 0.92rem;
+  text-wrap: pretty;
+}
+
+.rss-reader p:last-child {
+  margin-bottom: 0;
+}
+
+.dark .rss-reader {
+  color: #d9e7ff;
+}
