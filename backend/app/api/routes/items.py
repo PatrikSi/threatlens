@@ -11,11 +11,13 @@ from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.tag import ItemTag, Tag
 from app.models.user import User
 from app.schemas.item import (
     ItemDetailResponse,
+    ItemClassificationResponse,
     ItemListEntry,
     ItemListResponse,
     ItemStateResponse,
@@ -104,10 +106,12 @@ def list_items(
         select(
             Item,
             Feed.name.label("feed_name"),
+            ItemClassification.primary_category.label("primary_category"),
             func.coalesce(state_subq.c.is_read, False).label("is_read"),
             func.coalesce(state_subq.c.is_starred, False).label("is_starred"),
         )
         .join(Feed, Feed.id == Item.feed_id)
+        .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .outerjoin(state_subq, state_subq.c.item_id == Item.id)
     )
 
@@ -175,6 +179,7 @@ def list_items(
             published_at=row.Item.published_at,
             first_seen_at=row.Item.first_seen_at,
             status=row.Item.status,
+            classification=row.primary_category,
             is_read=row.is_read,
             is_starred=row.is_starred,
             tags=tags_by_item.get(row.Item.id, []),
@@ -202,6 +207,7 @@ def get_item(
     item = row.Item
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
+    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
     state = db.scalar(
         select(ItemState).where(and_(ItemState.user_id == user.id, ItemState.item_id == item_id))
     )
@@ -231,6 +237,16 @@ def get_item(
         published_at=item.published_at,
         first_seen_at=item.first_seen_at,
         status=item.status,
+        classification=ItemClassificationResponse(
+            primary_category=classification.primary_category,
+            secondary_categories=classification.secondary_categories or [],
+            confidence=classification.confidence,
+            scores=classification.scores_json or {},
+            rules_version=classification.rules_version,
+            classified_at=classification.classified_at,
+        )
+        if classification
+        else None,
         last_error=item.last_error,
         tags=[tag_name for (tag_name,) in tag_rows],
         article=article,

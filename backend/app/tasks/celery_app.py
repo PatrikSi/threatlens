@@ -21,6 +21,10 @@ celery_app.conf.update(
         "dispatch-due-feeds": {
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
             "schedule": 60.0,
-        }
+        },
+        "dispatch-unclassified-items": {
+            "task": "app.tasks.feed_tasks.dispatch_unclassified_items",
+            "schedule": 300.0,
+        },
     },
 )

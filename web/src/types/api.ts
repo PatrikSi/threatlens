@@ -196,6 +196,7 @@ export interface ItemListEntry {
   published_at: string | null
   first_seen_at: string
   status: string
+  classification: string | null
   is_read: boolean
   is_starred: boolean
   tags: string[]
@@ -241,6 +242,14 @@ export interface ItemDetail {
   published_at: string | null
   first_seen_at: string
   status: string
+  classification: {
+    primary_category: string
+    secondary_categories: string[]
+    confidence: number
+    scores: Record<string, number>
+    rules_version: string
+    classified_at: string
+  } | null
   last_error: string | null
   tags: string[]
   article: Article | null

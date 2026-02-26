@@ -3,7 +3,9 @@ from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 
+from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.services.feed_probe import FeedProbeResult
 
 
@@ -166,6 +168,50 @@ def test_feed_import_and_export(client: TestClient, auth_headers):
     export_payload = export_response.json()
     assert len(export_payload["feeds"]) == 2
     assert any(feed["name"] == "Bulk One" for feed in export_payload["feeds"])
+
+
+def test_items_include_classification_fields(client: TestClient, auth_headers, db_session):
+    feed = Feed(name="Classified Feed", url="https://example.com/classified.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    item = Item(
+        feed_id=feed.id,
+        source_guid="guid-1",
+        url="https://example.com/post",
+        title="Classified Item",
+        summary="Summary text",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe-guid-1",
+        content_hash="a" * 64,
+        status="content_fetched",
+        last_error=None,
+    )
+    db_session.add(item)
+    db_session.flush()
+
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=["supply_chain"],
+        confidence=0.87,
+        scores_json={"vulnerability": 7.0, "supply_chain": 3.0},
+        matched_terms_json={"vulnerability": ["cve"]},
+        source_hash="b" * 64,
+    )
+    db_session.add(classification)
+    db_session.commit()
+
+    list_response = client.get("/items", headers=auth_headers["admin"])
+    assert list_response.status_code == 200
+    listed = list_response.json()["items"][0]
+    assert listed["classification"] == "vulnerability"
+
+    detail_response = client.get(f"/items/{item.id}", headers=auth_headers["admin"])
+    assert detail_response.status_code == 200
+    detail = detail_response.json()
+    assert detail["classification"]["primary_category"] == "vulnerability"
+    assert detail["classification"]["confidence"] == 0.87
 
 
 def test_admin_user_management_and_rbac(client: TestClient, auth_headers):

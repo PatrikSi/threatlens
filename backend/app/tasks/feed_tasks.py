@@ -17,7 +17,9 @@ from app.db.session import SessionLocal
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.services.connectors.rss import RSSConnector
+from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.url_utils import is_fetchable_url, normalize_url
@@ -87,6 +89,25 @@ def dispatch_due_feeds():
             if _is_feed_due(feed, now):
                 fetch_feed.delay(str(feed.id))
                 queued += 1
+
+    return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_unclassified_items")
+def dispatch_unclassified_items():
+    queued = 0
+    with db_session() as db:
+        item_ids = db.scalars(
+            select(Item.id)
+            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
+            .where(ItemClassification.item_id.is_(None))
+            .order_by(Item.first_seen_at.desc())
+            .limit(200)
+        ).all()
+
+    for item_id in item_ids:
+        classify_item.delay(str(item_id))
+        queued += 1
 
     return {"queued": queued}
 
@@ -269,6 +290,7 @@ def fetch_article(self, item_id: str):
 
         existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
         if existing_article is not None and item.status == "content_fetched":
+            classify_item.delay(item_id)
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
         target_url = item.canonical_url or item.url
@@ -282,6 +304,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=0,
                 error="unsafe_article_url",
             )
+            classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 
         domain = urlsplit(target_url).hostname or "unknown"
@@ -329,6 +352,7 @@ def fetch_article(self, item_id: str):
                     fetch_ms=fetch_ms,
                     error=f"network_or_rate_limit_error:{exc}",
                 )
+                classify_item.delay(item_id)
                 return {"status": "error", "item_id": item_id}
         except ResponseTooLargeError as exc:
             fetch_ms = int((time.perf_counter() - start) * 1000)
@@ -341,6 +365,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=fetch_ms,
                 error=str(exc),
             )
+            classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 
         fetch_ms = int((time.perf_counter() - start) * 1000)
@@ -355,6 +380,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=fetch_ms,
                 error=f"http_status:{status_code}",
             )
+            classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 
         if "text/html" not in (content_type or "").lower():
@@ -367,6 +393,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=fetch_ms,
                 error="non_html_response",
             )
+            classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 
         html = body_bytes.decode("utf-8", errors="ignore")
@@ -406,7 +433,52 @@ def fetch_article(self, item_id: str):
         db.add(item)
         db.commit()
 
+    classify_item.delay(item_id)
     return {"status": "ok", "item_id": item_id}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.classify_item")
+def classify_item(item_id: str):
+    with db_session() as db:
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        if item is None:
+            return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+
+        article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
+        feed_name = db.scalar(select(Feed.name).where(Feed.id == item.feed_id)) or ""
+
+        result = classify_item_content(
+            title=item.title,
+            summary=item.summary,
+            article_text=article.text if article else None,
+            feed_name=feed_name,
+        )
+
+        row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
+        if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
+            return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
+
+        if row is None:
+            row = ItemClassification(item_id=parsed_item_id)
+
+        row.primary_category = result.primary_category
+        row.secondary_categories = result.secondary_categories
+        row.confidence = result.confidence
+        row.scores_json = result.scores
+        row.matched_terms_json = result.matched_terms
+        row.source_hash = result.source_hash
+        row.rules_version = result.rules_version
+        row.classified_at = datetime.now(timezone.utc)
+
+        db.add(row)
+        db.commit()
+
+    return {"status": "ok", "item_id": item_id, "category": result.primary_category}
 
 
 def _store_article_error(

@@ -621,6 +621,11 @@ export function DashboardPage() {
                       <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
                         <span>Published {formatPublishedAt(item.published_at)}</span>
                         <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
+                        {item.classification && (
+                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-900/35 dark:text-emerald-200">
+                            {formatClassificationLabel(item.classification)}
+                          </span>
+                        )}
                         {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
                         {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
                       </div>
@@ -673,6 +678,12 @@ export function DashboardPage() {
 
                           <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
+                            {detail.classification && (
+                              <p className="mt-1 text-xs text-slate dark:text-slate-300">
+                                Classification: <span className="font-semibold">{formatClassificationLabel(detail.classification.primary_category)}</span>{' '}
+                                ({Math.round(detail.classification.confidence * 100)}% confidence)
+                              </p>
+                            )}
                             <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
                               {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
                             </div>
@@ -820,6 +831,13 @@ function formatPublishedAt(value: string | null) {
   const dt = new Date(value)
   if (Number.isNaN(dt.getTime())) return value
   return dt.toLocaleString()
+}
+
+function formatClassificationLabel(value: string): string {
+  return value
+    .split('_')
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ')
 }
 
 function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect: PanelRect): DashboardSavedViewState {
