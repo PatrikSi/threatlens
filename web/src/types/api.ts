@@ -61,6 +61,14 @@ export interface AuditLogListResponse {
   page_size: number
 }
 
+export interface SavedView {
+  id: string
+  user_id: string
+  name: string
+  query_json: Record<string, unknown>
+  created_at: string
+}
+
 export interface StatsTotalsSummary {
   feeds_total: number
   feeds_enabled: number
