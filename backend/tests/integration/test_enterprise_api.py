@@ -4,8 +4,10 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.models.feed import Feed
+from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.tag import ItemTag, Tag
 from app.services.feed_probe import FeedProbeResult
 
 
@@ -246,26 +248,16 @@ def test_item_graph_endpoint_returns_related_nodes(client: TestClient, auth_head
     db_session.add_all([root_item, related_item])
     db_session.flush()
 
+    cve_ioc = IOC(type="cve", value_raw="CVE-2026-9999", value_norm="CVE-2026-9999")
+    ip_ioc = IOC(type="ipv4", value_raw="203.0.113.77", value_norm="203.0.113.77")
+    db_session.add_all([cve_ioc, ip_ioc])
+    db_session.flush()
+
     db_session.add_all(
         [
-            ItemClassification(
-                item_id=root_item.id,
-                primary_category="vulnerability",
-                secondary_categories=["technology_ai"],
-                confidence=0.9,
-                scores_json={"vulnerability": 8.0},
-                matched_terms_json={"vulnerability": ["cve"]},
-                source_hash="e" * 64,
-            ),
-            ItemClassification(
-                item_id=related_item.id,
-                primary_category="vulnerability",
-                secondary_categories=[],
-                confidence=0.8,
-                scores_json={"vulnerability": 6.0},
-                matched_terms_json={"vulnerability": ["patch_tuesday"]},
-                source_hash="f" * 64,
-            ),
+            ItemIOC(item_id=root_item.id, ioc_id=cve_ioc.id, source_section="title", occurrences=1, confidence=1.0),
+            ItemIOC(item_id=root_item.id, ioc_id=ip_ioc.id, source_section="article", occurrences=2, confidence=1.0),
+            ItemIOC(item_id=related_item.id, ioc_id=cve_ioc.id, source_section="title", occurrences=1, confidence=1.0),
         ]
     )
     db_session.commit()
@@ -273,8 +265,22 @@ def test_item_graph_endpoint_returns_related_nodes(client: TestClient, auth_head
     response = client.get(f"/items/{root_item.id}/graph", headers=auth_headers["admin"])
     assert response.status_code == 200
     payload = response.json()
+    assert payload["focus_node_id"] == f"item:{root_item.id}"
     assert any(node["type"] == "item" and node["metadata"]["item_id"] == str(root_item.id) for node in payload["nodes"])
-    assert any(edge["relation"] == "related" for edge in payload["edges"])
+    assert any(node["type"] == "cve" for node in payload["nodes"])
+    assert any(edge["relation"] == "mentions" for edge in payload["edges"])
+    assert any(edge["relation"] == "observed_in" for edge in payload["edges"])
+
+    pivot_response = client.get(
+        f"/items/{root_item.id}/graph?focus_node_id=ioc:{cve_ioc.id}",
+        headers=auth_headers["admin"],
+    )
+    assert pivot_response.status_code == 200
+    pivot_payload = pivot_response.json()
+    assert pivot_payload["focus_node_id"] == f"ioc:{cve_ioc.id}"
+    pivot_item_ids = {node["metadata"].get("item_id") for node in pivot_payload["nodes"] if node["type"] == "item"}
+    assert str(root_item.id) in pivot_item_ids
+    assert str(related_item.id) in pivot_item_ids
 
 
 def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
@@ -570,3 +576,90 @@ def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_s
     )
     assert both_response.status_code == 200
     assert both_response.json()["total"] == 2
+
+
+def test_items_support_tag_filters(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "TagFilterFeed",
+            "url": "https://example.com/tag-filter.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item_one = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="tag-item-one",
+        url="https://example.com/tag-one",
+        canonical_url="https://example.com/tag-one",
+        title="Tag Item One",
+        summary="critical only",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="test:tag-item-one",
+        content_hash="1" * 64,
+        status="new",
+    )
+    item_two = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="tag-item-two",
+        url="https://example.com/tag-two",
+        canonical_url="https://example.com/tag-two",
+        title="Tag Item Two",
+        summary="malware only",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="test:tag-item-two",
+        content_hash="2" * 64,
+        status="new",
+    )
+    item_three = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="tag-item-three",
+        url="https://example.com/tag-three",
+        canonical_url="https://example.com/tag-three",
+        title="Tag Item Three",
+        summary="critical and malware",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="test:tag-item-three",
+        content_hash="3" * 64,
+        status="new",
+    )
+    db_session.add_all([item_one, item_two, item_three])
+    db_session.flush()
+
+    critical_tag = Tag(name="critical")
+    malware_tag = Tag(name="malware")
+    db_session.add_all([critical_tag, malware_tag])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ItemTag(item_id=item_one.id, tag_id=critical_tag.id),
+            ItemTag(item_id=item_two.id, tag_id=malware_tag.id),
+            ItemTag(item_id=item_three.id, tag_id=critical_tag.id),
+            ItemTag(item_id=item_three.id, tag_id=malware_tag.id),
+        ]
+    )
+    db_session.commit()
+
+    legacy_response = client.get("/items?page=1&page_size=50&tag=critical", headers=auth_headers["viewer"])
+    assert legacy_response.status_code == 200
+    assert legacy_response.json()["total"] == 2
+
+    any_response = client.get("/items?page=1&page_size=50&tags=critical,malware", headers=auth_headers["viewer"])
+    assert any_response.status_code == 200
+    assert any_response.json()["total"] == 3
+
+    all_response = client.get(
+        "/items?page=1&page_size=50&tags=critical,malware&tags_mode=all",
+        headers=auth_headers["viewer"],
+    )
+    assert all_response.status_code == 200
+    assert all_response.json()["total"] == 1
