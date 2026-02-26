@@ -1,9 +1,10 @@
+import uuid
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, case, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -26,32 +27,83 @@ from app.schemas.stats import (
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
+def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
+    if not feed_ids:
+        return []
+
+    parsed: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for raw in feed_ids.split(","):
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        try:
+            feed_uuid = uuid.UUID(candidate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid feed id: {candidate}",
+            ) from exc
+        if feed_uuid not in seen:
+            parsed.append(feed_uuid)
+            seen.add(feed_uuid)
+    return parsed
+
+
 @router.get("/overview", response_model=StatsOverviewResponse)
 def get_stats_overview(
     days: int = Query(default=30, ge=7, le=365),
+    feed_ids: str | None = Query(default=None),
     db: Session = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
+    selected_feed_ids = _parse_feed_ids(feed_ids)
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)
 
-    feeds_total = db.scalar(select(func.count()).select_from(Feed)) or 0
-    feeds_enabled = db.scalar(select(func.count()).select_from(Feed).where(Feed.enabled.is_(True))) or 0
+    feed_filters = [Feed.id.in_(selected_feed_ids)] if selected_feed_ids else []
+    item_filters = [Item.feed_id.in_(selected_feed_ids)] if selected_feed_ids else []
 
-    items_total = db.scalar(select(func.count()).select_from(Item)) or 0
-    items_new = db.scalar(select(func.count()).select_from(Item).where(Item.status == "new")) or 0
-    items_content_fetched = db.scalar(select(func.count()).select_from(Item).where(Item.status == "content_fetched")) or 0
-    items_error = db.scalar(select(func.count()).select_from(Item).where(Item.status == "error")) or 0
-    articles_total = db.scalar(select(func.count()).select_from(Article)) or 0
+    feeds_total_query = select(func.count()).select_from(Feed)
+    feeds_enabled_query = select(func.count()).select_from(Feed).where(Feed.enabled.is_(True))
+    if feed_filters:
+        feeds_total_query = feeds_total_query.where(*feed_filters)
+        feeds_enabled_query = feeds_enabled_query.where(*feed_filters)
 
-    items_last_24h = db.scalar(select(func.count()).select_from(Item).where(Item.first_seen_at >= now - timedelta(hours=24))) or 0
-    items_last_7d = db.scalar(select(func.count()).select_from(Item).where(Item.first_seen_at >= now - timedelta(days=7))) or 0
-    items_last_30d = db.scalar(select(func.count()).select_from(Item).where(Item.first_seen_at >= now - timedelta(days=30))) or 0
+    feeds_total = db.scalar(feeds_total_query) or 0
+    feeds_enabled = db.scalar(feeds_enabled_query) or 0
 
-    status_rows = db.execute(select(Item.status, func.count()).group_by(Item.status).order_by(func.count().desc())).all()
+    def _count_items(*extra_filters):
+        stmt = select(func.count()).select_from(Item)
+        filters = [*item_filters, *extra_filters]
+        if filters:
+            stmt = stmt.where(*filters)
+        return db.scalar(stmt) or 0
+
+    items_total = _count_items()
+    items_new = _count_items(Item.status == "new")
+    items_content_fetched = _count_items(Item.status == "content_fetched")
+    items_error = _count_items(Item.status == "error")
+
+    articles_query = select(func.count()).select_from(Article)
+    if item_filters:
+        articles_query = articles_query.join(Item, Item.id == Article.item_id).where(*item_filters)
+    articles_total = db.scalar(articles_query) or 0
+
+    items_last_24h = _count_items(Item.first_seen_at >= now - timedelta(hours=24))
+    items_last_7d = _count_items(Item.first_seen_at >= now - timedelta(days=7))
+    items_last_30d = _count_items(Item.first_seen_at >= now - timedelta(days=30))
+
+    status_query = select(Item.status, func.count())
+    if item_filters:
+        status_query = status_query.where(*item_filters)
+    status_rows = db.execute(status_query.group_by(Item.status).order_by(func.count().desc())).all()
     status_breakdown = [StatusPoint(status=status, count=int(count)) for status, count in status_rows]
 
-    volume_rows = db.scalars(select(Item.first_seen_at).where(Item.first_seen_at >= window_start)).all()
+    volume_query = select(Item.first_seen_at).where(Item.first_seen_at >= window_start)
+    if item_filters:
+        volume_query = volume_query.where(*item_filters)
+    volume_rows = db.scalars(volume_query).all()
     volume_counter: Counter[str] = Counter()
     for dt in volume_rows:
         normalized = _ensure_aware(dt)
@@ -62,7 +114,7 @@ def get_stats_overview(
         for date_key, count in sorted(volume_counter.items(), key=lambda kv: kv[0])
     ]
 
-    feed_rows = db.execute(
+    feed_rows_query = (
         select(
             Feed.id,
             Feed.name,
@@ -76,7 +128,10 @@ def get_stats_overview(
         .outerjoin(Item, Item.feed_id == Feed.id)
         .group_by(Feed.id, Feed.name)
         .order_by(func.count(Item.id).desc(), Feed.name.asc())
-    ).all()
+    )
+    if feed_filters:
+        feed_rows_query = feed_rows_query.where(*feed_filters)
+    feed_rows = db.execute(feed_rows_query).all()
 
     feed_breakdown = [
         FeedStats(
@@ -101,14 +156,13 @@ def get_stats_overview(
         ) in feed_rows
     ]
 
-    domain_rows = db.execute(
-        select(Item.canonical_url, Item.url).where(
-            and_(
-                Item.first_seen_at >= window_start,
-                Item.status == "content_fetched",
-            )
-        )
-    ).all()
+    domain_query = select(Item.canonical_url, Item.url).where(
+        Item.first_seen_at >= window_start,
+        Item.status == "content_fetched",
+    )
+    if item_filters:
+        domain_query = domain_query.where(*item_filters)
+    domain_rows = db.execute(domain_query).all()
 
     domain_counter: Counter[str] = Counter()
     for canonical_url, item_url in domain_rows:

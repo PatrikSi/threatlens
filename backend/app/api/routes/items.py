@@ -28,6 +28,30 @@ from app.services.audit import record_audit
 router = APIRouter(prefix="/items", tags=["items"])
 
 
+def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
+    if not feed_ids:
+        return []
+
+    parsed: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for raw in feed_ids.split(","):
+        candidate = raw.strip()
+        if not candidate:
+            continue
+        try:
+            feed_uuid = uuid.UUID(candidate)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid feed id: {candidate}",
+            ) from exc
+
+        if feed_uuid not in seen:
+            parsed.append(feed_uuid)
+            seen.add(feed_uuid)
+    return parsed
+
+
 
 def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemState:
     state = db.scalar(
@@ -49,6 +73,7 @@ def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) ->
 def list_items(
     q: str | None = None,
     feed_id: uuid.UUID | None = None,
+    feed_ids: str | None = Query(default=None),
     tag: str | None = None,
     is_starred: bool | None = None,
     is_read: bool | None = None,
@@ -60,6 +85,10 @@ def list_items(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    selected_feed_ids = _parse_feed_ids(feed_ids)
+    if feed_id and feed_id not in selected_feed_ids:
+        selected_feed_ids.append(feed_id)
+
     state_subq = (
         select(
             ItemState.item_id.label("item_id"),
@@ -91,8 +120,8 @@ def list_items(
                 func.lower(cast(Item.url, String)).like(pattern),
             )
         )
-    if feed_id:
-        filters.append(Item.feed_id == feed_id)
+    if selected_feed_ids:
+        filters.append(Item.feed_id.in_(selected_feed_ids))
     if since:
         filters.append(Item.first_seen_at >= since)
     if until:
