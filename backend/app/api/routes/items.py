@@ -70,7 +70,7 @@ def _parse_tag_filters(tag: str | None, tags: str | None) -> list[str]:
     seen: set[str] = set()
     for raw in raw_values:
         value = raw.strip().lower()
-        if not value or value in seen:
+        if not value or value == "content_fetched" or value in seen:
             continue
         selected.append(value)
         seen.add(value)
@@ -240,14 +240,14 @@ def list_items(
                 filters.append(
                     select(ItemTag.item_id)
                     .join(Tag, Tag.id == ItemTag.tag_id)
-                    .where(and_(ItemTag.item_id == Item.id, Tag.name == selected_tag))
+                    .where(and_(ItemTag.item_id == Item.id, func.lower(Tag.name) == selected_tag))
                     .exists()
                 )
         else:
             filters.append(
                 select(ItemTag.item_id)
                 .join(Tag, Tag.id == ItemTag.tag_id)
-                .where(and_(ItemTag.item_id == Item.id, Tag.name.in_(selected_tags)))
+                .where(and_(ItemTag.item_id == Item.id, func.lower(Tag.name).in_(selected_tags)))
                 .exists()
             )
 
