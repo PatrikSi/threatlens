@@ -657,6 +657,93 @@ def test_stats_feed_timeseries_uses_publication_date_not_ingestion_date(client: 
     assert sum(point["count"] for point in payload["series"][0]["points"]) == 1
 
 
+def test_stats_activity_heatmap_endpoint(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Heatmap Feed",
+            "url": "https://example.com/heatmap.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="heatmap-1",
+                url="https://example.com/heatmap/1",
+                canonical_url="https://example.com/heatmap/1",
+                title="Heatmap recent one",
+                summary="recent one",
+                published_at=now - timedelta(hours=1),
+                first_seen_at=now - timedelta(minutes=10),
+                dedupe_key="test:heatmap-1",
+                content_hash="b" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="heatmap-2",
+                url="https://example.com/heatmap/2",
+                canonical_url="https://example.com/heatmap/2",
+                title="Heatmap recent two",
+                summary="recent two",
+                published_at=now - timedelta(hours=1),
+                first_seen_at=now - timedelta(minutes=5),
+                dedupe_key="test:heatmap-2",
+                content_hash="c" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="heatmap-3",
+                url="https://example.com/heatmap/3",
+                canonical_url="https://example.com/heatmap/3",
+                title="Heatmap mid-window",
+                summary="mid-window",
+                published_at=now - timedelta(days=3, hours=2),
+                first_seen_at=now - timedelta(minutes=2),
+                dedupe_key="test:heatmap-3",
+                content_hash="d" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="heatmap-old",
+                url="https://example.com/heatmap/old",
+                canonical_url="https://example.com/heatmap/old",
+                title="Heatmap old",
+                summary="outside window",
+                published_at=now - timedelta(days=10),
+                first_seen_at=now - timedelta(minutes=1),
+                dedupe_key="test:heatmap-old",
+                content_hash="e" * 64,
+                status="content_fetched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/activity-heatmap?feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["last_24h"]) == 24
+    assert len(payload["last_7d"]) == 7
+    assert payload["last_24h_max"] >= 2
+    assert sum(point["count"] for point in payload["last_24h"]) >= 2
+    assert sum(sum(day["counts"]) for day in payload["last_7d"]) == 3
+
+
 def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
     feed_one_response = client.post(
         "/feeds",

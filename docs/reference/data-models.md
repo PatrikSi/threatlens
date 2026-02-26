@@ -208,6 +208,7 @@ Primary key on `item_id`:
 - `AuditLogResponse`, `AuditLogListResponse`
 - `AuditLogExportResponse`
 - Stats family (`TotalsSummary`, `ActivitySummary`, `DerivedSummary`, `StatusPoint`, `DailyVolumePoint`, `FeedStats`, `DomainPoint`, and time-series schemas)
+  - Includes activity heatmap contracts: `ActivityHeatmapHourPoint`, `ActivityHeatmapDayRow`, `ActivityHeatmapResponse`
 
 ## Frontend Type Mirrors (`web/src/types/api.ts`)
 
@@ -217,7 +218,7 @@ The frontend mirrors backend contracts for all major payloads:
 - Tokens: `ApiToken`, `ApiTokenCreateResponse`
 - Audit: `AuditLog`, `AuditLogListResponse`
 - Saved views: `SavedView`
-- Stats: `StatsOverviewResponse`, `StatsFeedTimeSeriesResponse` and nested types
+- Stats: `StatsOverviewResponse`, `StatsFeedTimeSeriesResponse`, `StatsActivityHeatmapResponse` and nested types
 - Feeds/import-export metadata: `Feed`, `FeedMetadataResponse`, `FeedImportEntry`, `FeedExportResponse`, `FeedImportResponse`
 - Items/detail/graph: `ItemListEntry`, `ItemListResponse`, `ItemDetail`, `ItemGraphResponse`
 - Tags: `Tag`
