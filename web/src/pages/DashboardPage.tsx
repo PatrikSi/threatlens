@@ -20,7 +20,7 @@ type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 type DashboardViewMode = 'expanded' | 'compact'
-type DashboardWindowType = 'rss' | 'alerts'
+type DashboardWindowType = 'rss' | 'alerts' | 'notes'
 type DashboardWindowSnap = 'free' | 'full' | 'left' | 'right' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
 
 type PanelRect = {
@@ -37,6 +37,7 @@ interface DashboardWindow {
   snap: DashboardWindowSnap
   rect: PanelRect
   controls_collapsed: boolean
+  scratch_note: string
 }
 
 interface DashboardSavedViewQuery {
@@ -409,7 +410,10 @@ export function DashboardPage() {
   const addWindow = (type: DashboardWindowType) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     setActiveSavedViewId(null)
-    setWindows((current) => [...current, createWindowLayout(type, current.length + 1, width, height)])
+    setWindows((current) => {
+      const nextIndex = current.filter((window) => window.type === type).length + 1
+      return [...current, createWindowLayout(type, nextIndex, width, height)]
+    })
     setShowAddWindowMenu(false)
   }
 
@@ -444,6 +448,13 @@ export function DashboardPage() {
       current.map((window) =>
         window.id === windowId ? { ...window, controls_collapsed: !window.controls_collapsed } : window,
       ),
+    )
+  }
+
+  const updateWindowScratchNote = (windowId: string, scratchNote: string) => {
+    setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) => (window.id === windowId ? { ...window, scratch_note: scratchNote } : window)),
     )
   }
 
@@ -700,6 +711,7 @@ export function DashboardPage() {
 
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
+  const notesWindowCount = windows.filter((window) => window.type === 'notes').length
   const containerDimensions = getWindowContainerDimensions(rootRef.current)
 
   return (
@@ -751,6 +763,13 @@ export function DashboardPage() {
                   onClick={() => addWindow('alerts')}
                 >
                   Alerts Window ({alertWindowCount})
+                </button>
+                <button
+                  type="button"
+                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                  onClick={() => addWindow('notes')}
+                >
+                  Notes Window ({notesWindowCount})
                 </button>
               </div>
             )}
@@ -819,21 +838,29 @@ export function DashboardPage() {
                   <h2 className="font-display text-lg leading-tight">{windowLayout.title}</h2>
                   {windowLayout.type === 'rss' ? (
                     <p className="text-xs text-slate dark:text-slate-300">RSS feed triage with saved filters and notes.</p>
-                  ) : (
+                  ) : windowLayout.type === 'alerts' ? (
                     <p className="text-xs text-slate dark:text-slate-300">Keyword-driven matching against your configured alert interests.</p>
+                  ) : (
+                    <p className="text-xs text-slate dark:text-slate-300">Scratch notes persisted in dashboard layout and saved views.</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
                   <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
-                    {windowLayout.type === 'rss' ? `${itemsQuery.data?.total ?? 0} items` : `${alertMatchesQuery.data?.total ?? 0} matches`}
+                    {windowLayout.type === 'rss'
+                      ? `${itemsQuery.data?.total ?? 0} items`
+                      : windowLayout.type === 'alerts'
+                        ? `${alertMatchesQuery.data?.total ?? 0} matches`
+                        : 'Scratch Pad'}
                   </span>
-                  <button
-                    type="button"
-                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                    onClick={() => toggleWindowControls(windowLayout.id)}
-                  >
-                    {windowLayout.controls_collapsed ? 'Expand Filters' : 'Collapse Filters'}
-                  </button>
+                  {windowLayout.type !== 'notes' && (
+                    <button
+                      type="button"
+                      className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                      onClick={() => toggleWindowControls(windowLayout.id)}
+                    >
+                      {windowLayout.controls_collapsed ? 'Expand Filters' : 'Collapse Filters'}
+                    </button>
+                  )}
                   <button
                     type="button"
                     className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
@@ -1289,7 +1316,7 @@ export function DashboardPage() {
                     </div>
                   </div>
                 </>
-              ) : (
+              ) : windowLayout.type === 'alerts' ? (
                 <>
                   {!windowLayout.controls_collapsed && (
                     <div className="border-b border-slate/20 px-3 py-1.5 dark:border-cyan-900/40">
@@ -1524,6 +1551,17 @@ export function DashboardPage() {
                     </div>
                   </div>
                 </>
+              ) : (
+                <div className="flex flex-1 flex-col p-3">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Scratch Notes</label>
+                  <textarea
+                    className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
+                    placeholder="Use this space for quick notes, pivots, and hypotheses..."
+                    value={windowLayout.scratch_note}
+                    onChange={(event) => updateWindowScratchNote(windowLayout.id, event.target.value)}
+                  />
+                  <p className="mt-2 text-xs text-slate dark:text-slate-300">Saved in this dashboard window and in saved views.</p>
+                </div>
               )}
 
               {isWideLayout && windowLayout.snap === 'free' && (
@@ -1744,6 +1782,7 @@ function loadDashboardWindows(): DashboardWindow[] {
         snap: entry.snap,
         rect: normalizePanelRect(rect, width, height),
         controls_collapsed: entry.controls_collapsed === true,
+        scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
       })
     }
 
@@ -1779,7 +1818,9 @@ function normalizeDashboardWindows(windows: DashboardWindow[], containerWidth: n
 }
 
 function defaultWindowTitle(type: DashboardWindowType, index: number): string {
-  return type === 'rss' ? `RSS Feed ${index}` : `Alerts ${index}`
+  if (type === 'rss') return `RSS Feed ${index}`
+  if (type === 'alerts') return `Alerts ${index}`
+  return `Notes ${index}`
 }
 
 function createWindowLayout(
@@ -1810,6 +1851,7 @@ function createWindowLayout(
     snap,
     rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
     controls_collapsed: false,
+    scratch_note: '',
   }
 }
 
@@ -1883,6 +1925,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
         snap: entry.snap,
         rect,
         controls_collapsed: entry.controls_collapsed === true,
+        scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
       })
     }
   }
@@ -1895,6 +1938,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
       snap: 'free',
       rect: legacyFeedRect,
       controls_collapsed: false,
+      scratch_note: '',
     })
   }
 
@@ -2014,6 +2058,7 @@ function buildDashboardSavedViewState(
       snap: window.snap,
       rect: { ...window.rect },
       controls_collapsed: window.controls_collapsed,
+      scratch_note: window.scratch_note,
     })),
     ui: {
       show_advanced_filters: showAdvancedFilters,
@@ -2404,7 +2449,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isWindowType(value: unknown): value is DashboardWindowType {
-  return value === 'rss' || value === 'alerts'
+  return value === 'rss' || value === 'alerts' || value === 'notes'
 }
 
 function isWindowSnap(value: unknown): value is DashboardWindowSnap {
