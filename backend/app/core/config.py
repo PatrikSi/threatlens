@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
     per_domain_concurrency: int = 2
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
 
 @lru_cache
