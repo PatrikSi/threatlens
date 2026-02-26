@@ -60,7 +60,7 @@ export function LoginPage() {
 
         <button
           type="submit"
-          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate dark:bg-cyan dark:text-ink"
+          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate dark:bg-cyan dark:text-[#053c2e]"
           disabled={login.isPending}
         >
           {login.isPending ? 'Signing in...' : 'Sign in'}

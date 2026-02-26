@@ -68,7 +68,7 @@ export function StatsPage() {
             </select>
             <button
               type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm dark:border-cyan-900/40"
+              className="rounded border border-slate/30 px-3 py-2 text-sm text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
               onClick={() => setSelectedFeedIds([])}
             >
               All feeds
@@ -94,7 +94,7 @@ export function StatsPage() {
           <span>{selectedFeedIds.length || 'All'} selected</span>
           <button
             type="button"
-            className="underline"
+            className="underline text-slate-700 dark:text-slate-100"
             onClick={() => setSelectedFeedIds(feedsQuery.data?.map((feed) => feed.id) ?? [])}
           >
             Select all

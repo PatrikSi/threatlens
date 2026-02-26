@@ -95,7 +95,7 @@ export function FeedsPage() {
             />
           </div>
           <button
-            className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-ink"
+            className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]"
             type="submit"
             disabled={createFeed.isPending || !canManage}
           >
