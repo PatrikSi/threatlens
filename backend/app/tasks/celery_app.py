@@ -17,4 +17,10 @@ celery_app.conf.update(
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
+    beat_schedule={
+        "dispatch-due-feeds": {
+            "task": "app.tasks.feed_tasks.dispatch_due_feeds",
+            "schedule": 60.0,
+        }
+    },
 )
