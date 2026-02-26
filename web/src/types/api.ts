@@ -258,7 +258,7 @@ export interface ItemDetail {
 
 export interface ItemGraphNode {
   id: string
-  type: 'item' | 'category'
+  type: string
   label: string
   metadata: Record<string, unknown>
 }
@@ -273,6 +273,8 @@ export interface ItemGraphEdge {
 export interface ItemGraphResponse {
   nodes: ItemGraphNode[]
   edges: ItemGraphEdge[]
+  focus_node_id: string | null
+  root_item_id: string | null
 }
 
 export interface Tag {

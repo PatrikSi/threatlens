@@ -4,11 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { Feed, ItemDetail, ItemGraphResponse, ItemListResponse, SavedView } from '../types/api'
+import { Feed, ItemDetail, ItemGraphResponse, ItemListResponse, SavedView, Tag } from '../types/api'
 
 type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
 type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
+type TagMatchMode = 'any' | 'all'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 
 type PanelRect = {
@@ -20,9 +21,11 @@ type PanelRect = {
 
 interface DashboardSavedViewQuery {
   selected_feed_ids: string[]
+  selected_tags: string[]
   q: string
   read_status: ReadStatusFilter
   star_status: StarStatusFilter
+  tag_match_mode: TagMatchMode
   time_range: TimeRangeFilter
   custom_since_date: string
   custom_until_date: string
@@ -56,9 +59,11 @@ export function DashboardPage() {
   const rootRef = useRef<HTMLDivElement | null>(null)
 
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
+  const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
   const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
+  const [tagMatchMode, setTagMatchMode] = useState<TagMatchMode>('any')
   const [timeRange, setTimeRange] = useState<TimeRangeFilter>('all')
   const [customSinceDate, setCustomSinceDate] = useState('')
   const [customUntilDate, setCustomUntilDate] = useState('')
@@ -70,6 +75,7 @@ export function DashboardPage() {
   const [page, setPage] = useState(1)
   const pageSize = 25
   const [expandedItemId, setExpandedItemId] = useState<string>('')
+  const [graphFocusNodeId, setGraphFocusNodeId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
 
   const [panelRect, setPanelRect] = useState<PanelRect>(() => loadPanelRect())
@@ -101,6 +107,7 @@ export function DashboardPage() {
 
   const debouncedQ = useDebouncedValue(q)
   const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
+  const selectedTagsParam = useMemo(() => selectedTags.slice().sort().join(','), [selectedTags])
 
   const { sinceIso, untilIso } = useMemo(
     () => deriveTimeWindow(timeRange, customSinceDate, customUntilDate),
@@ -115,6 +122,11 @@ export function DashboardPage() {
   const viewsQuery = useQuery({
     queryKey: ['views'],
     queryFn: () => apiFetch<SavedView[]>('/views'),
+  })
+
+  const tagsQuery = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => apiFetch<Tag[]>('/tags'),
   })
 
   const saveView = useMutation({
@@ -172,7 +184,7 @@ export function DashboardPage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: ['items', feedIdsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
+    queryKey: ['items', feedIdsParam, selectedTagsParam, tagMatchMode, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
     retry: 1,
     queryFn: () => {
       const params = new URLSearchParams()
@@ -181,6 +193,10 @@ export function DashboardPage() {
       params.set('sort', sort)
 
       if (feedIdsParam) params.set('feed_ids', feedIdsParam)
+      if (selectedTagsParam) {
+        params.set('tags', selectedTagsParam)
+        params.set('tags_mode', tagMatchMode)
+      }
       if (debouncedQ) params.set('q', debouncedQ)
       if (sinceIso) params.set('since', sinceIso)
       if (untilIso) params.set('until', untilIso)
@@ -218,10 +234,23 @@ export function DashboardPage() {
   })
 
   const graphQuery = useQuery({
-    queryKey: ['item-graph', expandedItemId],
+    queryKey: ['item-graph', expandedItemId, graphFocusNodeId],
     enabled: Boolean(expandedItemId),
-    queryFn: () => apiFetch<ItemGraphResponse>(`/items/${expandedItemId}/graph?since_days=30&limit=14`),
+    queryFn: () => {
+      const params = new URLSearchParams()
+      params.set('since_days', '30')
+      params.set('related_item_limit', '18')
+      params.set('ioc_limit', '20')
+      if (graphFocusNodeId) {
+        params.set('focus_node_id', graphFocusNodeId)
+      }
+      return apiFetch<ItemGraphResponse>(`/items/${expandedItemId}/graph?${params.toString()}`)
+    },
   })
+
+  useEffect(() => {
+    setGraphFocusNodeId('')
+  }, [expandedItemId])
 
   useEffect(() => {
     setNoteDraft(detailQuery.data?.state.note ?? '')
@@ -235,10 +264,12 @@ export function DashboardPage() {
   const handleToggleItem = (itemId: string, isRead: boolean) => {
     if (expandedItemId === itemId) {
       setExpandedItemId('')
+      setGraphFocusNodeId('')
       return
     }
 
     setExpandedItemId(itemId)
+    setGraphFocusNodeId('')
     if (!isRead && canManage) {
       updateRead.mutate({ itemId, isRead: true })
     }
@@ -253,9 +284,11 @@ export function DashboardPage() {
       query: buildDashboardSavedViewState(
         {
           selected_feed_ids: selectedFeedIds,
+          selected_tags: selectedTags,
           q,
           read_status: readStatus,
           star_status: starStatus,
+          tag_match_mode: tagMatchMode,
           time_range: timeRange,
           custom_since_date: customSinceDate,
           custom_until_date: customUntilDate,
@@ -271,14 +304,17 @@ export function DashboardPage() {
     const parsed = parseDashboardSavedView(view.query_json, panelRect)
     setPage(1)
     setSelectedFeedIds(parsed.filters.selected_feed_ids)
+    setSelectedTags(parsed.filters.selected_tags)
     setQ(parsed.filters.q)
     setReadStatus(parsed.filters.read_status)
     setStarStatus(parsed.filters.star_status)
+    setTagMatchMode(parsed.filters.tag_match_mode)
     setTimeRange(parsed.filters.time_range)
     setCustomSinceDate(parsed.filters.custom_since_date)
     setCustomUntilDate(parsed.filters.custom_until_date)
     setSort(parsed.filters.sort)
     setShowAdvancedFilters(parsed.ui.show_advanced_filters)
+    setGraphFocusNodeId('')
     const nextFeedWindow = parsed.layout.windows[FEEDS_WINDOW_ID]
     if (nextFeedWindow) {
       const { width, height } = getPanelContainerDimensions(rootRef.current)
@@ -538,7 +574,7 @@ export function DashboardPage() {
           </div>
 
           {showAdvancedFilters && (
-            <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-4">
               <select
                 className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 value={readStatus}
@@ -565,6 +601,18 @@ export function DashboardPage() {
                 <option value="starred">Stars: Starred</option>
                 <option value="unstarred">Stars: Unstarred</option>
               </select>
+              <select
+                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={tagMatchMode}
+                onChange={(event) => {
+                  setPage(1)
+                  setActiveSavedViewId(null)
+                  setTagMatchMode(event.target.value as TagMatchMode)
+                }}
+              >
+                <option value="any">Tags: Match Any</option>
+                <option value="all">Tags: Match All</option>
+              </select>
               <div className="flex gap-2">
                 <input
                   type="date"
@@ -588,6 +636,54 @@ export function DashboardPage() {
                   }}
                   disabled={timeRange !== 'custom'}
                 />
+              </div>
+              <div className="md:col-span-2 lg:col-span-4">
+                <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Tags</label>
+                <select
+                  multiple
+                  size={Math.min(Math.max(tagsQuery.data?.length ?? 4, 4), 8)}
+                  className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={selectedTags}
+                  onChange={(event) => {
+                    setPage(1)
+                    setActiveSavedViewId(null)
+                    setSelectedTags(Array.from(event.target.selectedOptions).map((option) => option.value))
+                  }}
+                >
+                  {tagsQuery.data?.map((tag) => (
+                    <option key={tag.id} value={tag.name}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-1 flex items-center justify-between text-xs text-slate dark:text-slate-300">
+                  <span>{selectedTags.length || 'All'} selected</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        setPage(1)
+                        setActiveSavedViewId(null)
+                        setSelectedTags([])
+                      }}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => {
+                        setPage(1)
+                        setActiveSavedViewId(null)
+                        setSelectedTags((tagsQuery.data ?? []).map((entry) => entry.name))
+                      }}
+                    >
+                      Select all
+                    </button>
+                  </div>
+                </div>
+                {tagsQuery.isError && <p className="mt-1 text-xs text-red-600">Failed to load tags.</p>}
               </div>
             </div>
           )}
@@ -634,6 +730,11 @@ export function DashboardPage() {
                         )}
                         {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
                         {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                        {item.tags.slice(0, 3).map((tagName) => (
+                          <span key={`${item.id}-${tagName}`} className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800 dark:bg-violet-900/35 dark:text-violet-200">
+                            #{tagName}
+                          </span>
+                        ))}
                       </div>
                       <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
                     </button>
@@ -708,10 +809,18 @@ export function DashboardPage() {
                           </div>
 
                           <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                            <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Relationship Graph (30d)</p>
-                            {graphQuery.isLoading && <p className="mt-2 text-sm text-slate dark:text-slate-300">Building graph...</p>}
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Threat Pivot Graph (30d)</p>
+                            {graphQuery.isLoading && <p className="mt-2 text-sm text-slate dark:text-slate-300">Building IOC graph...</p>}
                             {graphQuery.isError && <p className="mt-2 text-sm text-red-600">Failed to load graph.</p>}
-                            {graphQuery.data && <ItemRelationGraph graph={graphQuery.data} />}
+                            {graphQuery.data && (
+                              <ItemRelationGraph
+                                graph={graphQuery.data}
+                                onPivot={(nodeId) => setGraphFocusNodeId(nodeId)}
+                              />
+                            )}
+                            {graphQuery.isFetching && !graphQuery.isLoading && (
+                              <p className="mt-2 text-xs text-slate dark:text-slate-300">Updating graph pivot...</p>
+                            )}
                           </div>
 
                           <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
@@ -785,64 +894,65 @@ export function DashboardPage() {
   )
 }
 
-function ItemRelationGraph({ graph }: { graph: ItemGraphResponse }) {
-  const itemNodes = graph.nodes.filter((node) => node.type === 'item')
-  const categoryNodes = graph.nodes.filter((node) => node.type === 'category')
-
-  if (itemNodes.length <= 1 || graph.edges.length === 0) {
-    return <p className="mt-2 text-sm text-slate dark:text-slate-300">No related article links in the selected time window.</p>
+function ItemRelationGraph({ graph, onPivot }: { graph: ItemGraphResponse; onPivot: (nodeId: string) => void }) {
+  if (!graph.nodes.length || !graph.edges.length) {
+    return <p className="mt-2 text-sm text-slate dark:text-slate-300">No IOC relationships found for this article yet.</p>
   }
 
-  const relatedWeightBySource = new Map<string, number>()
+  const centerNode = graph.nodes.find((node) => node.id === graph.focus_node_id) ?? graph.nodes[0]
+  const directNeighborIds = new Set<string>()
   for (const edge of graph.edges) {
-    if (edge.relation !== 'related') continue
-    relatedWeightBySource.set(edge.source, (relatedWeightBySource.get(edge.source) ?? 0) + edge.weight)
+    if (edge.source === centerNode.id) {
+      directNeighborIds.add(edge.target)
+    }
+    if (edge.target === centerNode.id) {
+      directNeighborIds.add(edge.source)
+    }
   }
 
-  const centerNode =
-    itemNodes
-      .slice()
-      .sort((a, b) => (relatedWeightBySource.get(b.id) ?? 0) - (relatedWeightBySource.get(a.id) ?? 0))[0] ?? itemNodes[0]
-  const relatedNodes = itemNodes.filter((node) => node.id !== centerNode.id).slice(0, 12)
+  const neighborNodes = graph.nodes.filter((node) => directNeighborIds.has(node.id))
+  const otherNodes = graph.nodes.filter((node) => node.id !== centerNode.id && !directNeighborIds.has(node.id)).slice(0, 20)
+  const orderedNodes = [centerNode, ...neighborNodes, ...otherNodes]
 
-  const width = 720
-  const height = 300
-  const centerX = 210
+  const width = 760
+  const height = 340
+  const centerX = width / 2
   const centerY = height / 2
-  const rightCenterX = 525
-  const rightCenterY = height / 2
-  const relatedRadiusX = 150
-  const relatedRadiusY = 110
+  const innerRadius = 110
+  const outerRadius = 155
 
   const positions = new Map<string, { x: number; y: number }>()
   positions.set(centerNode.id, { x: centerX, y: centerY })
 
-  categoryNodes.forEach((node, index) => {
-    const spacing = 46
-    const totalHeight = (categoryNodes.length - 1) * spacing
+  neighborNodes.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, neighborNodes.length)) * Math.PI * 2
     positions.set(node.id, {
-      x: 390,
-      y: centerY - totalHeight / 2 + index * spacing,
+      x: centerX + Math.cos(angle) * innerRadius,
+      y: centerY + Math.sin(angle) * innerRadius,
     })
   })
 
-  relatedNodes.forEach((node, index) => {
-    const angle = (-Math.PI / 2) + (index / Math.max(1, relatedNodes.length)) * Math.PI * 2
+  otherNodes.forEach((node, index) => {
+    const angle = -Math.PI / 2 + (index / Math.max(1, otherNodes.length)) * Math.PI * 2
     positions.set(node.id, {
-      x: rightCenterX + Math.cos(angle) * relatedRadiusX,
-      y: rightCenterY + Math.sin(angle) * relatedRadiusY,
+      x: centerX + Math.cos(angle) * outerRadius,
+      y: centerY + Math.sin(angle) * outerRadius,
     })
   })
 
   const visibleEdges = graph.edges.filter((edge) => positions.has(edge.source) && positions.has(edge.target))
+  const typeCounts = new Map<string, number>()
+  for (const node of orderedNodes) {
+    typeCounts.set(node.type, (typeCounts.get(node.type) ?? 0) + 1)
+  }
 
   return (
     <div className="mt-2">
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded border border-slate/20 bg-white/70 dark:border-cyan-900/40 dark:bg-[#041612]/80">
+      <p className="mb-2 text-xs text-slate dark:text-slate-300">Click IOC or item nodes to pivot and follow related reporting across articles.</p>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[300px] w-full rounded border border-slate/20 bg-white/70 dark:border-cyan-900/40 dark:bg-[#041612]/80">
         {visibleEdges.map((edge, index) => {
           const source = positions.get(edge.source)!
           const target = positions.get(edge.target)!
-          const strong = edge.relation === 'related'
           return (
             <line
               key={`${edge.source}-${edge.target}-${index}`}
@@ -850,53 +960,68 @@ function ItemRelationGraph({ graph }: { graph: ItemGraphResponse }) {
               y1={source.y}
               x2={target.x}
               y2={target.y}
-              stroke={strong ? '#06b6d4' : '#64748b'}
-              strokeOpacity={strong ? 0.6 : 0.35}
+              stroke={edge.relation === 'mentions' ? '#22d3ee' : '#38bdf8'}
+              strokeOpacity={0.5}
               strokeWidth={Math.min(4, Math.max(1.2, edge.weight * 0.45))}
             />
           )
         })}
 
-        {[centerNode, ...relatedNodes].map((node) => {
-          const pos = positions.get(node.id)!
-          const label = truncateText(node.label, 34)
-          return (
-            <g key={node.id}>
-              <circle cx={pos.x} cy={pos.y} r={node.id === centerNode.id ? 14 : 10} fill={node.id === centerNode.id ? '#0891b2' : '#0f766e'} />
-              <text
-                x={pos.x + 16}
-                y={pos.y + 4}
-                fontSize="11"
-                fill="#e2e8f0"
-              >
-                {label}
-              </text>
-            </g>
-          )
-        })}
+        {orderedNodes.map((node) => {
+          const pos = positions.get(node.id)
+          if (!pos) return null
+          const nodeColor = graphNodeColor(node.type)
+          const nodeRadius = node.id === centerNode.id ? 15 : node.type === 'item' ? 11 : 9
+          const label = truncateText(node.label, node.id === centerNode.id ? 46 : 28)
 
-        {categoryNodes.map((node) => {
-          const pos = positions.get(node.id)!
           return (
-            <g key={node.id}>
-              <rect x={pos.x - 42} y={pos.y - 11} width={84} height={22} rx={11} fill="#334155" fillOpacity={0.88} />
-              <text x={pos.x} y={pos.y + 4} fontSize="10" textAnchor="middle" fill="#f8fafc">
-                {formatClassificationLabel(node.label)}
+            <g key={node.id} onClick={() => onPivot(node.id)} className="cursor-pointer">
+              <title>{node.label}</title>
+              <circle cx={pos.x} cy={pos.y} r={nodeRadius} fill={nodeColor} stroke="#0b1526" strokeWidth={node.id === centerNode.id ? 1.6 : 1.1} />
+              <text x={pos.x + nodeRadius + 6} y={pos.y + 4} fontSize="11" fill="#e2e8f0">
+                {label}
               </text>
             </g>
           )
         })}
       </svg>
 
-      <div className="mt-2 flex flex-wrap gap-2">
-        {relatedNodes.slice(0, 6).map((node) => (
-          <span key={`rel-${node.id}`} className="rounded border border-slate/25 bg-slate-50 px-2 py-1 text-[11px] dark:border-cyan-900/40 dark:bg-[#06231b]">
-            {truncateText(node.label, 70)}
-          </span>
-        ))}
+      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+        {Array.from(typeCounts.entries())
+          .sort((a, b) => b[1] - a[1])
+          .map(([type, count]) => (
+            <span key={type} className="rounded border border-slate/25 bg-slate-50 px-2 py-1 dark:border-cyan-900/40 dark:bg-[#06231b]">
+              {type}: {count}
+            </span>
+          ))}
       </div>
     </div>
   )
+}
+
+function graphNodeColor(type: string): string {
+  switch (type) {
+    case 'item':
+      return '#0891b2'
+    case 'cve':
+      return '#f59e0b'
+    case 'ipv4':
+      return '#22c55e'
+    case 'domain':
+      return '#a78bfa'
+    case 'hash_sha256':
+      return '#ef4444'
+    case 'hash_sha1':
+      return '#f97316'
+    case 'hash_md5':
+      return '#fb7185'
+    case 'vendor':
+      return '#38bdf8'
+    case 'program':
+      return '#10b981'
+    default:
+      return '#64748b'
+  }
 }
 
 function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string) {
@@ -979,10 +1104,14 @@ function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect
   const selectedFeedIds = Array.isArray(rawFilters.selected_feed_ids)
     ? rawFilters.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
     : []
+  const selectedTags = Array.isArray(rawFilters.selected_tags)
+    ? rawFilters.selected_tags.filter((entry): entry is string => typeof entry === 'string')
+    : []
 
   const readStatus = rawFilters.read_status === 'read' || rawFilters.read_status === 'unread' ? rawFilters.read_status : 'all'
   const starStatus =
     rawFilters.star_status === 'starred' || rawFilters.star_status === 'unstarred' ? rawFilters.star_status : 'all'
+  const tagMatchMode = rawFilters.tag_match_mode === 'all' ? 'all' : 'any'
   const timeRange =
     rawFilters.time_range === '24h' ||
     rawFilters.time_range === '7d' ||
@@ -1021,9 +1150,11 @@ function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect
     version: DASHBOARD_VIEW_VERSION,
     filters: {
       selected_feed_ids: selectedFeedIds,
+      selected_tags: selectedTags,
       q: typeof rawFilters.q === 'string' ? rawFilters.q : '',
       read_status: readStatus,
       star_status: starStatus,
+      tag_match_mode: tagMatchMode,
       time_range: timeRange,
       custom_since_date: typeof rawFilters.custom_since_date === 'string' ? rawFilters.custom_since_date : '',
       custom_until_date: typeof rawFilters.custom_until_date === 'string' ? rawFilters.custom_until_date : '',
@@ -1044,6 +1175,7 @@ function buildDashboardSavedViewState(filters: DashboardSavedViewQuery, panelRec
     filters: {
       ...filters,
       selected_feed_ids: [...filters.selected_feed_ids],
+      selected_tags: [...filters.selected_tags],
     },
     layout: {
       windows: {
