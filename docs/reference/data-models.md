@@ -206,6 +206,7 @@ Primary key on `item_id`:
 - `ApiTokenCreateRequest`, `ApiTokenCreateResponse`, `ApiTokenResponse`
 - `UserCreateRequest`, `UserUpdateRequest`, `UserAdminResponse`
 - `AuditLogResponse`, `AuditLogListResponse`
+- `AuditLogExportResponse`
 - Stats family (`TotalsSummary`, `ActivitySummary`, `DerivedSummary`, `StatusPoint`, `DailyVolumePoint`, `FeedStats`, `DomainPoint`, and time-series schemas)
 
 ## Frontend Type Mirrors (`web/src/types/api.ts`)

@@ -1,14 +1,16 @@
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
-import { AuditLogListResponse } from '../types/api'
+import { AuditLogExportResponse, AuditLogListResponse } from '../types/api'
 
 export function AuditLogsPage() {
   const [action, setAction] = useState('')
   const [actorUserId, setActorUserId] = useState('')
   const [page, setPage] = useState(1)
   const pageSize = 50
+  const [exportError, setExportError] = useState('')
+  const [exportMessage, setExportMessage] = useState('')
 
   const auditQuery = useQuery({
     queryKey: ['audit-logs', action, actorUserId, page],
@@ -23,6 +25,39 @@ export function AuditLogsPage() {
   })
 
   const totalPages = Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize))
+
+  const exportLogs = useMutation({
+    mutationFn: () => {
+      const params = new URLSearchParams()
+      if (action.trim()) params.set('action', action.trim())
+      if (actorUserId.trim()) params.set('actor_user_id', actorUserId.trim())
+      params.set('limit', '10000')
+      return apiFetch<AuditLogExportResponse>(`/audit-logs/export?${params.toString()}`)
+    },
+    onSuccess: (payload) => {
+      const body = JSON.stringify(payload, null, 2)
+      const blob = new Blob([body], { type: 'application/json' })
+      const objectUrl = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = `threatlens-audit-logs-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+      URL.revokeObjectURL(objectUrl)
+
+      setExportError('')
+      if (payload.truncated) {
+        setExportMessage(`Exported first 10000 logs out of ${payload.total}. Refine filters for a complete export.`)
+        return
+      }
+      setExportMessage(`Exported ${payload.logs.length} logs.`)
+    },
+    onError: (error) => {
+      setExportMessage('')
+      setExportError((error as Error).message || 'Failed to export audit logs')
+    },
+  })
 
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -47,8 +82,18 @@ export function AuditLogsPage() {
             placeholder="Actor user ID"
             className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm dark:border-cyan-900/40"
+            onClick={() => exportLogs.mutate()}
+            disabled={exportLogs.isPending}
+          >
+            {exportLogs.isPending ? 'Exporting...' : 'Export JSON'}
+          </button>
         </div>
       </div>
+      {exportError && <p className="mt-2 text-sm text-red-600">{exportError}</p>}
+      {exportMessage && <p className="mt-2 text-sm text-slate dark:text-slate-300">{exportMessage}</p>}
 
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-left text-sm">

@@ -419,6 +419,41 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     assert any(log["action"] == "feeds.create" for log in logs)
 
 
+def test_audit_log_export_endpoint(client: TestClient, auth_headers):
+    create_feed = client.post(
+        "/feeds",
+        json={
+            "name": "AuditExport",
+            "url": "https://example.com/audit-export.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_feed.status_code == 201
+
+    create_feed_two = client.post(
+        "/feeds",
+        json={
+            "name": "AuditExportTwo",
+            "url": "https://example.com/audit-export-two.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_feed_two.status_code == 201
+
+    export_response = client.get("/audit-logs/export?action=feeds.create&limit=1", headers=auth_headers["admin"])
+    assert export_response.status_code == 200
+    payload = export_response.json()
+    assert "exported_at" in payload
+    assert payload["total"] >= 1
+    assert payload["truncated"] is True
+    assert len(payload["logs"]) == 1
+    assert payload["logs"][0]["action"] == "feeds.create"
+
+
 def test_stats_overview_endpoint(client: TestClient, auth_headers):
     create_feed = client.post(
         "/feeds",

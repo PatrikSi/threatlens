@@ -22,3 +22,10 @@ class AuditLogListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class AuditLogExportResponse(BaseModel):
+    exported_at: datetime
+    total: int
+    truncated: bool
+    logs: list[AuditLogResponse]

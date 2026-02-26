@@ -62,8 +62,10 @@ Role capabilities reference cards:
 - Filter by `action`
 - Filter by `actor_user_id`
 - Paginated log table
+- Export filtered logs to JSON (`Export JSON`)
 - API call:
   - `GET /audit-logs`
+  - `GET /audit-logs/export`
 
 ## Access Rules
 

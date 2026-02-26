@@ -61,6 +61,13 @@ export interface AuditLogListResponse {
   page_size: number
 }
 
+export interface AuditLogExportResponse {
+  exported_at: string
+  total: number
+  truncated: boolean
+  logs: AuditLog[]
+}
+
 export interface SavedView {
   id: string
   user_id: string
