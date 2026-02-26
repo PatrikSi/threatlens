@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from app.models.item import Item
+from app.services.feed_probe import FeedProbeResult
 
 
 def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
@@ -50,6 +51,82 @@ def test_feed_create_blocks_private_network_urls(client: TestClient, auth_header
         headers=auth_headers["admin"],
     )
     assert response.status_code == 422
+
+
+def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.feeds.probe_feed_metadata",
+        lambda _url: FeedProbeResult(
+            name="Detected Feed",
+            description="Detected description",
+            site_url="https://example.com",
+            language="en",
+            etag="etag-123",
+            last_modified="Wed, 26 Feb 2026 00:00:00 GMT",
+            resolved_url="https://example.com/feed.xml",
+            feed_type="rss20",
+        ),
+    )
+
+    response = client.post("/feeds/metadata", json={"url": "https://example.com/feed.xml"}, headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["name"] == "Detected Feed"
+    assert payload["feed_type"] == "rss20"
+
+
+def test_feed_create_supports_schedule_mode(client: TestClient, auth_headers):
+    response = client.post(
+        "/feeds",
+        json={
+            "name": "Scheduled Feed",
+            "url": "https://example.com/scheduled.xml",
+            "enabled": True,
+            "fetch_mode": "schedule",
+            "schedule_cron": "*/30 * * * *",
+        },
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["fetch_mode"] == "schedule"
+    assert payload["schedule_cron"] == "*/30 * * * *"
+
+
+def test_feed_import_and_export(client: TestClient, auth_headers):
+    import_response = client.post(
+        "/feeds/import",
+        json={
+            "overwrite_existing": False,
+            "feeds": [
+                {
+                    "name": "Bulk One",
+                    "url": "https://example.com/bulk-one.xml",
+                    "enabled": True,
+                    "fetch_mode": "interval",
+                    "fetch_interval_seconds": 600,
+                },
+                {
+                    "name": "Bulk Two",
+                    "url": "https://example.com/bulk-two.xml",
+                    "enabled": True,
+                    "fetch_mode": "schedule",
+                    "schedule_cron": "0 * * * *",
+                },
+            ],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert import_response.status_code == 200
+    import_payload = import_response.json()
+    assert import_payload["created"] == 2
+    assert import_payload["updated"] == 0
+
+    export_response = client.get("/feeds/export", headers=auth_headers["admin"])
+    assert export_response.status_code == 200
+    export_payload = export_response.json()
+    assert len(export_payload["feeds"]) == 2
+    assert any(feed["name"] == "Bulk One" for feed in export_payload["feeds"])
 
 
 def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
