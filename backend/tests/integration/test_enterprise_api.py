@@ -601,6 +601,62 @@ def test_stats_feed_timeseries_returns_daily_points(client: TestClient, auth_hea
     assert sum(point["count"] for point in payload["series"][0]["points"]) >= 2
 
 
+def test_stats_feed_timeseries_uses_publication_date_not_ingestion_date(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Timeseries Publication Feed",
+            "url": "https://example.com/timeseries-publication.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="timeseries-publication-old",
+                url="https://example.com/timeseries-publication/old",
+                canonical_url="https://example.com/timeseries-publication/old",
+                title="Old publication date",
+                summary="published outside window",
+                published_at=now - timedelta(days=20),
+                first_seen_at=now - timedelta(days=1),
+                dedupe_key="test:timeseries-publication-old",
+                content_hash="9" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="timeseries-publication-new",
+                url="https://example.com/timeseries-publication/new",
+                canonical_url="https://example.com/timeseries-publication/new",
+                title="New publication date",
+                summary="published inside window",
+                published_at=now - timedelta(days=1),
+                first_seen_at=now - timedelta(days=20),
+                dedupe_key="test:timeseries-publication-new",
+                content_hash="a" * 64,
+                status="content_fetched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/feed-timeseries?days=7&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["series"]) == 1
+    assert sum(point["count"] for point in payload["series"][0]["points"]) == 1
+
+
 def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
     feed_one_response = client.post(
         "/feeds",

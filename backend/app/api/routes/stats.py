@@ -234,7 +234,7 @@ def get_feed_timeseries(
     if not target_feed_ids:
         target_feed_rows = db.execute(
             select(Item.feed_id, func.count(Item.id).label("count"))
-            .where(Item.first_seen_at >= window_start)
+            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
             .group_by(Item.feed_id)
             .order_by(func.count(Item.id).desc())
             .limit(top_feeds)
@@ -250,12 +250,12 @@ def get_feed_timeseries(
     time_rows = db.execute(
         select(
             Item.feed_id,
-            func.date(Item.first_seen_at).label("date_key"),
+            func.date(Item.published_at).label("date_key"),
             func.count(Item.id).label("count"),
         )
-        .where(Item.feed_id.in_(target_feed_ids), Item.first_seen_at >= window_start)
-        .group_by(Item.feed_id, func.date(Item.first_seen_at))
-        .order_by(func.date(Item.first_seen_at).asc())
+        .where(Item.feed_id.in_(target_feed_ids), Item.published_at.is_not(None), Item.published_at >= window_start)
+        .group_by(Item.feed_id, func.date(Item.published_at))
+        .order_by(func.date(Item.published_at).asc())
     ).all()
 
     counts_by_feed_and_date: dict[uuid.UUID, dict[str, int]] = {feed_id: {} for feed_id in target_feed_ids}

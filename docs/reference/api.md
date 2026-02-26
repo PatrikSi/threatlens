@@ -347,7 +347,7 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `top_feeds`: `1..20` (default `8`)
 - Response (`FeedTimeSeriesResponse`):
   - `generated_at`, `window_days`
-  - `series[]` with per-day points
+  - `series[]` with per-day points grouped by `published_at` date
 
 ## Health
 
