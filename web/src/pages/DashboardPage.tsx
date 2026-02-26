@@ -50,6 +50,7 @@ const LEGACY_PANEL_WIDTH = 1180
 const PANEL_OUTER_GAP = 12
 const PANEL_MIN_WIDTH = 860
 const PANEL_MIN_HEIGHT = 520
+const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 
 export function DashboardPage() {
   const queryClient = useQueryClient()
@@ -106,7 +107,7 @@ export function DashboardPage() {
   const selectedTagsParam = useMemo(
     () =>
       selectedTags
-        .filter((tagName) => tagName !== 'content_fetched')
+        .filter((tagName) => !HIDDEN_TAGS.has(tagName))
         .slice()
         .sort()
         .join(','),
@@ -516,7 +517,7 @@ export function DashboardPage() {
               All Tags
             </button>
             {tagsQuery.data
-              ?.filter((tag) => tag.name !== 'content_fetched')
+              ?.filter((tag) => !HIDDEN_TAGS.has(tag.name))
               .map((tag) => {
                 const active = selectedTags.includes(tag.name)
                 return (
@@ -687,15 +688,10 @@ export function DashboardPage() {
                         {item.status !== 'content_fetched' && (
                           <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
                         )}
-                        {item.classification && (
-                          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-emerald-800 dark:bg-emerald-900/35 dark:text-emerald-200">
-                            {formatClassificationLabel(item.classification)}
-                          </span>
-                        )}
                         {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
                         {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
                         {item.tags
-                          .filter((tagName) => tagName !== 'content_fetched')
+                          .filter((tagName) => !HIDDEN_TAGS.has(tagName))
                           .slice(0, 3)
                           .map((tagName) => (
                           <span key={`${item.id}-${tagName}`} className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800 dark:bg-violet-900/35 dark:text-violet-200">
@@ -922,7 +918,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect
     ? rawFilters.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
     : []
   const selectedTags = Array.isArray(rawFilters.selected_tags)
-    ? rawFilters.selected_tags.filter((entry): entry is string => typeof entry === 'string' && entry !== 'content_fetched')
+    ? rawFilters.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
     : []
 
   const readStatus = rawFilters.read_status === 'read' || rawFilters.read_status === 'unread' ? rawFilters.read_status : 'all'
