@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
@@ -58,6 +59,25 @@ class ItemClassificationResponse(BaseModel):
     scores: dict[str, float]
     rules_version: str
     classified_at: datetime
+
+
+class ItemGraphNodeResponse(BaseModel):
+    id: str
+    type: str
+    label: str
+    metadata: dict[str, Any]
+
+
+class ItemGraphEdgeResponse(BaseModel):
+    source: str
+    target: str
+    relation: str
+    weight: float
+
+
+class ItemGraphResponse(BaseModel):
+    nodes: list[ItemGraphNodeResponse]
+    edges: list[ItemGraphEdgeResponse]
 
 
 class ItemDetailResponse(BaseModel):

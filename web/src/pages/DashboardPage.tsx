@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { Feed, ItemDetail, ItemListResponse, SavedView } from '../types/api'
+import { Feed, ItemDetail, ItemGraphResponse, ItemListResponse, SavedView } from '../types/api'
 
 type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
 type ReadStatusFilter = 'all' | 'read' | 'unread'
@@ -215,6 +215,12 @@ export function DashboardPage() {
     queryKey: ['item', expandedItemId],
     enabled: Boolean(expandedItemId),
     queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
+  })
+
+  const graphQuery = useQuery({
+    queryKey: ['item-graph', expandedItemId],
+    enabled: Boolean(expandedItemId),
+    queryFn: () => apiFetch<ItemGraphResponse>(`/items/${expandedItemId}/graph?since_days=30&limit=14`),
   })
 
   useEffect(() => {
@@ -702,6 +708,13 @@ export function DashboardPage() {
                           </div>
 
                           <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                            <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Relationship Graph (30d)</p>
+                            {graphQuery.isLoading && <p className="mt-2 text-sm text-slate dark:text-slate-300">Building graph...</p>}
+                            {graphQuery.isError && <p className="mt-2 text-sm text-red-600">Failed to load graph.</p>}
+                            {graphQuery.data && <ItemRelationGraph graph={graphQuery.data} />}
+                          </div>
+
+                          <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Notes</label>
                             <textarea
                               className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -767,6 +780,120 @@ export function DashboardPage() {
           />
         )}
       </section>
+      </div>
+    </div>
+  )
+}
+
+function ItemRelationGraph({ graph }: { graph: ItemGraphResponse }) {
+  const itemNodes = graph.nodes.filter((node) => node.type === 'item')
+  const categoryNodes = graph.nodes.filter((node) => node.type === 'category')
+
+  if (itemNodes.length <= 1 || graph.edges.length === 0) {
+    return <p className="mt-2 text-sm text-slate dark:text-slate-300">No related article links in the selected time window.</p>
+  }
+
+  const relatedWeightBySource = new Map<string, number>()
+  for (const edge of graph.edges) {
+    if (edge.relation !== 'related') continue
+    relatedWeightBySource.set(edge.source, (relatedWeightBySource.get(edge.source) ?? 0) + edge.weight)
+  }
+
+  const centerNode =
+    itemNodes
+      .slice()
+      .sort((a, b) => (relatedWeightBySource.get(b.id) ?? 0) - (relatedWeightBySource.get(a.id) ?? 0))[0] ?? itemNodes[0]
+  const relatedNodes = itemNodes.filter((node) => node.id !== centerNode.id).slice(0, 12)
+
+  const width = 720
+  const height = 300
+  const centerX = 210
+  const centerY = height / 2
+  const rightCenterX = 525
+  const rightCenterY = height / 2
+  const relatedRadiusX = 150
+  const relatedRadiusY = 110
+
+  const positions = new Map<string, { x: number; y: number }>()
+  positions.set(centerNode.id, { x: centerX, y: centerY })
+
+  categoryNodes.forEach((node, index) => {
+    const spacing = 46
+    const totalHeight = (categoryNodes.length - 1) * spacing
+    positions.set(node.id, {
+      x: 390,
+      y: centerY - totalHeight / 2 + index * spacing,
+    })
+  })
+
+  relatedNodes.forEach((node, index) => {
+    const angle = (-Math.PI / 2) + (index / Math.max(1, relatedNodes.length)) * Math.PI * 2
+    positions.set(node.id, {
+      x: rightCenterX + Math.cos(angle) * relatedRadiusX,
+      y: rightCenterY + Math.sin(angle) * relatedRadiusY,
+    })
+  })
+
+  const visibleEdges = graph.edges.filter((edge) => positions.has(edge.source) && positions.has(edge.target))
+
+  return (
+    <div className="mt-2">
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded border border-slate/20 bg-white/70 dark:border-cyan-900/40 dark:bg-[#041612]/80">
+        {visibleEdges.map((edge, index) => {
+          const source = positions.get(edge.source)!
+          const target = positions.get(edge.target)!
+          const strong = edge.relation === 'related'
+          return (
+            <line
+              key={`${edge.source}-${edge.target}-${index}`}
+              x1={source.x}
+              y1={source.y}
+              x2={target.x}
+              y2={target.y}
+              stroke={strong ? '#06b6d4' : '#64748b'}
+              strokeOpacity={strong ? 0.6 : 0.35}
+              strokeWidth={Math.min(4, Math.max(1.2, edge.weight * 0.45))}
+            />
+          )
+        })}
+
+        {[centerNode, ...relatedNodes].map((node) => {
+          const pos = positions.get(node.id)!
+          const label = truncateText(node.label, 34)
+          return (
+            <g key={node.id}>
+              <circle cx={pos.x} cy={pos.y} r={node.id === centerNode.id ? 14 : 10} fill={node.id === centerNode.id ? '#0891b2' : '#0f766e'} />
+              <text
+                x={pos.x + 16}
+                y={pos.y + 4}
+                fontSize="11"
+                fill="#e2e8f0"
+              >
+                {label}
+              </text>
+            </g>
+          )
+        })}
+
+        {categoryNodes.map((node) => {
+          const pos = positions.get(node.id)!
+          return (
+            <g key={node.id}>
+              <rect x={pos.x - 42} y={pos.y - 11} width={84} height={22} rx={11} fill="#334155" fillOpacity={0.88} />
+              <text x={pos.x} y={pos.y + 4} fontSize="10" textAnchor="middle" fill="#f8fafc">
+                {formatClassificationLabel(node.label)}
+              </text>
+            </g>
+          )
+        })}
+      </svg>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {relatedNodes.slice(0, 6).map((node) => (
+          <span key={`rel-${node.id}`} className="rounded border border-slate/25 bg-slate-50 px-2 py-1 text-[11px] dark:border-cyan-900/40 dark:bg-[#06231b]">
+            {truncateText(node.label, 70)}
+          </span>
+        ))}
       </div>
     </div>
   )
@@ -838,6 +965,11 @@ function formatClassificationLabel(value: string): string {
     .split('_')
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(' ')
+}
+
+function truncateText(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value
+  return `${value.slice(0, Math.max(0, maxLength - 3))}...`
 }
 
 function parseDashboardSavedView(raw: Record<string, unknown>, fallbackPanelRect: PanelRect): DashboardSavedViewState {

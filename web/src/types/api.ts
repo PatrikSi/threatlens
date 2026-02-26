@@ -256,6 +256,25 @@ export interface ItemDetail {
   state: ItemState
 }
 
+export interface ItemGraphNode {
+  id: string
+  type: 'item' | 'category'
+  label: string
+  metadata: Record<string, unknown>
+}
+
+export interface ItemGraphEdge {
+  source: string
+  target: string
+  relation: string
+  weight: number
+}
+
+export interface ItemGraphResponse {
+  nodes: ItemGraphNode[]
+  edges: ItemGraphEdge[]
+}
+
 export interface Tag {
   id: string
   name: string
