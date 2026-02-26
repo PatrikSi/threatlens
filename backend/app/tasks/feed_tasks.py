@@ -16,12 +16,14 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.article import Article
 from app.models.feed import Feed
+from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.services.connectors.rss import RSSConnector
 from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
+from app.services.ioc_extraction import extract_iocs
 from app.services.url_utils import is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
 
@@ -107,6 +109,25 @@ def dispatch_unclassified_items():
 
     for item_id in item_ids:
         classify_item.delay(str(item_id))
+        queued += 1
+
+    return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_iocs")
+def dispatch_items_missing_iocs():
+    queued = 0
+    with db_session() as db:
+        item_ids = db.scalars(
+            select(Item.id)
+            .outerjoin(ItemIOC, ItemIOC.item_id == Item.id)
+            .where(ItemIOC.item_id.is_(None))
+            .order_by(Item.first_seen_at.desc())
+            .limit(200)
+        ).all()
+
+    for item_id in item_ids:
+        extract_item_iocs.delay(str(item_id))
         queued += 1
 
     return {"queued": queued}
@@ -461,6 +482,7 @@ def classify_item(item_id: str):
 
         row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
+            extract_item_iocs.delay(item_id)
             return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
 
         if row is None:
@@ -478,7 +500,86 @@ def classify_item(item_id: str):
         db.add(row)
         db.commit()
 
+    extract_item_iocs.delay(item_id)
     return {"status": "ok", "item_id": item_id, "category": result.primary_category}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.extract_item_iocs")
+def extract_item_iocs(item_id: str):
+    with db_session() as db:
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        if item is None:
+            return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+
+        article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
+        extracted = extract_iocs(
+            title=item.title,
+            summary=item.summary,
+            article_text=article.text if article else None,
+        )
+
+        by_key: dict[tuple[str, str], dict[str, object]] = {}
+        for match in extracted:
+            key = (match.type, match.value_norm)
+            record = by_key.get(key)
+            if record is None:
+                by_key[key] = {
+                    "value_raw": match.value_raw,
+                    "source_sections": {match.source_section},
+                    "occurrences": 1,
+                    "confidence": match.confidence,
+                }
+                continue
+
+            record["source_sections"] = set(record["source_sections"]).union({match.source_section})
+            record["occurrences"] = int(record["occurrences"]) + 1
+            record["confidence"] = max(float(record["confidence"]), match.confidence)
+
+        linked_ioc_ids: set[uuid.UUID] = set()
+        now = datetime.now(timezone.utc)
+        for (ioc_type, ioc_value_norm), info in by_key.items():
+            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
+            if ioc is None:
+                ioc = IOC(
+                    type=ioc_type,
+                    value_raw=str(info["value_raw"]),
+                    value_norm=ioc_value_norm,
+                    first_seen_at=now,
+                    last_seen_at=now,
+                )
+                db.add(ioc)
+                db.flush()
+            else:
+                ioc.last_seen_at = now
+                db.add(ioc)
+                db.flush()
+
+            linked_ioc_ids.add(ioc.id)
+            source_sections = ",".join(sorted(set(info["source_sections"])))
+            link = db.scalar(select(ItemIOC).where(ItemIOC.item_id == parsed_item_id, ItemIOC.ioc_id == ioc.id))
+            if link is None:
+                link = ItemIOC(item_id=parsed_item_id, ioc_id=ioc.id)
+
+            link.source_section = source_sections
+            link.occurrences = int(info["occurrences"])
+            link.confidence = float(info["confidence"])
+            db.add(link)
+
+        if linked_ioc_ids:
+            db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id, ItemIOC.ioc_id.notin_(linked_ioc_ids)).delete(
+                synchronize_session=False
+            )
+        else:
+            db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id).delete(synchronize_session=False)
+
+        db.commit()
+
+    return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
 
 
 def _store_article_error(

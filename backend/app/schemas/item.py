@@ -78,6 +78,8 @@ class ItemGraphEdgeResponse(BaseModel):
 class ItemGraphResponse(BaseModel):
     nodes: list[ItemGraphNodeResponse]
     edges: list[ItemGraphEdgeResponse]
+    focus_node_id: str | None = None
+    root_item_id: str | None = None
 
 
 class ItemDetailResponse(BaseModel):

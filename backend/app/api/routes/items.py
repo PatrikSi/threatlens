@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime, timedelta, timezone
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, cast, func, or_, select
@@ -11,6 +10,7 @@ from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
 from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
+from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
@@ -33,7 +33,6 @@ from app.schemas.item import (
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/items", tags=["items"])
-TITLE_TOKEN_RE = re.compile(r"[a-z0-9]{4,}")
 
 
 def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
@@ -60,6 +59,98 @@ def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
     return parsed
 
 
+def _parse_tag_filters(tag: str | None, tags: str | None) -> list[str]:
+    raw_values: list[str] = []
+    if tag:
+        raw_values.append(tag)
+    if tags:
+        raw_values.extend(tags.split(","))
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_values:
+        value = raw.strip().lower()
+        if not value or value in seen:
+            continue
+        selected.append(value)
+        seen.add(value)
+    return selected
+
+
+def _parse_graph_node_id(node_id: str) -> tuple[str, uuid.UUID]:
+    if ":" not in node_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid focus_node_id")
+
+    kind, value = node_id.split(":", 1)
+    if kind not in {"item", "ioc"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported focus node type")
+
+    try:
+        parsed = uuid.UUID(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid focus node id") from exc
+
+    return kind, parsed
+
+
+def _build_item_graph_node(
+    *,
+    item: Item,
+    feed_name: str,
+    classification: str | None,
+    is_root: bool = False,
+) -> ItemGraphNodeResponse:
+    return ItemGraphNodeResponse(
+        id=f"item:{item.id}",
+        type="item",
+        label=item.title,
+        metadata={
+            "item_id": str(item.id),
+            "feed_name": feed_name,
+            "classification": classification,
+            "published_at": item.published_at.isoformat() if item.published_at else None,
+            "is_root": is_root,
+        },
+    )
+
+
+def _build_ioc_graph_node(ioc: IOC) -> ItemGraphNodeResponse:
+    return ItemGraphNodeResponse(
+        id=f"ioc:{ioc.id}",
+        type=ioc.type,
+        label=ioc.value_raw,
+        metadata={
+            "ioc_id": str(ioc.id),
+            "ioc_type": ioc.type,
+            "value_norm": ioc.value_norm,
+            "last_seen_at": ioc.last_seen_at.isoformat() if ioc.last_seen_at else None,
+        },
+    )
+
+
+def _upsert_graph_edge(
+    *,
+    edges: list[ItemGraphEdgeResponse],
+    seen: set[tuple[str, str, str]],
+    source: str,
+    target: str,
+    relation: str,
+    weight: float,
+):
+    key = (source, target, relation)
+    if key in seen:
+        return
+    seen.add(key)
+    edges.append(
+        ItemGraphEdgeResponse(
+            source=source,
+            target=target,
+            relation=relation,
+            weight=weight,
+        )
+    )
+
+
 
 def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) -> ItemState:
     state = db.scalar(
@@ -83,6 +174,8 @@ def list_items(
     feed_id: uuid.UUID | None = None,
     feed_ids: str | None = Query(default=None),
     tag: str | None = None,
+    tags: str | None = Query(default=None),
+    tags_mode: str = Query(default="any", pattern="^(any|all)$"),
     is_starred: bool | None = None,
     is_read: bool | None = None,
     since: datetime | None = None,
@@ -94,6 +187,7 @@ def list_items(
     user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
+    selected_tags = _parse_tag_filters(tag, tags)
     if feed_id and feed_id not in selected_feed_ids:
         selected_feed_ids.append(feed_id)
 
@@ -140,9 +234,22 @@ def list_items(
         filters.append(func.coalesce(state_subq.c.is_read, False) == is_read)
     if is_starred is not None:
         filters.append(func.coalesce(state_subq.c.is_starred, False) == is_starred)
-    if tag:
-        query = query.join(ItemTag, ItemTag.item_id == Item.id).join(Tag, Tag.id == ItemTag.tag_id)
-        filters.append(Tag.name == tag)
+    if selected_tags:
+        if tags_mode == "all":
+            for selected_tag in selected_tags:
+                filters.append(
+                    select(ItemTag.item_id)
+                    .join(Tag, Tag.id == ItemTag.tag_id)
+                    .where(and_(ItemTag.item_id == Item.id, Tag.name == selected_tag))
+                    .exists()
+                )
+        else:
+            filters.append(
+                select(ItemTag.item_id)
+                .join(Tag, Tag.id == ItemTag.tag_id)
+                .where(and_(ItemTag.item_id == Item.id, Tag.name.in_(selected_tags)))
+                .exists()
+            )
 
     if filters:
         query = query.where(and_(*filters))
@@ -262,13 +369,19 @@ def get_item(
 @router.get("/{item_id}/graph", response_model=ItemGraphResponse)
 def get_item_graph(
     item_id: uuid.UUID,
-    limit: int = Query(default=12, ge=1, le=30),
+    focus_node_id: str | None = Query(default=None),
+    related_item_limit: int = Query(default=16, ge=1, le=60),
+    ioc_limit: int = Query(default=18, ge=1, le=60),
     since_days: int = Query(default=30, ge=1, le=180),
     db: Session = Depends(get_db),
     _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
 ):
     base_row = db.execute(
-        select(Item, Feed.name.label("feed_name"), ItemClassification)
+        select(
+            Item,
+            Feed.name.label("feed_name"),
+            ItemClassification.primary_category.label("primary_category"),
+        )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .where(Item.id == item_id)
@@ -276,145 +389,247 @@ def get_item_graph(
     if base_row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
-    base_item = base_row.Item
-    base_feed_name = base_row.feed_name
-    base_classification = base_row.ItemClassification
+    focus_kind: str = "item"
+    focus_uuid: uuid.UUID = item_id
+    if focus_node_id:
+        focus_kind, focus_uuid = _parse_graph_node_id(focus_node_id)
 
-    if base_classification is None:
-        center_node = ItemGraphNodeResponse(
-            id=f"item:{base_item.id}",
-            type="item",
-            label=base_item.title,
-            metadata={
-                "item_id": str(base_item.id),
-                "feed_name": base_feed_name,
-                "classification": None,
-            },
-        )
-        return ItemGraphResponse(nodes=[center_node], edges=[])
+    def load_item_rows(item_ids: list[uuid.UUID]) -> dict[uuid.UUID, object]:
+        if not item_ids:
+            return {}
+        rows = db.execute(
+            select(
+                Item,
+                Feed.name.label("feed_name"),
+                ItemClassification.primary_category.label("primary_category"),
+            )
+            .join(Feed, Feed.id == Item.feed_id)
+            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
+            .where(Item.id.in_(item_ids))
+        ).all()
+        return {row.Item.id: row for row in rows}
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=since_days)
-    candidate_rows = db.execute(
-        select(Item, Feed.name.label("feed_name"), ItemClassification)
-        .join(Feed, Feed.id == Item.feed_id)
-        .join(ItemClassification, ItemClassification.item_id == Item.id)
-        .where(
-            and_(
-                Item.id != item_id,
-                Item.first_seen_at >= cutoff,
-            )
-        )
-        .order_by(Item.first_seen_at.desc())
-        .limit(500)
-    ).all()
+    root_item_node_id = f"item:{item_id}"
+    current_focus_node_id: str
 
-    scored: list[tuple[float, object]] = []
-    base_secondary = set(base_classification.secondary_categories or [])
-    base_primary = base_classification.primary_category
-    base_tokens = _tokenize_title(base_item.title)
-
-    for row in candidate_rows:
-        classification = row.ItemClassification
-        score = 0.0
-
-        if classification.primary_category == base_primary:
-            score += 3.0
-
-        candidate_secondary = set(classification.secondary_categories or [])
-        overlap = len(base_secondary.intersection(candidate_secondary))
-        if overlap:
-            score += overlap * 1.5
-
-        if row.Item.feed_id == base_item.feed_id:
-            score += 0.7
-
-        token_overlap = len(base_tokens.intersection(_tokenize_title(row.Item.title)))
-        if token_overlap:
-            score += min(2.0, token_overlap * 0.35)
-
-        if score >= 1.5:
-            scored.append((score, row))
-
-    scored.sort(key=lambda pair: pair[0], reverse=True)
-    top_rows = scored[:limit]
-
-    center_id = f"item:{base_item.id}"
-    nodes: dict[str, ItemGraphNodeResponse] = {
-        center_id: ItemGraphNodeResponse(
-            id=center_id,
-            type="item",
-            label=base_item.title,
-            metadata={
-                "item_id": str(base_item.id),
-                "feed_name": base_feed_name,
-                "classification": base_primary,
-                "confidence": base_classification.confidence,
-                "published_at": base_item.published_at.isoformat() if base_item.published_at else None,
-            },
-        )
-    }
+    nodes: dict[str, ItemGraphNodeResponse] = {}
     edges: list[ItemGraphEdgeResponse] = []
+    seen_edges: set[tuple[str, str, str]] = set()
 
-    base_category_id = f"category:{base_primary}"
-    nodes[base_category_id] = ItemGraphNodeResponse(
-        id=base_category_id,
-        type="category",
-        label=base_primary,
-        metadata={},
-    )
-    edges.append(
-        ItemGraphEdgeResponse(
-            source=center_id,
-            target=base_category_id,
-            relation="classified_as",
-            weight=1.0,
-        )
-    )
+    if focus_kind == "item":
+        focus_row = base_row
+        if focus_uuid != item_id:
+            focus_row = db.execute(
+                select(
+                    Item,
+                    Feed.name.label("feed_name"),
+                    ItemClassification.primary_category.label("primary_category"),
+                )
+                .join(Feed, Feed.id == Item.feed_id)
+                .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
+                .where(Item.id == focus_uuid)
+            ).first()
+            if focus_row is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus item not found")
 
-    for score, row in top_rows:
-        item = row.Item
-        feed_name = row.feed_name
-        classification = row.ItemClassification
-        node_id = f"item:{item.id}"
-        nodes[node_id] = ItemGraphNodeResponse(
-            id=node_id,
-            type="item",
-            label=item.title,
-            metadata={
-                "item_id": str(item.id),
-                "feed_name": feed_name,
-                "classification": classification.primary_category,
-                "confidence": classification.confidence,
-                "published_at": item.published_at.isoformat() if item.published_at else None,
-            },
+        focus_item = focus_row.Item
+        current_focus_node_id = f"item:{focus_item.id}"
+        nodes[current_focus_node_id] = _build_item_graph_node(
+            item=focus_item,
+            feed_name=focus_row.feed_name,
+            classification=focus_row.primary_category,
+            is_root=focus_item.id == item_id,
         )
-        edges.append(
-            ItemGraphEdgeResponse(
-                source=center_id,
+
+        ioc_rows = db.execute(
+            select(ItemIOC, IOC)
+            .join(IOC, IOC.id == ItemIOC.ioc_id)
+            .where(ItemIOC.item_id == focus_item.id)
+            .order_by(ItemIOC.occurrences.desc(), IOC.last_seen_at.desc())
+            .limit(ioc_limit)
+        ).all()
+
+        selected_ioc_ids: list[uuid.UUID] = []
+        for link, ioc in ioc_rows:
+            ioc_node_id = f"ioc:{ioc.id}"
+            nodes[ioc_node_id] = _build_ioc_graph_node(ioc)
+            selected_ioc_ids.append(ioc.id)
+            _upsert_graph_edge(
+                edges=edges,
+                seen=seen_edges,
+                source=current_focus_node_id,
+                target=ioc_node_id,
+                relation="mentions",
+                weight=max(1.0, float(link.occurrences)),
+            )
+
+        related_item_scores: dict[uuid.UUID, float] = {}
+        related_item_latest: dict[uuid.UUID, float] = {}
+        related_item_iocs: dict[uuid.UUID, set[uuid.UUID]] = {}
+        edge_weights: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+
+        if selected_ioc_ids:
+            related_rows = db.execute(
+                select(ItemIOC.item_id, ItemIOC.ioc_id, ItemIOC.occurrences, Item.first_seen_at)
+                .join(Item, Item.id == ItemIOC.item_id)
+                .where(
+                    and_(
+                        ItemIOC.ioc_id.in_(selected_ioc_ids),
+                        ItemIOC.item_id != focus_item.id,
+                        Item.first_seen_at >= cutoff,
+                    )
+                )
+            ).all()
+
+            for related_item_id, ioc_id, occurrences, first_seen_at in related_rows:
+                related_item_scores[related_item_id] = related_item_scores.get(related_item_id, 0.0) + float(occurrences) + 1.0
+                related_item_iocs.setdefault(related_item_id, set()).add(ioc_id)
+                related_item_latest[related_item_id] = max(
+                    related_item_latest.get(related_item_id, 0.0),
+                    first_seen_at.timestamp() if first_seen_at else 0.0,
+                )
+                edge_weights[(related_item_id, ioc_id)] = max(
+                    edge_weights.get((related_item_id, ioc_id), 0.0),
+                    float(occurrences),
+                )
+
+        ranked_related_items = sorted(
+            related_item_scores.keys(),
+            key=lambda candidate_id: (
+                related_item_scores.get(candidate_id, 0.0),
+                related_item_latest.get(candidate_id, 0.0),
+            ),
+            reverse=True,
+        )[:related_item_limit]
+
+        item_rows = load_item_rows(ranked_related_items)
+        for related_item_id in ranked_related_items:
+            row = item_rows.get(related_item_id)
+            if row is None:
+                continue
+
+            node_id = f"item:{related_item_id}"
+            nodes[node_id] = _build_item_graph_node(
+                item=row.Item,
+                feed_name=row.feed_name,
+                classification=row.primary_category,
+                is_root=related_item_id == item_id,
+            )
+
+            for shared_ioc_id in related_item_iocs.get(related_item_id, set()):
+                source_node = f"ioc:{shared_ioc_id}"
+                if source_node not in nodes:
+                    continue
+                _upsert_graph_edge(
+                    edges=edges,
+                    seen=seen_edges,
+                    source=source_node,
+                    target=node_id,
+                    relation="observed_in",
+                    weight=max(1.0, edge_weights.get((related_item_id, shared_ioc_id), 1.0)),
+                )
+    else:
+        focus_ioc = db.scalar(select(IOC).where(IOC.id == focus_uuid))
+        if focus_ioc is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Focus IOC not found")
+
+        current_focus_node_id = f"ioc:{focus_ioc.id}"
+        nodes[current_focus_node_id] = _build_ioc_graph_node(focus_ioc)
+
+        item_link_rows = db.execute(
+            select(ItemIOC.item_id, ItemIOC.occurrences, Item.first_seen_at)
+            .join(Item, Item.id == ItemIOC.item_id)
+            .where(and_(ItemIOC.ioc_id == focus_ioc.id, Item.first_seen_at >= cutoff))
+            .order_by(Item.first_seen_at.desc())
+            .limit(related_item_limit)
+        ).all()
+
+        primary_item_ids = [row.item_id for row in item_link_rows]
+        item_rows = load_item_rows(primary_item_ids)
+        for link in item_link_rows:
+            row = item_rows.get(link.item_id)
+            if row is None:
+                continue
+            node_id = f"item:{row.Item.id}"
+            nodes[node_id] = _build_item_graph_node(
+                item=row.Item,
+                feed_name=row.feed_name,
+                classification=row.primary_category,
+                is_root=row.Item.id == item_id,
+            )
+            _upsert_graph_edge(
+                edges=edges,
+                seen=seen_edges,
+                source=current_focus_node_id,
                 target=node_id,
-                relation="related",
-                weight=round(float(score), 3),
+                relation="observed_in",
+                weight=max(1.0, float(link.occurrences)),
             )
+
+        secondary_ioc_scores: dict[uuid.UUID, float] = {}
+        secondary_ioc_rows: dict[uuid.UUID, IOC] = {}
+        secondary_links: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+        if primary_item_ids:
+            supporting_rows = db.execute(
+                select(ItemIOC.item_id, ItemIOC.occurrences, IOC)
+                .join(IOC, IOC.id == ItemIOC.ioc_id)
+                .where(and_(ItemIOC.item_id.in_(primary_item_ids), ItemIOC.ioc_id != focus_ioc.id))
+                .order_by(ItemIOC.occurrences.desc(), IOC.last_seen_at.desc())
+                .limit(ioc_limit * 6)
+            ).all()
+
+            for related_item_id, occurrences, related_ioc in supporting_rows:
+                secondary_ioc_scores[related_ioc.id] = secondary_ioc_scores.get(related_ioc.id, 0.0) + float(occurrences)
+                secondary_ioc_rows[related_ioc.id] = related_ioc
+                secondary_links[(related_item_id, related_ioc.id)] = max(
+                    secondary_links.get((related_item_id, related_ioc.id), 0.0),
+                    float(occurrences),
+                )
+
+        selected_secondary_ioc_ids = sorted(
+            secondary_ioc_scores.keys(),
+            key=lambda candidate_id: secondary_ioc_scores.get(candidate_id, 0.0),
+            reverse=True,
+        )[:ioc_limit]
+        selected_secondary_ioc_set = set(selected_secondary_ioc_ids)
+
+        for related_ioc_id in selected_secondary_ioc_ids:
+            related_ioc = secondary_ioc_rows[related_ioc_id]
+            node_id = f"ioc:{related_ioc.id}"
+            nodes[node_id] = _build_ioc_graph_node(related_ioc)
+
+        for related_item_id in primary_item_ids:
+            item_node_id = f"item:{related_item_id}"
+            if item_node_id not in nodes:
+                continue
+            for related_ioc_id in selected_secondary_ioc_set:
+                weight = secondary_links.get((related_item_id, related_ioc_id))
+                if weight is None:
+                    continue
+                _upsert_graph_edge(
+                    edges=edges,
+                    seen=seen_edges,
+                    source=item_node_id,
+                    target=f"ioc:{related_ioc_id}",
+                    relation="mentions",
+                    weight=max(1.0, weight),
+                )
+
+    if root_item_node_id not in nodes and item_id == base_row.Item.id and not focus_node_id:
+        nodes[root_item_node_id] = _build_item_graph_node(
+            item=base_row.Item,
+            feed_name=base_row.feed_name,
+            classification=base_row.primary_category,
+            is_root=True,
         )
 
-        category_id = f"category:{classification.primary_category}"
-        if category_id not in nodes:
-            nodes[category_id] = ItemGraphNodeResponse(
-                id=category_id,
-                type="category",
-                label=classification.primary_category,
-                metadata={},
-            )
-        edges.append(
-            ItemGraphEdgeResponse(
-                source=node_id,
-                target=category_id,
-                relation="classified_as",
-                weight=1.0,
-            )
-        )
-
-    return ItemGraphResponse(nodes=list(nodes.values()), edges=edges)
+    return ItemGraphResponse(
+        nodes=list(nodes.values()),
+        edges=edges,
+        focus_node_id=current_focus_node_id,
+        root_item_id=str(item_id),
+    )
 
 
 @router.post("/{item_id}/read", status_code=status.HTTP_200_OK)
@@ -442,11 +657,6 @@ def set_item_read(
     )
     db.commit()
     return {"status": "ok"}
-
-
-def _tokenize_title(value: str) -> set[str]:
-    return set(TITLE_TOKEN_RE.findall((value or "").lower()))
-
 
 @router.post("/{item_id}/star", status_code=status.HTTP_200_OK)
 def set_item_star(
