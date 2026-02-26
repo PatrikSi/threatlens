@@ -1,54 +1,189 @@
 # ThreatLens
 
-ThreatLens is a self-hosted cyber threat intel feed aggregator built for homelab use.
+ThreatLens is a self-hosted cyber threat intelligence aggregator for security operations teams.
 
-## Stack
+## Architecture
 
-- Backend: FastAPI + SQLAlchemy + Alembic + PostgreSQL
-- Jobs: Celery worker + Celery Beat + Redis
-- Extraction: `trafilatura` with `readability-lxml` fallback
-- Frontend: React + TypeScript + Vite + React Query + React Router + Tailwind
-- Deployment: Docker Compose (`web`, `api`, `worker`, `beat`, `db`, `redis`)
+- `web`: React + TypeScript UI
+- `api`: FastAPI app
+- `worker`: Celery workers for feed/article jobs
+- `beat`: Celery beat scheduler
+- `db`: PostgreSQL
+- `redis`: queue and coordination backend
 
-## Features Implemented
+## Enterprise Features
 
-- JWT auth (`/auth/register`, `/auth/login`, `/auth/me`)
-- Feed CRUD + manual refresh
-- Scheduled feed polling with conditional GET (`ETag`, `Last-Modified`)
-- Normalized item ingestion with dedupe and content hash update detection
-- Async article dereference and text extraction with fallback strategy
-- Per-user triage state (read/star/note)
-- Tags + item tag assignment
-- Saved views API (MVP-lite)
-- React dashboard for triage + feed management UI
+- Multi-user accounts
+- RBAC roles: `admin`, `analyst`, `viewer`
+- User lifecycle management (`/users` admin APIs)
+- JWT auth plus personal API tokens (`/tokens`)
+- Audit logs for operational/security actions (`/audit-logs`)
+- Read/star/note/tag triage state per user
+- Feed scheduling + refresh controls
+- Article dereference and readable text extraction
 
-## Run with Docker Compose
+## Environment
 
-1. Create env file:
+Create `.env` from template:
 
 ```bash
 cp .env.example .env
 ```
 
-2. Start all services:
+Key vars:
+
+- `DATABASE_URL`
+- `REDIS_URL`
+- `JWT_SECRET`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+- `ALLOW_SELF_REGISTRATION` (default `false`)
+- `DEFAULT_API_TOKEN_EXPIRY_DAYS` (default `90`)
+
+## Run (Docker Compose)
+
+Start all services:
 
 ```bash
-docker compose up --build
+docker compose up --build -d
 ```
 
-3. Open:
+Check status:
+
+```bash
+docker compose ps
+```
+
+Open:
 
 - Web UI: `http://localhost:3000`
 - API docs: `http://localhost:8000/docs`
+- Health: `http://localhost:8000/health`
 
-## Local Dev
+Stop:
 
-### Backend
+```bash
+docker compose down
+```
+
+Stop + remove volumes:
+
+```bash
+docker compose down -v
+```
+
+## Backend Operations
+
+### Apply migrations
+
+```bash
+docker compose exec api alembic upgrade head
+```
+
+### Create/refresh admin user
+
+```bash
+docker compose exec api python -m app.scripts.seed_admin
+```
+
+### Inspect API logs
+
+```bash
+docker compose logs -f api
+```
+
+### Worker/beat logs
+
+```bash
+docker compose logs -f worker beat
+```
+
+### Manual feed refresh (API)
+
+```bash
+curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
+  -H "Authorization: Bearer <jwt>"
+```
+
+## RBAC Model
+
+- `admin`
+  - Full access
+  - Manage users, audit logs, tokens (all users), feeds
+- `analyst`
+  - Manage feeds, tags, triage state, personal tokens
+  - Cannot manage users or global audit logs
+- `viewer`
+  - Read-only access to feed/item data and personal views/tokens
+  - Cannot mutate feeds/tags/triage state
+
+## API Tokens
+
+Create token (JWT-authenticated):
+
+```bash
+curl -X POST http://localhost:8000/tokens \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
+```
+
+Use token:
+
+```bash
+curl http://localhost:8000/feeds \
+  -H "Authorization: Bearer <plain_api_token>"
+```
+
+Revoke token:
+
+```bash
+curl -X DELETE http://localhost:8000/tokens/<token_id> \
+  -H "Authorization: Bearer <jwt>"
+```
+
+## User Admin API (admin role)
+
+Create user:
+
+```bash
+curl -X POST http://localhost:8000/users \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst","is_active":true}'
+```
+
+Update user:
+
+```bash
+curl -X PATCH http://localhost:8000/users/<user_id> \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"role":"viewer","is_active":false}'
+```
+
+## Audit Logs (admin role)
+
+Fetch latest:
+
+```bash
+curl "http://localhost:8000/audit-logs?page=1&page_size=50" \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+Filter by action:
+
+```bash
+curl "http://localhost:8000/audit-logs?action=feeds.create" \
+  -H "Authorization: Bearer <admin_jwt>"
+```
+
+## Local Development
+
+### Backend (without Docker)
 
 ```bash
 cd backend
-python3 -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
@@ -76,8 +211,36 @@ npm install
 npm run dev
 ```
 
+## Testing
+
+Comprehensive test suite includes:
+
+- Unit tests for URL normalization, dedupe, extraction
+- API integration tests for auth, RBAC, tokens, audit logs
+
+Run tests in container (recommended):
+
+```bash
+docker compose build api
+docker compose run --rm api sh -lc "pip install --no-cache-dir -r requirements-dev.txt && pytest"
+```
+
+## Backup/Restore
+
+Backup PostgreSQL:
+
+```bash
+docker compose exec db pg_dump -U postgres threatlens > threatlens_backup.sql
+```
+
+Restore PostgreSQL:
+
+```bash
+cat threatlens_backup.sql | docker compose exec -T db psql -U postgres threatlens
+```
+
 ## Notes
 
-- Admin user is seeded on API startup from `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
-- Feed scheduler checks due feeds every 60 seconds and enqueues per-feed jobs.
-- OpenAI enrichment is not implemented yet by design (future async stage).
+- OpenAI enrichment remains intentionally unimplemented for now (future async pipeline stage).
+- API token plaintext is shown only once at creation time.
+- Audit logs are append-only records for operational traceability.

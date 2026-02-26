@@ -10,11 +10,24 @@
     #f6f7f9;
 }
 
+.dark:root {
+  color: #f8fafc;
+  background:
+    radial-gradient(circle at 85% 5%, rgba(34, 211, 238, 0.22) 0%, transparent 42%),
+    radial-gradient(circle at 10% 85%, rgba(99, 102, 241, 0.18) 0%, transparent 46%),
+    radial-gradient(circle at 50% 120%, rgba(16, 185, 129, 0.14) 0%, transparent 40%),
+    #020617;
+}
+
 body {
   margin: 0;
   font-family: 'Source Sans 3', sans-serif;
   min-height: 100vh;
   color: #0e1726;
+}
+
+.dark body {
+  color: #dbe8ff;
 }
 
 * {
@@ -26,4 +39,21 @@ input,
 select,
 textarea {
   font-family: inherit;
+}
+
+.dark input,
+.dark select,
+.dark textarea {
+  color: #dbe8ff;
+  caret-color: #67e8f9;
+}
+
+.dark input::placeholder,
+.dark textarea::placeholder {
+  color: #8ea0bf;
+}
+
+.dark select option {
+  background-color: #060d19;
+  color: #dbe8ff;
 }

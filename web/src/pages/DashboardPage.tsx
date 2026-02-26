@@ -3,16 +3,29 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
-import { Feed, ItemDetail, ItemListResponse } from '../types/api'
+import { useCurrentUser } from '../hooks/useCurrentUser'
+import { Feed, ItemDetail, ItemListResponse, SavedView } from '../types/api'
 
 type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
 type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 
+interface DashboardSavedViewQuery {
+  selected_feed_ids: string[]
+  q: string
+  read_status: ReadStatusFilter
+  star_status: StarStatusFilter
+  time_range: TimeRangeFilter
+  custom_since_date: string
+  custom_until_date: string
+  sort: TimeSort
+}
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
-  const [selectedFeedId, setSelectedFeedId] = useState<string>('')
+  const meQuery = useCurrentUser()
+  const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
   const [q, setQ] = useState('')
   const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
   const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
@@ -20,12 +33,16 @@ export function DashboardPage() {
   const [customSinceDate, setCustomSinceDate] = useState('')
   const [customUntilDate, setCustomUntilDate] = useState('')
   const [sort, setSort] = useState<TimeSort>('published_at_desc')
+  const [savedViewName, setSavedViewName] = useState('')
+  const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
   const [page, setPage] = useState(1)
   const pageSize = 25
   const [selectedItemId, setSelectedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
+  const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
 
   const debouncedQ = useDebouncedValue(q)
+  const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
 
   const { sinceIso, untilIso } = useMemo(
     () => deriveTimeWindow(timeRange, customSinceDate, customUntilDate),
@@ -35,6 +52,37 @@ export function DashboardPage() {
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
+  })
+
+  const viewsQuery = useQuery({
+    queryKey: ['views'],
+    queryFn: () => apiFetch<SavedView[]>('/views'),
+  })
+
+  const saveView = useMutation({
+    mutationFn: (payload: { name: string; query: DashboardSavedViewQuery }) =>
+      apiFetch<SavedView>('/views', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: payload.name,
+          query_json: payload.query,
+        }),
+      }),
+    onSuccess: (view) => {
+      setSavedViewName('')
+      setActiveSavedViewId(view.id)
+      queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+  })
+
+  const deleteView = useMutation({
+    mutationFn: (viewId: string) =>
+      apiFetch(`/views/${viewId}`, {
+        method: 'DELETE',
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
   })
 
   const updateRead = useMutation({
@@ -65,14 +113,14 @@ export function DashboardPage() {
   })
 
   const itemsQuery = useQuery({
-    queryKey: ['items', selectedFeedId, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
+    queryKey: ['items', feedIdsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
     queryFn: () => {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('page_size', String(pageSize))
       params.set('sort', sort)
 
-      if (selectedFeedId) params.set('feed_id', selectedFeedId)
+      if (feedIdsParam) params.set('feed_ids', feedIdsParam)
       if (debouncedQ) params.set('q', debouncedQ)
       if (sinceIso) params.set('since', sinceIso)
       if (untilIso) params.set('until', untilIso)
@@ -116,50 +164,159 @@ export function DashboardPage() {
 
   const handleSelectItem = (itemId: string, isRead: boolean) => {
     setSelectedItemId(itemId)
-    if (!isRead) {
+    if (!isRead && canManage) {
       updateRead.mutate({ itemId, isRead: true })
     }
   }
 
+  const saveCurrentView = () => {
+    const name = savedViewName.trim()
+    if (!name) return
+
+    saveView.mutate({
+      name,
+      query: {
+        selected_feed_ids: selectedFeedIds,
+        q,
+        read_status: readStatus,
+        star_status: starStatus,
+        time_range: timeRange,
+        custom_since_date: customSinceDate,
+        custom_until_date: customUntilDate,
+        sort,
+      },
+    })
+  }
+
+  const applySavedView = (view: SavedView) => {
+    const parsed = parseDashboardSavedView(view.query_json)
+    setPage(1)
+    setSelectedFeedIds(parsed.selected_feed_ids)
+    setQ(parsed.q)
+    setReadStatus(parsed.read_status)
+    setStarStatus(parsed.star_status)
+    setTimeRange(parsed.time_range)
+    setCustomSinceDate(parsed.custom_since_date)
+    setCustomUntilDate(parsed.custom_until_date)
+    setSort(parsed.sort)
+    setActiveSavedViewId(view.id)
+  }
+
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_1fr_1.2fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
+    <div className="grid gap-4 lg:grid-cols-[320px_1fr_1.2fr]">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <h2 className="font-display text-xl">Filters</h2>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Feed</label>
+        <div className="mt-3 rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+          <label className="block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Saved Views</label>
+          <div className="mt-2 flex gap-2">
+            <input
+              value={savedViewName}
+              onChange={(event) => setSavedViewName(event.target.value)}
+              placeholder="Name this filter set"
+              className="w-full rounded border border-slate/25 bg-white px-2 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            />
+            <button
+              type="button"
+              className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-slate-950"
+              onClick={saveCurrentView}
+              disabled={saveView.isPending || !savedViewName.trim()}
+            >
+              Save
+            </button>
+          </div>
+          <div className="mt-2 max-h-36 space-y-1 overflow-auto">
+            {viewsQuery.data?.map((view) => (
+              <div
+                key={view.id}
+                className={`flex items-center justify-between rounded border px-2 py-1 text-sm ${
+                  activeSavedViewId === view.id
+                    ? 'border-cyan/50 bg-cyan/10 dark:border-cyan-700/50 dark:bg-cyan-950/40'
+                    : 'border-slate/20 dark:border-cyan-950/40'
+                }`}
+              >
+                <button type="button" className="truncate text-left" onClick={() => applySavedView(view)}>
+                  {view.name}
+                </button>
+                <button
+                  type="button"
+                  className="rounded border border-slate/30 px-2 py-0.5 text-xs dark:border-cyan-900/40"
+                  onClick={() => deleteView.mutate(view.id)}
+                  disabled={deleteView.isPending}
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+            {!viewsQuery.data?.length && <p className="text-xs text-slate dark:text-slate-300">No saved views yet.</p>}
+          </div>
+        </div>
+
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Feeds</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
-          value={selectedFeedId}
+          multiple
+          size={Math.min(Math.max(feedsQuery.data?.length ?? 4, 4), 8)}
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+          value={selectedFeedIds}
           onChange={(event) => {
             setPage(1)
-            setSelectedFeedId(event.target.value)
+            setActiveSavedViewId(null)
+            setSelectedFeedIds(Array.from(event.target.selectedOptions).map((option) => option.value))
           }}
         >
-          <option value="">All feeds</option>
           {feedsQuery.data?.map((feed) => (
             <option key={feed.id} value={feed.id}>
               {feed.name}
             </option>
           ))}
         </select>
+        <div className="mt-1 flex items-center justify-between text-xs text-slate dark:text-slate-300">
+          <span>{selectedFeedIds.length || 'All'} selected</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                setPage(1)
+                setActiveSavedViewId(null)
+                setSelectedFeedIds(feedsQuery.data?.map((feed) => feed.id) ?? [])
+              }}
+            >
+              Select all
+            </button>
+            <button
+              type="button"
+              className="underline"
+              onClick={() => {
+                setPage(1)
+                setActiveSavedViewId(null)
+                setSelectedFeedIds([])
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Keyword</label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Keyword</label>
         <input
           value={q}
           onChange={(event) => {
             setPage(1)
+            setActiveSavedViewId(null)
             setQ(event.target.value)
           }}
           placeholder="ransomware, cve..."
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
         />
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Time Range</label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Time Range</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={timeRange}
           onChange={(event) => {
             setPage(1)
+            setActiveSavedViewId(null)
             setTimeRange(event.target.value as TimeRangeFilter)
           }}
         >
@@ -172,35 +329,38 @@ export function DashboardPage() {
 
         {timeRange === 'custom' && (
           <>
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">From</label>
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">From</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={customSinceDate}
               onChange={(event) => {
                 setPage(1)
+                setActiveSavedViewId(null)
                 setCustomSinceDate(event.target.value)
               }}
             />
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">To</label>
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">To</label>
             <input
               type="date"
-              className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+              className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={customUntilDate}
               onChange={(event) => {
                 setPage(1)
+                setActiveSavedViewId(null)
                 setCustomUntilDate(event.target.value)
               }}
             />
           </>
         )}
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Read Status</label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Read Status</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={readStatus}
           onChange={(event) => {
             setPage(1)
+            setActiveSavedViewId(null)
             setReadStatus(event.target.value as ReadStatusFilter)
           }}
         >
@@ -209,12 +369,13 @@ export function DashboardPage() {
           <option value="read">Read only</option>
         </select>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Starred</label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Starred</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={starStatus}
           onChange={(event) => {
             setPage(1)
+            setActiveSavedViewId(null)
             setStarStatus(event.target.value as StarStatusFilter)
           }}
         >
@@ -223,12 +384,13 @@ export function DashboardPage() {
           <option value="unstarred">Unstarred only</option>
         </select>
 
-        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Sort</label>
+        <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Sort</label>
         <select
-          className="mt-1 w-full rounded border border-slate/25 px-2 py-2"
+          className="mt-1 w-full rounded border border-slate/25 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
           value={sort}
           onChange={(event) => {
             setPage(1)
+            setActiveSavedViewId(null)
             setSort(event.target.value as TimeSort)
           }}
         >
@@ -239,10 +401,10 @@ export function DashboardPage() {
         </select>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="font-display text-xl">Items</h2>
-          <span className="text-xs text-slate">{itemsQuery.data?.total ?? 0} total</span>
+          <span className="text-xs text-slate dark:text-slate-300">{itemsQuery.data?.total ?? 0} total</span>
         </div>
 
         <div className="space-y-2">
@@ -250,18 +412,18 @@ export function DashboardPage() {
             <button
               key={item.id}
               className={`w-full rounded border p-3 text-left transition ${
-                selectedItemId === item.id ? 'border-cyan bg-cyan/5' : 'border-slate/20 hover:border-slate/40'
+                selectedItemId === item.id
+                  ? 'border-cyan bg-cyan/5 dark:bg-cyan/10'
+                  : 'border-slate/20 hover:border-slate/40 dark:border-cyan-900/40 dark:hover:border-slate-500'
               } ${item.is_read ? 'opacity-70' : ''}`}
               onClick={() => handleSelectItem(item.id, item.is_read)}
             >
               <div className="flex items-center justify-between gap-2">
                 <p className="line-clamp-1 font-semibold">{item.title}</p>
-                <span className="text-xs text-slate">{item.feed_name}</span>
+                <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
               </div>
-              <p className="mt-1 text-xs text-slate">
-                Published: {formatPublishedAt(item.published_at)}
-              </p>
-              <p className="mt-1 line-clamp-2 text-sm text-slate">{item.summary || 'No summary available.'}</p>
+              <p className="mt-1 text-xs text-slate dark:text-slate-300">Published: {formatPublishedAt(item.published_at)}</p>
+              <p className="mt-1 line-clamp-2 text-sm text-slate dark:text-slate-300">{item.summary || 'No summary available.'}</p>
               <div className="mt-2 flex items-center gap-2 text-xs">
                 {item.is_starred && <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">Starred</span>}
                 {!item.is_read && <span className="rounded bg-cyan/20 px-2 py-0.5 text-cyan">Unread</span>}
@@ -270,13 +432,13 @@ export function DashboardPage() {
             </button>
           ))}
 
-          {itemsQuery.isLoading && <p className="text-sm text-slate">Loading items...</p>}
+          {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
           {itemsQuery.isError && <p className="text-sm text-red-600">Failed to load items.</p>}
         </div>
 
         <div className="mt-4 flex items-center justify-between text-sm">
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page <= 1}
             onClick={() => setPage((p) => p - 1)}
           >
@@ -286,7 +448,7 @@ export function DashboardPage() {
             Page {page} / {totalPages}
           </span>
           <button
-            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50"
+            className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
             disabled={page >= totalPages}
             onClick={() => setPage((p) => p + 1)}
           >
@@ -295,17 +457,19 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4">
-        {!detailQuery.data && <p className="text-sm text-slate">Select an item to inspect details.</p>}
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+        {!detailQuery.data && <p className="text-sm text-slate dark:text-slate-300">Select an item to inspect details.</p>}
 
         {detailQuery.data && (
           <>
             <h2 className="font-display text-2xl">{detailQuery.data.title}</h2>
-            <p className="mt-1 text-sm text-slate">{detailQuery.data.feed_name}</p>
+            <p className="mt-1 text-sm text-slate dark:text-slate-300">{detailQuery.data.feed_name}</p>
+            {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role is read-only.</p>}
 
             <div className="mt-3 flex flex-wrap gap-2">
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
+                disabled={!canManage}
                 onClick={() =>
                   updateRead.mutate({
                     itemId: detailQuery.data.id,
@@ -316,7 +480,8 @@ export function DashboardPage() {
                 {detailQuery.data.state.is_read ? 'Mark Unread' : 'Mark Read'}
               </button>
               <button
-                className="rounded border border-slate/30 px-2 py-1 text-sm"
+                className="rounded border border-slate/30 px-2 py-1 text-sm dark:border-cyan-900/40"
+                disabled={!canManage}
                 onClick={() =>
                   updateStar.mutate({
                     itemId: detailQuery.data.id,
@@ -328,36 +493,34 @@ export function DashboardPage() {
               </button>
             </div>
 
-            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate">Analyst Note</label>
+            <label className="mt-3 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Analyst Note</label>
             <textarea
-              className="mt-1 h-24 w-full rounded border border-slate/30 px-2 py-2"
+              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-2 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={noteDraft}
               onChange={(event) => setNoteDraft(event.target.value)}
+              disabled={!canManage}
             />
             <button
-              className="mt-2 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white"
+              className="mt-2 rounded bg-ink px-3 py-1.5 text-sm font-semibold text-white dark:bg-cyan dark:text-slate-950"
               onClick={() => updateNote.mutate({ itemId: detailQuery.data.id, note: noteDraft || null })}
+              disabled={!canManage}
             >
               Save Note
             </button>
 
-            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate">RSS Summary</p>
+            <div className="mt-4 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
               <p className="mt-1 whitespace-pre-wrap text-sm">{detailQuery.data.summary || 'No summary.'}</p>
             </div>
 
-            <div className="mt-4 rounded border border-slate/20 bg-white p-3">
-              <p className="text-xs font-bold uppercase tracking-wide text-slate">Extracted Full Text</p>
+            <div className="mt-4 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+              <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Extracted Full Text</p>
               {detailQuery.data.article?.text ? (
-                <pre className="mt-2 max-h-[450px] overflow-auto whitespace-pre-wrap text-sm leading-6">
-                  {detailQuery.data.article.text}
-                </pre>
+                <pre className="mt-2 max-h-[450px] overflow-auto whitespace-pre-wrap text-sm leading-6">{detailQuery.data.article.text}</pre>
               ) : (
-                <p className="mt-2 text-sm text-slate">No extracted article text available yet.</p>
+                <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
               )}
-              {detailQuery.data.article?.error && (
-                <p className="mt-2 text-sm text-red-600">Extraction error: {detailQuery.data.article.error}</p>
-              )}
+              {detailQuery.data.article?.error && <p className="mt-2 text-sm text-red-600">Extraction error: {detailQuery.data.article.error}</p>}
             </div>
           </>
         )}
@@ -416,21 +579,40 @@ function parseEndOfDay(date: string): Date | null {
 }
 
 function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId: string) {
-  void queryClient.invalidateQueries({ queryKey: ['items'] })
-  if (itemId) {
-    void queryClient.invalidateQueries({ queryKey: ['item', itemId] })
-  }
+  queryClient.invalidateQueries({ queryKey: ['items'] })
+  queryClient.invalidateQueries({ queryKey: ['item', itemId] })
 }
 
-function formatPublishedAt(publishedAt: string | null) {
-  if (!publishedAt) {
-    return 'Unknown'
-  }
+function formatPublishedAt(value: string | null) {
+  if (!value) return 'Unknown'
+  const dt = new Date(value)
+  if (Number.isNaN(dt.getTime())) return value
+  return dt.toLocaleString()
+}
 
-  const parsed = new Date(publishedAt)
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Unknown'
-  }
+function parseDashboardSavedView(raw: Record<string, unknown>): DashboardSavedViewQuery {
+  const selectedFeedIds = Array.isArray(raw.selected_feed_ids)
+    ? raw.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
+    : []
 
-  return parsed.toLocaleString()
+  const readStatus = raw.read_status === 'read' || raw.read_status === 'unread' ? raw.read_status : 'all'
+  const starStatus = raw.star_status === 'starred' || raw.star_status === 'unstarred' ? raw.star_status : 'all'
+  const timeRange =
+    raw.time_range === '24h' || raw.time_range === '7d' || raw.time_range === '30d' || raw.time_range === 'custom'
+      ? raw.time_range
+      : 'all'
+
+  const sortValues: TimeSort[] = ['published_at_desc', 'published_at_asc', 'first_seen_desc', 'first_seen_asc']
+  const sort = typeof raw.sort === 'string' && sortValues.includes(raw.sort as TimeSort) ? (raw.sort as TimeSort) : 'published_at_desc'
+
+  return {
+    selected_feed_ids: selectedFeedIds,
+    q: typeof raw.q === 'string' ? raw.q : '',
+    read_status: readStatus,
+    star_status: starStatus,
+    time_range: timeRange,
+    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
+    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
+    sort,
+  }
 }
