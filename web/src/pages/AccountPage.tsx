@@ -31,7 +31,7 @@ export function AccountPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_480px]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Account</h2>
         {meQuery.data && (
           <div className="mt-3 space-y-1 text-sm">
@@ -51,7 +51,7 @@ export function AccountPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Change Password</h2>
         <form className="mt-3 space-y-3" onSubmit={onSubmit}>
           <div>
@@ -60,7 +60,7 @@ export function AccountPage() {
               type="password"
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               required
             />
           </div>
@@ -71,7 +71,7 @@ export function AccountPage() {
               minLength={8}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               required
             />
           </div>

@@ -64,14 +64,14 @@ export function TokensPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Create API Token</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">Token value is only shown once after creation.</p>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
             <label className="text-sm font-semibold">Name</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={name}
               onChange={(event) => setName(event.target.value)}
               required
@@ -80,7 +80,7 @@ export function TokensPage() {
           <div>
             <label className="text-sm font-semibold">Expiry (days)</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="number"
               min={1}
               max={3650}
@@ -92,7 +92,7 @@ export function TokensPage() {
           <div>
             <label className="text-sm font-semibold">Scopes (comma-separated)</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={scopesText}
               onChange={(event) => setScopesText(event.target.value)}
               placeholder="read:feeds,write:items"
@@ -113,7 +113,7 @@ export function TokensPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">Token Inventory</h2>
           {meQuery.data?.role === 'admin' && (
@@ -121,7 +121,7 @@ export function TokensPage() {
               value={adminUserFilter}
               onChange={(event) => setAdminUserFilter(event.target.value)}
               placeholder="Filter by user_id"
-              className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             />
           )}
         </div>
@@ -152,7 +152,7 @@ export function TokensPage() {
             </div>
           ))}
 
-          {tokensQuery.isLoading && <p className="text-sm text-slate">Loading tokens...</p>}
+          {tokensQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading tokens...</p>}
           {tokensQuery.isError && <p className="text-sm text-red-600">Failed to load tokens.</p>}
         </div>
       </section>

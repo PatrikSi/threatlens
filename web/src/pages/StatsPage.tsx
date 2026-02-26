@@ -49,7 +49,7 @@ export function StatsPage() {
 
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl">Statistics</h2>
@@ -59,7 +59,7 @@ export function StatsPage() {
             <select
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value={7}>Last 7 days</option>
               <option value={30}>Last 30 days</option>
@@ -80,7 +80,7 @@ export function StatsPage() {
         <select
           multiple
           size={Math.min(Math.max(feedsQuery.data?.length ?? 4, 4), 8)}
-          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           value={selectedFeedIds}
           onChange={(event) => setSelectedFeedIds(Array.from(event.target.selectedOptions).map((option) => option.value))}
         >
@@ -115,7 +115,7 @@ export function StatsPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
               <h3 className="font-display text-lg">Derived Health</h3>
               <div className="mt-3 grid gap-2 text-sm md:grid-cols-2">
                 <Metric label="Extraction success" value={`${statsQuery.data.derived.extraction_success_rate_pct}%`} />
@@ -125,7 +125,7 @@ export function StatsPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
               <h3 className="font-display text-lg">Status Breakdown</h3>
               <div className="mt-3 space-y-2">
                 {statsQuery.data.status_breakdown.map((point) => {
@@ -136,7 +136,7 @@ export function StatsPage() {
                         <span className="font-mono">{point.status}</span>
                         <span>{point.count}</span>
                       </div>
-                      <div className="h-2 rounded bg-slate-200 dark:bg-[#060d19]">
+                      <div className="h-2 rounded bg-slate-200 dark:bg-[#072019]">
                         <div className="h-2 rounded bg-cyan" style={{ width: `${Math.max(2, pct)}%` }} />
                       </div>
                     </div>
@@ -147,7 +147,7 @@ export function StatsPage() {
           </div>
 
           <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
               <h3 className="font-display text-lg">Daily Volume ({statsQuery.data.window_days}d)</h3>
               <div className="mt-3 max-h-80 overflow-auto space-y-2">
                 {statsQuery.data.daily_volume.map((point) => (
@@ -163,7 +163,7 @@ export function StatsPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
               <h3 className="font-display text-lg">Top Domains</h3>
               <div className="mt-3 max-h-80 overflow-auto space-y-2">
                 {statsQuery.data.top_domains.map((domain) => (
@@ -180,7 +180,7 @@ export function StatsPage() {
             </section>
           </div>
 
-          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Feed Share ({statsQuery.data.window_days}d)</h3>
             <div className="mt-3 max-h-64 overflow-auto space-y-2">
               {statsQuery.data.feed_breakdown.map((feed) => (
@@ -195,7 +195,7 @@ export function StatsPage() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Feed Contribution</h3>
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-left text-sm">
@@ -232,7 +232,7 @@ export function StatsPage() {
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <p className="text-xs uppercase tracking-wide text-slate dark:text-slate-400">{label}</p>
       <p className="mt-2 text-2xl font-bold text-cyan dark:text-cyan-300">{value}</p>
     </section>
@@ -265,7 +265,7 @@ function BarRow({
         <span className={monoLabel ? 'font-mono text-xs' : ''}>{label}</span>
         <span className="font-semibold">{value}</span>
       </div>
-      <div className="h-2 rounded bg-slate-200 dark:bg-[#060d19]">
+      <div className="h-2 rounded bg-slate-200 dark:bg-[#072019]">
         <div className="h-2 rounded bg-cyan" style={{ width: value > 0 ? `${Math.max(2, widthPct)}%` : '0%' }} />
       </div>
     </div>

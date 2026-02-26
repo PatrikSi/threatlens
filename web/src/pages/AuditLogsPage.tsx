@@ -25,7 +25,7 @@ export function AuditLogsPage() {
   const totalPages = Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize))
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl">Audit Logs</h2>
         <div className="flex flex-wrap gap-2">
@@ -36,7 +36,7 @@ export function AuditLogsPage() {
               setAction(event.target.value)
             }}
             placeholder="Action filter"
-            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
           <input
             value={actorUserId}
@@ -45,7 +45,7 @@ export function AuditLogsPage() {
               setActorUserId(event.target.value)
             }}
             placeholder="Actor user ID"
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
         </div>
       </div>

@@ -58,14 +58,14 @@ export function FeedsPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Add Feed</h2>
         {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role cannot create or modify feeds.</p>}
         <form className="mt-3 space-y-3" onSubmit={onSubmit}>
           <div>
             <label className="text-sm font-semibold">Name</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -75,7 +75,7 @@ export function FeedsPage() {
           <div>
             <label className="text-sm font-semibold">URL</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
               required
@@ -85,7 +85,7 @@ export function FeedsPage() {
           <div>
             <label className="text-sm font-semibold">Fetch Interval (seconds)</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="number"
               min={60}
               value={interval}
@@ -104,7 +104,7 @@ export function FeedsPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Configured Feeds</h2>
         <div className="mt-3 space-y-2">
           {feedsQuery.data?.map((feed) => (
@@ -135,7 +135,7 @@ export function FeedsPage() {
               <div className="mt-3 flex items-center gap-2">
                 <label className="text-xs font-semibold">Interval</label>
                 <input
-                  className="w-28 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+                  className="w-28 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                   type="number"
                   min={60}
                   defaultValue={feed.fetch_interval_seconds}
