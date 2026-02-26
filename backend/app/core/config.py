@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     jwt_secret: str = "change-me"
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24
+    allow_self_registration: bool = False
+    default_api_token_expiry_days: int = 90
 
     admin_email: str = "admin@example.com"
     admin_password: str = "admin123"
