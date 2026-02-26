@@ -2,40 +2,67 @@
 
 ## Purpose
 
-The Alerts page lets users define intelligence interests that drive keyword matching in dashboard alert windows.
+Manage user-specific alert interests used for keyword matching in dashboard alert windows.
 
-## Alert Interest Model
+## Data Model
 
-Each interest contains:
+Each alert interest includes:
 
-- Name
-- Category
-- Keywords (comma-separated, normalized)
-- Enabled/disabled state
+- `name`
+- `category`
+- `keywords[]`
+- `enabled`
+- `created_at`
+- `updated_at`
 
-## Suggested Categories
+## Categories
 
-- Software
-- Vendor
-- APT Group
-- Vulnerability
-- Malware
-- Technique
-- Campaign
-- Infrastructure
-- Other
+Configured category values:
 
-## Supported Actions
+- `software`
+- `vendor`
+- `apt_group`
+- `vulnerability`
+- `malware`
+- `technique`
+- `campaign`
+- `infrastructure`
+- `other`
 
-- Create new alert interests.
-- Toggle enabled/disabled state.
-- Delete alert interests.
-- Optionally include disabled entries in listing.
+## UI Elements
 
-## Matching Behavior
+- Create form:
+  - Interest name
+  - Category select
+  - Keywords (comma-separated)
+- `Include disabled` toggle for listing
+- Grouped alert cards by category
+- Per-alert actions:
+  - Enable/Disable
+  - Delete
 
-Dashboard alert windows call the backend alert match endpoint, which:
+## Normalization Behavior
 
-- Loads active interests for the user.
-- Applies keyword matching over item metadata/text fields.
-- Returns matched items with per-alert match metadata.
+Backend normalizes:
+
+- category to lowercase snake style
+- keywords to lowercase, trimmed, deduplicated list
+
+## API Calls
+
+- `GET /alerts?include_disabled=<bool>`
+- `POST /alerts`
+- `PATCH /alerts/{id}`
+- `DELETE /alerts/{id}`
+
+## How Alerts Drive Matching
+
+Dashboard alert windows call `GET /alerts/matches`.
+
+Matching searches keyword presence across:
+
+- item title
+- item summary
+- item URL
+- canonical URL
+- classification primary category
