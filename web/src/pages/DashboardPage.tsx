@@ -86,6 +86,8 @@ const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const DASHBOARD_VIEW_VERSION = 3
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
+const DRAG_EDGE_SNAP_THRESHOLD = 12
+const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
@@ -493,21 +495,41 @@ export function DashboardPage() {
 
       const maxX = Math.max(0, rootBounds.width - startRect.width)
       const maxY = Math.max(0, rootBounds.height - startRect.height)
+      const candidateX = clamp(startRect.x + deltaX, 0, maxX)
+      const candidateY = clamp(startRect.y + deltaY, 0, maxY)
       setActiveSavedViewId(null)
 
-      setWindows((current) =>
-        current.map((window) => {
+      setWindows((current) => {
+        const otherRects = current
+          .filter((layout) => layout.id !== windowId)
+          .map((layout) => resolveWindowRect(layout, rootBounds.width, rootBounds.height))
+
+        const snapped = applyDragMagnetSnap(
+          {
+            x: candidateX,
+            y: candidateY,
+            width: startRect.width,
+            height: startRect.height,
+          },
+          otherRects,
+          rootBounds.width,
+          rootBounds.height,
+          maxX,
+          maxY,
+        )
+
+        return current.map((window) => {
           if (window.id !== windowId) return window
           return {
             ...window,
             rect: {
               ...window.rect,
-              x: clamp(startRect.x + deltaX, 0, maxX),
-              y: clamp(startRect.y + deltaY, 0, maxY),
+              x: snapped.x,
+              y: snapped.y,
             },
           }
-        }),
-      )
+        })
+      })
     }
 
     const onUp = () => {
@@ -2496,6 +2518,72 @@ function isWindowSnap(value: unknown): value is DashboardWindowSnap {
     value === 'bottom_left' ||
     value === 'bottom_right'
   )
+}
+
+function resolveWindowRect(windowLayout: DashboardWindow, containerWidth: number, containerHeight: number): PanelRect {
+  if (windowLayout.snap === 'free') {
+    return normalizePanelRect(windowLayout.rect, containerWidth, containerHeight)
+  }
+  return getSnapRect(windowLayout.snap, containerWidth, containerHeight)
+}
+
+function applyDragMagnetSnap(
+  movingRect: PanelRect,
+  otherRects: PanelRect[],
+  containerWidth: number,
+  containerHeight: number,
+  maxX: number,
+  maxY: number,
+): Pick<PanelRect, 'x' | 'y'> {
+  let snappedX = movingRect.x
+  let snappedY = movingRect.y
+  let bestXDistance = Number.POSITIVE_INFINITY
+  let bestYDistance = Number.POSITIVE_INFINITY
+
+  const maybeSnapX = (candidate: number, threshold: number) => {
+    const normalized = clamp(candidate, 0, maxX)
+    const distance = Math.abs(movingRect.x - normalized)
+    if (distance <= threshold && distance < bestXDistance) {
+      snappedX = normalized
+      bestXDistance = distance
+    }
+  }
+
+  const maybeSnapY = (candidate: number, threshold: number) => {
+    const normalized = clamp(candidate, 0, maxY)
+    const distance = Math.abs(movingRect.y - normalized)
+    if (distance <= threshold && distance < bestYDistance) {
+      snappedY = normalized
+      bestYDistance = distance
+    }
+  }
+
+  for (const rect of otherRects) {
+    const left = rect.x
+    const right = rect.x + rect.width
+    const top = rect.y
+    const bottom = rect.y + rect.height
+
+    maybeSnapX(left, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapX(right, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapX(left - movingRect.width, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapX(right - movingRect.width, DRAG_EDGE_SNAP_THRESHOLD)
+
+    maybeSnapY(top, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapY(bottom, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapY(top - movingRect.height, DRAG_EDGE_SNAP_THRESHOLD)
+    maybeSnapY(bottom - movingRect.height, DRAG_EDGE_SNAP_THRESHOLD)
+  }
+
+  const midX = containerWidth / 2
+  const midY = containerHeight / 2
+
+  maybeSnapX(midX, DRAG_MIDLINE_SNAP_THRESHOLD)
+  maybeSnapX(midX - movingRect.width, DRAG_MIDLINE_SNAP_THRESHOLD)
+  maybeSnapY(midY, DRAG_MIDLINE_SNAP_THRESHOLD)
+  maybeSnapY(midY - movingRect.height, DRAG_MIDLINE_SNAP_THRESHOLD)
+
+  return { x: snappedX, y: snappedY }
 }
 
 function getWindowContainerDimensions(rootElement: HTMLDivElement | null): { width: number; height: number } {
