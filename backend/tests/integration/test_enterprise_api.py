@@ -103,3 +103,24 @@ def test_audit_log_endpoint(client: TestClient, auth_headers):
     assert logs_response.status_code == 200
     logs = logs_response.json()["logs"]
     assert any(log["action"] == "feeds.create" for log in logs)
+
+
+def test_stats_overview_endpoint(client: TestClient, auth_headers):
+    create_feed = client.post(
+        "/feeds",
+        json={
+            "name": "StatsFeed",
+            "url": "https://example.com/stats.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_feed.status_code == 201
+
+    stats_response = client.get("/stats/overview?days=30", headers=auth_headers["viewer"])
+    assert stats_response.status_code == 200
+    payload = stats_response.json()
+    assert payload["window_days"] == 30
+    assert "totals" in payload
+    assert "feed_breakdown" in payload
