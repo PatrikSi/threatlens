@@ -20,6 +20,7 @@ type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 type DashboardViewMode = 'expanded' | 'compact'
+type AlertViewMode = 'expanded' | 'compact'
 type DashboardWindowType = 'rss' | 'alerts' | 'notes'
 type DashboardWindowSnap = 'free' | 'full' | 'left' | 'right' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
 
@@ -58,6 +59,7 @@ interface DashboardAlertViewQuery {
   selected_alert_ids: string[]
   selected_categories: string[]
   q: string
+  view_mode: AlertViewMode
   page_size: number
   time_range: TimeRangeFilter
   custom_since_date: string
@@ -120,6 +122,7 @@ export function DashboardPage() {
   const [alertSelectedIds, setAlertSelectedIds] = useState<string[]>([])
   const [alertSelectedCategories, setAlertSelectedCategories] = useState<string[]>([])
   const [alertQ, setAlertQ] = useState('')
+  const [alertViewMode, setAlertViewMode] = useState<AlertViewMode>('expanded')
   const [alertTimeRange, setAlertTimeRange] = useState<TimeRangeFilter>('all')
   const [alertCustomSinceDate, setAlertCustomSinceDate] = useState('')
   const [alertCustomUntilDate, setAlertCustomUntilDate] = useState('')
@@ -590,6 +593,7 @@ export function DashboardPage() {
           selected_alert_ids: alertSelectedIds,
           selected_categories: alertSelectedCategories,
           q: alertQ,
+          view_mode: alertViewMode,
           page_size: alertPageSize,
           time_range: alertTimeRange,
           custom_since_date: alertCustomSinceDate,
@@ -625,6 +629,7 @@ export function DashboardPage() {
     setAlertSelectedIds(parsed.alert_filters.selected_alert_ids)
     setAlertSelectedCategories(parsed.alert_filters.selected_categories)
     setAlertQ(parsed.alert_filters.q)
+    setAlertViewMode(parsed.alert_filters.view_mode)
     setAlertPageSize(parsed.alert_filters.page_size)
     setAlertTimeRange(parsed.alert_filters.time_range)
     setAlertCustomSinceDate(parsed.alert_filters.custom_since_date)
@@ -1437,6 +1442,28 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
+                      <div className="flex rounded border border-slate/25 p-0.5 dark:border-cyan-900/40">
+                        <button
+                          type="button"
+                          className={`rounded px-2 py-1 text-xs font-semibold ${alertViewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => {
+                            clearAlertSelection()
+                            setAlertViewMode('expanded')
+                          }}
+                        >
+                          Expanded
+                        </button>
+                        <button
+                          type="button"
+                          className={`rounded px-2 py-1 text-xs font-semibold ${alertViewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => {
+                            clearAlertSelection()
+                            setAlertViewMode('compact')
+                          }}
+                        >
+                          Compact
+                        </button>
+                      </div>
                       <input
                         type="date"
                         className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -1463,11 +1490,13 @@ export function DashboardPage() {
 
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
-                      {alertMatchesQuery.data?.items.map((item) => (
-                        <article key={item.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+                      {alertMatchesQuery.data?.items.map((item) => {
+                        const compactAlerts = alertViewMode === 'compact'
+                        return (
+                        <article key={item.id} className={`rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-3'} dark:border-cyan-900/40`}>
                           <div className="flex items-start justify-between gap-2">
                             <div>
-                              <h3 className="font-semibold leading-snug">
+                              <h3 className={`font-semibold leading-snug ${compactAlerts ? 'text-[13px]' : ''}`}>
                                 <a
                                   href={item.canonical_url || item.url}
                                   target="_blank"
@@ -1477,7 +1506,7 @@ export function DashboardPage() {
                                   {item.title}
                                 </a>
                               </h3>
-                              <p className="mt-1 text-xs text-slate dark:text-slate-300">
+                              <p className={`text-xs text-slate dark:text-slate-300 ${compactAlerts ? 'mt-0.5' : 'mt-1'}`}>
                                 {item.feed_name} • Published {formatPublishedAt(item.published_at)}
                               </p>
                             </div>
@@ -1495,11 +1524,13 @@ export function DashboardPage() {
                               </span>
                             ))}
                           </div>
-                          <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">
-                            {item.summary || 'No summary available.'}
-                          </p>
+                          {!compactAlerts && (
+                            <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">
+                              {item.summary || 'No summary available.'}
+                            </p>
+                          )}
                         </article>
-                      ))}
+                      )})}
 
                       {alertMatchesQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert matches...</p>}
                       {alertMatchesQuery.isError && (
@@ -2000,6 +2031,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
     typeof alertSource.sort === 'string' && sortValues.includes(alertSource.sort as TimeSort)
       ? (alertSource.sort as TimeSort)
       : 'published_at_desc'
+  const alertViewMode = alertSource.view_mode === 'compact' ? 'compact' : 'expanded'
 
   return {
     version: DASHBOARD_VIEW_VERSION,
@@ -2020,6 +2052,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
       selected_alert_ids: selectedAlertIds,
       selected_categories: selectedAlertCategories,
       q: typeof alertSource.q === 'string' ? alertSource.q : '',
+      view_mode: alertViewMode,
       page_size: alertPageSize,
       time_range: alertTimeRange,
       custom_since_date: typeof alertSource.custom_since_date === 'string' ? alertSource.custom_since_date : '',
