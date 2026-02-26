@@ -39,6 +39,7 @@ input,
 select,
 textarea {
   font-family: inherit;
+  color: inherit;
 }
 
 .dark input,
@@ -64,6 +65,7 @@ textarea {
 .dark .bg-white\/70,
 .dark .bg-white {
   background-color: rgba(5, 24, 20, 0.9) !important;
+  color: #ddfff1;
 }
 
 .dark .bg-sand\/40,

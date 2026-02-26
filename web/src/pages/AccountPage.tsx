@@ -77,7 +77,7 @@ export function AccountPage() {
           </div>
           {changePassword.isError && <p className="text-sm text-red-600">Failed to change password.</p>}
           {changePassword.isSuccess && <p className="text-sm text-green-600">Password updated.</p>}
-          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-ink" disabled={changePassword.isPending}>
+          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={changePassword.isPending}>
             Update password
           </button>
         </form>

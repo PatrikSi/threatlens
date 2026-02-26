@@ -49,13 +49,13 @@ export function AppShell() {
               </div>
             )}
             <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#08211b]"
+              className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={toggleMode}
             >
               {mode === 'dark' ? 'Light' : 'Dark'}
             </button>
             <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b]"
+              className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={() => {
                 setAuthToken(null)
                 navigate('/login')

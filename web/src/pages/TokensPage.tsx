@@ -98,7 +98,7 @@ export function TokensPage() {
               placeholder="read:feeds,write:items"
             />
           </div>
-          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-ink" disabled={createToken.isPending}>
+          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createToken.isPending}>
             Generate Token
           </button>
           {createToken.isError && <p className="text-sm text-red-600">Failed to create token.</p>}
