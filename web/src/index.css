@@ -1,0 +1,29 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0e1726;
+  background:
+    radial-gradient(circle at 90% 0%, #d6f7fa 0%, transparent 40%),
+    radial-gradient(circle at 0% 100%, #fde5d7 0%, transparent 45%),
+    #f6f7f9;
+}
+
+body {
+  margin: 0;
+  font-family: 'Source Sans 3', sans-serif;
+  min-height: 100vh;
+  color: #0e1726;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
