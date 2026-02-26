@@ -258,6 +258,9 @@ export function DashboardPage() {
                 <p className="line-clamp-1 font-semibold">{item.title}</p>
                 <span className="text-xs text-slate">{item.feed_name}</span>
               </div>
+              <p className="mt-1 text-xs text-slate">
+                Published: {formatPublishedAt(item.published_at)}
+              </p>
               <p className="mt-1 line-clamp-2 text-sm text-slate">{item.summary || 'No summary available.'}</p>
               <div className="mt-2 flex items-center gap-2 text-xs">
                 {item.is_starred && <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-700">Starred</span>}
@@ -417,4 +420,17 @@ function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId:
   if (itemId) {
     void queryClient.invalidateQueries({ queryKey: ['item', itemId] })
   }
+}
+
+function formatPublishedAt(publishedAt: string | null) {
+  if (!publishedAt) {
+    return 'Unknown'
+  }
+
+  const parsed = new Date(publishedAt)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Unknown'
+  }
+
+  return parsed.toLocaleString()
 }
