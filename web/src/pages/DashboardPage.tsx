@@ -160,6 +160,7 @@ export function DashboardPage() {
 
   const itemsQuery = useQuery({
     queryKey: ['items', feedIdsParam, debouncedQ, readStatus, starStatus, sinceIso, untilIso, sort, page],
+    retry: 1,
     queryFn: () => {
       const params = new URLSearchParams()
       params.set('page', String(page))
@@ -669,7 +670,11 @@ export function DashboardPage() {
             })}
 
             {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
-            {itemsQuery.isError && <p className="text-sm text-red-600">Failed to load items.</p>}
+            {itemsQuery.isError && (
+              <p className="text-sm text-red-600">
+                Failed to load items. {(itemsQuery.error as Error | undefined)?.message ?? ''}
+              </p>
+            )}
             {!itemsQuery.isLoading && !itemsQuery.data?.items.length && <p className="text-sm text-slate dark:text-slate-300">No items match current filters.</p>}
           </div>
         </div>
