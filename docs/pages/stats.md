@@ -34,6 +34,7 @@ Operational analytics for ingestion, extraction, and feed contribution.
 - Hover crosshair line
 - Hover legend sorted by count descending
 - Date range labels at chart edges
+- Daily buckets use item `published_at` (publication date), not ingestion timestamp
 
 ## API Calls
 
