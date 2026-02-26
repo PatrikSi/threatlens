@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Link, Outlet, useNavigate } from 'react-router-dom'
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAuth } from './AuthContext'
@@ -10,8 +10,10 @@ export function AppShell() {
   const { mode, toggleMode } = useTheme()
   const meQuery = useCurrentUser()
   const navigate = useNavigate()
+  const location = useLocation()
 
   const role = meQuery.data?.role
+  const isDashboardRoute = location.pathname === '/'
 
   useEffect(() => {
     if (meQuery.isError) {
@@ -29,6 +31,9 @@ export function AppShell() {
             <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
               <Link to="/" className="rounded px-3 py-1 hover:bg-cyan/10 hover:text-cyan">
                 Dashboard
+              </Link>
+              <Link to="/alerts" className="rounded px-3 py-1 hover:bg-cyan/10 hover:text-cyan">
+                Alerts
               </Link>
               <Link to="/feeds" className="rounded px-3 py-1 hover:bg-cyan/10 hover:text-cyan">
                 Feeds
@@ -66,7 +71,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="w-full px-3 py-4 sm:px-4 lg:px-6">
+      <main className={`w-full ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
         <Outlet />
       </main>
     </div>

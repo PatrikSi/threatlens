@@ -54,8 +54,8 @@ function RoleCard({ title, color, items }: { title: string; color: 'cyan' | 'eme
 
   return (
     <section className={`rounded-xl border p-4 ${accent}`}>
-      <h3 className="font-display text-lg">{title}</h3>
-      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
+      <h3 className="font-display text-lg text-ink dark:text-slate-100">{title}</h3>
+      <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-ink dark:text-slate-100">
         {items.map((item) => (
           <li key={item}>{item}</li>
         ))}

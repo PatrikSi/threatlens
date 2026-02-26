@@ -1,3 +1,4 @@
+from app.models.alert_interest import AlertInterest
 from app.models.api_token import ApiToken
 from app.models.article import Article
 from app.models.audit_log import AuditLog
@@ -12,6 +13,7 @@ from app.models.user import User
 
 __all__ = [
     "ApiToken",
+    "AlertInterest",
     "Article",
     "AuditLog",
     "Feed",
