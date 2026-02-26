@@ -17,7 +17,7 @@ export function SettingsLayout() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Settings</h2>
         <nav className="mt-3 space-y-1">
           {navItems.map((item) => {

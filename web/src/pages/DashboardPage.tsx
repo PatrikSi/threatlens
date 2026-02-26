@@ -332,7 +332,7 @@ export function DashboardPage() {
   return (
     <div ref={rootRef} className="relative w-full min-h-[calc(100vh-110px)]">
       <section
-        className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#040913]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
+        className="flex h-[calc(100vh-120px)] flex-col overflow-hidden rounded-xl border border-slate/20 bg-white/85 text-[13px] shadow-lg shadow-slate-400/15 dark:border-cyan-900/40 dark:bg-[#041612]/96 dark:shadow-cyan-950/40 lg:absolute lg:h-auto"
         style={
           isWideLayout
             ? {
@@ -408,10 +408,10 @@ export function DashboardPage() {
                 setQ(event.target.value)
               }}
               placeholder="Search title, summary, URL"
-              className="min-w-64 flex-1 rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="min-w-64 flex-1 rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             />
             <select
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={timeRange}
               onChange={(event) => {
                 setPage(1)
@@ -426,7 +426,7 @@ export function DashboardPage() {
               <option value="custom">Custom</option>
             </select>
             <select
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={sort}
               onChange={(event) => {
                 setPage(1)
@@ -449,9 +449,9 @@ export function DashboardPage() {
           </div>
 
           {showAdvancedFilters && (
-            <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#060d19]/70 md:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-2 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
               <select
-                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 value={readStatus}
                 onChange={(event) => {
                   setPage(1)
@@ -464,7 +464,7 @@ export function DashboardPage() {
                 <option value="read">Read: Read</option>
               </select>
               <select
-                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 value={starStatus}
                 onChange={(event) => {
                   setPage(1)
@@ -479,7 +479,7 @@ export function DashboardPage() {
               <div className="flex gap-2">
                 <input
                   type="date"
-                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#040913]"
+                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={customSinceDate}
                   onChange={(event) => {
                     setPage(1)
@@ -490,7 +490,7 @@ export function DashboardPage() {
                 />
                 <input
                   type="date"
-                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#040913]"
+                  className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={customUntilDate}
                   onChange={(event) => {
                     setPage(1)
@@ -505,7 +505,7 @@ export function DashboardPage() {
                   value={savedViewName}
                   onChange={(event) => setSavedViewName(event.target.value)}
                   placeholder="Save current filters as..."
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 />
                 <button
                   type="button"
@@ -516,7 +516,7 @@ export function DashboardPage() {
                   Save View
                 </button>
                 <select
-                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#040913]"
+                  className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={activeSavedViewId ?? ''}
                   onChange={(event) => {
                     const value = event.target.value
@@ -626,40 +626,41 @@ export function DashboardPage() {
                             {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
                           </div>
 
-                          {canManage && (
-                            <div className="mt-3">
-                              <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Analyst Note</label>
-                              <textarea
-                                className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
-                                value={noteDraft}
-                                onChange={(event) => setNoteDraft(event.target.value)}
-                              />
-                              <button
-                                className="mt-2 rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
-                                onClick={() => updateNote.mutate({ itemId: detail.id, note: noteDraft || null })}
-                              >
-                                Save Note
-                              </button>
-                            </div>
-                          )}
-
-                          <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+                          <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
                             <p className="mt-1 whitespace-pre-wrap text-sm leading-6">{detail.summary || 'No summary.'}</p>
                           </div>
 
-                          <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#060d19]/90">
+                          <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                             <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Full Article</p>
                             {detail.article?.text ? (
-                              <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#040913]/80">
-                                {renderArticleParagraphs(detail.article.text).map((paragraph, index) => (
-                                  <p key={`${detail.id}-paragraph-${index}`}>{paragraph}</p>
-                                ))}
+                              <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                                {renderArticleBlocks(detail.article.text, detail.id)}
                               </div>
                             ) : (
                               <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
                             )}
                             {detail.article?.error && <p className="mt-2 text-sm text-red-600">Extraction error: {detail.article.error}</p>}
+                          </div>
+
+                          <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                            <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Notes</label>
+                            <textarea
+                              className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                              value={noteDraft}
+                              onChange={(event) => setNoteDraft(event.target.value)}
+                              disabled={!canManage}
+                            />
+                            <div className="mt-2 flex items-center gap-2">
+                              <button
+                                className="rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                                onClick={() => updateNote.mutate({ itemId: detail.id, note: noteDraft || null })}
+                                disabled={!canManage}
+                              >
+                                Save Notes
+                              </button>
+                              {!canManage && <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>}
+                            </div>
                           </div>
                         </>
                       )}
@@ -702,7 +703,7 @@ export function DashboardPage() {
         {isWideLayout && (
           <button
             type="button"
-            className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/30 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b1629]"
+            className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/30 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b2a23]"
             aria-label="Resize dashboard window"
             onMouseDown={startPanelResize}
           />
@@ -800,17 +801,164 @@ function parseDashboardSavedView(raw: Record<string, unknown>): DashboardSavedVi
   }
 }
 
-function renderArticleParagraphs(text: string): string[] {
-  const normalized = text.replace(/\r/g, '').trim()
-  if (!normalized) return []
+type ArticleBlock =
+  | { kind: 'heading'; text: string }
+  | { kind: 'paragraph'; text: string }
+  | { kind: 'bullet-list'; items: string[] }
+  | { kind: 'numbered-list'; items: string[] }
+  | { kind: 'quote'; text: string }
 
-  const paragraphBlocks = normalized
-    .split(/\n{2,}/)
-    .map((block) => block.split('\n').map((line) => line.trim()).filter(Boolean).join(' '))
-    .map((block) => block.replace(/\s{2,}/g, ' ').trim())
-    .filter(Boolean)
+function renderArticleBlocks(text: string, itemId: string) {
+  const blocks = parseArticleBlocks(text)
 
-  return paragraphBlocks.length ? paragraphBlocks : [normalized]
+  return blocks.map((block, index) => {
+    if (block.kind === 'heading') {
+      return (
+        <h4 key={`${itemId}-heading-${index}`} className="rss-heading">
+          {block.text}
+        </h4>
+      )
+    }
+
+    if (block.kind === 'bullet-list') {
+      return (
+        <ul key={`${itemId}-ul-${index}`} className="rss-list">
+          {block.items.map((entry, entryIndex) => (
+            <li key={`${itemId}-ul-${index}-${entryIndex}`}>{entry}</li>
+          ))}
+        </ul>
+      )
+    }
+
+    if (block.kind === 'numbered-list') {
+      return (
+        <ol key={`${itemId}-ol-${index}`} className="rss-list rss-list-ordered">
+          {block.items.map((entry, entryIndex) => (
+            <li key={`${itemId}-ol-${index}-${entryIndex}`}>{entry}</li>
+          ))}
+        </ol>
+      )
+    }
+
+    if (block.kind === 'quote') {
+      return (
+        <blockquote key={`${itemId}-quote-${index}`} className="rss-quote">
+          {block.text}
+        </blockquote>
+      )
+    }
+
+    return <p key={`${itemId}-paragraph-${index}`}>{block.text}</p>
+  })
+}
+
+function parseArticleBlocks(text: string): ArticleBlock[] {
+  const lines = text.replace(/\r/g, '').split('\n')
+  const blocks: ArticleBlock[] = []
+
+  let index = 0
+  while (index < lines.length) {
+    const raw = lines[index]
+    const line = raw.trim()
+
+    if (!line) {
+      index += 1
+      continue
+    }
+
+    if (isHeadingLine(line)) {
+      blocks.push({ kind: 'heading', text: cleanHeading(line) })
+      index += 1
+      continue
+    }
+
+    if (isBulletLine(line)) {
+      const items: string[] = []
+      while (index < lines.length && isBulletLine(lines[index].trim())) {
+        items.push(cleanBullet(lines[index].trim()))
+        index += 1
+      }
+      if (items.length) {
+        blocks.push({ kind: 'bullet-list', items })
+      }
+      continue
+    }
+
+    if (isNumberedLine(line)) {
+      const items: string[] = []
+      while (index < lines.length && isNumberedLine(lines[index].trim())) {
+        items.push(cleanNumbered(lines[index].trim()))
+        index += 1
+      }
+      if (items.length) {
+        blocks.push({ kind: 'numbered-list', items })
+      }
+      continue
+    }
+
+    if (line.startsWith('>')) {
+      const quoteLines: string[] = []
+      while (index < lines.length && lines[index].trim().startsWith('>')) {
+        quoteLines.push(lines[index].trim().replace(/^>\s*/, ''))
+        index += 1
+      }
+      const quoteText = quoteLines.join(' ').replace(/\s{2,}/g, ' ').trim()
+      if (quoteText) {
+        blocks.push({ kind: 'quote', text: quoteText })
+      }
+      continue
+    }
+
+    const paragraphLines: string[] = []
+    while (index < lines.length) {
+      const paragraphLine = lines[index].trim()
+      if (!paragraphLine || isHeadingLine(paragraphLine) || isBulletLine(paragraphLine) || isNumberedLine(paragraphLine) || paragraphLine.startsWith('>')) {
+        break
+      }
+      paragraphLines.push(paragraphLine)
+      index += 1
+    }
+
+    if (paragraphLines.length) {
+      blocks.push({
+        kind: 'paragraph',
+        text: paragraphLines.join(' ').replace(/\s{2,}/g, ' ').trim(),
+      })
+      continue
+    }
+
+    index += 1
+  }
+
+  return blocks
+}
+
+function isHeadingLine(line: string): boolean {
+  if (/^#{1,4}\s+/.test(line)) {
+    return true
+  }
+
+  return /^[A-Z][A-Z0-9\s\-:]{8,}$/.test(line) && line === line.toUpperCase()
+}
+
+function cleanHeading(line: string): string {
+  return line.replace(/^#{1,4}\s*/, '').trim()
+}
+
+function isBulletLine(line: string): boolean {
+  return /^[-*•]\s+/.test(line)
+}
+
+function cleanBullet(line: string): string {
+  return line.replace(/^[-*•]\s+/, '').trim()
+}
+
+function isNumberedLine(line: string): boolean {
+  return /^\d+[\.\)]\s+/.test(line)
+}
+
+function cleanNumbered(line: string): string {
+  return line.replace(/^\d+[\.\)]\s+/, '').trim()
 }
 
 function loadPanelRect(): PanelRect {

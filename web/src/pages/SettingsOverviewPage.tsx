@@ -1,7 +1,7 @@
 export function SettingsOverviewPage() {
   return (
     <div className="space-y-4">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Role Capabilities</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">
           Use this reference to understand who can operate which controls.

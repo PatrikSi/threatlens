@@ -54,7 +54,7 @@ export function UsersPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Create User</h2>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
@@ -62,7 +62,7 @@ export function UsersPage() {
             <input
               value={createForm.email}
               onChange={(event) => setCreateForm((f) => ({ ...f, email: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="email"
               required
             />
@@ -72,7 +72,7 @@ export function UsersPage() {
             <input
               value={createForm.password}
               onChange={(event) => setCreateForm((f) => ({ ...f, password: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="password"
               minLength={8}
               required
@@ -83,7 +83,7 @@ export function UsersPage() {
             <select
               value={createForm.role}
               onChange={(event) => setCreateForm((f) => ({ ...f, role: event.target.value as User['role'] }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value="viewer">viewer</option>
               <option value="analyst">analyst</option>
@@ -105,14 +105,14 @@ export function UsersPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display text-xl">User Directory</h2>
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users..."
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
         </div>
 
@@ -121,7 +121,7 @@ export function UsersPage() {
             <UserRow key={user.id} user={user} onSave={(body) => updateUser.mutate({ id: user.id, body })} saving={updateUser.isPending} />
           ))}
 
-          {usersQuery.isLoading && <p className="text-sm text-slate">Loading users...</p>}
+          {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
           {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
         </div>
       </section>
@@ -145,7 +145,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           <select
             value={role}
             onChange={(event) => setRole(event.target.value as User['role'])}
-            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           >
             <option value="viewer">viewer</option>
             <option value="analyst">analyst</option>
@@ -164,7 +164,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           placeholder="New password (optional)"
           value={resetPassword}
           onChange={(event) => setResetPassword(event.target.value)}
-          className="w-64 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
+          className="w-64 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
         />
         <button
           className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"

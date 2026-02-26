@@ -6,11 +6,11 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: '#0E1726',
-        cyan: '#00A3B4',
+        ink: '#071B16',
+        cyan: '#2CD4A7',
         sand: '#F5EFE2',
         ember: '#D66B29',
-        slate: '#31445D',
+        slate: '#375A53',
       },
       fontFamily: {
         display: ['Space Grotesk', 'sans-serif'],

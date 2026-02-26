@@ -22,7 +22,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen text-ink dark:text-slate-100">
-      <header className="border-b border-slate/20 bg-white/70 backdrop-blur dark:border-cyan-900/40 dark:bg-[#030711]/92">
+      <header className="border-b border-slate/20 bg-white/70 backdrop-blur dark:border-cyan-900/40 dark:bg-[#03140f]/92">
         <div className="flex w-full flex-wrap items-center justify-between gap-3 px-3 py-3 sm:px-4 lg:px-6">
           <div className="flex items-center gap-6">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
@@ -49,13 +49,13 @@ export function AppShell() {
               </div>
             )}
             <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#07101f]"
+              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#08211b]"
               onClick={toggleMode}
             >
               {mode === 'dark' ? 'Light' : 'Dark'}
             </button>
             <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#07101f]"
+              className="rounded border border-slate/30 px-3 py-1 text-sm hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b]"
               onClick={() => {
                 setAuthToken(null)
                 navigate('/login')
