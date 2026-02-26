@@ -64,14 +64,14 @@ export function TokensPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <h2 className="font-display text-xl">Create API Token</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">Token value is only shown once after creation.</p>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
             <label className="text-sm font-semibold">Name</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={name}
               onChange={(event) => setName(event.target.value)}
               required
@@ -80,7 +80,7 @@ export function TokensPage() {
           <div>
             <label className="text-sm font-semibold">Expiry (days)</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               type="number"
               min={1}
               max={3650}
@@ -92,7 +92,7 @@ export function TokensPage() {
           <div>
             <label className="text-sm font-semibold">Scopes (comma-separated)</label>
             <input
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               value={scopesText}
               onChange={(event) => setScopesText(event.target.value)}
               placeholder="read:feeds,write:items"
@@ -113,7 +113,7 @@ export function TokensPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">Token Inventory</h2>
           {meQuery.data?.role === 'admin' && (
@@ -121,21 +121,21 @@ export function TokensPage() {
               value={adminUserFilter}
               onChange={(event) => setAdminUserFilter(event.target.value)}
               placeholder="Filter by user_id"
-              className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+              className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
             />
           )}
         </div>
 
         <div className="mt-3 space-y-2">
           {tokensQuery.data?.map((token) => (
-            <div key={token.id} className="rounded border border-slate/20 p-3 dark:border-slate-700">
+            <div key={token.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex items-center justify-between gap-2">
                 <div>
                   <p className="font-semibold">{token.name}</p>
                   <p className="text-xs text-slate dark:text-slate-300">{token.token_prefix}</p>
                 </div>
                 <button
-                  className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-slate-600"
+                  className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
                   onClick={() => revokeToken.mutate(token.id)}
                   disabled={Boolean(token.revoked_at) || revokeToken.isPending}
                 >

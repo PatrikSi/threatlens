@@ -54,7 +54,7 @@ export function UsersPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <h2 className="font-display text-xl">Create User</h2>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
@@ -62,7 +62,7 @@ export function UsersPage() {
             <input
               value={createForm.email}
               onChange={(event) => setCreateForm((f) => ({ ...f, email: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               type="email"
               required
             />
@@ -72,7 +72,7 @@ export function UsersPage() {
             <input
               value={createForm.password}
               onChange={(event) => setCreateForm((f) => ({ ...f, password: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
               type="password"
               minLength={8}
               required
@@ -83,7 +83,7 @@ export function UsersPage() {
             <select
               value={createForm.role}
               onChange={(event) => setCreateForm((f) => ({ ...f, role: event.target.value as User['role'] }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-slate-600 dark:bg-slate-800"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#060d19]"
             >
               <option value="viewer">viewer</option>
               <option value="analyst">analyst</option>
@@ -105,14 +105,14 @@ export function UsersPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-slate-700 dark:bg-slate-900/70">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#040913]/90">
         <div className="flex items-center justify-between gap-3">
           <h2 className="font-display text-xl">User Directory</h2>
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users..."
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
           />
         </div>
 
@@ -135,7 +135,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
   const [resetPassword, setResetPassword] = useState('')
 
   return (
-    <div className="rounded border border-slate/20 p-3 dark:border-slate-700">
+    <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-semibold">{user.email}</p>
@@ -145,7 +145,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           <select
             value={role}
             onChange={(event) => setRole(event.target.value as User['role'])}
-            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
           >
             <option value="viewer">viewer</option>
             <option value="analyst">analyst</option>
@@ -164,10 +164,10 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           placeholder="New password (optional)"
           value={resetPassword}
           onChange={(event) => setResetPassword(event.target.value)}
-          className="w-64 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-slate-600 dark:bg-slate-800"
+          className="w-64 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#060d19]"
         />
         <button
-          className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-slate-600"
+          className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
           disabled={saving}
           onClick={() => {
             const payload: UserUpdateRequest = { role, is_active: isActive }
