@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from sqlalchemy import and_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.tag import ItemTag, Tag
@@ -55,9 +56,7 @@ def sync_item_algorithm_tags(
     for tag_name in desired_names:
         if tag_name in tags_by_name:
             continue
-        tag = Tag(name=tag_name)
-        db.add(tag)
-        db.flush()
+        tag = _get_or_create_tag(db, tag_name)
         tags_by_name[tag_name] = tag
 
     desired_tag_ids = [tags_by_name[tag_name].id for tag_name in desired_names]
@@ -78,3 +77,21 @@ def sync_item_algorithm_tags(
         db.add(ItemTag(item_id=item_id, tag_id=tag_id))
 
     return desired_names
+
+
+def _get_or_create_tag(db: Session, tag_name: str) -> Tag:
+    tag = db.scalar(select(Tag).where(Tag.name == tag_name))
+    if tag is not None:
+        return tag
+
+    candidate = Tag(name=tag_name)
+    try:
+        with db.begin_nested():
+            db.add(candidate)
+            db.flush()
+        return candidate
+    except IntegrityError:
+        tag = db.scalar(select(Tag).where(Tag.name == tag_name))
+        if tag is None:
+            raise
+        return tag
