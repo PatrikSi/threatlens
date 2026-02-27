@@ -1,6 +1,7 @@
 import time
 import uuid
 import secrets
+import logging
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlsplit
@@ -11,6 +12,7 @@ from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
 import feedparser
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -33,6 +35,7 @@ from app.tasks.celery_app import celery_app
 
 settings = get_settings()
 redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+logger = logging.getLogger(__name__)
 
 
 class ResponseTooLargeError(Exception):
@@ -126,6 +129,8 @@ def dispatch_due_feeds():
     with db_session() as db:
         feeds = db.scalars(select(Feed).where(Feed.enabled.is_(True))).all()
         for feed in feeds:
+            if queued >= settings.dispatch_due_feeds_batch_size:
+                break
             if _is_feed_due(feed, now):
                 fetch_feed.delay(str(feed.id))
                 queued += 1
@@ -141,8 +146,8 @@ def dispatch_unclassified_items():
             select(Item.id)
             .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
             .where(ItemClassification.item_id.is_(None))
-            .order_by(Item.first_seen_at.desc())
-            .limit(200)
+            .order_by(Item.first_seen_at.asc())
+            .limit(settings.dispatch_unclassified_items_batch_size)
         ).all()
 
     for item_id in item_ids:
@@ -160,8 +165,8 @@ def dispatch_items_missing_iocs():
             select(Item.id)
             .outerjoin(ItemIOC, ItemIOC.item_id == Item.id)
             .where(ItemIOC.item_id.is_(None))
-            .order_by(Item.first_seen_at.desc())
-            .limit(200)
+            .order_by(Item.first_seen_at.asc())
+            .limit(settings.dispatch_items_missing_iocs_batch_size)
         ).all()
 
     for item_id in item_ids:
@@ -176,11 +181,14 @@ def dispatch_feed_metadata_backfill():
     queued = 0
     with db_session() as db:
         feeds = db.scalars(
-            select(Feed).where(Feed.enabled.is_(True)).order_by(Feed.created_at.desc()).limit(250)
+            select(Feed)
+            .where(Feed.enabled.is_(True))
+            .order_by(Feed.created_at.asc())
+            .limit(settings.dispatch_feed_metadata_scan_limit)
         ).all()
 
     for feed in feeds:
-        if queued >= 50:
+        if queued >= settings.dispatch_feed_metadata_queue_limit:
             break
         if not _needs_metadata_backfill(feed):
             continue
@@ -188,6 +196,17 @@ def dispatch_feed_metadata_backfill():
         queued += 1
 
     return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
+def record_beat_heartbeat():
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        redis_client.set(settings.beat_heartbeat_key, now, ex=settings.beat_heartbeat_ttl_seconds)
+    except redis.RedisError as exc:
+        logger.warning("beat_heartbeat_write_failed error=%s", exc)
+        return {"status": "error", "reason": "redis_unavailable"}
+    return {"status": "ok", "at": now}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.backfill_feed_metadata")
@@ -373,11 +392,14 @@ def fetch_feed(self, feed_id: str):
                         body_bytes = b"".join(body_chunks)
             except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
                 try:
+                    logger.warning("feed_fetch_retrying feed_id=%s retries=%s error=%s", feed_id, self.request.retries, exc)
                     raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
                 except MaxRetriesExceededError:
+                    logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
                     _mark_feed_failure(db, feed, f"network_error:{exc}")
                     return {"status": "error", "feed_id": feed_id}
             except FeedResponseTooLargeError as exc:
+                logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
                 _mark_feed_failure(db, feed, str(exc))
                 return {"status": "error", "feed_id": feed_id}
 
@@ -387,39 +409,8 @@ def fetch_feed(self, feed_id: str):
 
             changed_item_ids: list[uuid.UUID] = []
             for parsed in parsed_items:
-                item_url = parsed.url or ""
-                key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
-                hash_value = content_hash(parsed.title, parsed.summary, item_url)
-
-                item = db.scalar(select(Item).where(Item.dedupe_key == key))
-                if item is None:
-                    item = Item(
-                        feed_id=feed.id,
-                        source_guid=parsed.guid,
-                        url=item_url,
-                        title=parsed.title,
-                        summary=parsed.summary,
-                        published_at=parsed.published_at,
-                        dedupe_key=key,
-                        content_hash=hash_value,
-                        status="new",
-                        last_error=None,
-                    )
-                    db.add(item)
-                    db.flush()
-                    changed_item_ids.append(item.id)
-                    continue
-
-                if item.content_hash != hash_value:
-                    item.url = item_url or item.url
-                    item.title = parsed.title
-                    item.summary = parsed.summary
-                    item.published_at = parsed.published_at
-                    item.content_hash = hash_value
-                    item.status = "new"
-                    item.last_error = None
-                    db.add(item)
-                    db.flush()
+                item, changed = _upsert_item_from_parsed(db, feed, parsed)
+                if changed:
                     changed_item_ids.append(item.id)
 
             now = datetime.now(timezone.utc)
@@ -503,8 +494,10 @@ def fetch_article(self, item_id: str):
                         body_bytes = b"".join(body_chunks)
         except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
             try:
+                logger.warning("article_fetch_retrying item_id=%s retries=%s error=%s", item_id, self.request.retries, exc)
                 raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
             except MaxRetriesExceededError:
+                logger.error("article_fetch_failed item_id=%s error=%s", item_id, exc)
                 fetch_ms = int((time.perf_counter() - start) * 1000)
                 _store_article_error(
                     db,
@@ -518,6 +511,7 @@ def fetch_article(self, item_id: str):
                 classify_item.delay(item_id)
                 return {"status": "error", "item_id": item_id}
         except ResponseTooLargeError as exc:
+            logger.error("article_fetch_too_large item_id=%s error=%s", item_id, exc)
             fetch_ms = int((time.perf_counter() - start) * 1000)
             _store_article_error(
                 db,
@@ -698,21 +692,13 @@ def extract_item_iocs(item_id: str):
         linked_ioc_ids: set[uuid.UUID] = set()
         now = datetime.now(timezone.utc)
         for (ioc_type, ioc_value_norm), info in by_key.items():
-            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-            if ioc is None:
-                ioc = IOC(
-                    type=ioc_type,
-                    value_raw=str(info["value_raw"]),
-                    value_norm=ioc_value_norm,
-                    first_seen_at=now,
-                    last_seen_at=now,
-                )
-                db.add(ioc)
-                db.flush()
-            else:
-                ioc.last_seen_at = now
-                db.add(ioc)
-                db.flush()
+            ioc = _get_or_create_ioc(
+                db,
+                ioc_type=ioc_type,
+                ioc_value_norm=ioc_value_norm,
+                ioc_value_raw=str(info["value_raw"]),
+                now=now,
+            )
 
             linked_ioc_ids.add(ioc.id)
             source_sections = ",".join(sorted(set(info["source_sections"])))
@@ -735,6 +721,92 @@ def extract_item_iocs(item_id: str):
         db.commit()
 
     return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
+
+
+def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool]:
+    item_url = parsed.url or ""
+    key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
+    hash_value = content_hash(parsed.title, parsed.summary, item_url)
+
+    item = db.scalar(select(Item).where(Item.dedupe_key == key))
+    if item is None:
+        candidate = Item(
+            feed_id=feed.id,
+            source_guid=parsed.guid,
+            url=item_url,
+            title=parsed.title,
+            summary=parsed.summary,
+            published_at=parsed.published_at,
+            dedupe_key=key,
+            content_hash=hash_value,
+            status="new",
+            last_error=None,
+        )
+        if _insert_item_with_conflict_retry(db, candidate):
+            return candidate, True
+
+        # Another worker inserted the same dedupe key concurrently.
+        item = db.scalar(select(Item).where(Item.dedupe_key == key))
+        if item is None:
+            raise RuntimeError(f"item conflict recovery failed for dedupe key {key}")
+
+    if item.content_hash != hash_value:
+        item.url = item_url or item.url
+        item.title = parsed.title
+        item.summary = parsed.summary
+        item.published_at = parsed.published_at
+        item.content_hash = hash_value
+        item.status = "new"
+        item.last_error = None
+        db.add(item)
+        db.flush()
+        return item, True
+
+    return item, False
+
+
+def _insert_item_with_conflict_retry(db: Session, item: Item) -> bool:
+    try:
+        with db.begin_nested():
+            db.add(item)
+            db.flush()
+        return True
+    except IntegrityError:
+        logger.info("dedupe_conflict_detected dedupe_key=%s", item.dedupe_key)
+        return False
+
+
+def _get_or_create_ioc(
+    db: Session,
+    *,
+    ioc_type: str,
+    ioc_value_norm: str,
+    ioc_value_raw: str,
+    now: datetime,
+) -> IOC:
+    ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
+    if ioc is None:
+        candidate = IOC(
+            type=ioc_type,
+            value_raw=ioc_value_raw,
+            value_norm=ioc_value_norm,
+            first_seen_at=now,
+            last_seen_at=now,
+        )
+        try:
+            with db.begin_nested():
+                db.add(candidate)
+                db.flush()
+            return candidate
+        except IntegrityError:
+            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
+            if ioc is None:
+                raise
+
+    ioc.last_seen_at = now
+    db.add(ioc)
+    db.flush()
+    return ioc
 
 
 def _store_article_error(

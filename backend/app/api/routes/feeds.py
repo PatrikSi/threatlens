@@ -96,6 +96,7 @@ def import_feeds(
     created = 0
     updated = 0
     skipped = 0
+    metadata_backfill_enqueued = 0
     errors: list[str] = []
     metadata_backfill_ids: list[str] = []
 
@@ -118,15 +119,18 @@ def import_feeds(
         last_modified = existing.last_modified if existing else None
 
         if not resolved_name:
-            try:
-                metadata = probe_feed_metadata(feed_url)
-                resolved_name = metadata.name or feed_url
-                description = description or metadata.description
-                site_url = site_url or metadata.site_url
-                language = language or metadata.language
-                etag = metadata.etag or etag
-                last_modified = metadata.last_modified or last_modified
-            except FeedProbeError:
+            if settings.probe_feed_metadata_on_import:
+                try:
+                    metadata = probe_feed_metadata(feed_url)
+                    resolved_name = metadata.name or feed_url
+                    description = description or metadata.description
+                    site_url = site_url or metadata.site_url
+                    language = language or metadata.language
+                    etag = metadata.etag or etag
+                    last_modified = metadata.last_modified or last_modified
+                except FeedProbeError:
+                    resolved_name = feed_url
+            else:
                 resolved_name = feed_url
 
         if existing is None:
@@ -173,11 +177,18 @@ def import_feeds(
             "updated": updated,
             "skipped": skipped,
             "errors": len(errors),
+            "metadata_backfill_requested": len(metadata_backfill_ids),
         },
     )
     db.commit()
-    for target_id in metadata_backfill_ids:
-        celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
+    metadata_backfill_enqueued = _enqueue_metadata_backfills(
+        metadata_backfill_ids,
+        settings.max_metadata_backfill_tasks_per_request,
+    )
+    if metadata_backfill_enqueued < len(metadata_backfill_ids):
+        errors.append(
+            f"metadata backfill queue capped at {settings.max_metadata_backfill_tasks_per_request}; remaining feeds will backfill via scheduler"
+        )
     return FeedImportResponse(created=created, updated=updated, skipped=skipped, errors=errors)
 
 
@@ -205,20 +216,23 @@ def create_feed(
     last_modified = None
 
     if not resolved_name:
-        try:
-            metadata = probe_feed_metadata(feed_url)
-        except FeedProbeError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Unable to auto-detect feed metadata: {exc}",
-            ) from exc
+        if settings.probe_feed_metadata_on_create:
+            try:
+                metadata = probe_feed_metadata(feed_url)
+            except FeedProbeError:
+                metadata = None
 
-        resolved_name = metadata.name or feed_url
-        description = description or metadata.description
-        site_url = site_url or metadata.site_url
-        language = language or metadata.language
-        etag = metadata.etag
-        last_modified = metadata.last_modified
+            if metadata is not None:
+                resolved_name = metadata.name or feed_url
+                description = description or metadata.description
+                site_url = site_url or metadata.site_url
+                language = language or metadata.language
+                etag = metadata.etag
+                last_modified = metadata.last_modified
+            else:
+                resolved_name = feed_url
+        else:
+            resolved_name = feed_url
 
     feed = Feed(
         name=resolved_name,
@@ -245,7 +259,7 @@ def create_feed(
     )
     db.commit()
     db.refresh(feed)
-    celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[str(feed.id)])
+    _enqueue_metadata_backfills([str(feed.id)], settings.max_metadata_backfill_tasks_per_request)
     return feed
 
 
@@ -336,3 +350,13 @@ def refresh_feed(
     )
     db.commit()
     return {"status": "queued"}
+
+
+def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int) -> int:
+    if max_tasks <= 0:
+        return 0
+    enqueued = 0
+    for target_id in feed_ids[:max_tasks]:
+        celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
+        enqueued += 1
+    return enqueued
