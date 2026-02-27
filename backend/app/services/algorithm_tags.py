@@ -5,7 +5,7 @@ import uuid
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
-from sqlalchemy import and_, select, tuple_
+from sqlalchemy import and_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -109,13 +109,19 @@ def sync_item_algorithm_tags(
         )
     ).all()
 
-    stale_link_keys = [
-        (item_tag.item_id, item_tag.tag_id)
+    stale_tag_ids = [
+        item_tag.tag_id
         for item_tag, tag_name in existing_auto_links
         if tag_name not in desired_by_name
     ]
-    if stale_link_keys:
-        db.query(ItemTag).filter(tuple_(ItemTag.item_id, ItemTag.tag_id).in_(stale_link_keys)).delete(synchronize_session=False)
+    if stale_tag_ids:
+        db.query(ItemTag).filter(
+            and_(
+                ItemTag.item_id == item_id,
+                ItemTag.tag_id.in_(stale_tag_ids),
+                ItemTag.source.in_(sorted(AUTO_TAG_SOURCES)),
+            )
+        ).delete(synchronize_session=False)
 
     if not desired:
         return []

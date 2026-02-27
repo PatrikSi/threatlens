@@ -26,14 +26,20 @@ from app.schemas.item import (
     ItemListResponse,
     ItemStateResponse,
     ItemTagDetailResponse,
+    ItemTagSuggestionListResponse,
+    ItemTagSuggestionResponse,
     ItemTagsUpdateRequest,
     NoteUpdateRequest,
     ReadUpdateRequest,
     StarUpdateRequest,
 )
+from app.services.algorithm_tags import build_tag_candidates
 from app.services.audit import record_audit
+from app.services.tag_feedback import load_feedback_adjustments, record_feedback_events
 
 router = APIRouter(prefix="/items", tags=["items"])
+SUGGESTION_CONFIDENCE_MIN = 0.25
+SUGGESTION_LIMIT = 12
 
 
 def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
@@ -206,6 +212,75 @@ def _load_tags_for_items(
     return names_by_item, details_by_item
 
 
+def _load_item_ioc_values_by_type(db: Session, *, item_id: uuid.UUID) -> dict[str, list[str]]:
+    rows = db.execute(
+        select(IOC.type, IOC.value_norm)
+        .join(ItemIOC, ItemIOC.ioc_id == IOC.id)
+        .where(ItemIOC.item_id == item_id)
+    ).all()
+    by_type: dict[str, list[str]] = {}
+    for ioc_type, value_norm in rows:
+        by_type.setdefault(ioc_type, []).append(value_norm)
+    return by_type
+
+
+def _load_item_tag_suggestions(
+    db: Session,
+    *,
+    item: Item,
+    classification: ItemClassification | None,
+    article: Article | None,
+    feed: Feed | None,
+    existing_tag_names: list[str],
+) -> list[ItemTagSuggestionResponse]:
+    ioc_values_by_type = _load_item_ioc_values_by_type(db, item_id=item.id)
+
+    base_candidates = build_tag_candidates(
+        primary_category=classification.primary_category if classification else "threat_intelligence_research",
+        secondary_categories=classification.secondary_categories if classification else [],
+        classification_confidence=classification.confidence if classification else 0.35,
+        ioc_values_by_type=ioc_values_by_type,
+        title=item.title,
+        summary=item.summary,
+        article_text=article.text if article else None,
+        feed_name=feed.name if feed else "",
+        feed_url=feed.url if feed else "",
+        feedback_adjustments={},
+    )
+    adjustments = load_feedback_adjustments(db, tag_names=[candidate.name for candidate in base_candidates])
+    candidates = build_tag_candidates(
+        primary_category=classification.primary_category if classification else "threat_intelligence_research",
+        secondary_categories=classification.secondary_categories if classification else [],
+        classification_confidence=classification.confidence if classification else 0.35,
+        ioc_values_by_type=ioc_values_by_type,
+        title=item.title,
+        summary=item.summary,
+        article_text=article.text if article else None,
+        feed_name=feed.name if feed else "",
+        feed_url=feed.url if feed else "",
+        feedback_adjustments=adjustments,
+    )
+
+    existing = set(existing_tag_names)
+    suggestions: list[ItemTagSuggestionResponse] = []
+    for candidate in candidates:
+        if candidate.name in existing:
+            continue
+        if candidate.confidence < SUGGESTION_CONFIDENCE_MIN:
+            continue
+        suggestions.append(
+            ItemTagSuggestionResponse(
+                name=candidate.name,
+                source=candidate.source,
+                confidence=round(candidate.confidence, 3),
+                rules_version=candidate.rules_version,
+            )
+        )
+        if len(suggestions) >= SUGGESTION_LIMIT:
+            break
+    return suggestions
+
+
 @router.get("", response_model=ItemListResponse)
 def list_items(
     q: str | None = None,
@@ -350,6 +425,7 @@ def get_item(
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
     classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
+    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     state = db.scalar(
         select(ItemState).where(and_(ItemState.user_id == user.id, ItemState.item_id == item_id))
     )
@@ -364,6 +440,15 @@ def get_item(
         )
 
     tags_by_item, tag_details_by_item = _load_tags_for_items(db, item_ids=[item_id])
+    existing_tag_names = tags_by_item.get(item_id, [])
+    tag_suggestions = _load_item_tag_suggestions(
+        db,
+        item=item,
+        classification=classification,
+        article=article,
+        feed=feed,
+        existing_tag_names=existing_tag_names,
+    )
 
     return ItemDetailResponse(
         id=item.id,
@@ -388,8 +473,9 @@ def get_item(
         if classification
         else None,
         last_error=item.last_error,
-        tags=tags_by_item.get(item_id, []),
+        tags=existing_tag_names,
         tag_details=tag_details_by_item.get(item_id, []),
+        tag_suggestions=tag_suggestions,
         article=article,
         state=state_view,
     )
@@ -674,8 +760,18 @@ def set_item_read(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     state = _get_or_create_state(db, user.id, item_id)
+    previous_is_read = state.is_read
     state.is_read = payload.is_read
     db.add(state)
+    if previous_is_read != payload.is_read:
+        existing_tag_names, _ = _load_tags_for_items(db, item_ids=[item_id])
+        record_feedback_events(
+            db,
+            user_id=user.id,
+            item_id=item_id,
+            signal_type="read" if payload.is_read else "unread",
+            tag_names=existing_tag_names.get(item_id, []),
+        )
     record_audit(
         db,
         actor_user_id=user.id,
@@ -700,8 +796,18 @@ def set_item_star(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     state = _get_or_create_state(db, user.id, item_id)
+    previous_is_starred = state.is_starred
     state.is_starred = payload.is_starred
     db.add(state)
+    if previous_is_starred != payload.is_starred:
+        existing_tag_names, _ = _load_tags_for_items(db, item_ids=[item_id])
+        record_feedback_events(
+            db,
+            user_id=user.id,
+            item_id=item_id,
+            signal_type="star" if payload.is_starred else "unstar",
+            tag_names=existing_tag_names.get(item_id, []),
+        )
     record_audit(
         db,
         actor_user_id=user.id,
@@ -752,17 +858,25 @@ def set_item_tags(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    existing_tag_rows = db.execute(
+        select(Tag.name).join(ItemTag, ItemTag.tag_id == Tag.id).where(ItemTag.item_id == item_id)
+    ).all()
+    existing_tag_names = {tag_name for (tag_name,) in existing_tag_rows}
+
     requested_tag_ids = list(payload.tag_ids)
     applied: list[str] = []
+    requested_tag_names: list[str] = []
     if requested_tag_ids:
-        valid_tags = db.scalars(select(Tag.id).where(Tag.id.in_(requested_tag_ids))).all()
-        valid_tag_set = set(valid_tags)
+        valid_tag_rows = db.scalars(select(Tag).where(Tag.id.in_(requested_tag_ids))).all()
+        valid_tag_by_id = {tag.id: tag for tag in valid_tag_rows}
+        valid_tag_set = set(valid_tag_by_id.keys())
         missing_tag_ids = [str(tag_id) for tag_id in requested_tag_ids if tag_id not in valid_tag_set]
         if missing_tag_ids:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Unknown tag IDs: {', '.join(missing_tag_ids)}",
             )
+        requested_tag_names = [valid_tag_by_id[tag_id].name for tag_id in requested_tag_ids]
 
     db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(synchronize_session=False)
 
@@ -778,6 +892,26 @@ def set_item_tags(
         )
         applied.append(str(tag_id))
 
+    requested_tag_name_set = set(requested_tag_names)
+    added_tag_names = sorted(requested_tag_name_set - existing_tag_names)
+    removed_tag_names = sorted(existing_tag_names - requested_tag_name_set)
+    if added_tag_names:
+        record_feedback_events(
+            db,
+            user_id=user.id,
+            item_id=item_id,
+            signal_type="manual_add",
+            tag_names=added_tag_names,
+        )
+    if removed_tag_names:
+        record_feedback_events(
+            db,
+            user_id=user.id,
+            item_id=item_id,
+            signal_type="manual_remove",
+            tag_names=removed_tag_names,
+        )
+
     record_audit(
         db,
         actor_user_id=user.id,
@@ -788,3 +922,29 @@ def set_item_tags(
     )
     db.commit()
     return {"status": "ok"}
+
+
+@router.get("/{item_id}/tag-suggestions", response_model=ItemTagSuggestionListResponse)
+def get_item_tag_suggestions(
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+):
+    item = db.scalar(select(Item).where(Item.id == item_id))
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    article = db.scalar(select(Article).where(Article.item_id == item_id))
+    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
+    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+    tags_by_item, _ = _load_tags_for_items(db, item_ids=[item_id])
+
+    suggestions = _load_item_tag_suggestions(
+        db,
+        item=item,
+        classification=classification,
+        article=article,
+        feed=feed,
+        existing_tag_names=tags_by_item.get(item_id, []),
+    )
+    return ItemTagSuggestionListResponse(item_id=item_id, suggestions=suggestions)

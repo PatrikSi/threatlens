@@ -29,6 +29,7 @@ from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
+from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
@@ -620,6 +621,10 @@ def classify_item(item_id: str):
 
         row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
+            feedback_adjustments = load_feedback_adjustments(
+                db,
+                tag_names=[row.primary_category, *(row.secondary_categories or [])],
+            )
             sync_item_algorithm_tags(
                 db,
                 item_id=parsed_item_id,
@@ -631,6 +636,7 @@ def classify_item(item_id: str):
                 article_text=article.text if article else None,
                 feed_name=feed_name,
                 feed_url=feed_url,
+                feedback_adjustments=feedback_adjustments,
             )
             db.commit()
             extract_item_iocs.delay(item_id)
@@ -649,6 +655,10 @@ def classify_item(item_id: str):
         row.classified_at = datetime.now(timezone.utc)
 
         db.add(row)
+        feedback_adjustments = load_feedback_adjustments(
+            db,
+            tag_names=[result.primary_category, *(result.secondary_categories or [])],
+        )
         sync_item_algorithm_tags(
             db,
             item_id=parsed_item_id,
@@ -660,6 +670,7 @@ def classify_item(item_id: str):
             article_text=article.text if article else None,
             feed_name=feed_name,
             feed_url=feed_url,
+            feedback_adjustments=feedback_adjustments,
         )
         db.commit()
 
@@ -736,6 +747,14 @@ def extract_item_iocs(item_id: str):
 
         classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        feedback_hints = [
+            classification.primary_category if classification else "",
+            *((classification.secondary_categories or []) if classification else []),
+        ]
+        for ioc_type, values in ioc_values_by_type.items():
+            feedback_hints.append(f"ioc:{ioc_type}")
+            feedback_hints.extend(values[:6])
+        feedback_adjustments = load_feedback_adjustments(db, tag_names=feedback_hints)
         sync_item_algorithm_tags(
             db,
             item_id=parsed_item_id,
@@ -748,6 +767,7 @@ def extract_item_iocs(item_id: str):
             article_text=article.text if article else None,
             feed_name=feed.name if feed else "",
             feed_url=feed.url if feed else "",
+            feedback_adjustments=feedback_adjustments,
         )
 
         db.commit()
