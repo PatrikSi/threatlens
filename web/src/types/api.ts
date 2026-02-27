@@ -172,6 +172,20 @@ export interface StatsActivityHeatmapResponse {
   last_7d_max: number
 }
 
+export interface StatsSignalRadarAxisPoint {
+  category: string
+  count: number
+  pct: number
+}
+
+export interface StatsSignalRadarResponse {
+  generated_at: string
+  window_days: number
+  total: number
+  max_count: number
+  axes: StatsSignalRadarAxisPoint[]
+}
+
 export interface Feed {
   id: string
   name: string

@@ -97,3 +97,17 @@ class ActivityHeatmapResponse(BaseModel):
     last_24h_max: int
     last_7d: list[ActivityHeatmapDayRow]
     last_7d_max: int
+
+
+class SignalRadarAxisPoint(BaseModel):
+    category: str
+    count: int
+    pct: float
+
+
+class SignalRadarResponse(BaseModel):
+    generated_at: datetime
+    window_days: int
+    total: int
+    max_count: int
+    axes: list[SignalRadarAxisPoint]

@@ -253,6 +253,10 @@ UI elements:
   - Last 24h hourly strip
   - Last 7d day/hour matrix
   - intensity legend
+  - hover legend for selected bucket (count + intensity)
+- Signal radar:
+  - category polygon with interactive axis points
+  - per-category side list with relative intensity bars
 - Derived metrics
 - Status bars
 - Daily volume bars
@@ -266,6 +270,7 @@ API calls:
 - `GET /stats/overview?...`
 - `GET /stats/feed-timeseries?...`
 - `GET /stats/activity-heatmap?...`
+- `GET /stats/signal-radar?...`
 
 ### `SettingsLayout` and `SettingsOverviewPage`
 
@@ -411,3 +416,4 @@ API calls:
 | `pages/StatsPage.tsx` | `GET` | `/stats/overview` |
 | `pages/StatsPage.tsx` | `GET` | `/stats/feed-timeseries` |
 | `pages/StatsPage.tsx` | `GET` | `/stats/activity-heatmap` |
+| `pages/StatsPage.tsx` | `GET` | `/stats/signal-radar` |
