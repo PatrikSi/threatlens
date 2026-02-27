@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class ItemListEntry(BaseModel):
@@ -115,3 +115,22 @@ class NoteUpdateRequest(BaseModel):
 
 class ItemTagsUpdateRequest(BaseModel):
     tag_ids: list[uuid.UUID]
+
+    @field_validator("tag_ids")
+    @classmethod
+    def validate_tag_ids(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
+        if not value:
+            return value
+
+        seen: set[uuid.UUID] = set()
+        duplicates: list[str] = []
+        for tag_id in value:
+            if tag_id in seen:
+                duplicates.append(str(tag_id))
+                continue
+            seen.add(tag_id)
+
+        if duplicates:
+            unique_duplicates = sorted(set(duplicates))
+            raise ValueError(f"Duplicate tag IDs are not allowed: {', '.join(unique_duplicates)}")
+        return value
