@@ -126,7 +126,22 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
         return None
 
     scopes = normalize_token_scopes(api_token.scopes)
-    api_token.last_used_at = now
-    db.add(api_token)
-    db.commit()
+    if _should_update_last_used(api_token.last_used_at, now):
+        api_token.last_used_at = now
+        db.add(api_token)
+        try:
+            db.commit()
+        except Exception:
+            db.rollback()
     return user, scopes
+
+
+def _should_update_last_used(last_used_at: datetime | None, now: datetime) -> bool:
+    if last_used_at is None:
+        return True
+    if last_used_at.tzinfo is None:
+        last_used_at = last_used_at.replace(tzinfo=timezone.utc)
+
+    settings = get_settings()
+    elapsed = (now - last_used_at).total_seconds()
+    return elapsed >= settings.api_token_last_used_update_interval_seconds

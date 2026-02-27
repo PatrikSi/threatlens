@@ -23,11 +23,17 @@ class Settings(BaseSettings):
     fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
     feed_connect_timeout_seconds: int = 5
     feed_read_timeout_seconds: int = 15
+    feed_max_bytes: int = 2_000_000
     article_connect_timeout_seconds: int = 5
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
+    outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     allow_private_network_fetch: bool = False
+    auth_login_max_attempts: int = 8
+    auth_login_window_seconds: int = 300
+    auth_login_lockout_seconds: int = 900
+    api_token_last_used_update_interval_seconds: int = 300
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator("cors_origins", mode="before")

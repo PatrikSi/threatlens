@@ -22,6 +22,8 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Response (`TokenResponse`):
   - `access_token`
   - `token_type` (`bearer`)
+- Rate limiting:
+  - Returns `429` with `Retry-After` when failed-login thresholds are exceeded.
 
 ### `GET /auth/me`
 
@@ -42,11 +44,10 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 
 - Auth: `read:feeds`
 - Response: `FeedResponse[]`
-- Side behavior: attempts metadata backfill for up to `25` feeds per request when metadata is incomplete.
 
 ### `POST /feeds/metadata`
 
-- Auth: `read:feeds`
+- Auth: role `admin|analyst`, scope `read:feeds`
 - Body (`FeedMetadataRequest`):
   - `url` (`5..4000`)
 - Response (`FeedMetadataResponse`):
@@ -68,6 +69,7 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `overwrite_existing`: boolean
 - Response (`FeedImportResponse`):
   - `created`, `updated`, `skipped`, `errors[]`
+- Side behavior: queues asynchronous metadata backfill tasks for created/updated feeds.
 
 ### `POST /feeds`
 
@@ -81,6 +83,7 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `fetch_interval_seconds?` (`60..86400`, required in interval mode)
   - `schedule_cron?` (required + cron-valid in schedule mode)
 - Response: `FeedResponse`
+- Side behavior: queues an asynchronous metadata backfill task for the new feed.
 
 ### `PATCH /feeds/{feed_id}`
 
@@ -357,7 +360,9 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `feed_ids?`: CSV UUID list
 - Response (`ActivityHeatmapResponse`):
   - `generated_at`, `window_days`
-  - `rows[]`: day rows with `day` and 24-hour `counts[]`
+  - `bucket_unit`: `hour` for `days<=7`, otherwise `day`
+  - `bucket_labels[]`
+  - `rows[]`: day rows with `day` and `counts[]` sized to `bucket_labels`
   - `max_count`
 
 ### `GET /stats/signal-radar`
@@ -384,6 +389,19 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `ok`: boolean (`db` and `redis` both healthy)
   - `db`: boolean
   - `redis`: boolean
+- Status code: `200` when healthy, `503` when not ready.
+
+### `GET /health/ready`
+
+- Auth: none
+- Response: same shape as `/health`
+- Status code: `200` when healthy, `503` when not ready.
+
+### `GET /health/live`
+
+- Auth: none
+- Response: `{ "ok": true }`
+- Status code: `200`
 
 ## Error Patterns
 

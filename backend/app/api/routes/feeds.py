@@ -23,12 +23,11 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
-from app.services.feed_probe import FeedProbeError, FeedProbeResult, probe_feed_metadata
+from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.url_utils import is_fetchable_url
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
-METADATA_BACKFILL_BATCH_SIZE = 25
 
 
 @router.get("", response_model=list[FeedResponse])
@@ -37,35 +36,14 @@ def list_feeds(
     _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
-    backfilled = 0
-    did_update = False
-
-    for feed in feeds:
-        if backfilled >= METADATA_BACKFILL_BATCH_SIZE:
-            break
-        if not _needs_metadata_backfill(feed):
-            continue
-
-        try:
-            metadata = probe_feed_metadata(feed.url)
-        except FeedProbeError:
-            continue
-
-        if _apply_probe_metadata(feed, metadata):
-            db.add(feed)
-            did_update = True
-        backfilled += 1
-
-    if did_update:
-        db.commit()
-
     return list(feeds)
 
 
 @router.post("/metadata", response_model=FeedMetadataResponse)
 def get_feed_metadata(
     payload: FeedMetadataRequest,
-    _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
+    _operator: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     try:
         metadata = probe_feed_metadata(payload.url)
@@ -119,6 +97,7 @@ def import_feeds(
     updated = 0
     skipped = 0
     errors: list[str] = []
+    metadata_backfill_ids: list[str] = []
 
     for index, entry in enumerate(payload.feeds, start=1):
         feed_url = entry.url.strip()
@@ -151,21 +130,22 @@ def import_feeds(
                 resolved_name = feed_url
 
         if existing is None:
-            db.add(
-                Feed(
-                    name=resolved_name,
-                    url=feed_url,
-                    description=description,
-                    site_url=site_url,
-                    language=language,
-                    enabled=entry.enabled,
-                    fetch_mode=entry.fetch_mode,
-                    fetch_interval_seconds=entry.fetch_interval_seconds or 1800,
-                    schedule_cron=entry.schedule_cron,
-                    etag=etag,
-                    last_modified=last_modified,
-                )
+            new_feed = Feed(
+                name=resolved_name,
+                url=feed_url,
+                description=description,
+                site_url=site_url,
+                language=language,
+                enabled=entry.enabled,
+                fetch_mode=entry.fetch_mode,
+                fetch_interval_seconds=entry.fetch_interval_seconds or 1800,
+                schedule_cron=entry.schedule_cron,
+                etag=etag,
+                last_modified=last_modified,
             )
+            db.add(new_feed)
+            db.flush()
+            metadata_backfill_ids.append(str(new_feed.id))
             created += 1
             continue
 
@@ -180,6 +160,7 @@ def import_feeds(
         existing.etag = etag
         existing.last_modified = last_modified
         db.add(existing)
+        metadata_backfill_ids.append(str(existing.id))
         updated += 1
 
     record_audit(
@@ -195,6 +176,8 @@ def import_feeds(
         },
     )
     db.commit()
+    for target_id in metadata_backfill_ids:
+        celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
     return FeedImportResponse(created=created, updated=updated, skipped=skipped, errors=errors)
 
 
@@ -262,6 +245,7 @@ def create_feed(
     )
     db.commit()
     db.refresh(feed)
+    celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[str(feed.id)])
     return feed
 
 
@@ -352,36 +336,3 @@ def refresh_feed(
     )
     db.commit()
     return {"status": "queued"}
-
-
-def _needs_metadata_backfill(feed: Feed) -> bool:
-    placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
-    # Description and language are optional and absent on many feeds; prioritize
-    # metadata we can reliably fill to avoid repeated no-op probes.
-    return placeholder_name or not feed.site_url
-
-
-def _apply_probe_metadata(feed: Feed, metadata: FeedProbeResult) -> bool:
-    changed = False
-    is_placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
-
-    if is_placeholder_name and metadata.name:
-        feed.name = metadata.name
-        changed = True
-    if not feed.description and metadata.description:
-        feed.description = metadata.description
-        changed = True
-    if not feed.site_url and metadata.site_url:
-        feed.site_url = metadata.site_url
-        changed = True
-    if not feed.language and metadata.language:
-        feed.language = metadata.language
-        changed = True
-    if not feed.etag and metadata.etag:
-        feed.etag = metadata.etag
-        changed = True
-    if not feed.last_modified and metadata.last_modified:
-        feed.last_modified = metadata.last_modified
-        changed = True
-
-    return changed

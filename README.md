@@ -41,6 +41,12 @@ Key vars:
 - `DEFAULT_API_TOKEN_EXPIRY_DAYS` (default `90`)
 - `ALLOW_LEGACY_UNSCOPED_TOKENS` (default `true`)
 - `ALLOW_PRIVATE_NETWORK_FETCH` (default `false`)
+- `FEED_MAX_BYTES` (default `2000000`)
+- `OUTBOUND_MAX_REDIRECTS` (default `5`)
+- `AUTH_LOGIN_MAX_ATTEMPTS` (default `8`)
+- `AUTH_LOGIN_WINDOW_SECONDS` (default `300`)
+- `AUTH_LOGIN_LOCKOUT_SECONDS` (default `900`)
+- `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (default `300`)
 
 ## Run (Docker Compose)
 
@@ -59,8 +65,9 @@ docker compose ps
 Open:
 
 - Web UI: `http://localhost:3000`
-- API docs: `http://localhost:8000/docs`
 - Health: `http://localhost:8000/health`
+- Liveness: `http://localhost:8000/health/live`
+- Readiness: `http://localhost:8000/health/ready`
 
 Stop:
 

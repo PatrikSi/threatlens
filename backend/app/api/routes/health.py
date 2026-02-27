@@ -1,5 +1,6 @@
 import redis
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -11,6 +12,20 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("")
 def health(db: Session = Depends(get_db)):
+    return _readiness_response(db)
+
+
+@router.get("/ready")
+def ready(db: Session = Depends(get_db)):
+    return _readiness_response(db)
+
+
+@router.get("/live")
+def live():
+    return {"ok": True}
+
+
+def _readiness_response(db: Session):
     settings = get_settings()
 
     db_ok = False
@@ -28,4 +43,6 @@ def health(db: Session = Depends(get_db)):
     except Exception:
         redis_ok = False
 
-    return {"ok": db_ok and redis_ok, "db": db_ok, "redis": redis_ok}
+    ok = db_ok and redis_ok
+    status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content={"ok": ok, "db": db_ok, "redis": redis_ok})
