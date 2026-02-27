@@ -36,14 +36,14 @@ Route tree:
 ### API client (`web/src/api/client.ts`)
 
 - Adds `Content-Type: application/json` for requests.
-- Adds `Authorization: Bearer <token>` when `auth=true` and token exists.
+- Sends browser credentials (`credentials: include`) for cookie-based session auth.
+- Adds CSRF header (`x-csrf-token` by default) on mutating requests when `auth=true`.
 - Uses `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`).
 - Throws textual API error body when `response.ok` is false.
 - Returns `undefined` for `204` responses.
 
 ### Browser storage keys
 
-- Auth token: `threatlens.token`
 - Theme mode: `threatlens.theme`
 - Dashboard window state: `threatlens.dashboard.windows.v2`
 
@@ -354,8 +354,7 @@ API calls:
 
 ### `useCurrentUser`
 
-- Query key: `['auth', 'me', token]`
-- Enabled only when token exists
+- Query key: `['auth', 'me', sessionVersion]`
 - API call: `GET /auth/me`
 - Stale time: `60000`
 
@@ -366,7 +365,7 @@ API calls:
 
 ### `ProtectedRoute`
 
-- Redirects to `/login` when auth token is missing.
+- Resolves `/auth/me` and redirects to `/login` on `401/403`.
 
 ### `RoleRoute`
 

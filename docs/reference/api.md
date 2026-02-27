@@ -22,6 +22,9 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Response (`TokenResponse`):
   - `access_token`
   - `token_type` (`bearer`)
+  - `csrf_token` (for browser mutating requests when cookie auth is used)
+- Side behavior:
+  - Sets HttpOnly session cookie and CSRF cookie for browser-based auth.
 - Rate limiting:
   - Returns `429` with `Retry-After` when failed-login thresholds are exceeded.
 
@@ -29,6 +32,13 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 
 - Auth: JWT or API token
 - Response: `UserResponse`
+
+### `POST /auth/logout`
+
+- Auth: none (best effort)
+- Response: `{ "status": "ok" }`
+- Side behavior:
+  - Clears auth + CSRF cookies.
 
 ### `POST /auth/change-password`
 
@@ -169,6 +179,9 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 
 - Auth: role `admin|analyst`, scope `write:items`
 - Body (`ItemTagsUpdateRequest`): `tag_ids: UUID[]`
+- Validation:
+  - Duplicate tag IDs return `422`.
+  - Unknown tag IDs return `422`.
 - Response: `{ "status": "ok" }`
 
 ## Alerts
@@ -402,6 +415,25 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Auth: none
 - Response: `{ "ok": true }`
 - Status code: `200`
+
+### `GET /health/worker`
+
+- Auth: none
+- Response:
+  - `ok`: boolean (`true` when at least one worker responds to Celery ping)
+  - `workers`: map of `worker_name -> pong status`
+- Status code: `200` when healthy, `503` when no workers respond.
+
+### `GET /health/beat`
+
+- Auth: none
+- Response:
+  - `ok`: boolean (`true` when beat heartbeat is present and fresh)
+  - `heartbeat_key`: redis key used for beat heartbeat
+  - `heartbeat_at`: last heartbeat timestamp (ISO string) or `null`
+  - `age_seconds`: heartbeat age in seconds or `null`
+  - `stale_after_seconds`: freshness threshold
+- Status code: `200` when healthy, `503` when stale/missing heartbeat.
 
 ## Error Patterns
 

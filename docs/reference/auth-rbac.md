@@ -2,10 +2,11 @@
 
 ## Authentication Modes
 
-`backend/app/api/deps.py` resolves users from bearer tokens in this order:
+`backend/app/api/deps.py` resolves users in this order:
 
-1. JWT (`/auth/login` issued token)
-2. Personal API token (`tlp_<public_id>_<secret>` format)
+1. Bearer JWT (`/auth/login` issued token)
+2. Cookie JWT (`AUTH_COOKIE_NAME`)
+3. Personal API token (`tlp_<public_id>_<secret>` format)
 
 If neither resolves, the request fails with `401`.
 
@@ -16,6 +17,10 @@ Defined in `backend/app/core/security.py`:
 - Algorithm: `JWT_ALGORITHM` (default `HS256`)
 - Claims used: `sub` (user UUID), `exp` (expiry)
 - Expiry: `JWT_EXPIRES_MINUTES` (default 1440)
+- Browser flow sets:
+  - HttpOnly auth cookie (`AUTH_COOKIE_NAME`)
+  - CSRF cookie (`AUTH_CSRF_COOKIE_NAME`)
+  - Mutating cookie-auth requests must provide CSRF header (`AUTH_CSRF_HEADER_NAME`)
 
 ## API Token Behavior
 
