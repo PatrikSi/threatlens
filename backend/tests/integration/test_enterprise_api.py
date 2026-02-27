@@ -734,14 +734,13 @@ def test_stats_activity_heatmap_endpoint(client: TestClient, auth_headers, db_se
     )
     db_session.commit()
 
-    response = client.get(f"/stats/activity-heatmap?feed_ids={feed_id}", headers=auth_headers["viewer"])
+    response = client.get(f"/stats/activity-heatmap?days=7&feed_ids={feed_id}", headers=auth_headers["viewer"])
     assert response.status_code == 200
     payload = response.json()
-    assert len(payload["last_24h"]) == 24
-    assert len(payload["last_7d"]) == 7
-    assert payload["last_24h_max"] >= 2
-    assert sum(point["count"] for point in payload["last_24h"]) >= 2
-    assert sum(sum(day["counts"]) for day in payload["last_7d"]) == 3
+    assert payload["window_days"] == 7
+    assert len(payload["rows"]) == 7
+    assert payload["max_count"] >= 2
+    assert sum(sum(day["counts"]) for day in payload["rows"]) == 3
 
 
 def test_stats_signal_radar_endpoint(client: TestClient, auth_headers, db_session):

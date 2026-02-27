@@ -249,9 +249,8 @@ UI elements:
   - Hover guide line
   - Hover legend sorted by count desc
   - Per-series visibility chips
-- Activity heatmap panels:
-  - Last 24h hourly strip
-  - Last 7d day/hour matrix
+- Activity heatmap:
+  - single day/hour matrix bound to selected stats time range
   - intensity legend
   - hover legend for selected bucket (count + intensity)
 - Signal radar:

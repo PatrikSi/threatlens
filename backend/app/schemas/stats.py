@@ -81,11 +81,6 @@ class FeedTimeSeriesResponse(BaseModel):
     series: list[FeedTimeSeriesSeries]
 
 
-class ActivityHeatmapHourPoint(BaseModel):
-    hour_start: datetime
-    count: int
-
-
 class ActivityHeatmapDayRow(BaseModel):
     day: str
     counts: list[int]
@@ -93,10 +88,9 @@ class ActivityHeatmapDayRow(BaseModel):
 
 class ActivityHeatmapResponse(BaseModel):
     generated_at: datetime
-    last_24h: list[ActivityHeatmapHourPoint]
-    last_24h_max: int
-    last_7d: list[ActivityHeatmapDayRow]
-    last_7d_max: int
+    window_days: int
+    rows: list[ActivityHeatmapDayRow]
+    max_count: int
 
 
 class SignalRadarAxisPoint(BaseModel):
