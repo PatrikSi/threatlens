@@ -548,7 +548,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
       ? data.bucket_labels
       : Array.from({ length: columnCount }, (_, index) => `Bucket ${index + 1}`)
   const calendar = isHourly ? null : buildDailyCalendar(data.rows)
-  const calendarWeekTemplate = `repeat(${Math.max(1, calendar?.weekCount ?? 1)}, minmax(0, 1fr))`
+  const calendarWeekCount = Math.max(1, calendar?.weekCount ?? 1)
   const [hovered, setHovered] = useState<{
     label: string
     count: number
@@ -558,6 +558,13 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   } | null>(null)
   const panelWidth = panelRef.current?.clientWidth ?? 560
   const panelHeight = panelRef.current?.clientHeight ?? (isHourly ? 300 : 380)
+  const hourlyGridGapPx = 4
+  const hourlyLabelColumnPx = 82
+  const hourlyOuterGapPx = 8
+  const dailyCellPx = Math.max(
+    8,
+    Math.floor((Math.max(200, panelWidth - hourlyLabelColumnPx - hourlyOuterGapPx) - hourlyGridGapPx * 23) / 24),
+  )
   const heatmapTooltipPosition = hovered
     ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
     : null
@@ -629,37 +636,40 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
               </div>
             </>
           ) : (
-            <div className="pb-1">
-              <div className="grid items-start gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
+            <div className="overflow-x-auto pb-1">
+              <div className="inline-flex items-start gap-2">
                 <div className="mt-5 grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Mon</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Wed</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Fri</span>
-                  <span className="h-4 leading-4" />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Mon</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Wed</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Fri</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
                 </div>
 
-                <div className="min-w-0 space-y-1">
-                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: calendarWeekTemplate }}>
-                    {Array.from({ length: calendar?.weekCount ?? 1 }, (_, weekIndex) => (
+                <div className="space-y-1">
+                  <div
+                    className="grid gap-1 text-[10px] text-slate dark:text-slate-300"
+                    style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, ${dailyCellPx}px)` }}
+                  >
+                    {Array.from({ length: calendarWeekCount }, (_, weekIndex) => (
                       <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
                         {calendar?.monthLabels.get(weekIndex) ?? ''}
                       </span>
                     ))}
                   </div>
 
-                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridTemplateColumns: calendarWeekTemplate }}>
+                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: `${dailyCellPx}px` }}>
                     {(calendar?.cells ?? []).map((cell, index) => {
                       if (!cell) {
-                        return <div key={`pad-${index}`} className="aspect-square w-full rounded bg-transparent" />
+                        return <div key={`pad-${index}`} className="rounded bg-transparent" style={{ width: dailyCellPx, height: dailyCellPx }} />
                       }
                       return (
                         <div
                           key={cell.day}
-                          className="aspect-square w-full rounded"
-                          style={heatCellStyle(cell.count, maxCount)}
+                          className="rounded"
+                          style={{ ...heatCellStyle(cell.count, maxCount), width: dailyCellPx, height: dailyCellPx }}
                           onMouseMove={(event) => {
                             const bounds = panelRef.current?.getBoundingClientRect()
                             if (!bounds) return
