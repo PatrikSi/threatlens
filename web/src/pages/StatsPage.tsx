@@ -558,12 +558,6 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   } | null>(null)
   const panelWidth = panelRef.current?.clientWidth ?? 560
   const panelHeight = panelRef.current?.clientHeight ?? (isHourly ? 300 : 380)
-  const gridGapPx = 4
-  const labelColumnPx = 82
-  const outerGapPx = 8
-  const availableDailyWidth = Math.max(180, panelWidth - labelColumnPx - outerGapPx)
-  const candidateDailyCellPx = Math.floor((availableDailyWidth - gridGapPx * (calendarWeekCount - 1)) / calendarWeekCount)
-  const dailyCellPx = clamp(candidateDailyCellPx, 8, 16)
   const heatmapTooltipPosition = hovered
     ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
     : null
@@ -635,23 +629,20 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
               </div>
             </>
           ) : (
-            <div className="overflow-x-auto pb-1">
-              <div className="inline-flex items-start gap-2">
+            <div className="pb-1">
+              <div className="grid items-start gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
                 <div className="mt-5 grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Mon</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Wed</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Fri</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Mon</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Wed</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Fri</span>
+                  <span className="h-4 leading-4" />
                 </div>
 
-                <div className="space-y-1">
-                  <div
-                    className="grid gap-1 text-[10px] text-slate dark:text-slate-300"
-                    style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, ${dailyCellPx}px)` }}
-                  >
+                <div className="min-w-0 space-y-1">
+                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, minmax(0, 1fr))` }}>
                     {Array.from({ length: calendarWeekCount }, (_, weekIndex) => (
                       <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
                         {calendar?.monthLabels.get(weekIndex) ?? ''}
@@ -659,16 +650,16 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                     ))}
                   </div>
 
-                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: `${dailyCellPx}px` }}>
+                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridTemplateColumns: `repeat(${calendarWeekCount}, minmax(0, 1fr))` }}>
                     {(calendar?.cells ?? []).map((cell, index) => {
                       if (!cell) {
-                        return <div key={`pad-${index}`} className="rounded bg-transparent" style={{ width: dailyCellPx, height: dailyCellPx }} />
+                        return <div key={`pad-${index}`} className="h-4 rounded bg-transparent" />
                       }
                       return (
                         <div
                           key={cell.day}
-                          className="rounded"
-                          style={{ ...heatCellStyle(cell.count, maxCount), width: dailyCellPx, height: dailyCellPx }}
+                          className="h-4 rounded"
+                          style={heatCellStyle(cell.count, maxCount)}
                           onMouseMove={(event) => {
                             const bounds = panelRef.current?.getBoundingClientRect()
                             if (!bounds) return
@@ -942,10 +933,6 @@ function positionTooltipNearCursor(
   const left = Math.min(Math.max(8, cursorX + offset), maxLeft)
   const top = Math.min(Math.max(8, cursorY + offset), maxTop)
   return { left, top }
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max)
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
