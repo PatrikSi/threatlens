@@ -25,6 +25,7 @@ from app.schemas.item import (
     ItemListEntry,
     ItemListResponse,
     ItemStateResponse,
+    ItemTagDetailResponse,
     ItemTagsUpdateRequest,
     NoteUpdateRequest,
     ReadUpdateRequest,
@@ -168,6 +169,43 @@ def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) ->
     return state
 
 
+def _load_tags_for_items(
+    db: Session,
+    *,
+    item_ids: list[uuid.UUID],
+) -> tuple[dict[uuid.UUID, list[str]], dict[uuid.UUID, list[ItemTagDetailResponse]]]:
+    names_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
+    details_by_item: dict[uuid.UUID, list[ItemTagDetailResponse]] = {item_id: [] for item_id in item_ids}
+    if not item_ids:
+        return names_by_item, details_by_item
+
+    tag_rows = db.execute(
+        select(
+            ItemTag.item_id,
+            Tag.id,
+            Tag.name,
+            ItemTag.source,
+            ItemTag.confidence,
+            ItemTag.rules_version,
+        )
+        .join(Tag, Tag.id == ItemTag.tag_id)
+        .where(ItemTag.item_id.in_(item_ids))
+        .order_by(Tag.name.asc())
+    ).all()
+    for item_id_value, tag_id, tag_name, source, confidence, rules_version in tag_rows:
+        names_by_item[item_id_value].append(tag_name)
+        details_by_item[item_id_value].append(
+            ItemTagDetailResponse(
+                id=tag_id,
+                name=tag_name,
+                source=source,
+                confidence=round(float(confidence), 3),
+                rules_version=rules_version,
+            )
+        )
+    return names_by_item, details_by_item
+
+
 @router.get("", response_model=ItemListResponse)
 def list_items(
     q: str | None = None,
@@ -268,16 +306,7 @@ def list_items(
     rows = db.execute(query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).all()
 
     item_ids = [row.Item.id for row in rows]
-    tags_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
-    if item_ids:
-        tag_rows = db.execute(
-            select(ItemTag.item_id, Tag.name)
-            .join(Tag, Tag.id == ItemTag.tag_id)
-            .where(ItemTag.item_id.in_(item_ids))
-            .order_by(Tag.name.asc())
-        ).all()
-        for item_id_value, tag_name in tag_rows:
-            tags_by_item[item_id_value].append(tag_name)
+    tags_by_item, tag_details_by_item = _load_tags_for_items(db, item_ids=item_ids)
 
     entries = [
         ItemListEntry(
@@ -295,6 +324,7 @@ def list_items(
             is_read=row.is_read,
             is_starred=row.is_starred,
             tags=tags_by_item.get(row.Item.id, []),
+            tag_details=tag_details_by_item.get(row.Item.id, []),
         )
         for row in rows
     ]
@@ -333,9 +363,7 @@ def get_item(
             updated_at=state.updated_at,
         )
 
-    tag_rows = db.execute(
-        select(Tag.name).join(ItemTag, ItemTag.tag_id == Tag.id).where(ItemTag.item_id == item_id).order_by(Tag.name.asc())
-    ).all()
+    tags_by_item, tag_details_by_item = _load_tags_for_items(db, item_ids=[item_id])
 
     return ItemDetailResponse(
         id=item.id,
@@ -360,7 +388,8 @@ def get_item(
         if classification
         else None,
         last_error=item.last_error,
-        tags=[tag_name for (tag_name,) in tag_rows],
+        tags=tags_by_item.get(item_id, []),
+        tag_details=tag_details_by_item.get(item_id, []),
         article=article,
         state=state_view,
     )
@@ -738,7 +767,15 @@ def set_item_tags(
     db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(synchronize_session=False)
 
     for tag_id in requested_tag_ids:
-        db.add(ItemTag(item_id=item_id, tag_id=tag_id))
+        db.add(
+            ItemTag(
+                item_id=item_id,
+                tag_id=tag_id,
+                source="manual",
+                confidence=1.0,
+                rules_version="manual:v1",
+            )
+        )
         applied.append(str(tag_id))
 
     record_audit(

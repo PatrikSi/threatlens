@@ -2,7 +2,15 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+class ItemTagDetailResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    source: str
+    confidence: float
+    rules_version: str | None
 
 
 class ItemListEntry(BaseModel):
@@ -20,6 +28,7 @@ class ItemListEntry(BaseModel):
     is_read: bool
     is_starred: bool
     tags: list[str]
+    tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
 
 
 class ItemListResponse(BaseModel):
@@ -97,6 +106,7 @@ class ItemDetailResponse(BaseModel):
     classification: ItemClassificationResponse | None
     last_error: str | None
     tags: list[str]
+    tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
     article: ArticleResponse | None
     state: ItemStateResponse
 
