@@ -1,18 +1,34 @@
-import { ChangeEvent, FormEvent, useMemo, useState } from 'react'
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
 type FeedFetchMode = 'interval' | 'schedule'
+type FeedSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
+
+type FeedScheduleDraft = {
+  fetchMode: FeedFetchMode
+  intervalSeconds: string
+  scheduleCron: string
+}
+
+type FeedSaveState = {
+  status: FeedSaveStatus
+  message?: string
+}
+
+const FEED_AUTOSAVE_DELAY_MS = 700
+const DEFAULT_SCHEDULE_CRON = '0 * * * *'
 
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
+  const canDelete = meQuery.data?.role === 'admin'
 
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -30,7 +46,12 @@ export function FeedsPage() {
   const [importData, setImportData] = useState<FeedImportEntry[] | null>(null)
   const [importFilename, setImportFilename] = useState('')
   const [importError, setImportError] = useState<string>('')
+  const [importWarning, setImportWarning] = useState<string>('')
   const [lastImportResult, setLastImportResult] = useState<FeedImportResponse | null>(null)
+  const [managementNotice, setManagementNotice] = useState('')
+  const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
+  const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
+  const autosaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -96,6 +117,55 @@ export function FeedsPage() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['feeds'] }),
   })
 
+  const deleteFeed = useMutation({
+    mutationFn: (id: string) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      setManagementNotice('Feed deleted.')
+      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+  })
+
+  const bulkRefreshFeeds = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const settled = await Promise.allSettled(ids.map((id) => apiFetch(`/feeds/${id}/refresh`, { method: 'POST' })))
+      return summarizeBulkResults(settled)
+    },
+    onSuccess: (result) => {
+      setManagementNotice(`Refresh queued for ${result.succeeded}/${result.attempted} feeds.`)
+      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+  })
+
+  const bulkSetEnabled = useMutation({
+    mutationFn: async (payload: { ids: string[]; enabled: boolean }) => {
+      const settled = await Promise.allSettled(
+        payload.ids.map((id) =>
+          apiFetch<Feed>(`/feeds/${id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ enabled: payload.enabled }),
+          }),
+        ),
+      )
+      return { enabled: payload.enabled, ...summarizeBulkResults(settled) }
+    },
+    onSuccess: (result) => {
+      const actionLabel = result.enabled ? 'Enabled' : 'Disabled'
+      setManagementNotice(`${actionLabel} ${result.succeeded}/${result.attempted} feeds.`)
+      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+  })
+
+  const bulkDeleteFeeds = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const settled = await Promise.allSettled(ids.map((id) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' })))
+      return summarizeBulkResults(settled)
+    },
+    onSuccess: (result) => {
+      setManagementNotice(`Deleted ${result.succeeded}/${result.attempted} feeds.`)
+      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    },
+  })
+
   const importFeeds = useMutation({
     mutationFn: () =>
       apiFetch<FeedImportResponse>('/feeds/import', {
@@ -110,6 +180,7 @@ export function FeedsPage() {
       setImportData(null)
       setImportFilename('')
       setImportError('')
+      setImportWarning('')
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
@@ -154,6 +225,56 @@ export function FeedsPage() {
     return filtered
   }, [feedsQuery.data, search, sort])
 
+  const feedStats = useMemo(() => {
+    const allFeeds = feedsQuery.data ?? []
+    const enabled = allFeeds.filter((feed) => feed.enabled).length
+    const unhealthy = allFeeds.filter((feed) => Boolean(feed.last_error) || feed.error_count > 0).length
+    return {
+      total: allFeeds.length,
+      enabled,
+      disabled: allFeeds.length - enabled,
+      unhealthy,
+    }
+  }, [feedsQuery.data])
+
+  useEffect(() => {
+    return () => {
+      for (const timer of Object.values(autosaveTimersRef.current)) {
+        clearTimeout(timer)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const feeds = feedsQuery.data ?? []
+    const validIds = new Set(feeds.map((feed) => feed.id))
+
+    for (const [feedId, timer] of Object.entries(autosaveTimersRef.current)) {
+      if (!validIds.has(feedId)) {
+        clearTimeout(timer)
+        delete autosaveTimersRef.current[feedId]
+      }
+    }
+
+    setFeedDrafts((previous) => {
+      const next: Record<string, FeedScheduleDraft> = {}
+      for (const feed of feeds) {
+        next[feed.id] = previous[feed.id] ?? feedToScheduleDraft(feed)
+      }
+      return next
+    })
+
+    setFeedSaveState((previous) => {
+      const next: Record<string, FeedSaveState> = {}
+      for (const [feedId, state] of Object.entries(previous)) {
+        if (validIds.has(feedId)) {
+          next[feedId] = state
+        }
+      }
+      return next
+    })
+  }, [feedsQuery.data])
+
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()
     createFeed.mutate()
@@ -169,20 +290,109 @@ export function FeedsPage() {
     if (!file) return
 
     setImportError('')
+    setImportWarning('')
     setLastImportResult(null)
 
     try {
       const text = await file.text()
       const parsed = JSON.parse(text) as unknown
       const entries = parseImportEntries(parsed)
+      const duplicateUrls = findDuplicateUrls(entries)
       setImportData(entries)
       setImportFilename(file.name)
+      if (duplicateUrls.length) {
+        setImportWarning(`Duplicate feed URLs in import file: ${duplicateUrls.join(', ')}`)
+      }
     } catch (error) {
       setImportData(null)
       setImportFilename('')
       setImportError((error as Error).message)
+    } finally {
+      event.target.value = ''
     }
   }
+
+  const persistFeedSchedule = async (feedId: string, draft: FeedScheduleDraft) => {
+    const feed = (feedsQuery.data ?? []).find((entry) => entry.id === feedId)
+    if (!feed) return
+
+    const body: Record<string, unknown> = { fetch_mode: draft.fetchMode }
+    if (draft.fetchMode === 'interval') {
+      const parsed = Number(draft.intervalSeconds)
+      if (!Number.isFinite(parsed) || parsed < 60) {
+        setFeedSaveState((previous) => ({
+          ...previous,
+          [feedId]: { status: 'error', message: 'Interval must be at least 60 seconds.' },
+        }))
+        return
+      }
+      const intervalSeconds = Math.floor(parsed)
+      body.fetch_interval_seconds = intervalSeconds
+
+      if (feed.fetch_mode === 'interval' && feed.fetch_interval_seconds === intervalSeconds) {
+        setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
+        return
+      }
+
+      setFeedDrafts((previous) => ({
+        ...previous,
+        [feedId]: { ...draft, intervalSeconds: String(intervalSeconds) },
+      }))
+    } else {
+      const scheduleCron = draft.scheduleCron.trim()
+      if (!scheduleCron) {
+        setFeedSaveState((previous) => ({
+          ...previous,
+          [feedId]: { status: 'error', message: 'Schedule cannot be empty.' },
+        }))
+        return
+      }
+      body.schedule_cron = scheduleCron
+      if (feed.fetch_mode === 'schedule' && (feed.schedule_cron || '') === scheduleCron) {
+        setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
+        return
+      }
+      setFeedDrafts((previous) => ({
+        ...previous,
+        [feedId]: { ...draft, scheduleCron },
+      }))
+    }
+
+    setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saving' } }))
+
+    try {
+      await updateFeed.mutateAsync({ id: feedId, body })
+      setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
+    } catch (error) {
+      setFeedSaveState((previous) => ({
+        ...previous,
+        [feedId]: { status: 'error', message: resolveMutationError(error) },
+      }))
+    }
+  }
+
+  const queueFeedAutosave = (feedId: string, draft: FeedScheduleDraft) => {
+    const existing = autosaveTimersRef.current[feedId]
+    if (existing) {
+      clearTimeout(existing)
+    }
+
+    setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'pending' } }))
+    autosaveTimersRef.current[feedId] = window.setTimeout(() => {
+      void persistFeedSchedule(feedId, draft)
+    }, FEED_AUTOSAVE_DELAY_MS)
+  }
+
+  const updateFeedDraft = (feed: Feed, patch: Partial<FeedScheduleDraft>) => {
+    const currentDraft = feedDrafts[feed.id] ?? feedToScheduleDraft(feed)
+    const nextDraft = { ...currentDraft, ...patch }
+    setFeedDrafts((previous) => ({ ...previous, [feed.id]: nextDraft }))
+    queueFeedAutosave(feed.id, nextDraft)
+  }
+
+  const visibleFeedIds = filteredFeeds.map((feed) => feed.id)
+  const visibleDisabledFeedIds = filteredFeeds.filter((feed) => !feed.enabled).map((feed) => feed.id)
+  const visibleEnabledFeedIds = filteredFeeds.filter((feed) => feed.enabled).map((feed) => feed.id)
 
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
@@ -312,7 +522,7 @@ export function FeedsPage() {
 
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-display text-xl">Configured Feeds</h2>
+          <h2 className="font-display text-xl">Configured Feeds ({feedStats.total})</h2>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
@@ -336,6 +546,10 @@ export function FeedsPage() {
             </button>
           </div>
         </div>
+
+        <p className="mt-2 text-xs text-slate dark:text-slate-300">
+          Showing {filteredFeeds.length} of {feedStats.total} feeds · {feedStats.enabled} enabled · {feedStats.disabled} disabled · {feedStats.unhealthy} with errors
+        </p>
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <input
@@ -366,17 +580,98 @@ export function FeedsPage() {
           </label>
         </div>
 
-        {importFilename && <p className="mt-2 text-xs text-slate dark:text-slate-300">Loaded: {importFilename}</p>}
-        {importError && <p className="mt-2 text-xs text-red-600">Import parse error: {importError}</p>}
-        {lastImportResult && (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+              disabled={!canManage || !visibleFeedIds.length || bulkRefreshFeeds.isPending}
+            onClick={() => {
+              setManagementNotice('')
+              bulkRefreshFeeds.mutate(visibleFeedIds)
+              }}
+            >
+              Refresh Filtered
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            disabled={!canManage || !visibleDisabledFeedIds.length || bulkSetEnabled.isPending}
+            onClick={() => {
+              setManagementNotice('')
+              bulkSetEnabled.mutate({ ids: visibleDisabledFeedIds, enabled: true })
+              }}
+            >
+              Enable Disabled (Filtered)
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            disabled={!canManage || !visibleEnabledFeedIds.length || bulkSetEnabled.isPending}
+            onClick={() => {
+              setManagementNotice('')
+              bulkSetEnabled.mutate({ ids: visibleEnabledFeedIds, enabled: false })
+              }}
+            >
+              Disable Enabled (Filtered)
+            </button>
+            {canDelete && (
+              <button
+              type="button"
+              className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+              disabled={!visibleDisabledFeedIds.length || bulkDeleteFeeds.isPending}
+              onClick={() => {
+                if (!window.confirm(`Delete ${visibleDisabledFeedIds.length} disabled feeds in current view? This cannot be undone.`)) {
+                  return
+                }
+                setManagementNotice('')
+                bulkDeleteFeeds.mutate(visibleDisabledFeedIds)
+                }}
+              >
+                Delete Disabled (Filtered)
+              </button>
+            )}
+        </div>
+
+        {importFilename && (
           <p className="mt-2 text-xs text-slate dark:text-slate-300">
-            Import result: created {lastImportResult.created}, updated {lastImportResult.updated}, skipped {lastImportResult.skipped}, errors {lastImportResult.errors.length}
+            Loaded: {importFilename} ({importData?.length ?? 0} entries)
           </p>
+        )}
+        {importError && <p className="mt-2 text-xs text-red-600">Import parse error: {importError}</p>}
+        {importWarning && <p className="mt-2 text-xs text-amber-600">{importWarning}</p>}
+        {lastImportResult && (
+          <div className="mt-2 rounded border border-slate/20 bg-white/60 px-2 py-2 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-200">
+            <p>
+              Import result: created {lastImportResult.created}, updated {lastImportResult.updated}, skipped {lastImportResult.skipped}, errors {lastImportResult.errors.length}
+            </p>
+            {lastImportResult.created + lastImportResult.updated === 0 && (
+              <p className="mt-1 text-amber-600">
+                No feeds were created or updated. This usually means all entries already existed and overwrite was disabled, or entries were rejected.
+              </p>
+            )}
+            {lastImportResult.errors.length > 0 && (
+              <ul className="mt-1 list-disc pl-4 text-red-600">
+                {lastImportResult.errors.map((entry, index) => (
+                  <li key={`${entry}-${index}`}>{entry}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {importFeeds.isError && (
+          <p className="mt-2 text-xs text-red-600">Import failed: {resolveMutationError(importFeeds.error)}</p>
+        )}
+        {managementNotice && <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{managementNotice}</p>}
+        {(bulkRefreshFeeds.isError || bulkSetEnabled.isError || bulkDeleteFeeds.isError || deleteFeed.isError) && (
+          <p className="mt-2 text-xs text-red-600">One or more management actions failed.</p>
         )}
 
         <div className="mt-3 space-y-2">
           {filteredFeeds.map((feed) => {
             const health = resolveFeedHealth(feed)
+            const draft = feedDrafts[feed.id] ?? feedToScheduleDraft(feed)
+            const saveState = feedSaveState[feed.id]?.status ?? 'idle'
+            const saveMessage = feedSaveState[feed.id]?.message
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex items-start justify-between gap-2">
@@ -411,22 +706,35 @@ export function FeedsPage() {
                   >
                     {feed.enabled ? 'Disable' : 'Enable'}
                   </button>
+                  {canDelete && (
+                    <button
+                      className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+                      onClick={() => {
+                        if (!window.confirm(`Delete feed "${feed.name}"? This also removes related items and history.`)) {
+                          return
+                        }
+                        setManagementNotice('')
+                        deleteFeed.mutate(feed.id)
+                      }}
+                      disabled={deleteFeed.isPending}
+                    >
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr]">
                 <select
                   className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                  value={feed.fetch_mode}
+                  value={draft.fetchMode}
                   disabled={!canManage}
                   onChange={(event) => {
                     const nextMode = event.target.value as FeedFetchMode
-                    updateFeed.mutate({
-                      id: feed.id,
-                      body:
-                        nextMode === 'interval'
-                          ? { fetch_mode: 'interval', fetch_interval_seconds: feed.fetch_interval_seconds }
-                          : { fetch_mode: 'schedule', schedule_cron: feed.schedule_cron || '0 * * * *' },
+                    updateFeedDraft(feed, {
+                      fetchMode: nextMode,
+                      intervalSeconds: draft.intervalSeconds || '1800',
+                      scheduleCron: nextMode === 'schedule' ? draft.scheduleCron || DEFAULT_SCHEDULE_CRON : draft.scheduleCron,
                     })
                   }}
                 >
@@ -434,19 +742,16 @@ export function FeedsPage() {
                   <option value="schedule">Schedule</option>
                 </select>
 
-                {feed.fetch_mode === 'interval' ? (
+                {draft.fetchMode === 'interval' ? (
                   <div className="flex items-center gap-2">
                     <label className="text-xs font-semibold">Every</label>
                     <input
                       className="w-28 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                       type="number"
                       min={60}
-                      defaultValue={feed.fetch_interval_seconds}
-                      onBlur={(event) => {
-                        const value = Number(event.target.value)
-                        if (Number.isFinite(value) && value >= 60 && value !== feed.fetch_interval_seconds) {
-                          updateFeed.mutate({ id: feed.id, body: { fetch_mode: 'interval', fetch_interval_seconds: value } })
-                        }
+                      value={draft.intervalSeconds}
+                      onChange={(event) => {
+                        updateFeedDraft(feed, { fetchMode: 'interval', intervalSeconds: event.target.value })
                       }}
                       disabled={!canManage}
                     />
@@ -455,17 +760,20 @@ export function FeedsPage() {
                 ) : (
                   <input
                     className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    defaultValue={feed.schedule_cron || '0 * * * *'}
-                    onBlur={(event) => {
-                      const value = event.target.value.trim()
-                      if (value && value !== (feed.schedule_cron || '')) {
-                        updateFeed.mutate({ id: feed.id, body: { fetch_mode: 'schedule', schedule_cron: value } })
-                      }
+                    value={draft.scheduleCron}
+                    onChange={(event) => {
+                      updateFeedDraft(feed, { fetchMode: 'schedule', scheduleCron: event.target.value })
                     }}
                     disabled={!canManage}
                   />
                 )}
               </div>
+
+              {canManage && saveState !== 'idle' && (
+                <p className={`mt-1 text-[11px] ${feedSaveStatusClass(saveState)}`}>
+                  {saveMessage || feedSaveStatusText(saveState)}
+                </p>
+              )}
 
               {feed.last_error && <p className="mt-2 text-xs text-red-600">Last error: {feed.last_error}</p>}
             </div>
@@ -479,6 +787,43 @@ export function FeedsPage() {
       </section>
     </div>
   )
+}
+
+type BulkSummary = {
+  attempted: number
+  succeeded: number
+  failed: number
+}
+
+function feedToScheduleDraft(feed: Feed): FeedScheduleDraft {
+  return {
+    fetchMode: feed.fetch_mode,
+    intervalSeconds: String(feed.fetch_interval_seconds || 1800),
+    scheduleCron: feed.schedule_cron || DEFAULT_SCHEDULE_CRON,
+  }
+}
+
+function feedSaveStatusText(status: FeedSaveStatus): string {
+  if (status === 'pending') return 'Unsaved changes. Autosaving...'
+  if (status === 'saving') return 'Saving...'
+  if (status === 'saved') return 'Saved.'
+  return 'Save failed.'
+}
+
+function feedSaveStatusClass(status: FeedSaveStatus): string {
+  if (status === 'error') return 'text-red-600'
+  if (status === 'saved') return 'text-emerald-700 dark:text-emerald-300'
+  return 'text-slate dark:text-slate-300'
+}
+
+function summarizeBulkResults(results: PromiseSettledResult<unknown>[]): BulkSummary {
+  const attempted = results.length
+  const failed = results.filter((result) => result.status === 'rejected').length
+  return {
+    attempted,
+    failed,
+    succeeded: attempted - failed,
+  }
 }
 
 function timestamp(value: string | null): number {
@@ -495,13 +840,68 @@ function formatDate(value: string | null): string {
 }
 
 function parseImportEntries(payload: unknown): FeedImportEntry[] {
-  if (Array.isArray(payload)) {
-    return payload as FeedImportEntry[]
+  const entries = Array.isArray(payload)
+    ? payload
+    : typeof payload === 'object' && payload !== null && Array.isArray((payload as { feeds?: unknown }).feeds)
+      ? (payload as { feeds: unknown[] }).feeds
+      : null
+
+  if (!entries) {
+    throw new Error('JSON must be an array of feeds or an object with a feeds array')
   }
 
-  if (typeof payload === 'object' && payload !== null && Array.isArray((payload as { feeds?: unknown }).feeds)) {
-    return (payload as { feeds: FeedImportEntry[] }).feeds
-  }
+  return entries.map((rawEntry, index) => {
+    if (typeof rawEntry !== 'object' || rawEntry === null) {
+      throw new Error(`Entry ${index + 1} must be an object`)
+    }
+    const entry = rawEntry as Record<string, unknown>
+    const url = typeof entry.url === 'string' ? entry.url.trim() : ''
+    if (!url) {
+      throw new Error(`Entry ${index + 1} is missing a valid url`)
+    }
 
-  throw new Error('JSON must be an array of feeds or an object with a feeds array')
+    const fetchMode = entry.fetch_mode === 'schedule' ? 'schedule' : 'interval'
+    const fetchInterval = Number(entry.fetch_interval_seconds)
+    const parsedInterval = Number.isFinite(fetchInterval) && fetchInterval >= 60 ? Math.floor(fetchInterval) : 1800
+    const scheduleCron = typeof entry.schedule_cron === 'string' && entry.schedule_cron.trim() ? entry.schedule_cron.trim() : null
+
+    return {
+      name: stringOrNull(entry.name),
+      url,
+      description: stringOrNull(entry.description),
+      site_url: stringOrNull(entry.site_url),
+      language: stringOrNull(entry.language),
+      enabled: typeof entry.enabled === 'boolean' ? entry.enabled : true,
+      fetch_mode: fetchMode,
+      fetch_interval_seconds: fetchMode === 'interval' ? parsedInterval : null,
+      schedule_cron: fetchMode === 'schedule' ? scheduleCron || '0 * * * *' : null,
+    }
+  })
+}
+
+function stringOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
+}
+
+function findDuplicateUrls(entries: FeedImportEntry[]): string[] {
+  const counts = new Map<string, number>()
+  for (const entry of entries) {
+    const key = entry.url.toLowerCase()
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  return Array.from(counts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([url]) => url)
+}
+
+function resolveMutationError(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Unknown error'
 }
