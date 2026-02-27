@@ -305,7 +305,10 @@ def get_activity_heatmap(
     published_rows = db.scalars(query).all()
 
     day_axis = [(window_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
-    counts_by_day = {day_key: [0] * 24 for day_key in day_axis}
+    bucket_unit = "hour" if days <= 7 else "day"
+    bucket_labels = [f"{hour:02d}:00" for hour in range(24)] if bucket_unit == "hour" else ["Daily"]
+    bucket_size = len(bucket_labels)
+    counts_by_day = {day_key: [0] * bucket_size for day_key in day_axis}
 
     for published in published_rows:
         if published is None:
@@ -314,7 +317,8 @@ def get_activity_heatmap(
         normalized = _ensure_aware(published)
         day_key = normalized.date().isoformat()
         if day_key in counts_by_day:
-            counts_by_day[day_key][normalized.hour] += 1
+            bucket_index = normalized.hour if bucket_unit == "hour" else 0
+            counts_by_day[day_key][bucket_index] += 1
 
     rows = [ActivityHeatmapDayRow(day=day_key, counts=counts_by_day[day_key]) for day_key in day_axis]
     max_count = max((count for row in rows for count in row.counts), default=0)
@@ -322,6 +326,8 @@ def get_activity_heatmap(
     return ActivityHeatmapResponse(
         generated_at=now,
         window_days=days,
+        bucket_unit=bucket_unit,
+        bucket_labels=bucket_labels,
         rows=rows,
         max_count=max_count,
     )

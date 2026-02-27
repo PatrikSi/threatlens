@@ -738,9 +738,23 @@ def test_stats_activity_heatmap_endpoint(client: TestClient, auth_headers, db_se
     assert response.status_code == 200
     payload = response.json()
     assert payload["window_days"] == 7
+    assert payload["bucket_unit"] == "hour"
+    assert len(payload["bucket_labels"]) == 24
     assert len(payload["rows"]) == 7
+    assert all(len(day["counts"]) == 24 for day in payload["rows"])
     assert payload["max_count"] >= 2
     assert sum(sum(day["counts"]) for day in payload["rows"]) == 3
+
+    response_30 = client.get(f"/stats/activity-heatmap?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response_30.status_code == 200
+    payload_30 = response_30.json()
+    assert payload_30["window_days"] == 30
+    assert payload_30["bucket_unit"] == "day"
+    assert payload_30["bucket_labels"] == ["Daily"]
+    assert len(payload_30["rows"]) == 30
+    assert all(len(day["counts"]) == 1 for day in payload_30["rows"])
+    assert payload_30["max_count"] >= 2
+    assert sum(sum(day["counts"]) for day in payload_30["rows"]) == 4
 
 
 def test_stats_signal_radar_endpoint(client: TestClient, auth_headers, db_session):

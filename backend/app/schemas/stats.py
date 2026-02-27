@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -89,6 +90,8 @@ class ActivityHeatmapDayRow(BaseModel):
 class ActivityHeatmapResponse(BaseModel):
     generated_at: datetime
     window_days: int
+    bucket_unit: Literal["hour", "day"]
+    bucket_labels: list[str]
     rows: list[ActivityHeatmapDayRow]
     max_count: int
 
