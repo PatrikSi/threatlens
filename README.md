@@ -35,11 +35,12 @@ Key vars:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_SECRET`
+- `JWT_EXPIRES_MINUTES` (default `1440`)
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 - `ALLOW_SELF_REGISTRATION` (default `false`)
 - `DEFAULT_API_TOKEN_EXPIRY_DAYS` (default `90`)
-- `ALLOW_LEGACY_UNSCOPED_TOKENS` (default `true`)
+- `ALLOW_LEGACY_UNSCOPED_TOKENS` (default `false`)
 - `ALLOW_PRIVATE_NETWORK_FETCH` (default `false`)
 - `FEED_MAX_BYTES` (default `2000000`)
 - `OUTBOUND_MAX_REDIRECTS` (default `5`)
@@ -47,6 +48,16 @@ Key vars:
 - `AUTH_LOGIN_WINDOW_SECONDS` (default `300`)
 - `AUTH_LOGIN_LOCKOUT_SECONDS` (default `900`)
 - `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (default `300`)
+- `AUTH_COOKIE_SECURE` (default `false`, set to `true` in production)
+- `AUTH_COOKIE_SAMESITE` (default `lax`)
+- `AUTH_REQUIRE_CSRF` (default `true`)
+- `TRUSTED_PROXY_CIDRS` (CSV CIDRs allowed to supply `X-Forwarded-For`)
+- `PROBE_FEED_METADATA_ON_CREATE` / `PROBE_FEED_METADATA_ON_IMPORT` (default `false`)
+- `MAX_METADATA_BACKFILL_TASKS_PER_REQUEST` (default `100`)
+- `RUN_MIGRATIONS_ON_STARTUP` (default `true`)
+- `SEED_ADMIN_ON_STARTUP` (default `false`)
+- `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (default `1.0`)
+- `BEAT_HEARTBEAT_*` (heartbeat key/TTL/staleness/interval controls)
 
 ## Run (Docker Compose)
 
@@ -68,6 +79,8 @@ Open:
 - Health: `http://localhost:8000/health`
 - Liveness: `http://localhost:8000/health/live`
 - Readiness: `http://localhost:8000/health/ready`
+- Worker health: `http://localhost:8000/health/worker`
+- Beat health: `http://localhost:8000/health/beat`
 
 Stop:
 
@@ -139,8 +152,8 @@ curl -X POST http://localhost:8000/tokens \
 
 Notes:
 
-- If `scopes` is omitted, token defaults to `read:feeds`, `read:items`, `read:stats`.
-- Legacy tokens with empty scopes are allowed only when `ALLOW_LEGACY_UNSCOPED_TOKENS=true`.
+- If `scopes` is omitted, token defaults to `read:feeds`, `read:items`, `read:stats`, `read:alerts`.
+- Legacy tokens with empty scopes are allowed only when `ALLOW_LEGACY_UNSCOPED_TOKENS=true` (disabled by default).
 - `write:<resource>` implies `read:<resource>`.
 - Wildcards supported: `read:*`, `write:*`, `admin:*`.
 - Supported resources: `feeds`, `items`, `tags`, `views`, `tokens`, `users`, `audit`, `stats`.
