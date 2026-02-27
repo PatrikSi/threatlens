@@ -365,7 +365,7 @@ def fetch_feed(self, feed_id: str):
                         allow_private_network=settings.allow_private_network_fetch,
                         max_redirects=settings.outbound_max_redirects,
                     )
-                    with response:
+                    try:
                         status_code = response.status_code
                         final_url = str(response.url)
 
@@ -391,6 +391,8 @@ def fetch_feed(self, feed_id: str):
                                 raise FeedResponseTooLargeError("feed response exceeds configured cap")
                             body_chunks.append(chunk)
                         body_bytes = b"".join(body_chunks)
+                    finally:
+                        response.close()
             except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
                 try:
                     logger.warning("feed_fetch_retrying feed_id=%s retries=%s error=%s", feed_id, self.request.retries, exc)
@@ -479,7 +481,7 @@ def fetch_article(self, item_id: str):
                         allow_private_network=settings.allow_private_network_fetch,
                         max_redirects=settings.outbound_max_redirects,
                     )
-                    with response:
+                    try:
                         status_code = response.status_code
                         content_type = response.headers.get("content-type")
                         final_url = str(response.url)
@@ -493,6 +495,8 @@ def fetch_article(self, item_id: str):
                             body_chunks.append(chunk)
 
                         body_bytes = b"".join(body_chunks)
+                    finally:
+                        response.close()
         except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
             try:
                 logger.warning("article_fetch_retrying item_id=%s retries=%s error=%s", item_id, self.request.retries, exc)

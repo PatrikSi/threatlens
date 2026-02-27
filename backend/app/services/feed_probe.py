@@ -47,7 +47,7 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                 allow_private_network=settings.allow_private_network_fetch,
                 max_redirects=settings.outbound_max_redirects,
             )
-            with response:
+            try:
                 if response.status_code != 200:
                     raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
 
@@ -59,6 +59,8 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                         raise FeedProbeError("Feed response exceeds configured size limit")
                     body_chunks.append(chunk)
                 body = b"".join(body_chunks)
+            finally:
+                response.close()
     except (httpx.HTTPError, SafeFetchError, RedirectError) as exc:
         raise FeedProbeError(f"Unable to fetch feed: {exc}") from exc
 
