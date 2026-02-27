@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 
+import { ApiError } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAuth } from './AuthContext'
 import { useTheme } from './ThemeContext'
@@ -16,11 +17,15 @@ export function AppShell() {
   const isDashboardRoute = location.pathname === '/'
 
   useEffect(() => {
-    if (meQuery.isError) {
-      setAuthToken(null)
-      navigate('/login')
+    if (!meQuery.error) {
+      return
     }
-  }, [meQuery.isError, navigate, setAuthToken])
+
+    if (meQuery.error instanceof ApiError && (meQuery.error.status === 401 || meQuery.error.status === 403)) {
+      setAuthToken(null)
+      navigate('/login', { replace: true })
+    }
+  }, [meQuery.error, navigate, setAuthToken])
 
   return (
     <div className="min-h-screen text-ink dark:text-slate-100">
