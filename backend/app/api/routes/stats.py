@@ -13,7 +13,9 @@ from app.db.session import get_db
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.user import User
+from app.services.classification import CLASSIFICATION_CATEGORIES
 from app.schemas.stats import (
     ActivityHeatmapDayRow,
     ActivityHeatmapHourPoint,
@@ -26,6 +28,8 @@ from app.schemas.stats import (
     FeedTimeSeriesResponse,
     FeedTimeSeriesSeries,
     FeedStats,
+    SignalRadarAxisPoint,
+    SignalRadarResponse,
     StatsOverviewResponse,
     StatusPoint,
     TotalsSummary,
@@ -336,6 +340,51 @@ def get_activity_heatmap(
         last_24h_max=last_24h_max,
         last_7d=last_7d,
         last_7d_max=last_7d_max,
+    )
+
+
+@router.get("/signal-radar", response_model=SignalRadarResponse)
+def get_signal_radar(
+    days: int = Query(default=30, ge=7, le=365),
+    feed_ids: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+):
+    selected_feed_ids = _parse_feed_ids(feed_ids)
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days)
+
+    query = (
+        select(ItemClassification.primary_category, func.count(ItemClassification.item_id))
+        .join(Item, Item.id == ItemClassification.item_id)
+        .where(func.coalesce(Item.published_at, Item.first_seen_at) >= window_start)
+    )
+    if selected_feed_ids:
+        query = query.where(Item.feed_id.in_(selected_feed_ids))
+
+    rows = db.execute(query.group_by(ItemClassification.primary_category)).all()
+    raw_counts = {category: int(count or 0) for category, count in rows}
+
+    categories = [category for category in CLASSIFICATION_CATEGORIES if category != "multi"] + ["multi"]
+    counts_by_category = {category: raw_counts.get(category, 0) for category in categories}
+    total = sum(counts_by_category.values())
+    max_count = max(counts_by_category.values(), default=0)
+
+    axes = [
+        SignalRadarAxisPoint(
+            category=category,
+            count=count,
+            pct=round((count / total) * 100.0, 2) if total else 0.0,
+        )
+        for category, count in counts_by_category.items()
+    ]
+
+    return SignalRadarResponse(
+        generated_at=now,
+        window_days=days,
+        total=total,
+        max_count=max_count,
+        axes=axes,
     )
 
 

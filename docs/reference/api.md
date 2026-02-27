@@ -361,6 +361,21 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `last_7d[]`: day rows with `day` and 24-hour `counts[]`
   - `last_7d_max`
 
+### `GET /stats/signal-radar`
+
+- Auth: `read:stats`
+- Query params:
+  - `days`: `7..365` (default `30`)
+  - `feed_ids?`: CSV UUID list
+- Response (`SignalRadarResponse`):
+  - `generated_at`, `window_days`
+  - `total`: total classified items in the window
+  - `max_count`: max category count in returned axes
+  - `axes[]`:
+    - `category`
+    - `count`
+    - `pct`
+
 ## Health
 
 ### `GET /health`

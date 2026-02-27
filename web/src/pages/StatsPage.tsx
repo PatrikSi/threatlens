@@ -2,7 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
-import { Feed, StatsActivityHeatmapResponse, StatsFeedTimeSeriesResponse, StatsOverviewResponse } from '../types/api'
+import {
+  Feed,
+  StatsActivityHeatmapResponse,
+  StatsFeedTimeSeriesResponse,
+  StatsOverviewResponse,
+  StatsSignalRadarResponse,
+} from '../types/api'
 
 const FEED_CHART_COLORS = ['#0891b2', '#06b6d4', '#0ea5e9', '#14b8a6', '#10b981', '#22c55e', '#eab308', '#f97316']
 
@@ -50,6 +56,18 @@ export function StatsPage() {
         params.set('feed_ids', feedIdsParam)
       }
       return apiFetch<StatsActivityHeatmapResponse>(`/stats/activity-heatmap?${params.toString()}`)
+    },
+  })
+
+  const signalRadarQuery = useQuery({
+    queryKey: ['stats', 'signal-radar', days, feedIdsParam],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      params.set('days', String(days))
+      if (feedIdsParam) {
+        params.set('feed_ids', feedIdsParam)
+      }
+      return apiFetch<StatsSignalRadarResponse>(`/stats/signal-radar?${params.toString()}`)
     },
   })
 
@@ -158,6 +176,16 @@ export function StatsPage() {
             {activityHeatmapQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading activity heatmap...</p>}
             {activityHeatmapQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load activity heatmap.</p>}
             {activityHeatmapQuery.data && <ActivityHeatmapPanel data={activityHeatmapQuery.data} />}
+          </section>
+
+          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+            <h3 className="font-display text-lg">Signal Radar View</h3>
+            <p className="mt-1 text-xs text-slate dark:text-slate-300">
+              Classification signal intensity across threat categories for the selected feed/time window.
+            </p>
+            {signalRadarQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading signal radar...</p>}
+            {signalRadarQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load signal radar.</p>}
+            {signalRadarQuery.data && <SignalRadarChart data={signalRadarQuery.data} />}
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -490,9 +518,29 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
   const max24 = Math.max(1, data.last_24h_max)
   const max7d = Math.max(1, data.last_7d_max)
+  const [hovered, setHovered] = useState<{
+    period: '24h' | '7d'
+    label: string
+    count: number
+    intensityPct: number
+  } | null>(null)
 
   return (
-    <div className="mt-3 space-y-4">
+    <div className="relative mt-3 space-y-4" onMouseLeave={() => setHovered(null)}>
+      {hovered && (
+        <div className="pointer-events-none absolute right-0 top-0 z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95">
+          <p className="font-semibold">{hovered.period === '24h' ? 'Last 24h Bucket' : 'Last 7d Bucket'}</p>
+          <p className="mt-0.5">{hovered.label}</p>
+          <div className="mt-1 flex items-center justify-between gap-4">
+            <span className="text-slate dark:text-slate-300">Posts</span>
+            <span className="font-semibold">{hovered.count}</span>
+          </div>
+          <div className="mt-0.5 flex items-center justify-between gap-4">
+            <span className="text-slate dark:text-slate-300">Intensity</span>
+            <span className="font-semibold">{hovered.intensityPct.toFixed(1)}%</span>
+          </div>
+        </div>
+      )}
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Last 24 Hours</p>
         <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
@@ -505,7 +553,14 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                 key={point.hour_start}
                 className="h-6 rounded"
                 style={heatCellStyle(point.count, max24)}
-                title={`${new Date(point.hour_start).toLocaleString()} — ${point.count} posts`}
+                onMouseEnter={() =>
+                  setHovered({
+                    period: '24h',
+                    label: formatHourAxis(point.hour_start),
+                    count: point.count,
+                    intensityPct: (point.count / max24) * 100,
+                  })
+                }
               />
             ))}
           </div>
@@ -540,7 +595,14 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                       key={`${row.day}-${hour}`}
                       className="h-4 rounded"
                       style={heatCellStyle(count, max7d)}
-                      title={`${row.day} ${String(hour).padStart(2, '0')}:00 — ${count} posts`}
+                      onMouseEnter={() =>
+                        setHovered({
+                          period: '7d',
+                          label: `${row.day} ${String(hour).padStart(2, '0')}:00`,
+                          count,
+                          intensityPct: (count / max7d) * 100,
+                        })
+                      }
                     />
                   ))}
                 </div>
@@ -559,6 +621,144 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   )
 }
 
+function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
+  const [hoveredCategory, setHoveredCategory] = useState<string | null>(null)
+  const axes = data.axes
+  if (!axes.length || data.total <= 0 || data.max_count <= 0) {
+    return <p className="mt-3 text-sm text-slate dark:text-slate-300">No classified signal data in selected window.</p>
+  }
+
+  const size = 460
+  const center = size / 2
+  const radius = 162
+  const rings = [0.2, 0.4, 0.6, 0.8, 1]
+  const step = (Math.PI * 2) / axes.length
+
+  const coordinates = axes.map((axis, index) => {
+    const angle = -Math.PI / 2 + index * step
+    const normalized = axis.count / Math.max(1, data.max_count)
+    const pointRadius = radius * normalized
+    return {
+      axis,
+      index,
+      angle,
+      x: center + Math.cos(angle) * pointRadius,
+      y: center + Math.sin(angle) * pointRadius,
+      labelX: center + Math.cos(angle) * (radius + 20),
+      labelY: center + Math.sin(angle) * (radius + 20),
+    }
+  })
+
+  const polygonPoints = coordinates.map((point) => `${point.x},${point.y}`).join(' ')
+  const hovered = coordinates.find((point) => point.axis.category === hoveredCategory) ?? null
+
+  return (
+    <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_280px]">
+      <div
+        className="relative rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70"
+        onMouseLeave={() => setHoveredCategory(null)}
+      >
+        {hovered && (
+          <div className="pointer-events-none absolute right-3 top-3 rounded border border-slate/25 bg-white/95 px-2 py-1.5 text-xs shadow dark:border-cyan-900/40 dark:bg-[#041612]/95">
+            <p className="font-semibold">{formatCategoryLabel(hovered.axis.category)}</p>
+            <p className="text-slate dark:text-slate-300">{hovered.axis.count} posts ({hovered.axis.pct.toFixed(1)}%)</p>
+          </div>
+        )}
+
+        <svg viewBox={`0 0 ${size} ${size}`} className="mx-auto h-[420px] w-full max-w-[520px]">
+          {rings.map((ring) => (
+            <circle
+              key={ring}
+              cx={center}
+              cy={center}
+              r={radius * ring}
+              fill="none"
+              stroke="rgba(148, 163, 184, 0.28)"
+              strokeWidth={1}
+            />
+          ))}
+
+          {coordinates.map((point) => (
+            <line
+              key={`axis-line-${point.axis.category}`}
+              x1={center}
+              y1={center}
+              x2={center + Math.cos(point.angle) * radius}
+              y2={center + Math.sin(point.angle) * radius}
+              stroke="rgba(148, 163, 184, 0.35)"
+              strokeWidth={1}
+            />
+          ))}
+
+          <polygon points={polygonPoints} fill="rgba(6,182,212,0.18)" stroke="rgba(6,182,212,0.9)" strokeWidth={2} />
+
+          {coordinates.map((point) => {
+            const isHovered = hoveredCategory === point.axis.category
+            return (
+              <circle
+                key={`point-${point.axis.category}`}
+                cx={point.x}
+                cy={point.y}
+                r={isHovered ? 6 : 4}
+                fill={isHovered ? 'rgba(14, 165, 233, 1)' : 'rgba(6, 182, 212, 0.95)'}
+                onMouseEnter={() => setHoveredCategory(point.axis.category)}
+              />
+            )
+          })}
+
+          {coordinates.map((point) => (
+            <text
+              key={`label-${point.axis.category}`}
+              x={point.labelX}
+              y={point.labelY}
+              fontSize={11}
+              textAnchor={point.labelX >= center ? 'start' : 'end'}
+              alignmentBaseline="middle"
+              fill={hoveredCategory === point.axis.category ? '#0891b2' : '#64748b'}
+            >
+              {formatCategoryLabel(point.axis.category)}
+            </text>
+          ))}
+        </svg>
+      </div>
+
+      <div className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+          Window: Last {data.window_days}d ({data.total} classified posts)
+        </p>
+        <div className="mt-2 space-y-1.5">
+          {axes
+            .slice()
+            .sort((a, b) => b.count - a.count)
+            .map((axis) => (
+              <button
+                key={axis.category}
+                type="button"
+                className={`w-full rounded border px-2 py-1.5 text-left text-xs ${
+                  hoveredCategory === axis.category
+                    ? 'border-cyan/60 bg-cyan/10 text-cyan dark:bg-cyan-950/40'
+                    : 'border-slate/20 dark:border-cyan-900/40'
+                }`}
+                onMouseEnter={() => setHoveredCategory(axis.category)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate">{formatCategoryLabel(axis.category)}</span>
+                  <span className="font-semibold">{axis.count}</span>
+                </div>
+                <div className="mt-1 h-1.5 rounded bg-slate-200 dark:bg-[#0b2a23]">
+                  <div
+                    className="h-1.5 rounded bg-cyan"
+                    style={{ width: axis.count > 0 ? `${Math.max(3, (axis.count / Math.max(1, data.max_count)) * 100)}%` : '0%' }}
+                  />
+                </div>
+              </button>
+            ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function heatCellStyle(count: number, maxCount: number) {
   if (count <= 0) {
     return { backgroundColor: 'rgba(148, 163, 184, 0.14)' }
@@ -572,6 +772,13 @@ function formatHourAxis(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+}
+
+function formatCategoryLabel(category: string) {
+  return category
+    .split('_')
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
+    .join(' ')
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {

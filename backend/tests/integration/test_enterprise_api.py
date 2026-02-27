@@ -744,6 +744,172 @@ def test_stats_activity_heatmap_endpoint(client: TestClient, auth_headers, db_se
     assert sum(sum(day["counts"]) for day in payload["last_7d"]) == 3
 
 
+def test_stats_signal_radar_endpoint(client: TestClient, auth_headers, db_session):
+    feed_one_response = client.post(
+        "/feeds",
+        json={
+            "name": "Radar Feed One",
+            "url": "https://example.com/radar-one.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    feed_two_response = client.post(
+        "/feeds",
+        json={
+            "name": "Radar Feed Two",
+            "url": "https://example.com/radar-two.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_one_response.status_code == 201
+    assert feed_two_response.status_code == 201
+
+    feed_one_id = uuid.UUID(feed_one_response.json()["id"])
+    feed_two_id = uuid.UUID(feed_two_response.json()["id"])
+    now = datetime.now(timezone.utc)
+
+    item_one = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_one_id,
+        source_guid="radar-1",
+        url="https://example.com/radar/1",
+        canonical_url="https://example.com/radar/1",
+        title="Radar one",
+        summary="vulnerability",
+        published_at=now - timedelta(days=1),
+        first_seen_at=now - timedelta(days=1),
+        dedupe_key="test:radar-1",
+        content_hash="f" * 64,
+        status="content_fetched",
+    )
+    item_two = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_one_id,
+        source_guid="radar-2",
+        url="https://example.com/radar/2",
+        canonical_url="https://example.com/radar/2",
+        title="Radar two",
+        summary="vulnerability",
+        published_at=now - timedelta(days=2),
+        first_seen_at=now - timedelta(days=2),
+        dedupe_key="test:radar-2",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    item_three = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_one_id,
+        source_guid="radar-3",
+        url="https://example.com/radar/3",
+        canonical_url="https://example.com/radar/3",
+        title="Radar three",
+        summary="apt campaign",
+        published_at=now - timedelta(days=3),
+        first_seen_at=now - timedelta(days=3),
+        dedupe_key="test:radar-3",
+        content_hash="2" * 64,
+        status="content_fetched",
+    )
+    item_other_feed = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_two_id,
+        source_guid="radar-4",
+        url="https://example.com/radar/4",
+        canonical_url="https://example.com/radar/4",
+        title="Radar other feed",
+        summary="technology ai",
+        published_at=now - timedelta(days=1),
+        first_seen_at=now - timedelta(days=1),
+        dedupe_key="test:radar-4",
+        content_hash="3" * 64,
+        status="content_fetched",
+    )
+    item_old = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_one_id,
+        source_guid="radar-old",
+        url="https://example.com/radar/old",
+        canonical_url="https://example.com/radar/old",
+        title="Radar old",
+        summary="outside window",
+        published_at=now - timedelta(days=45),
+        first_seen_at=now - timedelta(days=45),
+        dedupe_key="test:radar-old",
+        content_hash="4" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([item_one, item_two, item_three, item_other_feed, item_old])
+    db_session.flush()
+
+    db_session.add_all(
+        [
+            ItemClassification(
+                item_id=item_one.id,
+                primary_category="vulnerability",
+                secondary_categories=[],
+                confidence=0.9,
+                scores_json={"vulnerability": 9.0},
+                matched_terms_json={"vulnerability": ["title:cve"]},
+                source_hash="1" * 64,
+            ),
+            ItemClassification(
+                item_id=item_two.id,
+                primary_category="vulnerability",
+                secondary_categories=[],
+                confidence=0.88,
+                scores_json={"vulnerability": 8.8},
+                matched_terms_json={"vulnerability": ["summary:vuln"]},
+                source_hash="2" * 64,
+            ),
+            ItemClassification(
+                item_id=item_three.id,
+                primary_category="apt_campaign",
+                secondary_categories=[],
+                confidence=0.82,
+                scores_json={"apt_campaign": 8.2},
+                matched_terms_json={"apt_campaign": ["title:apt"]},
+                source_hash="3" * 64,
+            ),
+            ItemClassification(
+                item_id=item_other_feed.id,
+                primary_category="technology_ai",
+                secondary_categories=[],
+                confidence=0.8,
+                scores_json={"technology_ai": 8.0},
+                matched_terms_json={"technology_ai": ["summary:ai"]},
+                source_hash="4" * 64,
+            ),
+            ItemClassification(
+                item_id=item_old.id,
+                primary_category="incident_breach",
+                secondary_categories=[],
+                confidence=0.7,
+                scores_json={"incident_breach": 7.0},
+                matched_terms_json={"incident_breach": ["summary:breach"]},
+                source_hash="5" * 64,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/signal-radar?days=7&feed_ids={feed_one_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["window_days"] == 7
+    assert payload["total"] == 3
+    assert payload["max_count"] == 2
+
+    by_category = {entry["category"]: entry for entry in payload["axes"]}
+    assert by_category["vulnerability"]["count"] == 2
+    assert by_category["apt_campaign"]["count"] == 1
+    assert by_category["technology_ai"]["count"] == 0
+    assert by_category["vulnerability"]["pct"] > by_category["apt_campaign"]["pct"]
+
+
 def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
     feed_one_response = client.post(
         "/feeds",
