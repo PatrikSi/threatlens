@@ -8,6 +8,7 @@ from sqlalchemy import Integer, case, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.core.config import get_settings
 from app.core.token_scopes import SCOPE_READ_STATS
 from app.db.session import get_db
 from app.models.article import Article
@@ -67,6 +68,7 @@ def get_stats_overview(
     db: Session = Depends(get_db),
     _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
+    settings = get_settings()
     selected_feed_ids = _parse_feed_ids(feed_ids)
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)
@@ -170,19 +172,12 @@ def get_stats_overview(
         ) in feed_rows
     ]
 
-    domain_query = select(Item.canonical_url, Item.url).where(
-        Item.first_seen_at >= window_start,
-        Item.status == "content_fetched",
+    top_domains = _load_top_domains(
+        db,
+        window_start=window_start,
+        item_filters=item_filters,
+        limit=settings.stats_top_domains_limit,
     )
-    if item_filters:
-        domain_query = domain_query.where(*item_filters)
-    domain_counter: Counter[str] = Counter()
-    for canonical_url, item_url in db.execute(domain_query):
-        domain = _extract_domain(canonical_url or item_url)
-        if domain:
-            domain_counter[domain] += 1
-
-    top_domains = [DomainPoint(domain=domain, count=count) for domain, count in domain_counter.most_common(10)]
 
     extraction_success_rate = (items_content_fetched / items_total * 100.0) if items_total else 0.0
     error_rate = (items_error / items_total * 100.0) if items_total else 0.0
@@ -409,3 +404,50 @@ def _extract_domain(url: str | None) -> str | None:
         return None
 
     return hostname.lower() if hostname else None
+
+
+def _load_top_domains(
+    db: Session,
+    *,
+    window_start: datetime,
+    item_filters: list,
+    limit: int,
+) -> list[DomainPoint]:
+    if limit <= 0:
+        return []
+
+    dialect_name = db.bind.dialect.name if db.bind is not None else ""
+    if dialect_name == "postgresql":
+        domain_base = func.coalesce(Item.canonical_url, Item.url)
+        no_scheme = func.regexp_replace(domain_base, "^[a-zA-Z]+://", "")
+        host_with_port = func.split_part(no_scheme, "/", 1)
+        host = func.lower(func.split_part(host_with_port, ":", 1))
+        query = (
+            select(host.label("domain"), func.count(Item.id).label("count"))
+            .where(
+                Item.first_seen_at >= window_start,
+                Item.status == "content_fetched",
+                host.is_not(None),
+                host != "",
+            )
+            .group_by(host)
+            .order_by(func.count(Item.id).desc())
+            .limit(limit)
+        )
+        if item_filters:
+            query = query.where(*item_filters)
+        return [DomainPoint(domain=domain, count=int(count or 0)) for domain, count in db.execute(query) if domain]
+
+    # SQLite test environment fallback.
+    domain_query = select(Item.canonical_url, Item.url).where(
+        Item.first_seen_at >= window_start,
+        Item.status == "content_fetched",
+    )
+    if item_filters:
+        domain_query = domain_query.where(*item_filters)
+    domain_counter: Counter[str] = Counter()
+    for canonical_url, item_url in db.execute(domain_query):
+        domain = _extract_domain(canonical_url or item_url)
+        if domain:
+            domain_counter[domain] += 1
+    return [DomainPoint(domain=domain, count=count) for domain, count in domain_counter.most_common(limit)]
