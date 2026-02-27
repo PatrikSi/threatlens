@@ -132,6 +132,8 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `sort`: `published_at_desc|published_at_asc|first_seen_desc|first_seen_asc` (fallback `published_at_desc`)
 - Response (`ItemListResponse`):
   - `items[]` (`ItemListEntry`)
+    - `tags[]`: legacy tag-name list
+    - `tag_details[]`: rich tag links with `id`, `name`, `source`, `confidence`, `rules_version`
   - `total`, `page`, `page_size`
 
 ### `GET /items/{item_id}`
@@ -140,8 +142,17 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Response (`ItemDetailResponse`):
   - core item fields
   - optional `classification`
+  - `tags[]` and `tag_details[]` metadata
+  - `tag_suggestions[]` (feedback-adjusted suggestions with confidence/source)
   - optional `article`
   - user state: `is_read`, `is_starred`, `note`, `updated_at`
+
+### `GET /items/{item_id}/tag-suggestions`
+
+- Auth: `read:items`
+- Response (`ItemTagSuggestionListResponse`):
+  - `item_id`
+  - `suggestions[]` with `name`, `source`, `confidence`, `rules_version`
 
 ### `GET /items/{item_id}/graph`
 
@@ -182,6 +193,9 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Validation:
   - Duplicate tag IDs return `422`.
   - Unknown tag IDs return `422`.
+- Side effects:
+  - Item tag links are persisted with `source=manual`, `confidence=1.0`, `rules_version=manual:v1`.
+  - Emits weak-label feedback signals (`manual_add` / `manual_remove`) for tuning.
 - Response: `{ "status": "ok" }`
 
 ## Alerts
