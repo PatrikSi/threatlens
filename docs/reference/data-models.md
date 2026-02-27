@@ -208,7 +208,7 @@ Primary key on `item_id`:
 - `AuditLogResponse`, `AuditLogListResponse`
 - `AuditLogExportResponse`
 - Stats family (`TotalsSummary`, `ActivitySummary`, `DerivedSummary`, `StatusPoint`, `DailyVolumePoint`, `FeedStats`, `DomainPoint`, and time-series schemas)
-  - Includes activity heatmap contracts: `ActivityHeatmapHourPoint`, `ActivityHeatmapDayRow`, `ActivityHeatmapResponse`
+  - Includes activity heatmap contracts: `ActivityHeatmapDayRow`, `ActivityHeatmapResponse`
   - Includes signal radar contracts: `SignalRadarAxisPoint`, `SignalRadarResponse`
 
 ## Frontend Type Mirrors (`web/src/types/api.ts`)

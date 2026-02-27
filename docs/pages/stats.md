@@ -21,7 +21,7 @@ Operational analytics for ingestion, extraction, and feed contribution.
 ## Visual Sections
 
 - Posts Per Feed Over Time (interactive line chart)
-- Activity Heatmap (24h and 7d, publication-time based hourly density)
+- Activity Heatmap (single day/hour matrix for selected time window)
 - Signal Radar View (classification intensity by category)
 - Derived Health metrics
 - Status Breakdown bars
@@ -43,7 +43,7 @@ Operational analytics for ingestion, extraction, and feed contribution.
 - `GET /feeds`
 - `GET /stats/overview?days=<n>&feed_ids=<csv>`
 - `GET /stats/feed-timeseries?days=<n>&feed_ids=<csv>&top_feeds=8`
-- `GET /stats/activity-heatmap?feed_ids=<csv>`
+- `GET /stats/activity-heatmap?days=<n>&feed_ids=<csv>`
 - `GET /stats/signal-radar?days=<n>&feed_ids=<csv>`
 
 ## Returned Metric Families
@@ -64,8 +64,9 @@ From `FeedTimeSeriesResponse`:
 
 From `ActivityHeatmapResponse`:
 
-- `last_24h[]` hourly buckets
-- `last_7d[]` day rows with 24 hour columns each
+- `window_days`
+- `rows[]` day rows with 24 hour columns each
+- `max_count`
 
 From `SignalRadarResponse`:
 

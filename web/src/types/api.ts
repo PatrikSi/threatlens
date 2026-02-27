@@ -154,11 +154,6 @@ export interface StatsFeedTimeSeriesResponse {
   series: StatsFeedTimeSeriesSeries[]
 }
 
-export interface StatsActivityHeatmapHourPoint {
-  hour_start: string
-  count: number
-}
-
 export interface StatsActivityHeatmapDayRow {
   day: string
   counts: number[]
@@ -166,10 +161,9 @@ export interface StatsActivityHeatmapDayRow {
 
 export interface StatsActivityHeatmapResponse {
   generated_at: string
-  last_24h: StatsActivityHeatmapHourPoint[]
-  last_24h_max: number
-  last_7d: StatsActivityHeatmapDayRow[]
-  last_7d_max: number
+  window_days: number
+  rows: StatsActivityHeatmapDayRow[]
+  max_count: number
 }
 
 export interface StatsSignalRadarAxisPoint {

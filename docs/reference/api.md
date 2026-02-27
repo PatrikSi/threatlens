@@ -353,13 +353,12 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 
 - Auth: `read:stats`
 - Query params:
+  - `days`: `7..365` (default `30`)
   - `feed_ids?`: CSV UUID list
 - Response (`ActivityHeatmapResponse`):
-  - `generated_at`
-  - `last_24h[]`: hourly buckets with `hour_start`, `count`
-  - `last_24h_max`
-  - `last_7d[]`: day rows with `day` and 24-hour `counts[]`
-  - `last_7d_max`
+  - `generated_at`, `window_days`
+  - `rows[]`: day rows with `day` and 24-hour `counts[]`
+  - `max_count`
 
 ### `GET /stats/signal-radar`
 

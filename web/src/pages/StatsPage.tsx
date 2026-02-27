@@ -49,9 +49,10 @@ export function StatsPage() {
   })
 
   const activityHeatmapQuery = useQuery({
-    queryKey: ['stats', 'activity-heatmap', feedIdsParam],
+    queryKey: ['stats', 'activity-heatmap', days, feedIdsParam],
     queryFn: () => {
       const params = new URLSearchParams()
+      params.set('days', String(days))
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
@@ -169,9 +170,9 @@ export function StatsPage() {
           </section>
 
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-            <h3 className="font-display text-lg">Activity Heatmap (24h / 7d)</h3>
+            <h3 className="font-display text-lg">Activity Heatmap</h3>
             <p className="mt-1 text-xs text-slate dark:text-slate-300">
-              Publication-time density by hour. Darker cells indicate higher post volume.
+              Publication-time density by hour across the selected time window. Darker cells indicate higher post volume.
             </p>
             {activityHeatmapQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading activity heatmap...</p>}
             {activityHeatmapQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load activity heatmap.</p>}
@@ -537,10 +538,8 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 
 function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const max24 = Math.max(1, data.last_24h_max)
-  const max7d = Math.max(1, data.last_7d_max)
+  const maxCount = Math.max(1, data.max_count)
   const [hovered, setHovered] = useState<{
-    period: '24h' | '7d'
     label: string
     count: number
     intensityPct: number
@@ -560,7 +559,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
           className="pointer-events-none absolute z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95"
           style={{ left: heatmapTooltipPosition.left, top: heatmapTooltipPosition.top }}
         >
-          <p className="font-semibold">{hovered.period === '24h' ? 'Last 24h Bucket' : 'Last 7d Bucket'}</p>
+          <p className="font-semibold">Activity Bucket</p>
           <p className="mt-0.5">{hovered.label}</p>
           <div className="mt-1 flex items-center justify-between gap-4">
             <span className="text-slate dark:text-slate-300">Posts</span>
@@ -573,41 +572,9 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Last 24 Hours</p>
-        <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-          <div
-            className="grid gap-1"
-            style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
-          >
-            {data.last_24h.map((point) => (
-              <div
-                key={point.hour_start}
-                className="h-6 rounded"
-                style={heatCellStyle(point.count, max24)}
-                onMouseMove={(event) => {
-                  const bounds = panelRef.current?.getBoundingClientRect()
-                  if (!bounds) return
-                  setHovered({
-                    period: '24h',
-                    label: formatHourAxis(point.hour_start),
-                    count: point.count,
-                    intensityPct: (point.count / max24) * 100,
-                    x: event.clientX - bounds.left,
-                    y: event.clientY - bounds.top,
-                  })
-                }}
-              />
-            ))}
-          </div>
-          <div className="mt-1 flex items-center justify-between text-[11px] text-slate dark:text-slate-300">
-            <span>{data.last_24h[0] ? formatHourAxis(data.last_24h[0].hour_start) : '-'}</span>
-            <span>{data.last_24h[data.last_24h.length - 1] ? formatHourAxis(data.last_24h[data.last_24h.length - 1].hour_start) : '-'}</span>
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Last 7 Days</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+          Last {data.window_days} Days
+        </p>
         <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
           <div className="mb-1 grid grid-cols-[82px_1fr] items-center gap-2 text-[10px] text-slate dark:text-slate-300">
             <span />
@@ -620,8 +587,8 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
             </div>
           </div>
 
-          <div className="space-y-1">
-            {data.last_7d.map((row) => (
+          <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
+            {data.rows.map((row) => (
               <div key={row.day} className="grid grid-cols-[82px_1fr] items-center gap-2">
                 <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
                 <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
@@ -629,15 +596,14 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                     <div
                       key={`${row.day}-${hour}`}
                       className="h-4 rounded"
-                      style={heatCellStyle(count, max7d)}
+                      style={heatCellStyle(count, maxCount)}
                       onMouseMove={(event) => {
                         const bounds = panelRef.current?.getBoundingClientRect()
                         if (!bounds) return
                         setHovered({
-                          period: '7d',
                           label: `${row.day} ${String(hour).padStart(2, '0')}:00`,
                           count,
-                          intensityPct: (count / max7d) * 100,
+                          intensityPct: (count / maxCount) * 100,
                           x: event.clientX - bounds.left,
                           y: event.clientY - bounds.top,
                         })
@@ -829,12 +795,6 @@ function heatCellStyle(count: number, maxCount: number) {
   const intensity = Math.min(1, count / Math.max(1, maxCount))
   const alpha = 0.2 + intensity * 0.75
   return { backgroundColor: `rgba(6, 182, 212, ${alpha.toFixed(3)})` }
-}
-
-function formatHourAxis(value: string) {
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function formatCategoryLabel(category: string) {
