@@ -2,6 +2,13 @@
 set -euo pipefail
 
 cd /app
-alembic upgrade head
-python -m app.scripts.seed_admin
+
+if [ "${RUN_MIGRATIONS_ON_STARTUP:-true}" = "true" ]; then
+  alembic upgrade head
+fi
+
+if [ "${SEED_ADMIN_ON_STARTUP:-false}" = "true" ]; then
+  python -m app.scripts.seed_admin
+fi
+
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
