@@ -723,16 +723,23 @@ def set_item_tags(
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
+    requested_tag_ids = list(payload.tag_ids)
+    applied: list[str] = []
+    if requested_tag_ids:
+        valid_tags = db.scalars(select(Tag.id).where(Tag.id.in_(requested_tag_ids))).all()
+        valid_tag_set = set(valid_tags)
+        missing_tag_ids = [str(tag_id) for tag_id in requested_tag_ids if tag_id not in valid_tag_set]
+        if missing_tag_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown tag IDs: {', '.join(missing_tag_ids)}",
+            )
+
     db.query(ItemTag).filter(ItemTag.item_id == item_id).delete(synchronize_session=False)
 
-    applied: list[str] = []
-    if payload.tag_ids:
-        valid_tags = db.scalars(select(Tag.id).where(Tag.id.in_(payload.tag_ids))).all()
-        valid_tag_set = set(valid_tags)
-        for tag_id in payload.tag_ids:
-            if tag_id in valid_tag_set:
-                db.add(ItemTag(item_id=item_id, tag_id=tag_id))
-                applied.append(str(tag_id))
+    for tag_id in requested_tag_ids:
+        db.add(ItemTag(item_id=item_id, tag_id=tag_id))
+        applied.append(str(tag_id))
 
     record_audit(
         db,
