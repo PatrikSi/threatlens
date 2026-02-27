@@ -15,6 +15,9 @@ from app.models.feed import Feed
 from app.models.item import Item
 from app.models.user import User
 from app.schemas.stats import (
+    ActivityHeatmapDayRow,
+    ActivityHeatmapHourPoint,
+    ActivityHeatmapResponse,
     ActivitySummary,
     DailyVolumePoint,
     DerivedSummary,
@@ -278,6 +281,62 @@ def get_feed_timeseries(
     ]
 
     return FeedTimeSeriesResponse(generated_at=now, window_days=days, series=series)
+
+
+@router.get("/activity-heatmap", response_model=ActivityHeatmapResponse)
+def get_activity_heatmap(
+    feed_ids: str | None = Query(default=None),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
+):
+    selected_feed_ids = _parse_feed_ids(feed_ids)
+    now = datetime.now(timezone.utc)
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    start_24h = current_hour - timedelta(hours=23)
+    start_7d_date = (now - timedelta(days=6)).date()
+    start_7d = datetime.combine(start_7d_date, datetime.min.time(), tzinfo=timezone.utc)
+    window_start = min(start_24h, start_7d)
+
+    query = select(Item.published_at).where(Item.published_at.is_not(None), Item.published_at >= window_start)
+    if selected_feed_ids:
+        query = query.where(Item.feed_id.in_(selected_feed_ids))
+
+    published_rows = db.scalars(query).all()
+
+    hour_axis = [start_24h + timedelta(hours=offset) for offset in range(24)]
+    counts_24h = {bucket: 0 for bucket in hour_axis}
+
+    day_axis = [(start_7d_date + timedelta(days=offset)).isoformat() for offset in range(7)]
+    counts_7d = {day_key: [0] * 24 for day_key in day_axis}
+
+    for published in published_rows:
+        if published is None:
+            continue
+
+        normalized = _ensure_aware(published)
+        hour_bucket = normalized.replace(minute=0, second=0, microsecond=0)
+
+        if start_24h <= hour_bucket <= current_hour and hour_bucket in counts_24h:
+            counts_24h[hour_bucket] += 1
+
+        if normalized >= start_7d:
+            day_key = normalized.date().isoformat()
+            if day_key in counts_7d:
+                counts_7d[day_key][normalized.hour] += 1
+
+    last_24h = [ActivityHeatmapHourPoint(hour_start=bucket, count=counts_24h[bucket]) for bucket in hour_axis]
+    last_24h_max = max((entry.count for entry in last_24h), default=0)
+
+    last_7d = [ActivityHeatmapDayRow(day=day_key, counts=counts_7d[day_key]) for day_key in day_axis]
+    last_7d_max = max((count for row in last_7d for count in row.counts), default=0)
+
+    return ActivityHeatmapResponse(
+        generated_at=now,
+        last_24h=last_24h,
+        last_24h_max=last_24h_max,
+        last_7d=last_7d,
+        last_7d_max=last_7d_max,
+    )
 
 
 def _ensure_aware(value: datetime) -> datetime:

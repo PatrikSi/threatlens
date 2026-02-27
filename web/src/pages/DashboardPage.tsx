@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import {
   AlertInterest,
   AlertMatchListResponse,
@@ -88,7 +89,20 @@ interface ImportedSavedViewEntry {
   query_json: Record<string, unknown>
 }
 
+interface SavedViewPreview {
+  id: string
+  name: string
+  created_at: string
+  windows: DashboardWindow[]
+  window_type_counts: {
+    rss: number
+    alerts: number
+    notes: number
+  }
+}
+
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
+const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const DASHBOARD_VIEW_VERSION = 3
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
@@ -99,6 +113,8 @@ const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
 const MAX_IMPORTED_VIEWS = 250
+const SAVED_VIEW_THUMBNAIL_WIDTH = 148
+const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Free' },
@@ -152,6 +168,7 @@ export function DashboardPage() {
   const [alertPageSize, setAlertPageSize] = useState<number>(25)
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => loadDashboardWindows())
+  const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>(() => loadWindowSeenState())
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
@@ -179,6 +196,35 @@ export function DashboardPage() {
       return
     }
     window.localStorage.setItem(WINDOW_STORAGE_KEY, JSON.stringify(windows))
+  }, [windows])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem(WINDOW_SEEN_STORAGE_KEY, JSON.stringify(windowSeenAt))
+  }, [windowSeenAt])
+
+  useEffect(() => {
+    setWindowSeenAt((current) => {
+      const next: Record<string, string> = {}
+      let changed = false
+      const seed = new Date().toISOString()
+      for (const layout of windows) {
+        if (current[layout.id]) {
+          next[layout.id] = current[layout.id]
+          continue
+        }
+        if (layout.type !== 'notes') {
+          next[layout.id] = seed
+          changed = true
+        }
+      }
+      if (!changed && Object.keys(next).length === Object.keys(current).length) {
+        return current
+      }
+      return next
+    })
   }, [windows])
 
   const debouncedQ = useDebouncedValue(q)
@@ -771,6 +817,13 @@ export function DashboardPage() {
     setActiveSavedViewId(null)
   }
 
+  const markWindowSeen = (windowId: string) => {
+    setWindowSeenAt((current) => ({
+      ...current,
+      [windowId]: new Date().toISOString(),
+    }))
+  }
+
   const updateDashboardTimeRange = (nextRange: TimeRangeFilter) => {
     setActiveSavedViewId(null)
     setPage(1)
@@ -852,6 +905,13 @@ export function DashboardPage() {
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
   const containerDimensions = getWindowContainerDimensions(rootRef.current)
+  const savedViewPreviews = useMemo(
+    () =>
+      (viewsQuery.data ?? []).map((view) =>
+        buildSavedViewPreview(view, Math.max(containerDimensions.width, 1120), Math.max(containerDimensions.height, 680)),
+      ),
+    [containerDimensions.height, containerDimensions.width, viewsQuery.data],
+  )
 
   return (
     <div className="w-full">
@@ -983,6 +1043,9 @@ export function DashboardPage() {
             windowLayout.type === 'alerts'
               ? filterEntriesByTimeWindow(alertMatchesQuery.data?.items ?? [], effectiveWindowTimeFilter)
               : []
+          const lastSeenAtIso = windowSeenAt[windowLayout.id] ?? ''
+          const rssChangedCount = windowLayout.type === 'rss' ? countNewEntriesSince(rssWindowItems, lastSeenAtIso) : 0
+          const alertChangedCount = windowLayout.type === 'alerts' ? countNewEntriesSince(alertWindowItems, lastSeenAtIso) : 0
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
           const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border border-slate/20 bg-white/85 text-[13px] dark:border-cyan-900/40 dark:bg-[#041612]/96 ${
@@ -1027,6 +1090,25 @@ export function DashboardPage() {
                         ? `${alertWindowItems.length} shown`
                         : 'Scratch Pad'}
                   </span>
+                  {windowLayout.type === 'rss' && rssChangedCount > 0 && (
+                    <span className="rounded border border-cyan/40 bg-cyan/20 px-2 py-0.5 text-[11px] font-semibold text-cyan">
+                      +{rssChangedCount} new
+                    </span>
+                  )}
+                  {windowLayout.type === 'alerts' && alertChangedCount > 0 && (
+                    <span className="rounded border border-cyan/40 bg-cyan/20 px-2 py-0.5 text-[11px] font-semibold text-cyan">
+                      +{alertChangedCount} new
+                    </span>
+                  )}
+                  {windowLayout.type !== 'notes' && (
+                    <button
+                      type="button"
+                      className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                      onClick={() => markWindowSeen(windowLayout.id)}
+                    >
+                      Mark Seen
+                    </button>
+                  )}
                   {windowLayout.type !== 'notes' && (
                     <button
                       type="button"
@@ -1086,6 +1168,7 @@ export function DashboardPage() {
                       </button>
                       {feedsQuery.data?.map((feed) => {
                         const active = selectedFeedIds.includes(feed.id)
+                        const health = resolveFeedHealth(feed)
                         return (
                           <button
                             key={feed.id}
@@ -1100,6 +1183,7 @@ export function DashboardPage() {
                               )
                             }}
                           >
+                            <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${feedHealthDotClass(health.status)}`} />
                             {feed.name}
                           </button>
                         )
@@ -1801,21 +1885,40 @@ export function DashboardPage() {
               {importViewsResult && <span className="text-xs text-emerald-600">{importViewsResult}</span>}
             </div>
 
-            <div className="mt-4 space-y-2">
-              {(viewsQuery.data ?? []).map((view) => (
+            <div className="mt-4 grid gap-2 md:grid-cols-2">
+              {savedViewPreviews.map((view) => (
                 <div
                   key={view.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded border border-slate/20 p-2 dark:border-cyan-900/40"
+                  className="rounded border border-slate/20 p-2 dark:border-cyan-900/40"
                 >
-                  <div>
-                    <p className="font-semibold">{view.name}</p>
-                    <p className="text-xs text-slate dark:text-slate-300">{new Date(view.created_at).toLocaleString()}</p>
+                  <div className="flex items-start gap-3">
+                    <SavedViewThumbnail windows={view.windows} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{view.name}</p>
+                      <p className="text-xs text-slate dark:text-slate-300">{new Date(view.created_at).toLocaleString()}</p>
+                      <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                          RSS {view.window_type_counts.rss}
+                        </span>
+                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                          Alerts {view.window_type_counts.alerts}
+                        </span>
+                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                          Notes {view.window_type_counts.notes}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="mt-2 flex items-center gap-2">
                     <button
                       type="button"
                       className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                      onClick={() => applySavedView(view)}
+                      onClick={() => {
+                        const selected = viewsQuery.data?.find((entry) => entry.id === view.id)
+                        if (selected) {
+                          applySavedView(selected)
+                        }
+                      }}
                     >
                       Load
                     </button>
@@ -2007,6 +2110,114 @@ function computeInformationDensity(item: ItemListEntry): { score: number; label:
   if (normalized >= 70) return { score: normalized, label: 'High' }
   if (normalized >= 40) return { score: normalized, label: 'Medium' }
   return { score: normalized, label: 'Low' }
+}
+
+function buildSavedViewPreview(view: SavedView, containerWidth: number, containerHeight: number): SavedViewPreview {
+  const parsed = parseDashboardSavedView(view.query_json, containerWidth, containerHeight)
+  const counts = {
+    rss: 0,
+    alerts: 0,
+    notes: 0,
+  }
+
+  for (const window of parsed.windows) {
+    if (window.type === 'rss') counts.rss += 1
+    if (window.type === 'alerts') counts.alerts += 1
+    if (window.type === 'notes') counts.notes += 1
+  }
+
+  return {
+    id: view.id,
+    name: view.name,
+    created_at: view.created_at,
+    windows: parsed.windows,
+    window_type_counts: counts,
+  }
+}
+
+function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
+  const previewContainerWidth = 1120
+  const previewContainerHeight = 680
+
+  return (
+    <div
+      className="relative shrink-0 overflow-hidden rounded border border-slate/25 bg-gradient-to-br from-slate-100 to-slate-200 dark:border-cyan-900/40 dark:from-[#06221c] dark:to-[#041612]"
+      style={{ width: SAVED_VIEW_THUMBNAIL_WIDTH, height: SAVED_VIEW_THUMBNAIL_HEIGHT }}
+    >
+      {windows.slice(0, 14).map((windowLayout) => {
+        const rect = resolveWindowRect(windowLayout, previewContainerWidth, previewContainerHeight)
+        const left = Math.max(0, (rect.x / previewContainerWidth) * SAVED_VIEW_THUMBNAIL_WIDTH)
+        const top = Math.max(0, (rect.y / previewContainerHeight) * SAVED_VIEW_THUMBNAIL_HEIGHT)
+        const width = Math.max(6, (rect.width / previewContainerWidth) * SAVED_VIEW_THUMBNAIL_WIDTH)
+        const height = Math.max(6, (rect.height / previewContainerHeight) * SAVED_VIEW_THUMBNAIL_HEIGHT)
+
+        return (
+          <div
+            key={windowLayout.id}
+            className={`absolute overflow-hidden rounded-[3px] border ${thumbnailWindowTone(windowLayout.type)}`}
+            style={{ left, top, width, height }}
+            title={windowLayout.title}
+          />
+        )
+      })}
+      {windows.length > 14 && (
+        <div className="absolute bottom-1 right-1 rounded border border-slate/40 bg-white/85 px-1 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/90 dark:text-slate-200">
+          +{windows.length - 14}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function thumbnailWindowTone(type: DashboardWindowType): string {
+  if (type === 'rss') return 'border-cyan-500/40 bg-cyan-400/30 dark:bg-cyan-500/35'
+  if (type === 'alerts') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
+  return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
+}
+
+function loadWindowSeenState(): Record<string, string> {
+  if (typeof window === 'undefined') {
+    return {}
+  }
+
+  const raw = window.localStorage.getItem(WINDOW_SEEN_STORAGE_KEY)
+  if (!raw) {
+    return {}
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!isRecord(parsed)) return {}
+    const next: Record<string, string> = {}
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === 'string' && value.trim()) {
+        next[key] = value
+      }
+    }
+    return next
+  } catch {
+    return {}
+  }
+}
+
+function countNewEntriesSince<T extends { first_seen_at: string }>(entries: T[], lastSeenAtIso: string): number {
+  if (!lastSeenAtIso) {
+    return 0
+  }
+
+  const marker = Date.parse(lastSeenAtIso)
+  if (Number.isNaN(marker)) {
+    return 0
+  }
+
+  let count = 0
+  for (const entry of entries) {
+    const candidate = Date.parse(entry.first_seen_at)
+    if (!Number.isNaN(candidate) && candidate > marker) {
+      count += 1
+    }
+  }
+  return count
 }
 
 function loadDashboardWindows(): DashboardWindow[] {

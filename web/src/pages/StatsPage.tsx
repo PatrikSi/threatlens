@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
-import { Feed, StatsFeedTimeSeriesResponse, StatsOverviewResponse } from '../types/api'
+import { Feed, StatsActivityHeatmapResponse, StatsFeedTimeSeriesResponse, StatsOverviewResponse } from '../types/api'
 
 const FEED_CHART_COLORS = ['#0891b2', '#06b6d4', '#0ea5e9', '#14b8a6', '#10b981', '#22c55e', '#eab308', '#f97316']
 
@@ -39,6 +39,17 @@ export function StatsPage() {
         params.set('feed_ids', feedIdsParam)
       }
       return apiFetch<StatsFeedTimeSeriesResponse>(`/stats/feed-timeseries?${params.toString()}`)
+    },
+  })
+
+  const activityHeatmapQuery = useQuery({
+    queryKey: ['stats', 'activity-heatmap', feedIdsParam],
+    queryFn: () => {
+      const params = new URLSearchParams()
+      if (feedIdsParam) {
+        params.set('feed_ids', feedIdsParam)
+      }
+      return apiFetch<StatsActivityHeatmapResponse>(`/stats/activity-heatmap?${params.toString()}`)
     },
   })
 
@@ -137,6 +148,16 @@ export function StatsPage() {
             {feedTimeSeriesQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading feed time series...</p>}
             {feedTimeSeriesQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load feed time series.</p>}
             {feedTimeSeriesQuery.data && <FeedTimeSeriesChart data={feedTimeSeriesQuery.data} />}
+          </section>
+
+          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+            <h3 className="font-display text-lg">Activity Heatmap (24h / 7d)</h3>
+            <p className="mt-1 text-xs text-slate dark:text-slate-300">
+              Publication-time density by hour. Darker cells indicate higher post volume.
+            </p>
+            {activityHeatmapQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading activity heatmap...</p>}
+            {activityHeatmapQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load activity heatmap.</p>}
+            {activityHeatmapQuery.data && <ActivityHeatmapPanel data={activityHeatmapQuery.data} />}
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
@@ -464,6 +485,93 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
       )}
     </div>
   )
+}
+
+function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
+  const max24 = Math.max(1, data.last_24h_max)
+  const max7d = Math.max(1, data.last_7d_max)
+
+  return (
+    <div className="mt-3 space-y-4">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Last 24 Hours</p>
+        <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+          <div
+            className="grid gap-1"
+            style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}
+          >
+            {data.last_24h.map((point) => (
+              <div
+                key={point.hour_start}
+                className="h-6 rounded"
+                style={heatCellStyle(point.count, max24)}
+                title={`${new Date(point.hour_start).toLocaleString()} — ${point.count} posts`}
+              />
+            ))}
+          </div>
+          <div className="mt-1 flex items-center justify-between text-[11px] text-slate dark:text-slate-300">
+            <span>{data.last_24h[0] ? formatHourAxis(data.last_24h[0].hour_start) : '-'}</span>
+            <span>{data.last_24h[data.last_24h.length - 1] ? formatHourAxis(data.last_24h[data.last_24h.length - 1].hour_start) : '-'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Last 7 Days</p>
+        <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+          <div className="mb-1 grid grid-cols-[82px_1fr] items-center gap-2 text-[10px] text-slate dark:text-slate-300">
+            <span />
+            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
+              {Array.from({ length: 24 }, (_, hour) => (
+                <span key={`hour-${hour}`} className="text-center">
+                  {hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            {data.last_7d.map((row) => (
+              <div key={row.day} className="grid grid-cols-[82px_1fr] items-center gap-2">
+                <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
+                <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
+                  {row.counts.map((count, hour) => (
+                    <div
+                      key={`${row.day}-${hour}`}
+                      className="h-4 rounded"
+                      style={heatCellStyle(count, max7d)}
+                      title={`${row.day} ${String(hour).padStart(2, '0')}:00 — ${count} posts`}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 text-[11px] text-slate dark:text-slate-300">
+        <span>Low</span>
+        <div className="h-2 w-28 rounded" style={{ background: 'linear-gradient(90deg, rgba(6,182,212,0.1), rgba(6,182,212,0.95))' }} />
+        <span>High</span>
+      </div>
+    </div>
+  )
+}
+
+function heatCellStyle(count: number, maxCount: number) {
+  if (count <= 0) {
+    return { backgroundColor: 'rgba(148, 163, 184, 0.14)' }
+  }
+  const intensity = Math.min(1, count / Math.max(1, maxCount))
+  const alpha = 0.2 + intensity * 0.75
+  return { backgroundColor: `rgba(6, 182, 212, ${alpha.toFixed(3)})` }
+}
+
+function formatHourAxis(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString([], { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
