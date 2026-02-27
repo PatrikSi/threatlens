@@ -154,6 +154,24 @@ export interface StatsFeedTimeSeriesResponse {
   series: StatsFeedTimeSeriesSeries[]
 }
 
+export interface StatsActivityHeatmapHourPoint {
+  hour_start: string
+  count: number
+}
+
+export interface StatsActivityHeatmapDayRow {
+  day: string
+  counts: number[]
+}
+
+export interface StatsActivityHeatmapResponse {
+  generated_at: string
+  last_24h: StatsActivityHeatmapHourPoint[]
+  last_24h_max: number
+  last_7d: StatsActivityHeatmapDayRow[]
+  last_7d_max: number
+}
+
 export interface Feed {
   id: string
   name: string

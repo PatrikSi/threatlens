@@ -16,6 +16,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
   - export all saved views to JSON
   - import saved views JSON
   - delete views
+  - thumbnail previews of saved window layouts with window-type counts
 
 ## Window System
 
@@ -50,12 +51,14 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Collapse/expand controls panel
 - Remove window
 - Z-order bring-to-front on click
+- `Mark Seen` control for RSS/Alerts windows
+- `What changed` badges (`+N new`) based on per-window seen timestamp state
 
 ## RSS Window
 
 ### Filter controls
 
-- Feed chips (`All` + per-feed)
+- Feed chips (`All` + per-feed) with source-health status dots
 - Tag chips (`All` + per-tag, excludes hidden tags)
 - Search query
 - Time range: `all`, `24h`, `7d`, `30d`, `custom`
@@ -107,6 +110,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 ## Persistence and State
 
 - Local storage key: `threatlens.dashboard.windows.v2`
+- Local storage key: `threatlens.dashboard.window-seen.v1`
 - Saved view payload includes:
   - RSS filter state
   - Alerts filter state

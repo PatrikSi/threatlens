@@ -249,6 +249,10 @@ UI elements:
   - Hover guide line
   - Hover legend sorted by count desc
   - Per-series visibility chips
+- Activity heatmap panels:
+  - Last 24h hourly strip
+  - Last 7d day/hour matrix
+  - intensity legend
 - Derived metrics
 - Status bars
 - Daily volume bars
@@ -261,6 +265,7 @@ API calls:
 - `GET /feeds`
 - `GET /stats/overview?...`
 - `GET /stats/feed-timeseries?...`
+- `GET /stats/activity-heatmap?...`
 
 ### `SettingsLayout` and `SettingsOverviewPage`
 
@@ -405,3 +410,4 @@ API calls:
 | `pages/StatsPage.tsx` | `GET` | `/feeds` |
 | `pages/StatsPage.tsx` | `GET` | `/stats/overview` |
 | `pages/StatsPage.tsx` | `GET` | `/stats/feed-timeseries` |
+| `pages/StatsPage.tsx` | `GET` | `/stats/activity-heatmap` |

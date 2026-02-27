@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
+import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
 type FeedFetchMode = 'interval' | 'schedule'
@@ -374,11 +375,18 @@ export function FeedsPage() {
         )}
 
         <div className="mt-3 space-y-2">
-          {filteredFeeds.map((feed) => (
+          {filteredFeeds.map((feed) => {
+            const health = resolveFeedHealth(feed)
+            return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="font-semibold">{feed.name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-semibold">{feed.name}</p>
+                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${feedHealthBadgeClass(health.status)}`}>
+                      {health.label}
+                    </span>
+                  </div>
                   <p className="text-xs text-slate dark:text-slate-300">{feed.url}</p>
                   {feed.description && <p className="mt-1 text-xs text-slate dark:text-slate-300">{feed.description}</p>}
                   <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate dark:text-slate-300">
@@ -461,7 +469,8 @@ export function FeedsPage() {
 
               {feed.last_error && <p className="mt-2 text-xs text-red-600">Last error: {feed.last_error}</p>}
             </div>
-          ))}
+            )
+          })}
 
           {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading feeds...</p>}
           {feedsQuery.isError && <p className="text-sm text-red-600">Failed to load feeds.</p>}

@@ -349,6 +349,18 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `generated_at`, `window_days`
   - `series[]` with per-day points grouped by `published_at` date
 
+### `GET /stats/activity-heatmap`
+
+- Auth: `read:stats`
+- Query params:
+  - `feed_ids?`: CSV UUID list
+- Response (`ActivityHeatmapResponse`):
+  - `generated_at`
+  - `last_24h[]`: hourly buckets with `hour_start`, `count`
+  - `last_24h_max`
+  - `last_7d[]`: day rows with `day` and 24-hour `counts[]`
+  - `last_7d_max`
+
 ## Health
 
 ### `GET /health`

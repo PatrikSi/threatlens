@@ -43,6 +43,7 @@ Actions:
 
 ### Visible status values
 
+- Source health badge (`Healthy`, `Stale`, `Failing`, `Disabled`)
 - URL
 - Description
 - Site URL
