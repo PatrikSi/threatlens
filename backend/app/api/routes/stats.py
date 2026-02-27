@@ -72,6 +72,7 @@ def get_stats_overview(
     selected_feed_ids = _parse_feed_ids(feed_ids)
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)
+    timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
 
     feed_filters = [Feed.id.in_(selected_feed_ids)] if selected_feed_ids else []
     item_filters = [Item.feed_id.in_(selected_feed_ids)] if selected_feed_ids else []
@@ -120,10 +121,10 @@ def get_stats_overview(
     status_breakdown = [StatusPoint(status=status, count=int(count)) for status, count in status_rows]
 
     volume_query = (
-        select(func.date(Item.first_seen_at).label("date_key"), func.count(Item.id).label("count"))
-        .where(Item.first_seen_at >= window_start)
-        .group_by(func.date(Item.first_seen_at))
-        .order_by(func.date(Item.first_seen_at).asc())
+        select(func.date(timeline_at).label("date_key"), func.count(Item.id).label("count"))
+        .where(timeline_at >= window_start)
+        .group_by(func.date(timeline_at))
+        .order_by(func.date(timeline_at).asc())
     )
     if item_filters:
         volume_query = volume_query.where(*item_filters)
@@ -135,7 +136,7 @@ def get_stats_overview(
             Feed.id,
             Feed.name,
             func.count(Item.id).label("total_items"),
-            func.sum(case((Item.first_seen_at >= window_start, 1), else_=0)).label("items_in_window"),
+            func.sum(case((timeline_at >= window_start, 1), else_=0)).label("items_in_window"),
             func.sum(case((Item.status == "error", 1), else_=0)).label("error_items"),
             func.sum(case((Item.status == "content_fetched", 1), else_=0)).label("content_fetched_items"),
             func.max(Item.published_at).label("last_published_at"),
@@ -217,7 +218,7 @@ def get_stats_overview(
 def get_feed_timeseries(
     days: int = Query(default=30, ge=7, le=365),
     feed_ids: str | None = Query(default=None),
-    top_feeds: int = Query(default=8, ge=1, le=20),
+    top_feeds: int | None = Query(default=None, ge=1, le=500),
     db: Session = Depends(get_db),
     _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
@@ -225,16 +226,19 @@ def get_feed_timeseries(
     now = datetime.now(timezone.utc)
     window_start_date = (now - timedelta(days=days - 1)).date()
     window_start = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
+    timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
 
     target_feed_ids = selected_feed_ids
     if not target_feed_ids:
-        target_feed_rows = db.execute(
+        target_feed_rows_query = (
             select(Item.feed_id, func.count(Item.id).label("count"))
-            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
+            .where(timeline_at >= window_start)
             .group_by(Item.feed_id)
             .order_by(func.count(Item.id).desc())
-            .limit(top_feeds)
-        ).all()
+        )
+        if top_feeds is not None:
+            target_feed_rows_query = target_feed_rows_query.limit(top_feeds)
+        target_feed_rows = db.execute(target_feed_rows_query).all()
         target_feed_ids = [feed_id for feed_id, _count in target_feed_rows]
 
     if not target_feed_ids:
@@ -246,12 +250,12 @@ def get_feed_timeseries(
     time_rows = db.execute(
         select(
             Item.feed_id,
-            func.date(Item.published_at).label("date_key"),
+            func.date(timeline_at).label("date_key"),
             func.count(Item.id).label("count"),
         )
-        .where(Item.feed_id.in_(target_feed_ids), Item.published_at.is_not(None), Item.published_at >= window_start)
-        .group_by(Item.feed_id, func.date(Item.published_at))
-        .order_by(func.date(Item.published_at).asc())
+        .where(Item.feed_id.in_(target_feed_ids), timeline_at >= window_start)
+        .group_by(Item.feed_id, func.date(timeline_at))
+        .order_by(func.date(timeline_at).asc())
     ).all()
 
     counts_by_feed_and_date: dict[uuid.UUID, dict[str, int]] = {feed_id: {} for feed_id in target_feed_ids}

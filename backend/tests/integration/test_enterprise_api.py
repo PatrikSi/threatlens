@@ -691,6 +691,102 @@ def test_stats_overview_supports_feed_filters(client: TestClient, auth_headers, 
     assert payload["feed_breakdown"][0]["feed_id"] == feed_one_id
 
 
+def test_stats_overview_daily_volume_and_feed_share_use_publication_time(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Stats Publication Feed",
+            "url": "https://example.com/stats-publication.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    db_session.add_all(
+        [
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="stats-old-published",
+                url="https://example.com/stats/old-published",
+                canonical_url="https://example.com/stats/old-published",
+                title="Old publication date",
+                summary="outside selected window",
+                published_at=now - timedelta(days=45),
+                first_seen_at=now - timedelta(hours=2),
+                dedupe_key="test:stats-old-published",
+                content_hash="1" * 64,
+                status="content_fetched",
+            ),
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed_id,
+                source_guid="stats-new-published",
+                url="https://example.com/stats/new-published",
+                canonical_url="https://example.com/stats/new-published",
+                title="Recent publication date",
+                summary="inside selected window",
+                published_at=now - timedelta(days=2),
+                first_seen_at=now - timedelta(hours=1),
+                dedupe_key="test:stats-new-published",
+                content_hash="2" * 64,
+                status="content_fetched",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/overview?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert sum(point["count"] for point in payload["daily_volume"]) == 1
+    assert payload["feed_breakdown"][0]["items_in_window"] == 1
+
+
+def test_stats_overview_daily_volume_uses_first_seen_when_published_missing(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Stats Missing Published Feed",
+            "url": "https://example.com/stats-missing-published.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        Item(
+            id=uuid.uuid4(),
+            feed_id=feed_id,
+            source_guid="stats-missing-published",
+            url="https://example.com/stats/missing-published",
+            canonical_url="https://example.com/stats/missing-published",
+            title="Missing publication timestamp",
+            summary="should count via first_seen_at fallback",
+            published_at=None,
+            first_seen_at=now - timedelta(days=1),
+            dedupe_key="test:stats-missing-published",
+            content_hash="3" * 64,
+            status="content_fetched",
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/overview?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert sum(point["count"] for point in payload["daily_volume"]) == 1
+    assert payload["feed_breakdown"][0]["items_in_window"] == 1
+
+
 def test_stats_feed_timeseries_returns_daily_points(client: TestClient, auth_headers, db_session):
     feed_response = client.post(
         "/feeds",
@@ -748,6 +844,89 @@ def test_stats_feed_timeseries_returns_daily_points(client: TestClient, auth_hea
     assert payload["series"][0]["feed_id"] == str(feed_id)
     assert len(payload["series"][0]["points"]) == 7
     assert sum(point["count"] for point in payload["series"][0]["points"]) >= 2
+
+
+def test_stats_feed_timeseries_includes_more_than_eight_feeds_without_filter(client: TestClient, auth_headers, db_session):
+    now = datetime.now(timezone.utc)
+    created_feed_ids: list[uuid.UUID] = []
+
+    for index in range(9):
+        feed = Feed(
+            name=f"Timeseries Feed {index}",
+            url=f"https://example.com/timeseries-{index}.xml",
+            enabled=True,
+            fetch_interval_seconds=1800,
+        )
+        db_session.add(feed)
+        db_session.flush()
+        created_feed_ids.append(feed.id)
+
+        db_session.add(
+            Item(
+                id=uuid.uuid4(),
+                feed_id=feed.id,
+                source_guid=f"timeseries-default-{index}",
+                url=f"https://example.com/timeseries/default/{index}",
+                canonical_url=f"https://example.com/timeseries/default/{index}",
+                title=f"Timeseries default {index}",
+                summary="in-window activity",
+                published_at=now - timedelta(days=1),
+                first_seen_at=now - timedelta(days=1),
+                dedupe_key=f"test:timeseries-default-{index}",
+                content_hash=f"{index + 1:064x}",
+                status="content_fetched",
+            )
+        )
+
+    db_session.commit()
+
+    response = client.get("/stats/feed-timeseries?days=7", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    returned_feed_ids = {series["feed_id"] for series in payload["series"]}
+
+    for feed_id in created_feed_ids:
+        assert str(feed_id) in returned_feed_ids
+
+
+def test_stats_feed_timeseries_falls_back_to_first_seen_when_published_missing(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Timeseries Missing Published Feed",
+            "url": "https://example.com/timeseries-missing-published.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    db_session.add(
+        Item(
+            id=uuid.uuid4(),
+            feed_id=feed_id,
+            source_guid="timeseries-missing-published",
+            url="https://example.com/timeseries-missing-published/1",
+            canonical_url="https://example.com/timeseries-missing-published/1",
+            title="No publication timestamp",
+            summary="count should use first_seen_at",
+            published_at=None,
+            first_seen_at=now - timedelta(days=1),
+            dedupe_key="test:timeseries-missing-published",
+            content_hash="b" * 64,
+            status="content_fetched",
+        )
+    )
+    db_session.commit()
+
+    response = client.get(f"/stats/feed-timeseries?days=7&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload["series"]) == 1
+    assert sum(point["count"] for point in payload["series"][0]["points"]) == 1
 
 
 def test_stats_feed_timeseries_uses_publication_date_not_ingestion_date(client: TestClient, auth_headers, db_session):
