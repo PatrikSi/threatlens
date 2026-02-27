@@ -23,14 +23,28 @@ export class ApiError extends Error {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem(tokenStorageKey)
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    return window.localStorage.getItem(tokenStorageKey)
+  } catch {
+    return null
+  }
 }
 
 export function setToken(token: string | null) {
-  if (token) {
-    localStorage.setItem(tokenStorageKey, token)
-  } else {
-    localStorage.removeItem(tokenStorageKey)
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    if (token) {
+      window.localStorage.setItem(tokenStorageKey, token)
+    } else {
+      window.localStorage.removeItem(tokenStorageKey)
+    }
+  } catch {
+    // Ignore storage persistence failures; in-memory auth state still works for the session.
   }
 }
 

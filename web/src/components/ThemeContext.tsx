@@ -47,7 +47,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [mode, setMode] = useState<ThemeMode>(() => {
-    const stored = localStorage.getItem(themeStorageKey)
+    const stored = readStoredTheme()
     if (stored === 'dark') return 'dark-emerald'
     if (stored && VALID_THEME_IDS.has(stored as ThemeMode)) {
       return stored as ThemeMode
@@ -66,7 +66,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.classList.add(`theme-${mode}`)
     }
 
-    localStorage.setItem(themeStorageKey, mode)
+    persistTheme(mode)
   }, [mode])
 
   const value = useMemo(
@@ -88,4 +88,26 @@ export function useTheme() {
     throw new Error('useTheme must be used within ThemeProvider')
   }
   return context
+}
+
+function readStoredTheme(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  try {
+    return window.localStorage.getItem(themeStorageKey)
+  } catch {
+    return null
+  }
+}
+
+function persistTheme(mode: ThemeMode) {
+  if (typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(themeStorageKey, mode)
+  } catch {
+    // No-op when browser storage is unavailable (private mode / policy restrictions).
+  }
 }
