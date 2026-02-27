@@ -2,7 +2,7 @@ import { FormEvent, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { useAuth } from '../components/AuthContext'
 import { TokenResponse } from '../types/api'
 
@@ -14,13 +14,20 @@ export function LoginPage() {
 
   const login = useMutation({
     mutationFn: (payload: { email: string; password: string }) =>
-      apiFetch<TokenResponse>('/auth/login', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      }, false),
+      apiFetch<TokenResponse>(
+        '/auth/login',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        },
+        false,
+      ),
+    onMutate: () => {
+      setAuthToken(null)
+    },
     onSuccess: (data) => {
       setAuthToken(data.access_token)
-      navigate('/')
+      navigate('/', { replace: true })
     },
   })
 
@@ -56,7 +63,7 @@ export function LoginPage() {
           required
         />
 
-        {login.isError && <p className="mt-3 text-sm text-red-600">Login failed. Check credentials.</p>}
+        {login.isError && <p className="mt-3 text-sm text-red-600">{resolveLoginError(login.error)}</p>}
 
         <button
           type="submit"
@@ -68,4 +75,14 @@ export function LoginPage() {
       </form>
     </div>
   )
+}
+
+function resolveLoginError(error: unknown): string {
+  if (error instanceof ApiError && error.status === 401) {
+    return 'Invalid email or password.'
+  }
+  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+  return 'Login failed. Check credentials and try again.'
 }
