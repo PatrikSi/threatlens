@@ -542,7 +542,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   const panelRef = useRef<HTMLDivElement | null>(null)
   const maxCount = Math.max(1, data.max_count)
   const isHourly = data.bucket_unit === 'hour'
-  const dailyCellPx = 16
+  const dailyCellPx = 24
   const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
   const bucketLabels =
     data.bucket_labels.length === columnCount
@@ -632,13 +632,13 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
             <div className="overflow-x-auto pb-1">
               <div className="inline-flex items-start gap-2">
                 <div className="mt-[20px] grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Mon</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Wed</span>
-                  <span className="h-4 leading-4" />
-                  <span className="h-4 leading-4">Fri</span>
-                  <span className="h-4 leading-4" />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Mon</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Wed</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Fri</span>
+                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
                 </div>
 
                 <div className="space-y-1">
@@ -656,13 +656,13 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                   <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: `${dailyCellPx}px` }}>
                     {(calendar?.cells ?? []).map((cell, index) => {
                       if (!cell) {
-                        return <div key={`pad-${index}`} className="h-4 w-4 rounded bg-transparent" />
+                        return <div key={`pad-${index}`} className="rounded bg-transparent" style={{ width: dailyCellPx, height: dailyCellPx }} />
                       }
                       return (
                         <div
                           key={cell.day}
-                          className="h-4 w-4 rounded"
-                          style={heatCellStyle(cell.count, maxCount)}
+                          className="rounded"
+                          style={{ ...heatCellStyle(cell.count, maxCount), width: dailyCellPx, height: dailyCellPx }}
                           onMouseMove={(event) => {
                             const bounds = panelRef.current?.getBoundingClientRect()
                             if (!bounds) return
