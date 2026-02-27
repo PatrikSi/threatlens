@@ -607,7 +607,9 @@ def classify_item(item_id: str):
             return {"status": "skipped", "reason": "not_found", "item_id": item_id}
 
         article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
-        feed_name = db.scalar(select(Feed.name).where(Feed.id == item.feed_id)) or ""
+        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        feed_name = feed.name if feed is not None else ""
+        feed_url = feed.url if feed is not None else ""
 
         result = classify_item_content(
             title=item.title,
@@ -623,6 +625,12 @@ def classify_item(item_id: str):
                 item_id=parsed_item_id,
                 primary_category=row.primary_category,
                 secondary_categories=row.secondary_categories,
+                classification_confidence=row.confidence,
+                title=item.title,
+                summary=item.summary,
+                article_text=article.text if article else None,
+                feed_name=feed_name,
+                feed_url=feed_url,
             )
             db.commit()
             extract_item_iocs.delay(item_id)
@@ -646,6 +654,12 @@ def classify_item(item_id: str):
             item_id=parsed_item_id,
             primary_category=result.primary_category,
             secondary_categories=result.secondary_categories,
+            classification_confidence=result.confidence,
+            title=item.title,
+            summary=item.summary,
+            article_text=article.text if article else None,
+            feed_name=feed_name,
+            feed_url=feed_url,
         )
         db.commit()
 
@@ -690,8 +704,10 @@ def extract_item_iocs(item_id: str):
             record["confidence"] = max(float(record["confidence"]), match.confidence)
 
         linked_ioc_ids: set[uuid.UUID] = set()
+        ioc_values_by_type: dict[str, list[str]] = {}
         now = datetime.now(timezone.utc)
         for (ioc_type, ioc_value_norm), info in by_key.items():
+            ioc_values_by_type.setdefault(ioc_type, []).append(ioc_value_norm)
             ioc = _get_or_create_ioc(
                 db,
                 ioc_type=ioc_type,
@@ -717,6 +733,22 @@ def extract_item_iocs(item_id: str):
             )
         else:
             db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id).delete(synchronize_session=False)
+
+        classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
+        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        sync_item_algorithm_tags(
+            db,
+            item_id=parsed_item_id,
+            primary_category=classification.primary_category if classification else "threat_intelligence_research",
+            secondary_categories=classification.secondary_categories if classification else [],
+            classification_confidence=classification.confidence if classification else 0.35,
+            ioc_values_by_type=ioc_values_by_type,
+            title=item.title,
+            summary=item.summary,
+            article_text=article.text if article else None,
+            feed_name=feed.name if feed else "",
+            feed_url=feed.url if feed else "",
+        )
 
         db.commit()
 
