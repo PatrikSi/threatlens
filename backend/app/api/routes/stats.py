@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import case, func, select
+from sqlalchemy import Integer, case, cast, func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
@@ -117,19 +117,16 @@ def get_stats_overview(
     status_rows = db.execute(status_query.group_by(Item.status).order_by(func.count().desc())).all()
     status_breakdown = [StatusPoint(status=status, count=int(count)) for status, count in status_rows]
 
-    volume_query = select(Item.first_seen_at).where(Item.first_seen_at >= window_start)
+    volume_query = (
+        select(func.date(Item.first_seen_at).label("date_key"), func.count(Item.id).label("count"))
+        .where(Item.first_seen_at >= window_start)
+        .group_by(func.date(Item.first_seen_at))
+        .order_by(func.date(Item.first_seen_at).asc())
+    )
     if item_filters:
         volume_query = volume_query.where(*item_filters)
-    volume_rows = db.scalars(volume_query).all()
-    volume_counter: Counter[str] = Counter()
-    for dt in volume_rows:
-        normalized = _ensure_aware(dt)
-        volume_counter[normalized.date().isoformat()] += 1
-
-    daily_volume = [
-        DailyVolumePoint(date=date_key, count=count)
-        for date_key, count in sorted(volume_counter.items(), key=lambda kv: kv[0])
-    ]
+    volume_rows = db.execute(volume_query).all()
+    daily_volume = [DailyVolumePoint(date=str(date_key), count=int(count or 0)) for date_key, count in volume_rows if date_key]
 
     feed_rows_query = (
         select(
@@ -179,10 +176,8 @@ def get_stats_overview(
     )
     if item_filters:
         domain_query = domain_query.where(*item_filters)
-    domain_rows = db.execute(domain_query).all()
-
     domain_counter: Counter[str] = Counter()
-    for canonical_url, item_url in domain_rows:
+    for canonical_url, item_url in db.execute(domain_query):
         domain = _extract_domain(canonical_url or item_url)
         if domain:
             domain_counter[domain] += 1
@@ -298,27 +293,47 @@ def get_activity_heatmap(
     window_start_date = (now - timedelta(days=days - 1)).date()
     window_start = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
 
-    query = select(Item.published_at).where(Item.published_at.is_not(None), Item.published_at >= window_start)
-    if selected_feed_ids:
-        query = query.where(Item.feed_id.in_(selected_feed_ids))
-
-    published_rows = db.scalars(query).all()
-
     day_axis = [(window_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
     bucket_unit = "hour" if days <= 7 else "day"
     bucket_labels = [f"{hour:02d}:00" for hour in range(24)] if bucket_unit == "hour" else ["Daily"]
     bucket_size = len(bucket_labels)
     counts_by_day = {day_key: [0] * bucket_size for day_key in day_axis}
 
-    for published in published_rows:
-        if published is None:
-            continue
+    if bucket_unit == "hour":
+        heatmap_query = (
+            select(
+                func.date(Item.published_at).label("day_key"),
+                cast(func.extract("hour", Item.published_at), Integer).label("hour_key"),
+                func.count(Item.id).label("count"),
+            )
+            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
+            .group_by(func.date(Item.published_at), cast(func.extract("hour", Item.published_at), Integer))
+        )
+        if selected_feed_ids:
+            heatmap_query = heatmap_query.where(Item.feed_id.in_(selected_feed_ids))
 
-        normalized = _ensure_aware(published)
-        day_key = normalized.date().isoformat()
-        if day_key in counts_by_day:
-            bucket_index = normalized.hour if bucket_unit == "hour" else 0
-            counts_by_day[day_key][bucket_index] += 1
+        for day_key, hour_key, count in db.execute(heatmap_query):
+            if day_key is None or hour_key is None:
+                continue
+            day_key_str = str(day_key)
+            hour_index = int(hour_key)
+            if day_key_str in counts_by_day and 0 <= hour_index < 24:
+                counts_by_day[day_key_str][hour_index] = int(count or 0)
+    else:
+        heatmap_query = (
+            select(func.date(Item.published_at).label("day_key"), func.count(Item.id).label("count"))
+            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
+            .group_by(func.date(Item.published_at))
+        )
+        if selected_feed_ids:
+            heatmap_query = heatmap_query.where(Item.feed_id.in_(selected_feed_ids))
+
+        for day_key, count in db.execute(heatmap_query):
+            if day_key is None:
+                continue
+            day_key_str = str(day_key)
+            if day_key_str in counts_by_day:
+                counts_by_day[day_key_str][0] = int(count or 0)
 
     rows = [ActivityHeatmapDayRow(day=day_key, counts=counts_by_day[day_key]) for day_key in day_axis]
     max_count = max((count for row in rows for count in row.counts), default=0)

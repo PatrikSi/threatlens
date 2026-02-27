@@ -4,6 +4,7 @@ import feedparser
 import httpx
 
 from app.core.config import get_settings
+from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url
 
 
@@ -38,19 +39,30 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
     )
 
     try:
-        with httpx.Client(
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": settings.fetch_user_agent},
-        ) as client:
-            response = client.get(target_url)
-    except httpx.HTTPError as exc:
+        with httpx.Client(timeout=timeout, headers={"User-Agent": settings.fetch_user_agent}) as client:
+            response = safe_stream_with_redirects(
+                client,
+                "GET",
+                target_url,
+                allow_private_network=settings.allow_private_network_fetch,
+                max_redirects=settings.outbound_max_redirects,
+            )
+            with response:
+                if response.status_code != 200:
+                    raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
+
+                body_chunks: list[bytes] = []
+                body_size = 0
+                for chunk in response.iter_bytes():
+                    body_size += len(chunk)
+                    if body_size > settings.feed_max_bytes:
+                        raise FeedProbeError("Feed response exceeds configured size limit")
+                    body_chunks.append(chunk)
+                body = b"".join(body_chunks)
+    except (httpx.HTTPError, SafeFetchError, RedirectError) as exc:
         raise FeedProbeError(f"Unable to fetch feed: {exc}") from exc
 
-    if response.status_code != 200:
-        raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
-
-    parsed = feedparser.parse(response.content)
+    parsed = feedparser.parse(body)
     metadata = parsed.feed if hasattr(parsed, "feed") else {}
 
     title = _clean(metadata.get("title"))

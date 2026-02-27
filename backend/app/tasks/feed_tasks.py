@@ -1,5 +1,6 @@
 import time
 import uuid
+import secrets
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlsplit
@@ -24,7 +25,9 @@ from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
+from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
+from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
 
@@ -33,6 +36,10 @@ redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 
 
 class ResponseTooLargeError(Exception):
+    pass
+
+
+class FeedResponseTooLargeError(Exception):
     pass
 
 
@@ -77,6 +84,36 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
             remaining = redis_client.decr(key)
             if remaining <= 0:
                 redis_client.delete(key)
+        except redis.RedisError:
+            pass
+
+
+@contextmanager
+def feed_lock(feed_id: str, ttl_seconds: int = 900):
+    key = f"threatlens:feed:lock:{feed_id}"
+    token = secrets.token_hex(16)
+
+    acquired = False
+    try:
+        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+    except redis.RedisError:
+        # Best-effort locking: continue if Redis is unavailable.
+        acquired = True
+
+    if not acquired:
+        yield False
+        return
+
+    try:
+        yield True
+    finally:
+        try:
+            redis_client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                token,
+            )
         except redis.RedisError:
             pass
 
@@ -134,6 +171,51 @@ def dispatch_items_missing_iocs():
     return {"queued": queued}
 
 
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_feed_metadata_backfill")
+def dispatch_feed_metadata_backfill():
+    queued = 0
+    with db_session() as db:
+        feeds = db.scalars(
+            select(Feed).where(Feed.enabled.is_(True)).order_by(Feed.created_at.desc()).limit(250)
+        ).all()
+
+    for feed in feeds:
+        if queued >= 50:
+            break
+        if not _needs_metadata_backfill(feed):
+            continue
+        backfill_feed_metadata.delay(str(feed.id))
+        queued += 1
+
+    return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.backfill_feed_metadata")
+def backfill_feed_metadata(feed_id: str):
+    with feed_lock(feed_id) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
+
+        with db_session() as db:
+            feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
+            if feed is None or not feed.enabled:
+                return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
+
+            if not _needs_metadata_backfill(feed):
+                return {"status": "skipped", "reason": "metadata_present", "feed_id": feed_id}
+
+            try:
+                metadata = probe_feed_metadata(feed.url)
+            except FeedProbeError as exc:
+                return {"status": "error", "feed_id": feed_id, "reason": str(exc)}
+
+            changed = _apply_probe_metadata(feed, metadata)
+            if changed:
+                db.add(feed)
+                db.commit()
+            return {"status": "ok", "feed_id": feed_id, "updated": changed}
+
+
 def _is_feed_due(feed: Feed, now: datetime) -> bool:
     if feed.fetch_mode == "schedule":
         return _is_scheduled_feed_due(feed, now)
@@ -160,6 +242,37 @@ def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
     if next_run.tzinfo is None:
         next_run = next_run.replace(tzinfo=timezone.utc)
     return next_run <= now
+
+
+def _needs_metadata_backfill(feed: Feed) -> bool:
+    placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
+    return placeholder_name or not feed.site_url
+
+
+def _apply_probe_metadata(feed: Feed, metadata) -> bool:
+    changed = False
+    is_placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
+
+    if is_placeholder_name and metadata.name:
+        feed.name = metadata.name
+        changed = True
+    if not feed.description and metadata.description:
+        feed.description = metadata.description
+        changed = True
+    if not feed.site_url and metadata.site_url:
+        feed.site_url = metadata.site_url
+        changed = True
+    if not feed.language and metadata.language:
+        feed.language = metadata.language
+        changed = True
+    if not feed.etag and metadata.etag:
+        feed.etag = metadata.etag
+        changed = True
+    if not feed.last_modified and metadata.last_modified:
+        feed.last_modified = metadata.last_modified
+        changed = True
+
+    return changed
 
 
 def _backfill_feed_metadata_from_body(feed: Feed, body: bytes) -> bool:
@@ -197,110 +310,133 @@ def _clean_text(value: object) -> str | None:
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
 def fetch_feed(self, feed_id: str):
-    with db_session() as db:
-        feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
-        if feed is None or not feed.enabled:
-            return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
+    with feed_lock(feed_id) as acquired:
+        if not acquired:
+            return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
-        headers: dict[str, str] = {}
-        if feed.etag:
-            headers["If-None-Match"] = feed.etag
-        if feed.last_modified:
-            headers["If-Modified-Since"] = feed.last_modified
+        with db_session() as db:
+            feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
+            if feed is None or not feed.enabled:
+                return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
 
-        if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
-            _mark_feed_failure(db, feed, "unsafe_feed_url")
-            return {"status": "error", "feed_id": feed_id}
+            headers: dict[str, str] = {}
+            if feed.etag:
+                headers["If-None-Match"] = feed.etag
+            if feed.last_modified:
+                headers["If-Modified-Since"] = feed.last_modified
 
-        try:
-            timeout = httpx.Timeout(
-                connect=settings.feed_connect_timeout_seconds,
-                read=settings.feed_read_timeout_seconds,
-                write=settings.feed_read_timeout_seconds,
-                pool=settings.feed_connect_timeout_seconds,
-            )
-            with httpx.Client(
-                timeout=timeout,
-                follow_redirects=True,
-                headers={"User-Agent": settings.fetch_user_agent},
-            ) as client:
-                response = client.get(feed.url, headers=headers)
-        except httpx.HTTPError as exc:
-            try:
-                raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-            except MaxRetriesExceededError:
-                _mark_feed_failure(db, feed, f"network_error:{exc}")
+            if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
+                _mark_feed_failure(db, feed, "unsafe_feed_url")
                 return {"status": "error", "feed_id": feed_id}
 
-        now = datetime.now(timezone.utc)
-        feed.last_fetch_at = now
+            try:
+                timeout = httpx.Timeout(
+                    connect=settings.feed_connect_timeout_seconds,
+                    read=settings.feed_read_timeout_seconds,
+                    write=settings.feed_read_timeout_seconds,
+                    pool=settings.feed_connect_timeout_seconds,
+                )
+                with httpx.Client(timeout=timeout, headers={"User-Agent": settings.fetch_user_agent}) as client:
+                    response = safe_stream_with_redirects(
+                        client,
+                        "GET",
+                        feed.url,
+                        headers=headers,
+                        allow_private_network=settings.allow_private_network_fetch,
+                        max_redirects=settings.outbound_max_redirects,
+                    )
+                    with response:
+                        status_code = response.status_code
+                        final_url = str(response.url)
 
-        if response.status_code == 304:
+                        if status_code == 304:
+                            now = datetime.now(timezone.utc)
+                            feed.last_fetch_at = now
+                            feed.last_success_at = now
+                            feed.error_count = 0
+                            feed.last_error = None
+                            db.add(feed)
+                            db.commit()
+                            return {"status": "not_modified", "feed_id": feed_id}
+
+                        if status_code != 200:
+                            _mark_feed_failure(db, feed, f"http_status:{status_code}")
+                            return {"status": "error", "feed_id": feed_id}
+
+                        body_chunks: list[bytes] = []
+                        body_size = 0
+                        for chunk in response.iter_bytes():
+                            body_size += len(chunk)
+                            if body_size > settings.feed_max_bytes:
+                                raise FeedResponseTooLargeError("feed response exceeds configured cap")
+                            body_chunks.append(chunk)
+                        body_bytes = b"".join(body_chunks)
+            except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
+                try:
+                    raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
+                except MaxRetriesExceededError:
+                    _mark_feed_failure(db, feed, f"network_error:{exc}")
+                    return {"status": "error", "feed_id": feed_id}
+            except FeedResponseTooLargeError as exc:
+                _mark_feed_failure(db, feed, str(exc))
+                return {"status": "error", "feed_id": feed_id}
+
+            connector = RSSConnector()
+            parsed_items, _ = connector.poll({"body": body_bytes}, None)
+            _backfill_feed_metadata_from_body(feed, body_bytes)
+
+            changed_item_ids: list[uuid.UUID] = []
+            for parsed in parsed_items:
+                item_url = parsed.url or ""
+                key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
+                hash_value = content_hash(parsed.title, parsed.summary, item_url)
+
+                item = db.scalar(select(Item).where(Item.dedupe_key == key))
+                if item is None:
+                    item = Item(
+                        feed_id=feed.id,
+                        source_guid=parsed.guid,
+                        url=item_url,
+                        title=parsed.title,
+                        summary=parsed.summary,
+                        published_at=parsed.published_at,
+                        dedupe_key=key,
+                        content_hash=hash_value,
+                        status="new",
+                        last_error=None,
+                    )
+                    db.add(item)
+                    db.flush()
+                    changed_item_ids.append(item.id)
+                    continue
+
+                if item.content_hash != hash_value:
+                    item.url = item_url or item.url
+                    item.title = parsed.title
+                    item.summary = parsed.summary
+                    item.published_at = parsed.published_at
+                    item.content_hash = hash_value
+                    item.status = "new"
+                    item.last_error = None
+                    db.add(item)
+                    db.flush()
+                    changed_item_ids.append(item.id)
+
+            now = datetime.now(timezone.utc)
+            feed.etag = response.headers.get("etag") or feed.etag
+            feed.last_modified = response.headers.get("last-modified") or feed.last_modified
             feed.last_success_at = now
+            feed.last_fetch_at = now
             feed.error_count = 0
             feed.last_error = None
+
             db.add(feed)
             db.commit()
-            return {"status": "not_modified", "feed_id": feed_id}
 
-        if response.status_code != 200:
-            _mark_feed_failure(db, feed, f"http_status:{response.status_code}")
-            return {"status": "error", "feed_id": feed_id}
+        for item_id in changed_item_ids:
+            fetch_article.delay(str(item_id))
 
-        connector = RSSConnector()
-        parsed_items, _ = connector.poll({"body": response.content}, None)
-        _backfill_feed_metadata_from_body(feed, response.content)
-
-        changed_item_ids: list[uuid.UUID] = []
-        for parsed in parsed_items:
-            item_url = parsed.url or ""
-            key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
-            hash_value = content_hash(parsed.title, parsed.summary, item_url)
-
-            item = db.scalar(select(Item).where(Item.dedupe_key == key))
-            if item is None:
-                item = Item(
-                    feed_id=feed.id,
-                    source_guid=parsed.guid,
-                    url=item_url,
-                    title=parsed.title,
-                    summary=parsed.summary,
-                    published_at=parsed.published_at,
-                    dedupe_key=key,
-                    content_hash=hash_value,
-                    status="new",
-                    last_error=None,
-                )
-                db.add(item)
-                db.flush()
-                changed_item_ids.append(item.id)
-                continue
-
-            if item.content_hash != hash_value:
-                item.url = item_url or item.url
-                item.title = parsed.title
-                item.summary = parsed.summary
-                item.published_at = parsed.published_at
-                item.content_hash = hash_value
-                item.status = "new"
-                item.last_error = None
-                db.add(item)
-                db.flush()
-                changed_item_ids.append(item.id)
-
-        feed.etag = response.headers.get("etag") or feed.etag
-        feed.last_modified = response.headers.get("last-modified") or feed.last_modified
-        feed.last_success_at = now
-        feed.error_count = 0
-        feed.last_error = None
-
-        db.add(feed)
-        db.commit()
-
-    for item_id in changed_item_ids:
-        fetch_article.delay(str(item_id))
-
-    return {"status": "ok", "feed_id": feed_id, "new_or_updated_items": len(changed_item_ids)}
+        return {"status": "ok", "feed_id": feed_id, "new_or_updated_items": len(changed_item_ids), "final_url": final_url}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_article", bind=True)
@@ -342,11 +478,16 @@ def fetch_article(self, item_id: str):
                 )
                 with httpx.Client(
                     timeout=timeout,
-                    follow_redirects=True,
-                    max_redirects=5,
                     headers={"User-Agent": settings.fetch_user_agent},
                 ) as client:
-                    with client.stream("GET", target_url) as response:
+                    response = safe_stream_with_redirects(
+                        client,
+                        "GET",
+                        target_url,
+                        allow_private_network=settings.allow_private_network_fetch,
+                        max_redirects=settings.outbound_max_redirects,
+                    )
+                    with response:
                         status_code = response.status_code
                         content_type = response.headers.get("content-type")
                         final_url = str(response.url)
@@ -360,7 +501,7 @@ def fetch_article(self, item_id: str):
                             body_chunks.append(chunk)
 
                         body_bytes = b"".join(body_chunks)
-        except (httpx.HTTPError, TimeoutError) as exc:
+        except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
             try:
                 raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
             except MaxRetriesExceededError:
@@ -441,7 +582,7 @@ def fetch_article(self, item_id: str):
         article.fetch_ms = fetch_ms
         article.error = extracted.get("error")
 
-        if canonical:
+        if canonical and is_fetchable_url(canonical, allow_private_network=settings.allow_private_network_fetch):
             item.canonical_url = canonical
 
         if article.text:

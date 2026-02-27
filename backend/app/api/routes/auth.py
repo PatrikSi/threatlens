@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from app.services.audit import record_audit
+from app.services.auth_rate_limit import check_login_throttle, clear_login_failures, record_login_failure
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,14 +41,24 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.scalar(select(User).where(User.email == payload.email.lower()))
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    email = payload.email.lower()
+    client_ip = _resolve_client_ip(request)
+    throttle = check_login_throttle(email, client_ip)
+    if throttle.blocked:
+        detail = "Too many failed login attempts. Try again later."
+        headers = {"Retry-After": str(throttle.retry_after_seconds)} if throttle.retry_after_seconds else None
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
+
+    user = db.scalar(select(User).where(User.email == email))
     if user is None or not verify_password(payload.password, user.password_hash):
+        record_login_failure(email, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
 
+    clear_login_failures(email, client_ip)
     token = create_access_token(str(user.id))
     record_audit(
         db,
@@ -86,3 +97,15 @@ def change_password(
     )
     db.commit()
     return {"status": "ok"}
+
+
+def _resolve_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        first = forwarded_for.split(",")[0].strip()
+        if first:
+            return first
+
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"

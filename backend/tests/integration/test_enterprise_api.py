@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.models.feed import Feed
@@ -9,6 +10,12 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
 from app.services.feed_probe import FeedProbeResult
+from app.services.auth_rate_limit import LoginThrottleState
+
+
+@pytest.fixture(autouse=True)
+def _stub_feed_task_dispatch(monkeypatch):
+    monkeypatch.setattr("app.api.routes.feeds.celery_app.send_task", lambda *_args, **_kwargs: None)
 
 
 def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
@@ -23,6 +30,20 @@ def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
         headers=auth_headers["viewer"],
     )
     assert response.status_code == 403
+
+
+def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.auth.check_login_throttle",
+        lambda _email, _ip: LoginThrottleState(blocked=True, retry_after_seconds=60),
+    )
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert response.status_code == 429
+    assert response.headers.get("retry-after") == "60"
 
 
 def test_admin_can_manage_feeds_and_analyst_can_view(client: TestClient, auth_headers):
@@ -72,14 +93,25 @@ def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
         ),
     )
 
-    response = client.post("/feeds/metadata", json={"url": "https://example.com/feed.xml"}, headers=auth_headers["viewer"])
+    response = client.post("/feeds/metadata", json={"url": "https://example.com/feed.xml"}, headers=auth_headers["analyst"])
     assert response.status_code == 200
     payload = response.json()
     assert payload["name"] == "Detected Feed"
     assert payload["feed_type"] == "rss20"
 
 
-def test_feed_list_backfills_missing_metadata(client: TestClient, auth_headers, monkeypatch):
+def test_feed_metadata_endpoint_requires_operator_role(client: TestClient, auth_headers):
+    response = client.post("/feeds/metadata", json={"url": "https://example.com/feed.xml"}, headers=auth_headers["viewer"])
+    assert response.status_code == 403
+
+
+def test_health_live_endpoint(client: TestClient):
+    response = client.get("/health/live")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, monkeypatch):
     create_response = client.post(
         "/feeds",
         json={
@@ -93,9 +125,12 @@ def test_feed_list_backfills_missing_metadata(client: TestClient, auth_headers, 
     )
     assert create_response.status_code == 201
 
-    monkeypatch.setattr(
-        "app.api.routes.feeds.probe_feed_metadata",
-        lambda _url: FeedProbeResult(
+    probe_called = False
+
+    def _probe(_url):
+        nonlocal probe_called
+        probe_called = True
+        return FeedProbeResult(
             name="Detected Legacy",
             description="Backfilled description",
             site_url="https://example.com",
@@ -104,7 +139,11 @@ def test_feed_list_backfills_missing_metadata(client: TestClient, auth_headers, 
             last_modified="Wed, 26 Feb 2026 00:00:00 GMT",
             resolved_url="https://example.com/legacy.xml",
             feed_type="rss20",
-        ),
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.feeds.probe_feed_metadata",
+        _probe,
     )
 
     list_response = client.get("/feeds", headers=auth_headers["viewer"])
@@ -112,10 +151,11 @@ def test_feed_list_backfills_missing_metadata(client: TestClient, auth_headers, 
     payload = list_response.json()
     assert len(payload) == 1
     assert payload[0]["name"] == "Legacy Feed"
-    assert payload[0]["description"] == "Backfilled description"
-    assert payload[0]["site_url"] == "https://example.com"
-    assert payload[0]["language"] == "en"
-    assert payload[0]["etag"] == "etag-legacy"
+    assert payload[0]["description"] is None
+    assert payload[0]["site_url"] is None
+    assert payload[0]["language"] is None
+    assert payload[0]["etag"] is None
+    assert probe_called is False
 
 
 def test_feed_create_supports_schedule_mode(client: TestClient, auth_headers):
