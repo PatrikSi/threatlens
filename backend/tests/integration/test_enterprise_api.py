@@ -3,12 +3,14 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag
+from app.models.user import User
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
 
@@ -44,6 +46,80 @@ def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
     )
     assert response.status_code == 429
     assert response.headers.get("retry-after") == "60"
+
+
+def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+    user = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert user is not None
+    user.is_active = False
+    db_session.add(user)
+    db_session.commit()
+
+    response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Account is inactive"
+
+
+def test_login_ignores_untrusted_x_forwarded_for(client: TestClient, monkeypatch, seed_users):
+    _ = seed_users
+    captured: dict[str, str] = {}
+
+    def _check(_email: str, ip: str):
+        captured["ip"] = ip
+        return LoginThrottleState(blocked=False)
+
+    monkeypatch.setattr("app.api.routes.auth.check_login_throttle", _check)
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+        headers={"x-forwarded-for": "203.0.113.44"},
+    )
+    assert response.status_code == 200
+    assert captured["ip"] != "203.0.113.44"
+
+
+def test_cookie_session_requires_csrf_for_mutation(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    me_response = client.get("/auth/me")
+    assert me_response.status_code == 200
+
+    denied_create = client.post(
+        "/feeds",
+        json={
+            "name": "Cookie Feed",
+            "url": "https://example.com/cookie-feed.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+    )
+    assert denied_create.status_code == 403
+
+    allowed_create = client.post(
+        "/feeds",
+        json={
+            "name": "Cookie Feed",
+            "url": "https://example.com/cookie-feed.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert allowed_create.status_code == 201
 
 
 def test_admin_can_manage_feeds_and_analyst_can_view(client: TestClient, auth_headers):
@@ -109,6 +185,39 @@ def test_health_live_endpoint(client: TestClient):
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_health_worker_endpoint_reports_ok(client: TestClient, monkeypatch):
+    class _Inspector:
+        def ping(self):
+            return {"celery@worker-1": {"ok": "pong"}}
+
+    monkeypatch.setattr(
+        "app.api.routes.health.celery_app.control.inspect",
+        lambda timeout: _Inspector(),
+    )
+
+    response = client.get("/health/worker")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["workers"]["celery@worker-1"] == "pong"
+
+
+def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClient, monkeypatch):
+    stale_heartbeat = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    class _RedisClient:
+        def get(self, key):
+            _ = key
+            return stale_heartbeat
+
+    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+
+    response = client.get("/health/beat")
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["ok"] is False
 
 
 def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, monkeypatch):
@@ -1119,6 +1228,45 @@ def test_items_support_tag_filters(client: TestClient, auth_headers, db_session)
     )
     assert all_response.status_code == 200
     assert all_response.json()["total"] == 1
+
+
+def test_set_item_tags_rejects_duplicate_tag_ids(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "DuplicateTagFeed",
+            "url": "https://example.com/duplicate-tag.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="dup-tag-item",
+        url="https://example.com/dup-tag-item",
+        canonical_url="https://example.com/dup-tag-item",
+        title="Duplicate tag target",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dup-tag-item",
+        content_hash="9" * 64,
+        status="new",
+    )
+    tag = Tag(name="triage")
+    db_session.add_all([item, tag])
+    db_session.commit()
+
+    response = client.post(
+        f"/items/{item.id}/tags",
+        json={"tag_ids": [str(tag.id), str(tag.id)]},
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 422
 
 
 def test_alert_interest_crud_and_matching(client: TestClient, auth_headers, db_session):

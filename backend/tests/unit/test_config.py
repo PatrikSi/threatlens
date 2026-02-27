@@ -16,3 +16,13 @@ def test_production_requires_strong_jwt_secret():
 def test_production_rejects_default_admin_password():
     with pytest.raises(ValueError):
         Settings(app_env="production", jwt_secret="x" * 48, admin_password="admin123")
+
+
+def test_production_requires_secure_auth_cookie():
+    with pytest.raises(ValueError):
+        Settings(
+            app_env="production",
+            jwt_secret="x" * 48,
+            admin_password="StrongPass123!",
+            auth_cookie_secure=False,
+        )
