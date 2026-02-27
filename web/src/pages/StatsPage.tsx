@@ -558,13 +558,12 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   } | null>(null)
   const panelWidth = panelRef.current?.clientWidth ?? 560
   const panelHeight = panelRef.current?.clientHeight ?? (isHourly ? 300 : 380)
-  const hourlyGridGapPx = 4
-  const hourlyLabelColumnPx = 82
-  const hourlyOuterGapPx = 8
-  const dailyCellPx = Math.max(
-    8,
-    Math.floor((Math.max(200, panelWidth - hourlyLabelColumnPx - hourlyOuterGapPx) - hourlyGridGapPx * 23) / 24),
-  )
+  const gridGapPx = 4
+  const labelColumnPx = 82
+  const outerGapPx = 8
+  const availableDailyWidth = Math.max(180, panelWidth - labelColumnPx - outerGapPx)
+  const candidateDailyCellPx = Math.floor((availableDailyWidth - gridGapPx * (calendarWeekCount - 1)) / calendarWeekCount)
+  const dailyCellPx = clamp(candidateDailyCellPx, 8, 16)
   const heatmapTooltipPosition = hovered
     ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
     : null
@@ -943,6 +942,10 @@ function positionTooltipNearCursor(
   const left = Math.min(Math.max(8, cursorX + offset), maxLeft)
   const top = Math.min(Math.max(8, cursorY + offset), maxTop)
   return { left, top }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max)
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
