@@ -542,6 +542,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   const panelRef = useRef<HTMLDivElement | null>(null)
   const maxCount = Math.max(1, data.max_count)
   const isHourly = data.bucket_unit === 'hour'
+  const dailyCellPx = 16
   const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
   const bucketLabels =
     data.bucket_labels.length === columnCount
@@ -630,18 +631,21 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
           ) : (
             <div className="overflow-x-auto pb-1">
               <div className="inline-flex items-start gap-2">
-                <div className="mt-[18px] grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span className="h-[11px] leading-[11px]" />
-                  <span className="h-[11px] leading-[11px]">Mon</span>
-                  <span className="h-[11px] leading-[11px]" />
-                  <span className="h-[11px] leading-[11px]">Wed</span>
-                  <span className="h-[11px] leading-[11px]" />
-                  <span className="h-[11px] leading-[11px]">Fri</span>
-                  <span className="h-[11px] leading-[11px]" />
+                <div className="mt-[20px] grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Mon</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Wed</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Fri</span>
+                  <span className="h-4 leading-4" />
                 </div>
 
                 <div className="space-y-1">
-                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: `repeat(${calendar?.weekCount ?? 1}, 11px)` }}>
+                  <div
+                    className="grid gap-1 text-[10px] text-slate dark:text-slate-300"
+                    style={{ gridTemplateColumns: `repeat(${calendar?.weekCount ?? 1}, ${dailyCellPx}px)` }}
+                  >
                     {Array.from({ length: calendar?.weekCount ?? 1 }, (_, weekIndex) => (
                       <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
                         {calendar?.monthLabels.get(weekIndex) ?? ''}
@@ -649,15 +653,15 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                     ))}
                   </div>
 
-                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: '11px' }}>
+                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: `${dailyCellPx}px` }}>
                     {(calendar?.cells ?? []).map((cell, index) => {
                       if (!cell) {
-                        return <div key={`pad-${index}`} className="h-[11px] w-[11px] rounded bg-transparent" />
+                        return <div key={`pad-${index}`} className="h-4 w-4 rounded bg-transparent" />
                       }
                       return (
                         <div
                           key={cell.day}
-                          className="h-[11px] w-[11px] rounded"
+                          className="h-4 w-4 rounded"
                           style={heatCellStyle(cell.count, maxCount)}
                           onMouseMove={(event) => {
                             const bounds = panelRef.current?.getBoundingClientRect()
