@@ -9,6 +9,7 @@ export interface User {
 export interface TokenResponse {
   access_token: string
   token_type: string
+  csrf_token: string | null
 }
 
 export interface UserCreateRequest {

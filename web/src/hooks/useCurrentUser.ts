@@ -5,11 +5,10 @@ import { useAuth } from '../components/AuthContext'
 import { User } from '../types/api'
 
 export function useCurrentUser() {
-  const { token } = useAuth()
+  const { sessionVersion } = useAuth()
 
   return useQuery({
-    queryKey: ['auth', 'me', token],
-    enabled: Boolean(token),
+    queryKey: ['auth', 'me', sessionVersion],
     queryFn: () => apiFetch<User>('/auth/me'),
     staleTime: 60_000,
     retry: (failureCount, error) => {

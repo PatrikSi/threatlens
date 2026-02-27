@@ -5,8 +5,9 @@ const DEFAULT_API_BASE_URL = import.meta.env.DEV
   : '/api'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 15000)
-
-export const tokenStorageKey = 'threatlens.token'
+const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_csrf'
+const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
+const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
 export class ApiError extends Error {
   status: number
@@ -22,35 +23,10 @@ export class ApiError extends Error {
   }
 }
 
-export function getToken(): string | null {
-  if (typeof window === 'undefined') {
-    return null
-  }
-  try {
-    return window.localStorage.getItem(tokenStorageKey)
-  } catch {
-    return null
-  }
-}
-
-export function setToken(token: string | null) {
-  if (typeof window === 'undefined') {
-    return
-  }
-  try {
-    if (token) {
-      window.localStorage.setItem(tokenStorageKey, token)
-    } else {
-      window.localStorage.removeItem(tokenStorageKey)
-    }
-  } catch {
-    // Ignore storage persistence failures; in-memory auth state still works for the session.
-  }
-}
-
 export async function apiFetch<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
   const headers = new Headers(options.headers)
   const hasBody = options.body !== undefined && options.body !== null
+  const method = (options.method ?? 'GET').toUpperCase()
   const bodyIsFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const bodyIsBlob = typeof Blob !== 'undefined' && options.body instanceof Blob
   if (hasBody && !headers.has('Content-Type') && !bodyIsFormData && !bodyIsBlob) {
@@ -59,11 +35,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
   if (!headers.has('Accept')) {
     headers.set('Accept', 'application/json')
   }
-
-  if (auth) {
-    const token = getToken()
-    if (token) {
-      headers.set('Authorization', `Bearer ${token}`)
+  if (auth && UNSAFE_METHODS.has(method)) {
+    const csrfToken = getCookieValue(CSRF_COOKIE_NAME)
+    if (csrfToken && !headers.has(CSRF_HEADER_NAME)) {
+      headers.set(CSRF_HEADER_NAME, csrfToken)
     }
   }
 
@@ -75,6 +50,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...options,
       headers,
+      credentials: 'include',
       signal: controller.signal,
     })
   } catch (error) {
@@ -122,4 +98,21 @@ function extractErrorMessage(parsed: unknown, raw: string, statusCode: number): 
     return raw
   }
   return `HTTP ${statusCode}`
+}
+
+function getCookieValue(name: string): string | null {
+  if (typeof document === 'undefined') {
+    return null
+  }
+
+  const prefix = `${name}=`
+  const parts = document.cookie.split(';')
+  for (const part of parts) {
+    const trimmed = part.trim()
+    if (!trimmed.startsWith(prefix)) {
+      continue
+    }
+    return decodeURIComponent(trimmed.slice(prefix.length))
+  }
+  return null
 }

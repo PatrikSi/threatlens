@@ -1,10 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, resolve_client_ip
 from app.core.config import get_settings
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import (
+    clear_auth_cookies,
+    create_access_token,
+    generate_csrf_token,
+    get_password_hash,
+    set_auth_cookies,
+    verify_password,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest, TokenResponse, UserResponse
@@ -41,9 +48,9 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
     email = payload.email.lower()
-    client_ip = _resolve_client_ip(request)
+    client_ip = resolve_client_ip(request)
     throttle = check_login_throttle(email, client_ip)
     if throttle.blocked:
         detail = "Too many failed login attempts. Try again later."
@@ -60,6 +67,8 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 
     clear_login_failures(email, client_ip)
     token = create_access_token(str(user.id))
+    csrf_token = generate_csrf_token()
+    set_auth_cookies(response, token, csrf_token)
     record_audit(
         db,
         actor_user_id=user.id,
@@ -69,7 +78,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         metadata={"email": user.email},
     )
     db.commit()
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=token, csrf_token=csrf_token)
 
 
 @router.get("/me", response_model=UserResponse)
@@ -99,13 +108,7 @@ def change_password(
     return {"status": "ok"}
 
 
-def _resolve_client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        first = forwarded_for.split(",")[0].strip()
-        if first:
-            return first
-
-    if request.client and request.client.host:
-        return request.client.host
-    return "unknown"
+@router.post("/logout", status_code=status.HTTP_200_OK)
+def logout(response: Response):
+    clear_auth_cookies(response)
+    return {"status": "ok"}

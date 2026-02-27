@@ -1,4 +1,5 @@
 import uuid
+from ipaddress import ip_address, ip_network
 from datetime import datetime, timezone
 
 from fastapi import Depends, HTTPException, Request, status
@@ -15,6 +16,7 @@ from app.models.api_token import ApiToken
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
 
@@ -24,12 +26,21 @@ def get_current_user(
     token: str | None = Depends(oauth2_scheme),
 ) -> User:
     request.state.token_scopes = None
+    token_source = "header"
 
+    if not token:
+        token = _resolve_cookie_token(request)
+        token_source = "cookie"
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
+    if token_source == "cookie":
+        _enforce_csrf_if_needed(request)
+
     user = _resolve_jwt_user(db, token)
     if user is not None:
+        if not user.is_active:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
         return user
 
     token_result = _resolve_api_token_user(db, token)
@@ -145,3 +156,64 @@ def _should_update_last_used(last_used_at: datetime | None, now: datetime) -> bo
     settings = get_settings()
     elapsed = (now - last_used_at).total_seconds()
     return elapsed >= settings.api_token_last_used_update_interval_seconds
+
+
+def _resolve_cookie_token(request: Request) -> str | None:
+    settings = get_settings()
+    return request.cookies.get(settings.auth_cookie_name)
+
+
+def _enforce_csrf_if_needed(request: Request) -> None:
+    settings = get_settings()
+    if not settings.auth_require_csrf:
+        return
+    if request.method.upper() not in UNSAFE_METHODS:
+        return
+
+    csrf_cookie = request.cookies.get(settings.auth_csrf_cookie_name)
+    csrf_header = request.headers.get(settings.auth_csrf_header_name)
+    if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing or invalid CSRF token")
+
+
+def resolve_client_ip(request: Request) -> str:
+    settings = get_settings()
+    remote_ip = request.client.host if request.client and request.client.host else "unknown"
+    if remote_ip == "unknown":
+        return remote_ip
+
+    if not _is_trusted_proxy(remote_ip, settings.trusted_proxy_cidrs):
+        return remote_ip
+
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if not forwarded_for:
+        return remote_ip
+
+    first_hop = forwarded_for.split(",")[0].strip()
+    if not first_hop:
+        return remote_ip
+
+    try:
+        ip_address(first_hop)
+    except ValueError:
+        return remote_ip
+    return first_hop
+
+
+def _is_trusted_proxy(remote_ip: str, trusted_proxy_cidrs: list[str]) -> bool:
+    if not trusted_proxy_cidrs:
+        return False
+
+    try:
+        parsed_remote_ip = ip_address(remote_ip)
+    except ValueError:
+        return False
+
+    for raw_cidr in trusted_proxy_cidrs:
+        try:
+            network = ip_network(raw_cidr, strict=False)
+        except ValueError:
+            continue
+        if parsed_remote_ip in network:
+            return True
+    return False

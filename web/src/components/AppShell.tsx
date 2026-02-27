@@ -1,13 +1,14 @@
 import { useEffect } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useMutation } from '@tanstack/react-query'
 
-import { ApiError } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAuth } from './AuthContext'
 import { useTheme } from './ThemeContext'
 
 export function AppShell() {
-  const { setAuthToken } = useAuth()
+  const { markLoggedOut } = useAuth()
   const { mode, setMode, darkThemes } = useTheme()
   const meQuery = useCurrentUser()
   const navigate = useNavigate()
@@ -16,16 +17,24 @@ export function AppShell() {
   const role = meQuery.data?.role
   const isDashboardRoute = location.pathname === '/'
 
+  const logout = useMutation({
+    mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),
+    onSettled: () => {
+      markLoggedOut()
+      navigate('/login', { replace: true })
+    },
+  })
+
   useEffect(() => {
     if (!meQuery.error) {
       return
     }
 
     if (meQuery.error instanceof ApiError && (meQuery.error.status === 401 || meQuery.error.status === 403)) {
-      setAuthToken(null)
+      markLoggedOut()
       navigate('/login', { replace: true })
     }
-  }, [meQuery.error, navigate, setAuthToken])
+  }, [markLoggedOut, meQuery.error, navigate])
 
   return (
     <div className="min-h-screen text-ink dark:text-slate-100">
@@ -76,11 +85,11 @@ export function AppShell() {
             <button
               className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={() => {
-                setAuthToken(null)
-                navigate('/login')
+                logout.mutate()
               }}
+              disabled={logout.isPending}
             >
-              Logout
+              {logout.isPending ? 'Logging out...' : 'Logout'}
             </button>
           </div>
         </div>
