@@ -13,6 +13,13 @@ class ItemTagDetailResponse(BaseModel):
     rules_version: str | None
 
 
+class ItemTagSuggestionResponse(BaseModel):
+    name: str
+    source: str
+    confidence: float
+    rules_version: str | None
+
+
 class ItemListEntry(BaseModel):
     id: uuid.UUID
     feed_id: uuid.UUID
@@ -107,6 +114,7 @@ class ItemDetailResponse(BaseModel):
     last_error: str | None
     tags: list[str]
     tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
+    tag_suggestions: list[ItemTagSuggestionResponse] = Field(default_factory=list)
     article: ArticleResponse | None
     state: ItemStateResponse
 
@@ -144,3 +152,8 @@ class ItemTagsUpdateRequest(BaseModel):
             unique_duplicates = sorted(set(duplicates))
             raise ValueError(f"Duplicate tag IDs are not allowed: {', '.join(unique_duplicates)}")
         return value
+
+
+class ItemTagSuggestionListResponse(BaseModel):
+    item_id: uuid.UUID
+    suggestions: list[ItemTagSuggestionResponse]

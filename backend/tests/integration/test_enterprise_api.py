@@ -9,7 +9,7 @@ from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
-from app.models.tag import ItemTag, Tag
+from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
@@ -1267,6 +1267,174 @@ def test_set_item_tags_rejects_duplicate_tag_ids(client: TestClient, auth_header
         headers=auth_headers["admin"],
     )
     assert response.status_code == 422
+
+
+def test_set_item_tags_records_feedback_and_metadata(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "TagFeedbackFeed",
+            "url": "https://example.com/tag-feedback.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="tag-feedback-item",
+        url="https://example.com/tag-feedback-item",
+        canonical_url="https://example.com/tag-feedback-item",
+        title="Tag feedback target",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="tag-feedback-item",
+        content_hash="8" * 64,
+        status="new",
+    )
+    old_tag = Tag(name="oldtag")
+    new_tag = Tag(name="newtag")
+    db_session.add_all([item, old_tag, new_tag])
+    db_session.flush()
+    db_session.add(ItemTag(item_id=item.id, tag_id=old_tag.id, source="rule", confidence=0.66, rules_version="legacy"))
+    db_session.commit()
+
+    response = client.post(
+        f"/items/{item.id}/tags",
+        json={"tag_ids": [str(new_tag.id)]},
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 200
+
+    link = db_session.scalar(select(ItemTag).where(ItemTag.item_id == item.id, ItemTag.tag_id == new_tag.id))
+    assert link is not None
+    assert link.source == "manual"
+    assert link.confidence == 1.0
+    assert link.rules_version == "manual:v1"
+
+    feedback_rows = db_session.execute(
+        select(TagFeedbackEvent.signal_type, TagFeedbackEvent.tag_name)
+        .where(TagFeedbackEvent.item_id == item.id)
+        .order_by(TagFeedbackEvent.signal_type.asc(), TagFeedbackEvent.tag_name.asc())
+    ).all()
+    assert ("manual_add", "newtag") in feedback_rows
+    assert ("manual_remove", "oldtag") in feedback_rows
+
+
+def test_star_and_read_actions_record_feedback(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "StateFeedbackFeed",
+            "url": "https://example.com/state-feedback.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="state-feedback-item",
+        url="https://example.com/state-feedback-item",
+        canonical_url="https://example.com/state-feedback-item",
+        title="State feedback target",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="state-feedback-item",
+        content_hash="7" * 64,
+        status="new",
+    )
+    tag = Tag(name="triage")
+    db_session.add_all([item, tag])
+    db_session.flush()
+    db_session.add(ItemTag(item_id=item.id, tag_id=tag.id, source="rule", confidence=0.7, rules_version="tagging_v2"))
+    db_session.commit()
+
+    star_response = client.post(
+        f"/items/{item.id}/star",
+        json={"is_starred": True},
+        headers=auth_headers["admin"],
+    )
+    assert star_response.status_code == 200
+
+    read_response = client.post(
+        f"/items/{item.id}/read",
+        json={"is_read": True},
+        headers=auth_headers["admin"],
+    )
+    assert read_response.status_code == 200
+
+    feedback_rows = db_session.execute(
+        select(TagFeedbackEvent.signal_type, TagFeedbackEvent.tag_name).where(TagFeedbackEvent.item_id == item.id)
+    ).all()
+    assert ("star", "triage") in feedback_rows
+    assert ("read", "triage") in feedback_rows
+
+
+def test_item_detail_returns_tag_details_and_suggestions(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Securelist Threat Research",
+            "url": "https://securelist.com/feed/",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="detail-tags-item",
+        url="https://example.com/detail-tags-item",
+        canonical_url="https://example.com/detail-tags-item",
+        title="Mustang Panda campaign observed in targeted attacks",
+        summary="Threat intelligence update",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="detail-tags-item",
+        content_hash="6" * 64,
+        status="content_fetched",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="apt_campaign",
+        secondary_categories=["threat_intelligence_research"],
+        confidence=0.82,
+        scores_json={"apt_campaign": 4.2},
+        matched_terms_json={"apt_campaign": ["title:campaign"]},
+        source_hash="abc123",
+        rules_version="v2",
+        classified_at=datetime.now(timezone.utc),
+    )
+    existing_tag = Tag(name="apt_campaign")
+    db_session.add_all([item, classification, existing_tag])
+    db_session.flush()
+    db_session.add(ItemTag(item_id=item.id, tag_id=existing_tag.id, source="rule", confidence=0.82, rules_version="tagging_v2"))
+    db_session.commit()
+
+    detail_response = client.get(f"/items/{item.id}", headers=auth_headers["viewer"])
+    assert detail_response.status_code == 200
+    payload = detail_response.json()
+    assert payload["tag_details"]
+    assert payload["tag_details"][0]["source"] == "rule"
+    assert payload["tag_details"][0]["rules_version"] == "tagging_v2"
+    suggestion_names = {entry["name"] for entry in payload["tag_suggestions"]}
+    assert "campaign:mustang_panda" in suggestion_names or "source:trusted_research" in suggestion_names
+
+    suggestions_response = client.get(f"/items/{item.id}/tag-suggestions", headers=auth_headers["viewer"])
+    assert suggestions_response.status_code == 200
+    assert suggestions_response.json()["item_id"] == str(item.id)
 
 
 def test_alert_interest_crud_and_matching(client: TestClient, auth_headers, db_session):
