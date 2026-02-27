@@ -22,9 +22,15 @@ def seed_admin() -> None:
             )
             db.add(admin)
         else:
-            existing.role = ROLE_ADMIN
-            existing.is_active = True
-            db.add(existing)
+            changed = False
+            if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
+                existing.role = ROLE_ADMIN
+                changed = True
+            if settings.seed_admin_reactivate_existing and not existing.is_active:
+                existing.is_active = True
+                changed = True
+            if changed:
+                db.add(existing)
         db.commit()
     finally:
         db.close()
