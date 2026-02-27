@@ -542,13 +542,13 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
   const panelRef = useRef<HTMLDivElement | null>(null)
   const maxCount = Math.max(1, data.max_count)
   const isHourly = data.bucket_unit === 'hour'
-  const dailyCellPx = 24
   const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
   const bucketLabels =
     data.bucket_labels.length === columnCount
       ? data.bucket_labels
       : Array.from({ length: columnCount }, (_, index) => `Bucket ${index + 1}`)
   const calendar = isHourly ? null : buildDailyCalendar(data.rows)
+  const calendarWeekTemplate = `repeat(${Math.max(1, calendar?.weekCount ?? 1)}, minmax(0, 1fr))`
   const [hovered, setHovered] = useState<{
     label: string
     count: number
@@ -629,23 +629,20 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
               </div>
             </>
           ) : (
-            <div className="overflow-x-auto pb-1">
-              <div className="inline-flex items-start gap-2">
-                <div className="mt-[20px] grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Mon</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Wed</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }}>Fri</span>
-                  <span style={{ height: dailyCellPx, lineHeight: `${dailyCellPx}px` }} />
+            <div className="pb-1">
+              <div className="grid items-start gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
+                <div className="mt-5 grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Mon</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Wed</span>
+                  <span className="h-4 leading-4" />
+                  <span className="h-4 leading-4">Fri</span>
+                  <span className="h-4 leading-4" />
                 </div>
 
-                <div className="space-y-1">
-                  <div
-                    className="grid gap-1 text-[10px] text-slate dark:text-slate-300"
-                    style={{ gridTemplateColumns: `repeat(${calendar?.weekCount ?? 1}, ${dailyCellPx}px)` }}
-                  >
+                <div className="min-w-0 space-y-1">
+                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: calendarWeekTemplate }}>
                     {Array.from({ length: calendar?.weekCount ?? 1 }, (_, weekIndex) => (
                       <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
                         {calendar?.monthLabels.get(weekIndex) ?? ''}
@@ -653,16 +650,16 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                     ))}
                   </div>
 
-                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: `${dailyCellPx}px` }}>
+                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridTemplateColumns: calendarWeekTemplate }}>
                     {(calendar?.cells ?? []).map((cell, index) => {
                       if (!cell) {
-                        return <div key={`pad-${index}`} className="rounded bg-transparent" style={{ width: dailyCellPx, height: dailyCellPx }} />
+                        return <div key={`pad-${index}`} className="aspect-square w-full rounded bg-transparent" />
                       }
                       return (
                         <div
                           key={cell.day}
-                          className="rounded"
-                          style={{ ...heatCellStyle(cell.count, maxCount), width: dailyCellPx, height: dailyCellPx }}
+                          className="aspect-square w-full rounded"
+                          style={heatCellStyle(cell.count, maxCount)}
                           onMouseMove={(event) => {
                             const bounds = panelRef.current?.getBoundingClientRect()
                             if (!bounds) return
@@ -881,11 +878,16 @@ function buildDailyCalendar(rows: StatsActivityHeatmapResponse['rows']): DailyCa
   const leadingEmpty = firstDate.getUTCDay()
   const cells: Array<DailyCalendarCell | null> = [...Array.from({ length: leadingEmpty }, () => null), ...dayCells]
   const weekCount = Math.ceil(cells.length / 7)
+  const trailingEmpty = weekCount * 7 - cells.length
+  if (trailingEmpty > 0) {
+    cells.push(...Array.from({ length: trailingEmpty }, () => null))
+  }
 
   const monthLabels = new Map<number, string>()
   let lastMonthKey = ''
   for (let weekIndex = 0; weekIndex < weekCount; weekIndex += 1) {
-    const candidate = cells[weekIndex * 7]
+    const weekStart = weekIndex * 7
+    const candidate = cells.slice(weekStart, weekStart + 7).find((entry): entry is DailyCalendarCell => Boolean(entry))
     if (!candidate) continue
     const candidateDate = parseIsoDay(candidate.day)
     const monthKey = `${candidateDate.getUTCFullYear()}-${candidateDate.getUTCMonth()}`
