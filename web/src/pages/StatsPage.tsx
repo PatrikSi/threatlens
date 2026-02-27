@@ -40,7 +40,6 @@ export function StatsPage() {
     queryFn: () => {
       const params = new URLSearchParams()
       params.set('days', String(days))
-      params.set('top_feeds', '8')
       if (feedIdsParam) {
         params.set('feed_ids', feedIdsParam)
       }
@@ -80,6 +79,10 @@ export function StatsPage() {
   const maxDaily = useMemo(() => {
     const counts = (statsQuery.data?.daily_volume ?? []).map((point) => point.count)
     return counts.length ? Math.max(...counts, 1) : 1
+  }, [statsQuery.data?.daily_volume])
+
+  const dailyVolumeNewestFirst = useMemo(() => {
+    return [...(statsQuery.data?.daily_volume ?? [])].sort((left, right) => right.date.localeCompare(left.date))
   }, [statsQuery.data?.daily_volume])
 
   const maxDomain = useMemo(() => {
@@ -227,7 +230,7 @@ export function StatsPage() {
             <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
               <h3 className="font-display text-lg">Daily Volume ({statsQuery.data.window_days}d)</h3>
               <div className="mt-3 max-h-80 space-y-2 overflow-auto">
-                {statsQuery.data.daily_volume.map((point) => (
+                {dailyVolumeNewestFirst.map((point) => (
                   <BarRow
                     key={point.date}
                     label={point.date}
