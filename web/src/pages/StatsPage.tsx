@@ -541,13 +541,13 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const maxCount = Math.max(1, data.max_count)
+  const isHourly = data.bucket_unit === 'hour'
   const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
   const bucketLabels =
     data.bucket_labels.length === columnCount
       ? data.bucket_labels
       : Array.from({ length: columnCount }, (_, index) => `Bucket ${index + 1}`)
-  const isHourly = data.bucket_unit === 'hour'
-  const rowLayoutColumns = isHourly ? '82px minmax(0, 1fr)' : '82px 52px'
+  const calendar = isHourly ? null : buildDailyCalendar(data.rows)
   const [hovered, setHovered] = useState<{
     label: string
     count: number
@@ -556,7 +556,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
     y: number
   } | null>(null)
   const panelWidth = panelRef.current?.clientWidth ?? 560
-  const panelHeight = panelRef.current?.clientHeight ?? 300
+  const panelHeight = panelRef.current?.clientHeight ?? (isHourly ? 300 : 380)
   const heatmapTooltipPosition = hovered
     ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
     : null
@@ -568,7 +568,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
           className="pointer-events-none absolute z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95"
           style={{ left: heatmapTooltipPosition.left, top: heatmapTooltipPosition.top }}
         >
-          <p className="font-semibold">Activity Bucket</p>
+          <p className="font-semibold">Activity</p>
           <p className="mt-0.5">{hovered.label}</p>
           <div className="mt-1 flex items-center justify-between gap-4">
             <span className="text-slate dark:text-slate-300">Posts</span>
@@ -585,45 +585,99 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
           Last {data.window_days} Days ({isHourly ? 'Hourly' : 'Daily'})
         </p>
         <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-          <div className="mb-1 grid items-center gap-2 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: rowLayoutColumns }}>
-            <span />
-            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
-              {bucketLabels.map((bucketLabel, index) => (
-                <span key={`${bucketLabel}-${index}`} className="text-center">
-                  {isHourly ? (index % 3 === 0 ? bucketLabel.slice(0, 2) : '') : bucketLabel}
-                </span>
-              ))}
-            </div>
-          </div>
-
-          <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
-            {data.rows.map((row) => (
-              <div key={row.day} className="grid items-center gap-2" style={{ gridTemplateColumns: rowLayoutColumns }}>
-                <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
+          {isHourly ? (
+            <>
+              <div className="mb-1 grid items-center gap-2 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
+                <span />
                 <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
-                  {row.counts.slice(0, columnCount).map((count, bucketIndex) => (
-                    <div
-                      key={`${row.day}-${bucketIndex}`}
-                      className={`${isHourly ? 'h-4' : 'h-3'} rounded`}
-                      style={heatCellStyle(count, maxCount)}
-                      onMouseMove={(event) => {
-                        const bounds = panelRef.current?.getBoundingClientRect()
-                        if (!bounds) return
-                        const bucketLabel = bucketLabels[bucketIndex] ?? `Bucket ${bucketIndex + 1}`
-                        setHovered({
-                          label: isHourly ? `${row.day} ${bucketLabel}` : row.day,
-                          count,
-                          intensityPct: (count / maxCount) * 100,
-                          x: event.clientX - bounds.left,
-                          y: event.clientY - bounds.top,
-                        })
-                      }}
-                    />
+                  {bucketLabels.map((bucketLabel, index) => (
+                    <span key={`${bucketLabel}-${index}`} className="text-center">
+                      {index % 3 === 0 ? bucketLabel.slice(0, 2) : ''}
+                    </span>
                   ))}
                 </div>
               </div>
-            ))}
-          </div>
+
+              <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
+                {data.rows.map((row) => (
+                  <div key={row.day} className="grid items-center gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
+                    <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
+                    <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
+                      {row.counts.slice(0, columnCount).map((count, bucketIndex) => (
+                        <div
+                          key={`${row.day}-${bucketIndex}`}
+                          className="h-4 rounded"
+                          style={heatCellStyle(count, maxCount)}
+                          onMouseMove={(event) => {
+                            const bounds = panelRef.current?.getBoundingClientRect()
+                            if (!bounds) return
+                            const bucketLabel = bucketLabels[bucketIndex] ?? `Bucket ${bucketIndex + 1}`
+                            setHovered({
+                              label: `${row.day} ${bucketLabel}`,
+                              count,
+                              intensityPct: (count / maxCount) * 100,
+                              x: event.clientX - bounds.left,
+                              y: event.clientY - bounds.top,
+                            })
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="overflow-x-auto pb-1">
+              <div className="inline-flex items-start gap-2">
+                <div className="mt-[18px] grid grid-rows-7 gap-1 text-[10px] text-slate dark:text-slate-300">
+                  <span className="h-[11px] leading-[11px]" />
+                  <span className="h-[11px] leading-[11px]">Mon</span>
+                  <span className="h-[11px] leading-[11px]" />
+                  <span className="h-[11px] leading-[11px]">Wed</span>
+                  <span className="h-[11px] leading-[11px]" />
+                  <span className="h-[11px] leading-[11px]">Fri</span>
+                  <span className="h-[11px] leading-[11px]" />
+                </div>
+
+                <div className="space-y-1">
+                  <div className="grid gap-1 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: `repeat(${calendar?.weekCount ?? 1}, 11px)` }}>
+                    {Array.from({ length: calendar?.weekCount ?? 1 }, (_, weekIndex) => (
+                      <span key={`month-${weekIndex}`} className="h-3 overflow-visible leading-3">
+                        {calendar?.monthLabels.get(weekIndex) ?? ''}
+                      </span>
+                    ))}
+                  </div>
+
+                  <div className="grid grid-flow-col grid-rows-7 gap-1" style={{ gridAutoColumns: '11px' }}>
+                    {(calendar?.cells ?? []).map((cell, index) => {
+                      if (!cell) {
+                        return <div key={`pad-${index}`} className="h-[11px] w-[11px] rounded bg-transparent" />
+                      }
+                      return (
+                        <div
+                          key={cell.day}
+                          className="h-[11px] w-[11px] rounded"
+                          style={heatCellStyle(cell.count, maxCount)}
+                          onMouseMove={(event) => {
+                            const bounds = panelRef.current?.getBoundingClientRect()
+                            if (!bounds) return
+                            setHovered({
+                              label: cell.day,
+                              count: cell.count,
+                              intensityPct: (cell.count / maxCount) * 100,
+                              x: event.clientX - bounds.left,
+                              y: event.clientY - bounds.top,
+                            })
+                          }}
+                        />
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -796,6 +850,51 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
       </div>
     </div>
   )
+}
+
+interface DailyCalendarCell {
+  day: string
+  count: number
+}
+
+interface DailyCalendarLayout {
+  cells: Array<DailyCalendarCell | null>
+  weekCount: number
+  monthLabels: Map<number, string>
+}
+
+function buildDailyCalendar(rows: StatsActivityHeatmapResponse['rows']): DailyCalendarLayout {
+  const dayCells: DailyCalendarCell[] = rows.map((row) => ({
+    day: row.day,
+    count: row.counts[0] ?? 0,
+  }))
+
+  if (!dayCells.length) {
+    return { cells: [], weekCount: 0, monthLabels: new Map() }
+  }
+
+  const firstDate = parseIsoDay(dayCells[0].day)
+  const leadingEmpty = firstDate.getUTCDay()
+  const cells: Array<DailyCalendarCell | null> = [...Array.from({ length: leadingEmpty }, () => null), ...dayCells]
+  const weekCount = Math.ceil(cells.length / 7)
+
+  const monthLabels = new Map<number, string>()
+  let lastMonthKey = ''
+  for (let weekIndex = 0; weekIndex < weekCount; weekIndex += 1) {
+    const candidate = cells[weekIndex * 7]
+    if (!candidate) continue
+    const candidateDate = parseIsoDay(candidate.day)
+    const monthKey = `${candidateDate.getUTCFullYear()}-${candidateDate.getUTCMonth()}`
+    if (monthKey === lastMonthKey) continue
+    monthLabels.set(weekIndex, candidateDate.toLocaleDateString(undefined, { month: 'short' }))
+    lastMonthKey = monthKey
+  }
+
+  return { cells, weekCount, monthLabels }
+}
+
+function parseIsoDay(value: string): Date {
+  return new Date(`${value}T00:00:00Z`)
 }
 
 function heatCellStyle(count: number, maxCount: number) {
