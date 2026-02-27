@@ -308,6 +308,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [hiddenFeedIds, setHiddenFeedIds] = useState<string[]>([])
   const [hoverIndex, setHoverIndex] = useState<number | null>(null)
+  const [hoverPointer, setHoverPointer] = useState<{ x: number; y: number } | null>(null)
   const [chartWidth, setChartWidth] = useState(980)
 
   useEffect(() => {
@@ -378,6 +379,12 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
             sortOrder: index,
           }))
           .sort((a, b) => (b.count === a.count ? a.sortOrder - b.sortOrder : b.count - a.count))
+  const hostWidth = hostRef.current?.clientWidth ?? chartWidth
+  const hostHeight = hostRef.current?.clientHeight ?? chartHeight
+  const hoverLegendPosition =
+    hoverPointer && hoverDate && hoverLegend.length > 0
+      ? positionTooltipNearCursor(hoverPointer.x, hoverPointer.y, hostWidth, hostHeight, 220, 150)
+      : null
 
   return (
     <div className="mt-3">
@@ -421,8 +428,18 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
             const clamped = Math.max(paddingLeft, Math.min(chartWidth - paddingRight, normalizedX))
             const index = Math.round(((clamped - paddingLeft) / innerWidth) * Math.max(0, dates.length - 1))
             setHoverIndex(Math.max(0, Math.min(dates.length - 1, index)))
+            const hostBounds = hostRef.current?.getBoundingClientRect()
+            if (hostBounds) {
+              setHoverPointer({
+                x: event.clientX - hostBounds.left,
+                y: event.clientY - hostBounds.top,
+              })
+            }
           }}
-          onMouseLeave={() => setHoverIndex(null)}
+          onMouseLeave={() => {
+            setHoverIndex(null)
+            setHoverPointer(null)
+          }}
         >
           <rect
             x={paddingLeft}
@@ -488,8 +505,11 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
               return <circle key={`hover-${series.feed_id}`} cx={xForIndex(hoverIndex)} cy={yForCount(count)} r={3} fill={color} />
             })}
         </svg>
-        {hoverDate && hoverLegend.length > 0 && (
-          <div className="pointer-events-none absolute right-4 top-4 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95">
+        {hoverDate && hoverLegend.length > 0 && hoverLegendPosition && (
+          <div
+            className="pointer-events-none absolute min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95"
+            style={{ left: hoverLegendPosition.left, top: hoverLegendPosition.top }}
+          >
             <p className="font-semibold">{hoverDate}</p>
             <div className="mt-1 space-y-1">
               {hoverLegend.map(({ series, count, color }) => (
@@ -516,6 +536,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 }
 
 function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const max24 = Math.max(1, data.last_24h_max)
   const max7d = Math.max(1, data.last_7d_max)
   const [hovered, setHovered] = useState<{
@@ -523,12 +544,22 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
     label: string
     count: number
     intensityPct: number
+    x: number
+    y: number
   } | null>(null)
+  const panelWidth = panelRef.current?.clientWidth ?? 560
+  const panelHeight = panelRef.current?.clientHeight ?? 300
+  const heatmapTooltipPosition = hovered
+    ? positionTooltipNearCursor(hovered.x, hovered.y, panelWidth, panelHeight, 220, 116)
+    : null
 
   return (
-    <div className="relative mt-3 space-y-4" onMouseLeave={() => setHovered(null)}>
-      {hovered && (
-        <div className="pointer-events-none absolute right-0 top-0 z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95">
+    <div ref={panelRef} className="relative mt-3 space-y-4" onMouseLeave={() => setHovered(null)}>
+      {hovered && heatmapTooltipPosition && (
+        <div
+          className="pointer-events-none absolute z-10 min-w-48 rounded border border-slate/25 bg-white/95 p-2 text-xs shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]/95"
+          style={{ left: heatmapTooltipPosition.left, top: heatmapTooltipPosition.top }}
+        >
           <p className="font-semibold">{hovered.period === '24h' ? 'Last 24h Bucket' : 'Last 7d Bucket'}</p>
           <p className="mt-0.5">{hovered.label}</p>
           <div className="mt-1 flex items-center justify-between gap-4">
@@ -553,14 +584,18 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                 key={point.hour_start}
                 className="h-6 rounded"
                 style={heatCellStyle(point.count, max24)}
-                onMouseEnter={() =>
+                onMouseMove={(event) => {
+                  const bounds = panelRef.current?.getBoundingClientRect()
+                  if (!bounds) return
                   setHovered({
                     period: '24h',
                     label: formatHourAxis(point.hour_start),
                     count: point.count,
                     intensityPct: (point.count / max24) * 100,
+                    x: event.clientX - bounds.left,
+                    y: event.clientY - bounds.top,
                   })
-                }
+                }}
               />
             ))}
           </div>
@@ -595,14 +630,18 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                       key={`${row.day}-${hour}`}
                       className="h-4 rounded"
                       style={heatCellStyle(count, max7d)}
-                      onMouseEnter={() =>
+                      onMouseMove={(event) => {
+                        const bounds = panelRef.current?.getBoundingClientRect()
+                        if (!bounds) return
                         setHovered({
                           period: '7d',
                           label: `${row.day} ${String(hour).padStart(2, '0')}:00`,
                           count,
                           intensityPct: (count / max7d) * 100,
+                          x: event.clientX - bounds.left,
+                          y: event.clientY - bounds.top,
                         })
-                      }
+                      }}
                     />
                   ))}
                 </div>
@@ -622,7 +661,9 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
 }
 
 function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
+  const radarRef = useRef<HTMLDivElement | null>(null)
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null)
+  const [hoveredPopup, setHoveredPopup] = useState<{ category: string; x: number; y: number } | null>(null)
   const axes = data.axes
   if (!axes.length || data.total <= 0 || data.max_count <= 0) {
     return <p className="mt-3 text-sm text-slate dark:text-slate-300">No classified signal data in selected window.</p>
@@ -650,16 +691,28 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
   })
 
   const polygonPoints = coordinates.map((point) => `${point.x},${point.y}`).join(' ')
-  const hovered = coordinates.find((point) => point.axis.category === hoveredCategory) ?? null
+  const hovered = coordinates.find((point) => point.axis.category === (hoveredPopup?.category ?? hoveredCategory)) ?? null
+  const radarWidth = radarRef.current?.clientWidth ?? 520
+  const radarHeight = radarRef.current?.clientHeight ?? 430
+  const radarTooltipPosition = hoveredPopup
+    ? positionTooltipNearCursor(hoveredPopup.x, hoveredPopup.y, radarWidth, radarHeight, 240, 70)
+    : null
 
   return (
     <div className="mt-3 grid gap-4 lg:grid-cols-[1fr_280px]">
       <div
+        ref={radarRef}
         className="relative rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70"
-        onMouseLeave={() => setHoveredCategory(null)}
+        onMouseLeave={() => {
+          setHoveredCategory(null)
+          setHoveredPopup(null)
+        }}
       >
-        {hovered && (
-          <div className="pointer-events-none absolute right-3 top-3 rounded border border-slate/25 bg-white/95 px-2 py-1.5 text-xs shadow dark:border-cyan-900/40 dark:bg-[#041612]/95">
+        {hovered && hoveredPopup && radarTooltipPosition && (
+          <div
+            className="pointer-events-none absolute rounded border border-slate/25 bg-white/95 px-2 py-1.5 text-xs shadow dark:border-cyan-900/40 dark:bg-[#041612]/95"
+            style={{ left: radarTooltipPosition.left, top: radarTooltipPosition.top }}
+          >
             <p className="font-semibold">{formatCategoryLabel(hovered.axis.category)}</p>
             <p className="text-slate dark:text-slate-300">{hovered.axis.count} posts ({hovered.axis.pct.toFixed(1)}%)</p>
           </div>
@@ -701,7 +754,16 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
                 cy={point.y}
                 r={isHovered ? 6 : 4}
                 fill={isHovered ? 'rgba(14, 165, 233, 1)' : 'rgba(6, 182, 212, 0.95)'}
-                onMouseEnter={() => setHoveredCategory(point.axis.category)}
+                onMouseMove={(event) => {
+                  const bounds = radarRef.current?.getBoundingClientRect()
+                  if (!bounds) return
+                  setHoveredCategory(point.axis.category)
+                  setHoveredPopup({
+                    category: point.axis.category,
+                    x: event.clientX - bounds.left,
+                    y: event.clientY - bounds.top,
+                  })
+                }}
               />
             )
           })}
@@ -740,6 +802,7 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
                     : 'border-slate/20 dark:border-cyan-900/40'
                 }`}
                 onMouseEnter={() => setHoveredCategory(axis.category)}
+                onMouseLeave={() => setHoveredCategory(null)}
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate">{formatCategoryLabel(axis.category)}</span>
@@ -779,6 +842,22 @@ function formatCategoryLabel(category: string) {
     .split('_')
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(' ')
+}
+
+function positionTooltipNearCursor(
+  cursorX: number,
+  cursorY: number,
+  containerWidth: number,
+  containerHeight: number,
+  tooltipWidth: number,
+  tooltipHeight: number,
+) {
+  const offset = 14
+  const maxLeft = Math.max(8, containerWidth - tooltipWidth - 8)
+  const maxTop = Math.max(8, containerHeight - tooltipHeight - 8)
+  const left = Math.min(Math.max(8, cursorX + offset), maxLeft)
+  const top = Math.min(Math.max(8, cursorY + offset), maxTop)
+  return { left, top }
 }
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
