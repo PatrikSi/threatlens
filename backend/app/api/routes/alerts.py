@@ -6,6 +6,7 @@ from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.core.config import get_settings
 from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
     SCOPE_READ_ITEMS,
@@ -109,13 +110,13 @@ def _parse_category_csv(raw_value: str | None) -> list[str]:
 
 
 def _build_keyword_condition(keyword: str):
-    pattern = f"%{keyword}%"
+    pattern = f"%{_escape_like(keyword)}%"
     return or_(
-        func.lower(Item.title).like(pattern),
-        func.lower(func.coalesce(Item.summary, "")).like(pattern),
-        func.lower(cast(Item.url, String)).like(pattern),
-        func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern),
-        func.lower(func.coalesce(ItemClassification.primary_category, "")).like(pattern),
+        func.lower(Item.title).like(pattern, escape="\\"),
+        func.lower(func.coalesce(Item.summary, "")).like(pattern, escape="\\"),
+        func.lower(cast(Item.url, String)).like(pattern, escape="\\"),
+        func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern, escape="\\"),
+        func.lower(func.coalesce(ItemClassification.primary_category, "")).like(pattern, escape="\\"),
     )
 
 
@@ -136,6 +137,10 @@ def _build_item_haystack(
             classification or "",
         ]
     ).lower()
+
+
+def _escape_like(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @router.get("", response_model=list[AlertInterestResponse])
@@ -262,6 +267,7 @@ def list_alert_matches(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
+    settings = get_settings()
     selected_alert_ids = _parse_uuid_csv(alert_ids, "Invalid alert id in alert_ids")
     selected_categories = _parse_category_csv(categories)
 
@@ -280,6 +286,8 @@ def list_alert_matches(
     all_keywords = sorted({keyword for alert in alerts for keyword in alert.keywords if keyword})
     if not all_keywords:
         return AlertMatchListResponse(items=[], total=0, page=page, page_size=page_size)
+    if len(all_keywords) > settings.alert_matches_keyword_cap:
+        all_keywords = all_keywords[: settings.alert_matches_keyword_cap]
 
     state_subquery = (
         select(
@@ -306,13 +314,13 @@ def list_alert_matches(
 
     filters = []
     if q:
-        pattern = f"%{q.strip().lower()}%"
+        pattern = f"%{_escape_like(q.strip().lower())}%"
         filters.append(
             or_(
-                func.lower(Item.title).like(pattern),
-                func.lower(func.coalesce(Item.summary, "")).like(pattern),
-                func.lower(cast(Item.url, String)).like(pattern),
-                func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern),
+                func.lower(Item.title).like(pattern, escape="\\"),
+                func.lower(func.coalesce(Item.summary, "")).like(pattern, escape="\\"),
+                func.lower(cast(Item.url, String)).like(pattern, escape="\\"),
+                func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern, escape="\\"),
             )
         )
     if since is not None:
