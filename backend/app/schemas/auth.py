@@ -24,6 +24,7 @@ class ChangePasswordRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    csrf_token: str | None = None
 
 
 class UserResponse(BaseModel):

@@ -8,7 +8,7 @@ import { TokenResponse } from '../types/api'
 
 export function LoginPage() {
   const navigate = useNavigate()
-  const { setAuthToken } = useAuth()
+  const { markAuthenticated } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
 
@@ -22,11 +22,9 @@ export function LoginPage() {
         },
         false,
       ),
-    onMutate: () => {
-      setAuthToken(null)
-    },
     onSuccess: (data) => {
-      setAuthToken(data.access_token)
+      void data
+      markAuthenticated()
       navigate('/', { replace: true })
     },
   })

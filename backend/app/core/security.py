@@ -3,6 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from fastapi import Response
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
@@ -25,6 +26,11 @@ def create_access_token(subject: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expires_minutes)
     payload: dict[str, Any] = {"sub": subject, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def access_token_ttl_seconds() -> int:
+    settings = get_settings()
+    return max(60, int(settings.jwt_expires_minutes) * 60)
 
 
 def decode_access_token(token: str) -> str | None:
@@ -58,3 +64,42 @@ def extract_api_token_prefix(token: str) -> str | None:
 
 def hash_api_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def generate_csrf_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def set_auth_cookies(response: Response, access_token: str, csrf_token: str) -> None:
+    settings = get_settings()
+    max_age = access_token_ttl_seconds()
+    cookie_common = {
+        "max_age": max_age,
+        "domain": settings.auth_cookie_domain,
+        "path": settings.auth_cookie_path,
+        "secure": settings.auth_cookie_secure,
+        "samesite": settings.auth_cookie_samesite,
+    }
+
+    response.set_cookie(
+        key=settings.auth_cookie_name,
+        value=access_token,
+        httponly=True,
+        **cookie_common,
+    )
+    response.set_cookie(
+        key=settings.auth_csrf_cookie_name,
+        value=csrf_token,
+        httponly=False,
+        **cookie_common,
+    )
+
+
+def clear_auth_cookies(response: Response) -> None:
+    settings = get_settings()
+    cookie_common = {
+        "domain": settings.auth_cookie_domain,
+        "path": settings.auth_cookie_path,
+    }
+    response.delete_cookie(settings.auth_cookie_name, **cookie_common)
+    response.delete_cookie(settings.auth_csrf_cookie_name, **cookie_common)
