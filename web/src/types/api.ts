@@ -162,6 +162,8 @@ export interface StatsActivityHeatmapDayRow {
 export interface StatsActivityHeatmapResponse {
   generated_at: string
   window_days: number
+  bucket_unit: 'hour' | 'day'
+  bucket_labels: string[]
   rows: StatsActivityHeatmapDayRow[]
   max_count: number
 }

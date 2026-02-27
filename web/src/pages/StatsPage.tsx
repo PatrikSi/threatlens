@@ -172,7 +172,9 @@ export function StatsPage() {
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Activity Heatmap</h3>
             <p className="mt-1 text-xs text-slate dark:text-slate-300">
-              Publication-time density by hour across the selected time window. Darker cells indicate higher post volume.
+              {activityHeatmapQuery.data?.bucket_unit === 'day'
+                ? 'Publication-time density aggregated by day for longer windows. Darker cells indicate higher post volume.'
+                : 'Publication-time density by hour across short windows. Darker cells indicate higher post volume.'}
             </p>
             {activityHeatmapQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading activity heatmap...</p>}
             {activityHeatmapQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load activity heatmap.</p>}
@@ -539,6 +541,13 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) {
   const panelRef = useRef<HTMLDivElement | null>(null)
   const maxCount = Math.max(1, data.max_count)
+  const columnCount = Math.max(1, data.bucket_labels.length || data.rows[0]?.counts.length || 1)
+  const bucketLabels =
+    data.bucket_labels.length === columnCount
+      ? data.bucket_labels
+      : Array.from({ length: columnCount }, (_, index) => `Bucket ${index + 1}`)
+  const isHourly = data.bucket_unit === 'hour'
+  const rowLayoutColumns = isHourly ? '82px minmax(0, 1fr)' : '82px 52px'
   const [hovered, setHovered] = useState<{
     label: string
     count: number
@@ -573,15 +582,15 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
       )}
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
-          Last {data.window_days} Days
+          Last {data.window_days} Days ({isHourly ? 'Hourly' : 'Daily'})
         </p>
         <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-          <div className="mb-1 grid grid-cols-[82px_1fr] items-center gap-2 text-[10px] text-slate dark:text-slate-300">
+          <div className="mb-1 grid items-center gap-2 text-[10px] text-slate dark:text-slate-300" style={{ gridTemplateColumns: rowLayoutColumns }}>
             <span />
-            <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
-              {Array.from({ length: 24 }, (_, hour) => (
-                <span key={`hour-${hour}`} className="text-center">
-                  {hour % 3 === 0 ? String(hour).padStart(2, '0') : ''}
+            <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
+              {bucketLabels.map((bucketLabel, index) => (
+                <span key={`${bucketLabel}-${index}`} className="text-center">
+                  {isHourly ? (index % 3 === 0 ? bucketLabel.slice(0, 2) : '') : bucketLabel}
                 </span>
               ))}
             </div>
@@ -589,19 +598,20 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
 
           <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
             {data.rows.map((row) => (
-              <div key={row.day} className="grid grid-cols-[82px_1fr] items-center gap-2">
+              <div key={row.day} className="grid items-center gap-2" style={{ gridTemplateColumns: rowLayoutColumns }}>
                 <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
-                <div className="grid gap-1" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))' }}>
-                  {row.counts.map((count, hour) => (
+                <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
+                  {row.counts.slice(0, columnCount).map((count, bucketIndex) => (
                     <div
-                      key={`${row.day}-${hour}`}
-                      className="h-4 rounded"
+                      key={`${row.day}-${bucketIndex}`}
+                      className={`${isHourly ? 'h-4' : 'h-3'} rounded`}
                       style={heatCellStyle(count, maxCount)}
                       onMouseMove={(event) => {
                         const bounds = panelRef.current?.getBoundingClientRect()
                         if (!bounds) return
+                        const bucketLabel = bucketLabels[bucketIndex] ?? `Bucket ${bucketIndex + 1}`
                         setHovered({
-                          label: `${row.day} ${String(hour).padStart(2, '0')}:00`,
+                          label: isHourly ? `${row.day} ${bucketLabel}` : row.day,
                           count,
                           intensityPct: (count / maxCount) * 100,
                           x: event.clientX - bounds.left,
