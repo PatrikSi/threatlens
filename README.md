@@ -1,86 +1,66 @@
 # ThreatLens
 
-ThreatLens is a self-hosted cyber threat intelligence aggregator for security operations teams.
+ThreatLens is a self-hosted threat intelligence aggregator built for security teams. It pulls in feeds, processes articles, and gives analysts a clean interface to triage and track what matters.
 
-## Architecture
+## Stack Overview
 
-- `web`: React + TypeScript UI
-- `api`: FastAPI app
-- `worker`: Celery workers for feed/article jobs
-- `beat`: Celery beat scheduler
-- `db`: PostgreSQL
-- `redis`: queue and coordination backend
+The project is split into a few core services:
 
-## Enterprise Features
+- `web` - React + TypeScript frontend
+- `api` - FastAPI backend
+- `worker` - Celery workers for background jobs
+- `beat` - Celery scheduler
+- `db` - PostgreSQL
+- `redis` - queue + coordination layer
 
-- Multi-user accounts
-- RBAC roles: `admin`, `analyst`, `viewer`
-- User lifecycle management (`/users` admin APIs)
-- JWT auth plus personal API tokens (`/tokens`)
-- Audit logs for operational/security actions (`/audit-logs`)
-- Read/star/note/tag triage state per user
-- Feed scheduling + refresh controls
-- Article dereference and readable text extraction
+## Features
 
-## Environment
+- Multi-user support with role-based access control (`admin`, `analyst`, `viewer`)
+- JWT authentication + personal API tokens
+- Audit logging for security-relevant actions
+- Per-user triage state (read, starred, notes, tags)
+- Feed scheduling and refresh controls
+- Article fetching + readable content extraction
 
-Create `.env` from template:
+## Setup
+
+Copy the environment template:
 
 ```bash
 cp .env.example .env
 ```
 
-Key vars:
+You'll need to configure at least:
 
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_SECRET`
-- `JWT_EXPIRES_MINUTES` (default `1440`)
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
-- `ALLOW_SELF_REGISTRATION` (default `false`)
-- `DEFAULT_API_TOKEN_EXPIRY_DAYS` (default `90`)
-- `ALLOW_LEGACY_UNSCOPED_TOKENS` (default `false`)
-- `ALLOW_PRIVATE_NETWORK_FETCH` (default `false`)
-- `FEED_MAX_BYTES` (default `2000000`)
-- `OUTBOUND_MAX_REDIRECTS` (default `5`)
-- `AUTH_LOGIN_MAX_ATTEMPTS` (default `8`)
-- `AUTH_LOGIN_WINDOW_SECONDS` (default `300`)
-- `AUTH_LOGIN_LOCKOUT_SECONDS` (default `900`)
-- `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (default `300`)
-- `AUTH_COOKIE_SECURE` (default `false`, set to `true` in production)
-- `AUTH_COOKIE_SAMESITE` (default `lax`)
-- `AUTH_REQUIRE_CSRF` (default `true`)
-- `TRUSTED_PROXY_CIDRS` (CSV CIDRs allowed to supply `X-Forwarded-For`)
-- `PROBE_FEED_METADATA_ON_CREATE` / `PROBE_FEED_METADATA_ON_IMPORT` (default `false`)
-- `MAX_METADATA_BACKFILL_TASKS_PER_REQUEST` (default `100`)
-- `RUN_MIGRATIONS_ON_STARTUP` (default `true`)
-- `SEED_ADMIN_ON_STARTUP` (default `false`)
-- `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (default `1.0`)
-- `BEAT_HEARTBEAT_*` (heartbeat key/TTL/staleness/interval controls)
 
-## Run (Docker Compose)
+There are a number of additional flags for auth hardening, rate limiting, and feed handling - check `.env.example` for full details.
 
-Start all services:
+## Running with Docker
+
+Start everything:
 
 ```bash
 docker compose up --build -d
 ```
 
-Check status:
+Check containers:
 
 ```bash
 docker compose ps
 ```
 
-Open:
+Endpoints:
 
-- Web UI: `http://localhost:3000`
-- Health: `http://localhost:8000/health`
-- Liveness: `http://localhost:8000/health/live`
+- UI: `http://localhost:3000`
+- API health: `http://localhost:8000/health`
 - Readiness: `http://localhost:8000/health/ready`
-- Worker health: `http://localhost:8000/health/worker`
-- Beat health: `http://localhost:8000/health/beat`
+- Worker: `http://localhost:8000/health/worker`
+- Beat: `http://localhost:8000/health/beat`
 
 Stop:
 
@@ -88,60 +68,59 @@ Stop:
 docker compose down
 ```
 
-Stop + remove volumes:
+Remove volumes too:
 
 ```bash
 docker compose down -v
 ```
 
-## Backend Operations
+## Common Operations
 
-### Apply migrations
+### Run database migrations
 
 ```bash
 docker compose exec api alembic upgrade head
 ```
 
-### Create/refresh admin user
+### Create or reset admin user
 
 ```bash
 docker compose exec api python -m app.scripts.seed_admin
 ```
 
-### Inspect API logs
+### Logs
 
 ```bash
 docker compose logs -f api
-```
-
-### Worker/beat logs
-
-```bash
 docker compose logs -f worker beat
 ```
 
-### Manual feed refresh (API)
+### Trigger feed refresh
 
 ```bash
 curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
   -H "Authorization: Bearer <jwt>"
 ```
 
-## RBAC Model
+## Roles
 
-- `admin`
-  - Full access
-  - Manage users, audit logs, tokens (all users), feeds
-- `analyst`
-  - Manage feeds, tags, triage state, personal tokens
-  - Cannot manage users or global audit logs
-- `viewer`
-  - Read-only access to feed/item data and personal views/tokens
-  - Cannot mutate feeds/tags/triage state
+### `admin`
+
+- Full access
+- Can manage users, tokens, audit logs, feeds
+
+### `analyst`
+
+- Works with feeds, tags, and triage
+- Cannot manage users or global audit logs
+
+### `viewer`
+
+- Read-only access
 
 ## API Tokens
 
-Create token (JWT-authenticated):
+Create a token:
 
 ```bash
 curl -X POST http://localhost:8000/tokens \
@@ -150,40 +129,39 @@ curl -X POST http://localhost:8000/tokens \
   -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
 ```
 
-Notes:
-
-- If `scopes` is omitted, token defaults to `read:feeds`, `read:items`, `read:stats`, `read:alerts`.
-- Legacy tokens with empty scopes are allowed only when `ALLOW_LEGACY_UNSCOPED_TOKENS=true` (disabled by default).
-- `write:<resource>` implies `read:<resource>`.
-- Wildcards supported: `read:*`, `write:*`, `admin:*`.
-- Supported resources: `feeds`, `items`, `tags`, `views`, `tokens`, `users`, `audit`, `stats`.
-
-Use token:
+Use it:
 
 ```bash
 curl http://localhost:8000/feeds \
-  -H "Authorization: Bearer <plain_api_token>"
+  -H "Authorization: Bearer <token>"
 ```
 
-Revoke token:
+Revoke it:
 
 ```bash
 curl -X DELETE http://localhost:8000/tokens/<token_id> \
   -H "Authorization: Bearer <jwt>"
 ```
 
-## User Admin API (admin role)
+Notes:
 
-Create user:
+- Default scopes are read-only if none are provided
+- `write:*` implies `read:*`
+- Wildcards are supported (`read:*`, `admin:*`)
+- Legacy unscoped tokens are disabled by default
+
+## User Management (admin only)
+
+Create a user:
 
 ```bash
 curl -X POST http://localhost:8000/users \
   -H "Authorization: Bearer <admin_jwt>" \
   -H "Content-Type: application/json" \
-  -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst","is_active":true}'
+  -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst"}'
 ```
 
-Update user:
+Update a user:
 
 ```bash
 curl -X PATCH http://localhost:8000/users/<user_id> \
@@ -192,9 +170,9 @@ curl -X PATCH http://localhost:8000/users/<user_id> \
   -d '{"role":"viewer","is_active":false}'
 ```
 
-## Audit Logs (admin role)
+## Audit Logs
 
-Fetch latest:
+Fetch logs:
 
 ```bash
 curl "http://localhost:8000/audit-logs?page=1&page_size=50" \
@@ -210,26 +188,19 @@ curl "http://localhost:8000/audit-logs?action=feeds.create" \
 
 ## Local Development
 
-### Backend (without Docker)
+### Backend
 
 ```bash
 cd backend
 pip install -r requirements.txt
 alembic upgrade head
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload
 ```
 
-Worker:
+Run workers:
 
 ```bash
-cd backend
 celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-```
-
-Beat:
-
-```bash
-cd backend
 celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 ```
 
@@ -243,35 +214,24 @@ npm run dev
 
 ## Testing
 
-Comprehensive test suite includes:
-
-- Unit tests for URL normalization, dedupe, extraction
-- API integration tests for auth, RBAC, tokens, audit logs
-
-Run tests in container (recommended):
+Run tests inside Docker:
 
 ```bash
 docker compose build api
-docker compose run --rm -e HOME=/tmp api sh -lc "python -m pip install --user --no-cache-dir -r requirements-dev.txt && PATH=/tmp/.local/bin:$PATH pytest"
+docker compose run --rm -e HOME=/tmp api sh -lc \
+  "pip install --no-cache-dir -r requirements-dev.txt && pytest"
 ```
 
-## Backup/Restore
+## Backup & Restore
 
-Backup PostgreSQL:
+Backup:
 
 ```bash
-docker compose exec db pg_dump -U postgres threatlens > threatlens_backup.sql
+docker compose exec db pg_dump -U postgres threatlens > backup.sql
 ```
 
-Restore PostgreSQL:
+Restore:
 
 ```bash
-cat threatlens_backup.sql | docker compose exec -T db psql -U postgres threatlens
+cat backup.sql | docker compose exec -T db psql -U postgres threatlens
 ```
-
-## Notes
-
-- OpenAI enrichment remains intentionally unimplemented for now (future async pipeline stage).
-- API token plaintext is shown only once at creation time.
-- Audit logs are append-only records for operational traceability.
-- Structured UI documentation is available under `docs/`.
