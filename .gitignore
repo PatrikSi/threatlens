@@ -37,3 +37,9 @@ dist/
 # Docker
 postgres_data/
 redis_data/
+threatlens-api.tar
+threatlens-worker.tar
+threatlens-beat.tar
+threatlens-web.tar
+docker-compose.portainer.yml
+docker-compose.private-main.yml
