@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +12,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
+from app.core.security import get_password_hash
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
 
@@ -46,6 +48,55 @@ def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
     )
     assert response.status_code == 429
     assert response.headers.get("retry-after") == "60"
+
+
+def test_registration_settings_endpoint_reflects_config(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.auth.get_settings",
+        lambda: SimpleNamespace(allow_self_registration=True),
+    )
+
+    response = client.get("/auth/registration-settings")
+    assert response.status_code == 200
+    assert response.json() == {"allow_self_registration": True}
+
+
+def test_register_creates_pending_user_when_enabled(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.auth.get_settings",
+        lambda: SimpleNamespace(allow_self_registration=True),
+    )
+
+    response = client.post(
+        "/auth/register",
+        json={"email": "pending@example.com", "password": "PendingPass123!"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["email"] == "pending@example.com"
+    assert payload["role"] == "viewer"
+    assert payload["is_active"] is True
+    assert payload["is_approved"] is False
+
+
+def test_login_rejects_pending_user_with_clear_message(client: TestClient, db_session):
+    pending_user = User(
+        id=uuid.uuid4(),
+        email="pending@example.com",
+        password_hash=get_password_hash("PendingPass123!"),
+        role="viewer",
+        is_active=True,
+        is_approved=False,
+    )
+    db_session.add(pending_user)
+    db_session.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "pending@example.com", "password": "PendingPass123!"},
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Your account is pending admin approval."
 
 
 def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):

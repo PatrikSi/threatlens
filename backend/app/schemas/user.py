@@ -14,6 +14,7 @@ class UserCreateRequest(BaseModel):
     password: str = Field(min_length=8, max_length=256)
     role: RoleValue = ROLE_VIEWER
     is_active: bool = True
+    is_approved: bool = True
 
 
 class UserUpdateRequest(BaseModel):
@@ -21,6 +22,7 @@ class UserUpdateRequest(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=256)
     role: RoleValue | None = None
     is_active: bool | None = None
+    is_approved: bool | None = None
 
 
 class UserAdminResponse(BaseModel):
@@ -30,4 +32,6 @@ class UserAdminResponse(BaseModel):
     email: EmailStr
     role: RoleValue = ROLE_ANALYST
     is_active: bool
+    is_approved: bool
+    approved_at: datetime | None
     created_at: datetime

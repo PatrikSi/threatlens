@@ -27,6 +27,10 @@ class TokenResponse(BaseModel):
     csrf_token: str | None = None
 
 
+class RegistrationSettingsResponse(BaseModel):
+    allow_self_registration: bool
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,4 +38,6 @@ class UserResponse(BaseModel):
     email: EmailStr
     role: str = ROLE_VIEWER
     is_active: bool
+    is_approved: bool
+    approved_at: datetime | None
     created_at: datetime
