@@ -1,7 +1,7 @@
 import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 
 export function UsersPage() {
@@ -12,6 +12,7 @@ export function UsersPage() {
     password: '',
     role: 'viewer',
     is_active: true,
+    is_approved: true,
   })
 
   const usersQuery = useQuery({
@@ -26,7 +27,7 @@ export function UsersPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: () => {
-      setCreateForm({ email: '', password: '', role: 'viewer', is_active: true })
+      setCreateForm({ email: '', password: '', role: 'viewer', is_active: true, is_approved: true })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
     },
   })
@@ -44,7 +45,12 @@ export function UsersPage() {
     const users = usersQuery.data ?? []
     const normalized = search.trim().toLowerCase()
     if (!normalized) return users
-    return users.filter((user) => user.email.toLowerCase().includes(normalized) || user.role.includes(normalized))
+    return users.filter(
+      (user) =>
+        user.email.toLowerCase().includes(normalized) ||
+        user.role.includes(normalized) ||
+        (user.is_approved ? 'approved' : 'pending').includes(normalized),
+    )
   }, [usersQuery.data, search])
 
   const onCreateSubmit = (event: FormEvent) => {
@@ -98,6 +104,14 @@ export function UsersPage() {
             />
             Active
           </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createForm.is_approved}
+              onChange={(event) => setCreateForm((f) => ({ ...f, is_approved: event.target.checked }))}
+            />
+            Approved
+          </label>
           {createUser.isError && <p className="text-sm text-red-600">Failed to create user.</p>}
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createUser.isPending}>
             Create User
@@ -122,7 +136,7 @@ export function UsersPage() {
           ))}
 
           {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
-          {usersQuery.isError && <p className="text-sm text-red-600">Failed to load users.</p>}
+          {usersQuery.isError && <p className="text-sm text-red-600">{resolveUsersError(usersQuery.error)}</p>}
         </div>
       </section>
     </div>
@@ -132,14 +146,24 @@ export function UsersPage() {
 function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserUpdateRequest) => void; saving: boolean }) {
   const [role, setRole] = useState<User['role']>(user.role)
   const [isActive, setIsActive] = useState(user.is_active)
+  const [isApproved, setIsApproved] = useState(user.is_approved)
   const [resetPassword, setResetPassword] = useState('')
+  const trimmedPassword = resetPassword.trim()
 
   return (
     <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-semibold">{user.email}</p>
-          <p className="text-xs text-slate dark:text-slate-300">Created {new Date(user.created_at).toLocaleString()}</p>
+          <p className="text-xs text-slate dark:text-slate-300">
+            Created {new Date(user.created_at).toLocaleString()}
+            {user.approved_at ? ` · Approved ${new Date(user.approved_at).toLocaleString()}` : ''}
+          </p>
+          {!user.is_approved && (
+            <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              Pending approval
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select
@@ -155,30 +179,46 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
             <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
             Active
           </label>
+          <label className="flex items-center gap-1 text-sm">
+            <input type="checkbox" checked={isApproved} onChange={(event) => setIsApproved(event.target.checked)} />
+            Approved
+          </label>
+          <button
+            className="rounded border border-slate/30 px-3 py-1 text-sm font-semibold dark:border-cyan-900/40"
+            disabled={saving}
+            onClick={() => onSave({ role, is_active: isActive, is_approved: isApproved })}
+          >
+            Save user settings
+          </button>
         </div>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
           type="password"
-          placeholder="New password (optional)"
+          placeholder="New password (min 8 chars)"
           value={resetPassword}
           onChange={(event) => setResetPassword(event.target.value)}
           className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
         />
         <button
           className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
-          disabled={saving}
+          disabled={saving || trimmedPassword.length < 8}
           onClick={() => {
-            const payload: UserUpdateRequest = { role, is_active: isActive }
-            if (resetPassword.trim()) payload.password = resetPassword.trim()
-            onSave(payload)
+            onSave({ password: trimmedPassword })
             setResetPassword('')
           }}
         >
-          Save
+          Save password
         </button>
       </div>
     </div>
   )
+}
+
+function resolveUsersError(error: unknown): string {
+  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
+    return `Failed to load users: ${error.message}`
+  }
+  return 'Failed to load users.'
 }
