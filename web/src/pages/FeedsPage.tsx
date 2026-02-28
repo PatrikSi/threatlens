@@ -523,7 +523,7 @@ export function FeedsPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-xl">Configured Feeds ({feedStats.total})</h2>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
@@ -538,7 +538,7 @@ export function FeedsPage() {
             </label>
             <button
               type="button"
-              className="rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+              className="col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto dark:bg-cyan dark:text-[#053c2e]"
               disabled={!canManage || !importData || importFeeds.isPending}
               onClick={() => importFeeds.mutate()}
             >
@@ -553,13 +553,13 @@ export function FeedsPage() {
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <input
-            className="min-w-64 flex-1 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search feeds"
           />
           <select
-            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
             value={sort}
             onChange={(event) => setSort(event.target.value as FeedSort)}
           >
@@ -569,7 +569,7 @@ export function FeedsPage() {
             <option value="last_fetch_desc">Last fetched newest</option>
             <option value="last_fetch_asc">Last fetched oldest</option>
           </select>
-          <label className="flex items-center gap-2 text-xs text-slate dark:text-slate-300">
+          <label className="flex w-full items-center gap-2 text-xs text-slate sm:w-auto dark:text-slate-300">
             <input
               type="checkbox"
               checked={overwriteExisting}
@@ -580,7 +580,7 @@ export function FeedsPage() {
           </label>
         </div>
 
-        <div className="mt-2 flex flex-wrap items-center gap-2">
+        <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
@@ -674,7 +674,7 @@ export function FeedsPage() {
             const saveMessage = feedSaveState[feed.id]?.message
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
-              <div className="flex items-start justify-between gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold">{feed.name}</p>
@@ -691,7 +691,7 @@ export function FeedsPage() {
                     <span>Last success: {formatDate(feed.last_success_at)}</span>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <button
                     className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
                     onClick={() => refreshFeed.mutate(feed.id)}
@@ -743,7 +743,7 @@ export function FeedsPage() {
                 </select>
 
                 {draft.fetchMode === 'interval' ? (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <label className="text-xs font-semibold">Every</label>
                     <input
                       className="w-28 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"

@@ -107,7 +107,7 @@ export function StatsPage() {
             <select
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value={7}>Last 7 days</option>
               <option value={30}>Last 30 days</option>
@@ -116,7 +116,7 @@ export function StatsPage() {
             </select>
             <button
               type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
+              className="w-full rounded border border-slate/30 px-3 py-2 text-sm text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
               onClick={() => setSelectedFeedIds([])}
             >
               All feeds
@@ -138,7 +138,7 @@ export function StatsPage() {
             </option>
           ))}
         </select>
-        <div className="mt-1 flex items-center justify-between text-xs text-slate dark:text-slate-300">
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate dark:text-slate-300">
           <span>{selectedFeedIds.length || 'All'} selected</span>
           <button
             type="button"

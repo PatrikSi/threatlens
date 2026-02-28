@@ -922,11 +922,11 @@ export function DashboardPage() {
             value={savedViewName}
             onChange={(event) => setSavedViewName(event.target.value)}
             placeholder="Save dashboard view as..."
-            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
           />
           <button
             type="button"
-            className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+            className="w-full rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
             onClick={saveCurrentView}
             disabled={saveView.isPending || !savedViewName.trim()}
           >
@@ -934,14 +934,14 @@ export function DashboardPage() {
           </button>
           <button
             type="button"
-            className="rounded border border-slate/25 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs sm:w-auto dark:border-cyan-900/40"
             onClick={() => setShowManageViewsModal(true)}
           >
             Manage Views
           </button>
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
             <select
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardTimeRange}
               onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
             >
@@ -953,14 +953,14 @@ export function DashboardPage() {
             </select>
             <input
               type="date"
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardCustomSinceDate}
               onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
               disabled={dashboardTimeRange !== 'custom'}
             />
             <input
               type="date"
-              className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardCustomUntilDate}
               onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
               disabled={dashboardTimeRange !== 'custom'}
@@ -969,13 +969,13 @@ export function DashboardPage() {
           <div className="relative">
             <button
               type="button"
-              className="rounded border border-slate/25 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+              className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs sm:w-auto dark:border-cyan-900/40"
               onClick={() => setShowAddWindowMenu((current) => !current)}
             >
               Add Window
             </button>
             {showAddWindowMenu && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-44 rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
+              <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
                 <button
                   type="button"
                   className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
@@ -1001,7 +1001,7 @@ export function DashboardPage() {
             )}
           </div>
           <select
-            className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
             value={activeSavedViewId ?? ''}
             onChange={(event) => {
               const value = event.target.value
@@ -1069,7 +1069,7 @@ export function DashboardPage() {
               onMouseDown={() => bringWindowToFront(windowLayout.id)}
             >
               <div
-                className="flex items-center justify-between border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40"
+                className="flex flex-col gap-2 border-b border-slate/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between dark:border-cyan-900/40"
                 onMouseDown={(event) => startWindowDrag(event, windowLayout.id)}
               >
                 <div>
@@ -1082,7 +1082,7 @@ export function DashboardPage() {
                     <p className="text-xs text-slate dark:text-slate-300">Scratch notes persisted in dashboard layout and saved views.</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2" onMouseDown={(event) => event.stopPropagation()}>
+                <div className="flex flex-wrap items-center gap-2 sm:justify-end" onMouseDown={(event) => event.stopPropagation()}>
                   <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
                     {windowLayout.type === 'rss'
                       ? `${rssWindowItems.length} shown`
@@ -1126,7 +1126,7 @@ export function DashboardPage() {
                     Rename
                   </button>
                   <select
-                    className="rounded border border-slate/25 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#041612]"
+                    className="hidden rounded border border-slate/25 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#041612]"
                     value={windowLayout.snap}
                     onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
                   >
@@ -1242,10 +1242,10 @@ export function DashboardPage() {
                           setQ(event.target.value)
                         }}
                         placeholder="Search title, summary, URL"
-                        className="min-w-64 flex-1 rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
@@ -1257,7 +1257,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       <select
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={sort}
                         onChange={(event) => {
                           clearRssSelection()
@@ -1269,10 +1269,10 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex rounded border border-slate/25 p-0.5 dark:border-cyan-900/40">
+                      <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
-                          className={`rounded px-2 py-1 text-xs font-semibold ${viewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${viewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => {
                             clearRssSelection()
                             setViewMode('expanded')
@@ -1282,7 +1282,7 @@ export function DashboardPage() {
                         </button>
                         <button
                           type="button"
-                          className={`rounded px-2 py-1 text-xs font-semibold ${viewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${viewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => {
                             clearRssSelection()
                             setViewMode('compact')
@@ -1293,7 +1293,7 @@ export function DashboardPage() {
                       </div>
                       <button
                         type="button"
-                        className="rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                        className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
                         onClick={() => {
                           setActiveSavedViewId(null)
                           setShowAdvancedFilters((current) => !current)
@@ -1329,7 +1329,7 @@ export function DashboardPage() {
                           <option value="starred">Stars: Starred</option>
                           <option value="unstarred">Stars: Unstarred</option>
                         </select>
-                        <div className="flex gap-2">
+                        <div className="flex flex-col gap-2 sm:flex-row">
                           <input
                             type="date"
                             className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -1529,7 +1529,7 @@ export function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
                       className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                       disabled={page <= 1}
@@ -1537,10 +1537,10 @@ export function DashboardPage() {
                     >
                       Prev
                     </button>
-                    <span>
+                    <span className="w-full text-center sm:w-auto">
                       Page {page} / {totalPages}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
                         className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -1659,10 +1659,10 @@ export function DashboardPage() {
                           setAlertQ(event.target.value)
                         }}
                         placeholder="Search matched alert items"
-                        className="min-w-64 flex-1 rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
@@ -1674,7 +1674,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       <select
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={alertSort}
                         onChange={(event) => {
                           clearAlertSelection()
@@ -1686,10 +1686,10 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex rounded border border-slate/25 p-0.5 dark:border-cyan-900/40">
+                      <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
-                          className={`rounded px-2 py-1 text-xs font-semibold ${alertViewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertViewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => {
                             clearAlertSelection()
                             setAlertViewMode('expanded')
@@ -1699,7 +1699,7 @@ export function DashboardPage() {
                         </button>
                         <button
                           type="button"
-                          className={`rounded px-2 py-1 text-xs font-semibold ${alertViewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertViewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => {
                             clearAlertSelection()
                             setAlertViewMode('compact')
@@ -1710,14 +1710,14 @@ export function DashboardPage() {
                       </div>
                       <input
                         type="date"
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_since_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                       />
                       <input
                         type="date"
-                        className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_until_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -1782,7 +1782,7 @@ export function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
                       className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                       disabled={alertPage <= 1}
@@ -1790,10 +1790,10 @@ export function DashboardPage() {
                     >
                       Prev
                     </button>
-                    <span>
+                    <span className="w-full text-center sm:w-auto">
                       Page {alertPage} / {alertTotalPages}
                     </span>
-                    <div className="flex items-center gap-2">
+                    <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
                         className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
