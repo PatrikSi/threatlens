@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -46,6 +47,8 @@ def create_user(
         password_hash=get_password_hash(payload.password),
         role=payload.role,
         is_active=payload.is_active,
+        is_approved=payload.is_approved,
+        approved_at=datetime.now(timezone.utc) if payload.is_approved else None,
     )
     db.add(user)
     db.flush()
@@ -55,7 +58,7 @@ def create_user(
         action="users.create",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"email": user.email, "role": user.role},
+        metadata={"email": user.email, "role": user.role, "is_approved": user.is_approved},
     )
     db.commit()
     db.refresh(user)
@@ -88,6 +91,10 @@ def update_user(
     if payload.is_active is not None:
         user.is_active = payload.is_active
 
+    if payload.is_approved is not None:
+        user.is_approved = payload.is_approved
+        user.approved_at = datetime.now(timezone.utc) if payload.is_approved else None
+
     if payload.password is not None:
         user.password_hash = get_password_hash(payload.password)
 
@@ -98,7 +105,7 @@ def update_user(
         action="users.update",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"role": user.role, "is_active": user.is_active},
+        metadata={"role": user.role, "is_active": user.is_active, "is_approved": user.is_approved},
     )
     db.commit()
     db.refresh(user)
