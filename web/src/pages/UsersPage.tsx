@@ -148,6 +148,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
   const [isActive, setIsActive] = useState(user.is_active)
   const [isApproved, setIsApproved] = useState(user.is_approved)
   const [resetPassword, setResetPassword] = useState('')
+  const trimmedPassword = resetPassword.trim()
 
   return (
     <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
@@ -182,28 +183,33 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
             <input type="checkbox" checked={isApproved} onChange={(event) => setIsApproved(event.target.checked)} />
             Approved
           </label>
+          <button
+            className="rounded border border-slate/30 px-3 py-1 text-sm font-semibold dark:border-cyan-900/40"
+            disabled={saving}
+            onClick={() => onSave({ role, is_active: isActive, is_approved: isApproved })}
+          >
+            Save user settings
+          </button>
         </div>
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <input
           type="password"
-          placeholder="New password (optional)"
+          placeholder="New password (min 8 chars)"
           value={resetPassword}
           onChange={(event) => setResetPassword(event.target.value)}
           className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
         />
         <button
           className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
-          disabled={saving}
+          disabled={saving || trimmedPassword.length < 8}
           onClick={() => {
-            const payload: UserUpdateRequest = { role, is_active: isActive, is_approved: isApproved }
-            if (resetPassword.trim()) payload.password = resetPassword.trim()
-            onSave(payload)
+            onSave({ password: trimmedPassword })
             setResetPassword('')
           }}
         >
-          Save
+          Save password
         </button>
       </div>
     </div>
