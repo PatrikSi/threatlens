@@ -51,6 +51,10 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                 if response.status_code != 200:
                     raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
 
+                etag = response.headers.get("etag")
+                last_modified = response.headers.get("last-modified")
+                resolved_url = str(response.url)
+
                 body_chunks: list[bytes] = []
                 body_size = 0
                 for chunk in response.iter_bytes():
@@ -77,9 +81,9 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
         description=description,
         site_url=site_url,
         language=language,
-        etag=response.headers.get("etag"),
-        last_modified=response.headers.get("last-modified"),
-        resolved_url=str(response.url),
+        etag=etag,
+        last_modified=last_modified,
+        resolved_url=resolved_url,
         feed_type=_clean(getattr(parsed, "version", None)),
     )
 
