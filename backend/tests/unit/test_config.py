@@ -8,6 +8,18 @@ def test_cors_origins_parses_csv():
     assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
 
 
+def test_cors_origins_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("CORS_ORIGINS", "http://localhost:3000, https://threatlens.local")
+    settings = Settings(_env_file=None)
+    assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
+
+
+def test_trusted_proxy_cidrs_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TRUSTED_PROXY_CIDRS", "127.0.0.1/32,::1/128,172.16.0.0/12")
+    settings = Settings(_env_file=None)
+    assert settings.trusted_proxy_cidrs == ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
+
+
 def test_production_requires_strong_jwt_secret():
     with pytest.raises(ValueError):
         Settings(app_env="production", jwt_secret="change-me")

@@ -30,6 +30,8 @@ Copy the environment template:
 cp .env.example .env
 ```
 
+When running in Portainer (or any orchestrator that injects environment variables directly), a `.env` file is not required. The API reads process environment variables first; `.env` is only a local convenience.
+
 You'll need to configure at least:
 
 - `DATABASE_URL`
@@ -53,6 +55,12 @@ Start everything:
 ```bash
 docker compose up --build -d
 ```
+
+Startup flow for `docker-compose.yml`:
+
+- `migrate` runs `alembic upgrade head` once after DB health is up.
+- `api`, `worker`, and `beat` wait for migration completion before starting.
+- `api` then handles runtime admin seeding via `SEED_ADMIN_*` flags.
 
 Check containers:
 
@@ -93,6 +101,40 @@ docker compose exec api alembic upgrade head
 ```bash
 docker compose exec api python -m app.scripts.seed_admin
 ```
+
+### Deployment troubleshooting (auth and startup)
+
+1. Verify the configured admin account exists:
+
+```bash
+docker compose exec api python - <<'PY'
+from sqlalchemy import select
+from app.core.config import get_settings
+from app.db.session import SessionLocal
+from app.models.user import User
+
+s = get_settings()
+db = SessionLocal()
+u = db.scalar(select(User).where(User.email == s.admin_email.lower()))
+print("admin_email:", s.admin_email, "exists:", bool(u))
+db.close()
+PY
+```
+
+2. If admin is missing at startup, ensure these values are explicitly set in your deployment:
+   - `SEED_ADMIN_ON_STARTUP=true`
+   - `ADMIN_EMAIL=<value>`
+   - `ADMIN_PASSWORD=<value>`
+   - `RUN_MIGRATIONS_ON_STARTUP=true` (only for single-service API startup without a dedicated `migrate` service)
+
+3. If lockout errors persist after stack recreation, clear Redis auth lock keys (or remove Redis volume):
+
+```bash
+docker compose exec redis sh -lc \
+  "redis-cli --scan --pattern 'threatlens:auth:*' | xargs -r redis-cli del"
+```
+
+4. If deployed behind a reverse proxy, set `TRUSTED_PROXY_CIDRS` to the proxy network so IP-based auth throttling uses the real client IP from `X-Forwarded-For`.
 
 ### Logs
 

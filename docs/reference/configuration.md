@@ -13,7 +13,7 @@
 
 ## Backend Settings (`backend/app/core/config.py`)
 
-`Settings` is loaded from `.env` (via `pydantic-settings`) with these defaults:
+`Settings` is loaded from process environment first, then `.env` (via `pydantic-settings`), with these defaults:
 
 | Variable | Default | Purpose |
 |---|---:|---|
@@ -61,9 +61,10 @@
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
 | `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `true` | Controls automatic migration execution in `start-api.sh`. |
-| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`. |
+| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `true` | Controls automatic admin seeding in `start-api.sh`. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
+| `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. |
 | `LOG_LEVEL` (`log_level`) | `INFO` | Application log verbosity. |
 | `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
 | `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where beat writes heartbeat timestamps. |
@@ -78,6 +79,11 @@ When `APP_ENV` is `production` or `prod`:
 - `JWT_SECRET` must not be `change-me` and must be at least 32 chars.
 - `ADMIN_PASSWORD` must not remain `admin123`.
 - `AUTH_COOKIE_SECURE` must be `true`.
+
+## Compose Notes
+
+- `docker-compose.yml` runs migrations in a dedicated `migrate` service and sets `RUN_MIGRATIONS_ON_STARTUP=false` for `api` to avoid duplicate migration runs.
+- The same compose injects `TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12` by default for local reverse-proxy deployments.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
 
