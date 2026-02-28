@@ -14,11 +14,24 @@ from app.core.security import (
 )
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.auth import ChangePasswordRequest, LoginRequest, RegisterRequest, TokenResponse, UserResponse
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    RegisterRequest,
+    RegistrationSettingsResponse,
+    TokenResponse,
+    UserResponse,
+)
 from app.services.audit import record_audit
 from app.services.auth_rate_limit import check_login_throttle, clear_login_failures, record_login_failure
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.get("/registration-settings", response_model=RegistrationSettingsResponse)
+def registration_settings():
+    settings = get_settings()
+    return RegistrationSettingsResponse(allow_self_registration=settings.allow_self_registration)
 
 
 @router.post("/register", response_model=UserResponse)
@@ -31,7 +44,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use")
 
-    user = User(email=payload.email.lower(), password_hash=get_password_hash(payload.password))
+    user = User(
+        email=payload.email.lower(),
+        password_hash=get_password_hash(payload.password),
+        is_active=True,
+        is_approved=False,
+        approved_at=None,
+    )
     db.add(user)
     db.flush()
     record_audit(
@@ -40,7 +59,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         action="auth.register",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"email": user.email},
+        metadata={"email": user.email, "is_approved": user.is_approved},
     )
     db.commit()
     db.refresh(user)
@@ -61,6 +80,12 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     if user is None or not verify_password(payload.password, user.password_hash):
         record_login_failure(email, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    if not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is pending admin approval.",
+        )
 
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
