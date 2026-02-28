@@ -19,14 +19,14 @@ export function SettingsLayout() {
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
       <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Settings</h2>
-        <nav className="mt-3 space-y-1">
+        <nav className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
           {navItems.map((item) => {
             const active = location.pathname === item.to
             return (
               <Link
                 key={item.to}
                 to={item.to}
-                className={`block rounded px-3 py-2 text-sm ${
+                className={`block rounded px-3 py-2 text-center text-sm lg:text-left ${
                   active
                     ? 'bg-cyan/15 text-cyan dark:bg-cyan-900/35 dark:text-cyan-300'
                     : 'text-slate hover:bg-slate/10 dark:text-slate-200 dark:hover:bg-cyan-950/40'

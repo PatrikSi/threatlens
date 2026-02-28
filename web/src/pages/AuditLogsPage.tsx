@@ -63,7 +63,7 @@ export function AuditLogsPage() {
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl">Audit Logs</h2>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
           <input
             value={action}
             onChange={(event) => {
@@ -71,7 +71,7 @@ export function AuditLogsPage() {
               setAction(event.target.value)
             }}
             placeholder="Action filter"
-            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
           <input
             value={actorUserId}
@@ -80,11 +80,11 @@ export function AuditLogsPage() {
               setActorUserId(event.target.value)
             }}
             placeholder="Actor user ID"
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
           />
           <button
             type="button"
-            className="rounded border border-slate/30 px-3 py-2 text-sm dark:border-cyan-900/40"
+            className="w-full rounded border border-slate/30 px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40"
             onClick={() => exportLogs.mutate()}
             disabled={exportLogs.isPending}
           >
@@ -125,11 +125,11 @@ export function AuditLogsPage() {
         </table>
       </div>
 
-      <div className="mt-4 flex items-center justify-between text-sm">
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
         <button className="rounded border border-slate/30 px-2 py-1" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
           Prev
         </button>
-        <span>
+        <span className="w-full text-center sm:w-auto">
           Page {page} / {totalPages}
         </span>
         <button

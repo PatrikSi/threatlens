@@ -23,7 +23,6 @@ export function AppShell() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
-  const role = meQuery.data?.role
   const isDashboardRoute = location.pathname === '/'
 
   const logout = useMutation({

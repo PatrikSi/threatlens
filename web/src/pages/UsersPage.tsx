@@ -106,13 +106,13 @@ export function UsersPage() {
       </section>
 
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">User Directory</h2>
           <input
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users..."
-            className="w-64 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
           />
         </div>
 
@@ -141,7 +141,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           <p className="font-semibold">{user.email}</p>
           <p className="text-xs text-slate dark:text-slate-300">Created {new Date(user.created_at).toLocaleString()}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={role}
             onChange={(event) => setRole(event.target.value as User['role'])}
@@ -164,7 +164,7 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
           placeholder="New password (optional)"
           value={resetPassword}
           onChange={(event) => setResetPassword(event.target.value)}
-          className="w-64 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+          className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
         />
         <button
           className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
