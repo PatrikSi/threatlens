@@ -38,6 +38,12 @@ You'll need to configure at least:
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
+Admin bootstrap behavior:
+
+- `SEED_ADMIN_ON_STARTUP=true` seeds `ADMIN_EMAIL`/`ADMIN_PASSWORD` on first startup.
+- `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=true` forces that account password to be reset at startup (useful during controlled credential rotation).
+- After bootstrap, set `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` unless you intentionally want startup-driven password resets.
+
 There are a number of additional flags for auth hardening, rate limiting, and feed handling - check `.env.example` for full details.
 
 ## Running with Docker
