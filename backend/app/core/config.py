@@ -31,7 +31,8 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     seed_admin_force_role: bool = False
     seed_admin_reactivate_existing: bool = False
-    seed_admin_on_startup: bool = False
+    seed_admin_on_startup: bool = True
+    seed_admin_reset_password_on_startup: bool = False
     run_migrations_on_startup: bool = True
 
     fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
