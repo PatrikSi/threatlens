@@ -35,7 +35,7 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    email: EmailStr
+    email: str
     role: str = ROLE_VIEWER
     is_active: bool
     is_approved: bool

@@ -29,8 +29,8 @@ class UserAdminResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    email: EmailStr
-    role: RoleValue = ROLE_ANALYST
+    email: str
+    role: str = ROLE_ANALYST
     is_active: bool
     is_approved: bool
     approved_at: datetime | None

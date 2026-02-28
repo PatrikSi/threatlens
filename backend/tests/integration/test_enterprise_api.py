@@ -200,6 +200,24 @@ def test_admin_can_list_users_for_user_directory(client: TestClient, auth_header
     assert "is_approved" in payload[0]
 
 
+def test_users_list_tolerates_legacy_invalid_email_values(client: TestClient, auth_headers, db_session):
+    legacy_user = User(
+        id=uuid.uuid4(),
+        email="admin",
+        password_hash=get_password_hash("LegacyPass123!"),
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(legacy_user)
+    db_session.commit()
+
+    response = client.get("/users", headers=auth_headers["admin"])
+    assert response.status_code == 200
+    emails = [user["email"] for user in response.json()]
+    assert "admin" in emails
+
+
 def test_feed_create_blocks_private_network_urls(client: TestClient, auth_headers):
     response = client.post(
         "/feeds",
