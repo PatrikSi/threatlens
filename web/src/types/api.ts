@@ -3,6 +3,8 @@ export interface User {
   email: string
   role: 'admin' | 'analyst' | 'viewer'
   is_active: boolean
+  is_approved: boolean
+  approved_at: string | null
   created_at: string
 }
 
@@ -17,6 +19,7 @@ export interface UserCreateRequest {
   password: string
   role: 'admin' | 'analyst' | 'viewer'
   is_active: boolean
+  is_approved: boolean
 }
 
 export interface UserUpdateRequest {
@@ -24,6 +27,11 @@ export interface UserUpdateRequest {
   password?: string
   role?: 'admin' | 'analyst' | 'viewer'
   is_active?: boolean
+  is_approved?: boolean
+}
+
+export interface RegistrationSettingsResponse {
+  allow_self_registration: boolean
 }
 
 export interface ApiToken {
