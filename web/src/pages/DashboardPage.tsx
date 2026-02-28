@@ -156,6 +156,7 @@ export function DashboardPage() {
   const [isImportingViews, setIsImportingViews] = useState(false)
   const [importViewsError, setImportViewsError] = useState('')
   const [importViewsResult, setImportViewsResult] = useState('')
+  const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
 
@@ -916,8 +917,23 @@ export function DashboardPage() {
   return (
     <div className="w-full">
       <div className="border-b border-slate/20 bg-white/85 px-3 py-2 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
-        <div className="grid gap-2 xl:grid-cols-[160px_1fr_auto_auto_auto_auto_auto] xl:items-center">
+        <div className="mb-2 flex items-center justify-between gap-2 sm:hidden">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Dashboard Views</p>
+          <button
+            type="button"
+            className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+            onClick={() => setMobileDashboardViewsOpen((current) => !current)}
+            aria-expanded={mobileDashboardViewsOpen}
+            aria-controls="dashboard-views-toolbar"
+          >
+            {mobileDashboardViewsOpen ? 'Hide' : 'Show'}
+          </button>
+        </div>
+        <div
+          id="dashboard-views-toolbar"
+          className={`${mobileDashboardViewsOpen ? 'grid' : 'hidden'} gap-2 sm:grid xl:grid-cols-[160px_1fr_auto_auto_auto_auto_auto] xl:items-center`}
+        >
+          <p className="hidden text-xs font-semibold uppercase tracking-wide text-slate sm:block dark:text-slate-300">Dashboard Views</p>
           <input
             value={savedViewName}
             onChange={(event) => setSavedViewName(event.target.value)}
