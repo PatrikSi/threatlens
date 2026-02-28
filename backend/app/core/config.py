@@ -1,7 +1,8 @@
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -25,13 +26,14 @@ class Settings(BaseSettings):
     auth_csrf_cookie_name: str = "threatlens_csrf"
     auth_csrf_header_name: str = "x-csrf-token"
     auth_require_csrf: bool = True
-    trusted_proxy_cidrs: list[str] = []
+    trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
 
     admin_email: str = "admin@example.com"
     admin_password: str = "admin123"
     seed_admin_force_role: bool = False
     seed_admin_reactivate_existing: bool = False
-    seed_admin_on_startup: bool = False
+    seed_admin_on_startup: bool = True
+    seed_admin_reset_password_on_startup: bool = False
     run_migrations_on_startup: bool = True
 
     fetch_user_agent: str = "ThreatLensBot/1.0 (+https://localhost)"
@@ -67,7 +69,7 @@ class Settings(BaseSettings):
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
-    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator("cors_origins", "trusted_proxy_cidrs", mode="before")
     @classmethod

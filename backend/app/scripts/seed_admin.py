@@ -23,6 +23,9 @@ def seed_admin() -> None:
             db.add(admin)
         else:
             changed = False
+            if settings.seed_admin_reset_password_on_startup:
+                existing.password_hash = get_password_hash(settings.admin_password)
+                changed = True
             if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
                 existing.role = ROLE_ADMIN
                 changed = True
