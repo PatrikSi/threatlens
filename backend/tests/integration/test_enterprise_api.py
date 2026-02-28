@@ -191,6 +191,15 @@ def test_admin_can_manage_feeds_and_analyst_can_view(client: TestClient, auth_he
     assert len(list_response.json()) == 1
 
 
+def test_admin_can_list_users_for_user_directory(client: TestClient, auth_headers):
+    response = client.get("/users", headers=auth_headers["admin"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert len(payload) >= 1
+    assert "email" in payload[0]
+    assert "is_approved" in payload[0]
+
+
 def test_feed_create_blocks_private_network_urls(client: TestClient, auth_headers):
     response = client.post(
         "/feeds",
