@@ -49,11 +49,21 @@ def normalize_url(url: str | None) -> str:
     if not url:
         return ""
 
-    parts = urlsplit(url.strip())
+    try:
+        parts = urlsplit(url.strip())
+    except ValueError:
+        return ""
+
     scheme = (parts.scheme or "http").lower()
     hostname = (parts.hostname or "").lower()
+    if not hostname:
+        return ""
 
-    port = parts.port
+    try:
+        port = parts.port
+    except ValueError:
+        return ""
+
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         netloc = hostname
     elif port:
