@@ -99,6 +99,50 @@ def test_login_rejects_pending_user_with_clear_message(client: TestClient, db_se
     assert response.json()["detail"] == "Your account is pending admin approval."
 
 
+def test_login_with_invalid_password_hash_returns_401(client: TestClient, db_session):
+    corrupted_user = User(
+        id=uuid.uuid4(),
+        email="brokenhash@example.com",
+        password_hash="not-a-valid-passlib-hash",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(corrupted_user)
+    db_session.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "brokenhash@example.com", "password": "SomePassword123!"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password"
+
+
+def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient, db_session, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+
+    user = db_session.scalar(select(User).where(User.email == "admin@example.com"))
+    assert user is not None
+    user.password_hash = "not-a-valid-passlib-hash"
+    db_session.add(user)
+    db_session.commit()
+
+    response = client.post(
+        "/auth/change-password",
+        json={"current_password": "AdminPass123!", "new_password": "AdminPass456!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Current password is incorrect"
+
+
 def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
     _ = seed_users
     login_response = client.post(
