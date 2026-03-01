@@ -74,3 +74,18 @@ def test_clear_login_failures_clears_fallback_locks(monkeypatch):
     auth_rate_limit.clear_login_failures("admin@example.com", "203.0.113.10")
     cleared_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
     assert cleared_state.blocked is False
+
+
+def test_fallback_storage_is_bounded_under_many_unique_keys(monkeypatch):
+    _reset_fallback_state()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
+    monkeypatch.setattr(auth_rate_limit, "_FALLBACK_MAX_ENTRIES", 3)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    for idx in range(6):
+        auth_rate_limit.record_login_failure(f"user{idx}@example.com", f"203.0.113.{idx}")
+
+    assert len(auth_rate_limit._fallback_failures) <= 3
+    assert len(auth_rate_limit._fallback_locks) <= 3

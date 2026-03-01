@@ -14,6 +14,7 @@ redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 _fallback_lock = threading.Lock()
 _fallback_failures: dict[str, tuple[int, float]] = {}
 _fallback_locks: dict[str, float] = {}
+_FALLBACK_MAX_ENTRIES = 10_000
 
 
 @dataclass(frozen=True)
@@ -96,6 +97,7 @@ def _fallback_check_login_throttle(email: str, ip: str) -> LoginThrottleState:
     retry_after_seconds = 0
 
     with _fallback_lock:
+        _fallback_cleanup(now)
         for key in keys:
             lock_until = _fallback_locks.get(key)
             if lock_until is None:
@@ -119,6 +121,7 @@ def _fallback_record_login_failure(email: str, ip: str) -> None:
     max_attempts = max(1, int(settings.auth_login_max_attempts))
 
     with _fallback_lock:
+        _fallback_cleanup(now)
         counts: list[int] = []
         for key in failure_keys:
             count, started_at = _fallback_failures.get(key, (0, now))
@@ -134,6 +137,8 @@ def _fallback_record_login_failure(email: str, ip: str) -> None:
             for key in lock_keys:
                 existing_lock_until = _fallback_locks.get(key, 0.0)
                 _fallback_locks[key] = max(existing_lock_until, lock_until)
+        _fallback_trim_to_limit(_fallback_failures)
+        _fallback_trim_to_limit(_fallback_locks)
 
 
 def _fallback_clear_login_failures(email: str, ip: str) -> None:
@@ -142,3 +147,22 @@ def _fallback_clear_login_failures(email: str, ip: str) -> None:
         for key in keys:
             _fallback_failures.pop(key, None)
             _fallback_locks.pop(key, None)
+
+
+def _fallback_cleanup(now: float) -> None:
+    window_seconds = max(1, int(settings.auth_login_window_seconds))
+    stale_failure_keys = [key for key, (_count, started_at) in _fallback_failures.items() if now - started_at >= window_seconds]
+    for key in stale_failure_keys:
+        _fallback_failures.pop(key, None)
+
+    stale_lock_keys = [key for key, lock_until in _fallback_locks.items() if lock_until <= now]
+    for key in stale_lock_keys:
+        _fallback_locks.pop(key, None)
+
+
+def _fallback_trim_to_limit(store: dict[str, object]) -> None:
+    overflow = len(store) - _FALLBACK_MAX_ENTRIES
+    if overflow <= 0:
+        return
+    for key in list(store.keys())[:overflow]:
+        store.pop(key, None)
