@@ -16,6 +16,18 @@ def test_interval_feed_not_due_before_elapsed():
     assert not _is_feed_due(feed, now)
 
 
+def test_interval_feed_due_handles_naive_last_fetch_timestamp():
+    feed = SimpleNamespace(fetch_mode="interval", last_fetch_at=datetime(2026, 2, 26, 1, 0), fetch_interval_seconds=60)
+    now = datetime(2026, 2, 26, 1, 2, tzinfo=timezone.utc)
+    assert _is_feed_due(feed, now)
+
+
+def test_interval_feed_invalid_interval_is_safely_clamped():
+    feed = SimpleNamespace(fetch_mode="interval", last_fetch_at=datetime(2026, 2, 26, 1, 0, tzinfo=timezone.utc), fetch_interval_seconds=0)
+    now = datetime(2026, 2, 26, 1, 0, 30, tzinfo=timezone.utc)
+    assert not _is_feed_due(feed, now)
+
+
 def test_scheduled_feed_due_with_cron():
     feed = SimpleNamespace(
         fetch_mode="schedule",
