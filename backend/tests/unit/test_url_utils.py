@@ -12,6 +12,16 @@ def test_normalize_url_handles_default_and_empty_path():
     assert normalize_url(url) == "http://example.com/"
 
 
+def test_normalize_url_returns_empty_for_invalid_port():
+    assert normalize_url("https://example.com:99999/path") == ""
+    assert normalize_url("https://example.com:notaport/path") == ""
+
+
+def test_normalize_url_returns_empty_for_relative_or_hostless_url():
+    assert normalize_url("/relative/path") == ""
+    assert normalize_url("mailto:user@example.com") == ""
+
+
 def test_is_fetchable_url_allows_public_http_urls():
     assert is_fetchable_url("https://example.com/feed.xml")
 
