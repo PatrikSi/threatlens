@@ -255,8 +255,19 @@ def _is_feed_due(feed: Feed, now: datetime) -> bool:
     if feed.last_fetch_at is None:
         return True
 
-    elapsed = (now - feed.last_fetch_at).total_seconds()
-    return elapsed >= feed.fetch_interval_seconds
+    last_fetch_at = feed.last_fetch_at
+    if last_fetch_at.tzinfo is None:
+        last_fetch_at = last_fetch_at.replace(tzinfo=timezone.utc)
+
+    raw_interval = getattr(feed, "fetch_interval_seconds", 1800)
+    try:
+        interval_seconds = int(raw_interval)
+    except (TypeError, ValueError):
+        interval_seconds = 1800
+    interval_seconds = max(60, interval_seconds)
+
+    elapsed = (now - last_fetch_at).total_seconds()
+    return elapsed >= interval_seconds
 
 
 def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
