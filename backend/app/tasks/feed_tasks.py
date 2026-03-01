@@ -66,17 +66,29 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
     deadline = time.monotonic() + max_wait_seconds
 
     acquired = False
+    degraded_mode = False
     while time.monotonic() < deadline:
         try:
             current = redis_client.incr(key)
             redis_client.expire(key, 30)
         except redis.RedisError as exc:
-            raise TimeoutError(f"domain slot redis error for {domain}: {exc}") from exc
+            logger.warning("domain_slot_unavailable domain=%s error=%s", domain, exc)
+            degraded_mode = True
+            break
         if current <= settings.per_domain_concurrency:
             acquired = True
             break
-        redis_client.decr(key)
+        try:
+            redis_client.decr(key)
+        except redis.RedisError as exc:
+            logger.warning("domain_slot_counter_revert_failed domain=%s error=%s", domain, exc)
+            degraded_mode = True
+            break
         time.sleep(0.2)
+
+    if degraded_mode:
+        yield
+        return
 
     if not acquired:
         raise TimeoutError(f"domain slot timeout for {domain}")
