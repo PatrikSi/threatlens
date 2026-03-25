@@ -22,6 +22,7 @@ from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.user import User
 from app.services.connectors.rss import RSSConnector
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
@@ -29,6 +30,7 @@ from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
+from app.services.notification_webhooks import get_matching_notification_webhooks_for_feed, send_notification_webhook_for_item
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
@@ -209,6 +211,52 @@ def dispatch_feed_metadata_backfill():
         queued += 1
 
     return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_new_item_notification_webhooks")
+def dispatch_new_item_notification_webhooks(item_id: str):
+    with db_session() as db:
+        item = db.scalar(select(Item).where(Item.id == uuid.UUID(item_id)))
+        if item is None:
+            return {"status": "skipped", "reason": "item_not_found", "item_id": item_id}
+
+        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        if feed is None:
+            return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
+
+        webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
+        delivered = 0
+        failed = 0
+        skipped = 0
+
+        for webhook in webhooks:
+            user = db.scalar(select(User).where(User.id == webhook.user_id))
+            if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            result = send_notification_webhook_for_item(db, webhook=webhook, item=item, feed=feed, user=user)
+            if result.success:
+                delivered += 1
+                continue
+
+            failed += 1
+            logger.warning(
+                "notification_webhook_delivery_failed webhook_id=%s item_id=%s status_code=%s error=%s",
+                webhook.id,
+                item.id,
+                result.status_code,
+                result.error,
+            )
+
+        return {
+            "status": "ok",
+            "item_id": item_id,
+            "matched_webhooks": len(webhooks),
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+        }
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -434,10 +482,13 @@ def fetch_feed(self, feed_id: str):
             _backfill_feed_metadata_from_body(feed, body_bytes)
 
             changed_item_ids: list[uuid.UUID] = []
+            new_item_ids: list[uuid.UUID] = []
             for parsed in parsed_items:
-                item, changed = _upsert_item_from_parsed(db, feed, parsed)
+                item, changed, is_new = _upsert_item_from_parsed(db, feed, parsed)
                 if changed:
                     changed_item_ids.append(item.id)
+                if is_new:
+                    new_item_ids.append(item.id)
 
             now = datetime.now(timezone.utc)
             feed.etag = response.headers.get("etag") or feed.etag
@@ -452,8 +503,16 @@ def fetch_feed(self, feed_id: str):
 
         for item_id in changed_item_ids:
             fetch_article.delay(str(item_id))
+        for item_id in new_item_ids:
+            dispatch_new_item_notification_webhooks.delay(str(item_id))
 
-        return {"status": "ok", "feed_id": feed_id, "new_or_updated_items": len(changed_item_ids), "final_url": final_url}
+        return {
+            "status": "ok",
+            "feed_id": feed_id,
+            "new_or_updated_items": len(changed_item_ids),
+            "new_items": len(new_item_ids),
+            "final_url": final_url,
+        }
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_article", bind=True)
@@ -802,7 +861,7 @@ def extract_item_iocs(item_id: str):
     return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
 
 
-def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool]:
+def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:
     item_url = parsed.url or ""
     key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
     hash_value = content_hash(parsed.title, parsed.summary, item_url)
@@ -822,7 +881,7 @@ def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, boo
             last_error=None,
         )
         if _insert_item_with_conflict_retry(db, candidate):
-            return candidate, True
+            return candidate, True, True
 
         # Another worker inserted the same dedupe key concurrently.
         item = db.scalar(select(Item).where(Item.dedupe_key == key))
@@ -839,9 +898,9 @@ def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, boo
         item.last_error = None
         db.add(item)
         db.flush()
-        return item, True
+        return item, True, False
 
-    return item, False
+    return item, False, False
 
 
 def _insert_item_with_conflict_retry(db: Session, item: Item) -> bool:
