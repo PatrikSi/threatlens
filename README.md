@@ -8,8 +8,7 @@ The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
 - `api` - FastAPI backend
-- `worker` - Celery workers for background jobs
-- `beat` - Celery scheduler
+- `worker` - Celery worker with embedded beat scheduler
 - `db` - PostgreSQL
 - `redis` - queue + coordination layer
 
@@ -59,7 +58,7 @@ docker compose up --build -d
 Startup flow for `docker-compose.yml`:
 
 - `api` runs `alembic upgrade head` on startup before serving requests.
-- `worker` and `beat` wait for the API health check, which indirectly gates on DB, Redis, and completed migrations.
+- `worker` waits for the API health check, which indirectly gates on DB, Redis, and completed migrations.
 - `api` also handles runtime admin seeding via `SEED_ADMIN_*` flags.
 
 Check containers:
@@ -140,7 +139,7 @@ docker compose exec redis sh -lc \
 
 ```bash
 docker compose logs -f api
-docker compose logs -f worker beat
+docker compose logs -f worker
 ```
 
 ### Trigger feed refresh
@@ -248,8 +247,7 @@ uvicorn app.main:app --reload
 Run workers:
 
 ```bash
-celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
+celery -A app.tasks.celery_app.celery_app worker --beat --loglevel=INFO
 ```
 
 ### Frontend
