@@ -88,7 +88,7 @@ def normalize_url(url: str | None) -> str:
     return urlunsplit((scheme, netloc, path, query, ""))
 
 
-def is_fetchable_url(url: str | None, allow_private_network: bool = False) -> bool:
+def is_fetchable_url(url: str | None, allow_private_network: bool = True) -> bool:
     if not url:
         return False
 
@@ -146,7 +146,7 @@ def resolve_hostname_ips(hostname: str) -> set[ipaddress._BaseAddress]:
     return resolved
 
 
-def is_runtime_fetchable_url(url: str | None, allow_private_network: bool = False) -> bool:
+def is_runtime_fetchable_url(url: str | None, allow_private_network: bool = True) -> bool:
     if not is_fetchable_url(url, allow_private_network=allow_private_network):
         return False
 
@@ -170,6 +170,6 @@ def is_runtime_fetchable_url(url: str | None, allow_private_network: bool = Fals
     return _is_ip_allowed(ip, allow_private_network)
 
 
-def ensure_runtime_fetchable_url(url: str, allow_private_network: bool = False) -> None:
+def ensure_runtime_fetchable_url(url: str, allow_private_network: bool = True) -> None:
     if not is_runtime_fetchable_url(url, allow_private_network=allow_private_network):
         raise ValueError("URL is not allowed for outbound fetch")

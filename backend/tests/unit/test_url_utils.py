@@ -26,11 +26,11 @@ def test_is_fetchable_url_allows_public_http_urls():
     assert is_fetchable_url("https://example.com/feed.xml")
 
 
-def test_is_fetchable_url_blocks_non_http_and_private_hosts():
+def test_is_fetchable_url_blocks_non_http_and_allows_private_hosts_by_default():
     assert not is_fetchable_url("ftp://example.com/file")
-    assert not is_fetchable_url("http://127.0.0.1/feed.xml")
-    assert not is_fetchable_url("http://localhost/feed.xml")
+    assert is_fetchable_url("http://127.0.0.1/feed.xml")
+    assert is_fetchable_url("http://localhost/feed.xml")
 
 
-def test_is_fetchable_url_can_allow_private_hosts_when_explicit():
-    assert is_fetchable_url("http://127.0.0.1/feed.xml", allow_private_network=True)
+def test_is_fetchable_url_can_still_block_private_hosts_when_explicitly_disabled():
+    assert not is_fetchable_url("http://127.0.0.1/feed.xml", allow_private_network=False)
