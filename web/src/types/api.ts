@@ -371,3 +371,63 @@ export interface AlertMatchListResponse {
   page: number
   page_size: number
 }
+
+export interface NotificationWebhookField {
+  key: string
+  value: string
+}
+
+export interface NotificationTemplateVariable {
+  key: string
+  description: string
+  example: string
+}
+
+export interface NotificationWebhook {
+  id: string
+  user_id: string
+  name: string
+  enabled: boolean
+  event_type: 'rss_item_new'
+  url_template: string
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  feed_scope: 'all' | 'selected'
+  feed_ids: string[]
+  query_params: NotificationWebhookField[]
+  headers: NotificationWebhookField[]
+  body_mode: 'none' | 'json' | 'form' | 'raw'
+  body_fields: NotificationWebhookField[]
+  body_template: string | null
+  timeout_seconds: number
+  created_at: string
+  updated_at: string
+}
+
+export interface NotificationWebhookWriteRequest {
+  name: string
+  enabled: boolean
+  event_type: 'rss_item_new'
+  url_template: string
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  feed_scope: 'all' | 'selected'
+  feed_ids: string[]
+  query_params: NotificationWebhookField[]
+  headers: NotificationWebhookField[]
+  body_mode: 'none' | 'json' | 'form' | 'raw'
+  body_fields: NotificationWebhookField[]
+  body_template: string | null
+  timeout_seconds: number
+}
+
+export interface NotificationWebhookTestResponse {
+  success: boolean
+  status_code: number | null
+  duration_ms: number | null
+  rendered_url: string
+  rendered_method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  rendered_headers: NotificationWebhookField[]
+  rendered_query_params: NotificationWebhookField[]
+  rendered_body: string | null
+  response_body_preview: string | null
+  error: string | null
+}
