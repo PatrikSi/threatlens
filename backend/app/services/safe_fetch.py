@@ -26,7 +26,7 @@ def safe_get_with_redirects(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    allow_private_network: bool = False,
+    allow_private_network: bool = True,
     max_redirects: int = 5,
 ) -> httpx.Response:
     current_url = url
@@ -56,7 +56,7 @@ def safe_stream_with_redirects(
     url: str,
     *,
     headers: dict[str, str] | None = None,
-    allow_private_network: bool = False,
+    allow_private_network: bool = True,
     max_redirects: int = 5,
 ) -> httpx.Response:
     current_url = url

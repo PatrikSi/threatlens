@@ -102,7 +102,7 @@ def import_feeds(
 
     for index, entry in enumerate(payload.feeds, start=1):
         feed_url = entry.url.strip()
-        if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
+        if not is_fetchable_url(feed_url):
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
 
@@ -201,7 +201,7 @@ def create_feed(
 ):
     settings = get_settings()
     feed_url = payload.url.strip()
-    if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
+    if not is_fetchable_url(feed_url):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
 
     existing = db.scalar(select(Feed).where(Feed.url == feed_url))

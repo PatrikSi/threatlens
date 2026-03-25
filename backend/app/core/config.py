@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     article_max_bytes: int = 4_000_000
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
-    allow_private_network_fetch: bool = False
     auth_login_max_attempts: int = 8
     auth_login_window_seconds: int = 300
     auth_login_lockout_seconds: int = 900
