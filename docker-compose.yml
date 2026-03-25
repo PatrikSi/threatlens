@@ -60,18 +60,7 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    command: ["celery", "-A", "app.tasks.celery_app.celery_app", "worker", "--loglevel=INFO", "--concurrency=4"]
-
-  beat:
-    build:
-      context: ./backend
-    restart: unless-stopped
-    env_file:
-      - .env
-    depends_on:
-      api:
-        condition: service_healthy
-    command: ["celery", "-A", "app.tasks.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    command: ["celery", "-A", "app.tasks.celery_app.celery_app", "worker", "--beat", "--loglevel=INFO", "--concurrency=4"]
 
   web:
     build:
