@@ -12,6 +12,7 @@ import { AuditLogsPage } from './pages/AuditLogsPage'
 import { DashboardPage } from './pages/DashboardPage'
 import { FeedsPage } from './pages/FeedsPage'
 import { LoginPage } from './pages/LoginPage'
+import { NotificationsPage } from './pages/NotificationsPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsOverviewPage } from './pages/SettingsOverviewPage'
 import { StatsPage } from './pages/StatsPage'
@@ -50,6 +51,7 @@ export default function App() {
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsOverviewPage />} />
                 <Route path="account" element={<AccountPage />} />
+                <Route path="notifications" element={<NotificationsPage />} />
                 <Route path="tokens" element={<TokensPage />} />
                 <Route
                   path="users"

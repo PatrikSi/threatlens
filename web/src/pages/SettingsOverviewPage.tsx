@@ -16,6 +16,7 @@ export function SettingsOverviewPage() {
             'Manage users and role assignments',
             'Access and query audit logs',
             'Create/revoke own and other users\' API tokens',
+            'Configure personal webhook notifications',
             'Full feed and triage management',
           ]}
         />
@@ -25,6 +26,7 @@ export function SettingsOverviewPage() {
           items={[
             'Manage feeds and triage actions',
             'Create/revoke personal API tokens',
+            'Configure personal webhook notifications',
             'No access to global user admin',
             'No access to global audit logs',
           ]}
@@ -36,6 +38,7 @@ export function SettingsOverviewPage() {
             'Read-only dashboard and feeds',
             'Can access personal account settings',
             'Can create/revoke personal API tokens',
+            'Can configure personal webhook notifications',
             'Cannot mutate feeds, tags, or triage state',
           ]}
         />
