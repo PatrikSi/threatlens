@@ -3,7 +3,7 @@ export function SettingsOverviewPage() {
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Role Capabilities</h2>
-        <p className="mt-1 text-sm text-slate dark:text-slate-300">
+        <p className="mt-1 text-sm text-slate dark:text-white/75">
           Use this reference to understand who can operate which controls.
         </p>
       </section>
@@ -53,7 +53,7 @@ function RoleCard({ title, color, items }: { title: string; color: 'cyan' | 'eme
         : 'border-amber-300/40 bg-amber-100/40 dark:border-amber-900/40 dark:bg-amber-950/25'
 
   return (
-    <section className={`rounded-xl border p-4 text-slate-900 dark:text-slate-100 ${accent}`}>
+    <section className={`rounded-xl border p-4 text-slate-900 dark:text-white ${accent}`}>
       <h3 className="font-display text-lg">{title}</h3>
       <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
         {items.map((item) => (
