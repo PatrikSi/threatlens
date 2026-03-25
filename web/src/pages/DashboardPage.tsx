@@ -103,6 +103,7 @@ interface SavedViewPreview {
 
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
+const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
 const DASHBOARD_VIEW_VERSION = 3
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
@@ -170,7 +171,9 @@ export function DashboardPage() {
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => loadDashboardWindows())
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>(() => loadWindowSeenState())
+  const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
+  const initializedLastOpenUserRef = useRef<string | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
 
@@ -207,19 +210,42 @@ export function DashboardPage() {
   }, [windowSeenAt])
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const userId = meQuery.data?.id
+    if (!userId || initializedLastOpenUserRef.current === userId) {
+      return
+    }
+
+    const lastOpenedByUser = loadStoredTimestampMap(USER_LAST_OPEN_STORAGE_KEY)
+    setRssLastOpenedAt(lastOpenedByUser[userId] ?? '')
+    window.localStorage.setItem(
+      USER_LAST_OPEN_STORAGE_KEY,
+      JSON.stringify({
+        ...lastOpenedByUser,
+        [userId]: new Date().toISOString(),
+      }),
+    )
+    initializedLastOpenUserRef.current = userId
+  }, [meQuery.data?.id])
+
+  useEffect(() => {
     setWindowSeenAt((current) => {
       const next: Record<string, string> = {}
       let changed = false
       const seed = new Date().toISOString()
       for (const layout of windows) {
+        if (layout.type !== 'alerts') {
+          continue
+        }
         if (current[layout.id]) {
           next[layout.id] = current[layout.id]
           continue
         }
-        if (layout.type !== 'notes') {
-          next[layout.id] = seed
-          changed = true
-        }
+        next[layout.id] = seed
+        changed = true
       }
       if (!changed && Object.keys(next).length === Object.keys(current).length) {
         return current
@@ -1060,7 +1086,7 @@ export function DashboardPage() {
               ? filterEntriesByTimeWindow(alertMatchesQuery.data?.items ?? [], effectiveWindowTimeFilter)
               : []
           const lastSeenAtIso = windowSeenAt[windowLayout.id] ?? ''
-          const rssChangedCount = windowLayout.type === 'rss' ? countNewEntriesSince(rssWindowItems, lastSeenAtIso) : 0
+          const rssChangedCount = windowLayout.type === 'rss' ? countNewEntriesSince(rssWindowItems, rssLastOpenedAt) : 0
           const alertChangedCount = windowLayout.type === 'alerts' ? countNewEntriesSince(alertWindowItems, lastSeenAtIso) : 0
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
@@ -1099,13 +1125,16 @@ export function DashboardPage() {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end" onMouseDown={(event) => event.stopPropagation()}>
-                  <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
-                    {windowLayout.type === 'rss'
-                      ? `${rssWindowItems.length} shown`
-                      : windowLayout.type === 'alerts'
-                        ? `${alertWindowItems.length} shown`
-                        : 'Scratch Pad'}
-                  </span>
+                  {windowLayout.type === 'alerts' && (
+                    <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      {alertWindowItems.length} shown
+                    </span>
+                  )}
+                  {windowLayout.type === 'notes' && (
+                    <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      Scratch Pad
+                    </span>
+                  )}
                   {windowLayout.type === 'rss' && rssChangedCount > 0 && (
                     <span className="rounded border border-cyan/40 bg-cyan/20 px-2 py-0.5 text-[11px] font-semibold text-cyan">
                       +{rssChangedCount} new
@@ -1116,7 +1145,7 @@ export function DashboardPage() {
                       +{alertChangedCount} new
                     </span>
                   )}
-                  {windowLayout.type !== 'notes' && (
+                  {windowLayout.type === 'alerts' && (
                     <button
                       type="button"
                       className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
@@ -2192,11 +2221,15 @@ function thumbnailWindowTone(type: DashboardWindowType): string {
 }
 
 function loadWindowSeenState(): Record<string, string> {
+  return loadStoredTimestampMap(WINDOW_SEEN_STORAGE_KEY)
+}
+
+function loadStoredTimestampMap(storageKey: string): Record<string, string> {
   if (typeof window === 'undefined') {
     return {}
   }
 
-  const raw = window.localStorage.getItem(WINDOW_SEEN_STORAGE_KEY)
+  const raw = window.localStorage.getItem(storageKey)
   if (!raw) {
     return {}
   }
