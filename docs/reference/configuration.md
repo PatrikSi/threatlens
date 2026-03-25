@@ -82,7 +82,8 @@ When `APP_ENV` is `production` or `prod`:
 
 ## Compose Notes
 
-- `docker-compose.yml` runs migrations in a dedicated `migrate` service and sets `RUN_MIGRATIONS_ON_STARTUP=false` for `api` to avoid duplicate migration runs.
+- `docker-compose.yml` runs migrations in `start-api.sh` before `uvicorn` starts serving traffic.
+- `worker` and `beat` depend on API health so they start only after DB, Redis, and startup migrations are ready.
 - The same compose injects `TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12` by default for local reverse-proxy deployments.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
