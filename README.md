@@ -58,9 +58,9 @@ docker compose up --build -d
 
 Startup flow for `docker-compose.yml`:
 
-- `migrate` runs `alembic upgrade head` once after DB health is up.
-- `api`, `worker`, and `beat` wait for migration completion before starting.
-- `api` then handles runtime admin seeding via `SEED_ADMIN_*` flags.
+- `api` runs `alembic upgrade head` on startup before serving requests.
+- `worker` and `beat` wait for the API health check, which indirectly gates on DB, Redis, and completed migrations.
+- `api` also handles runtime admin seeding via `SEED_ADMIN_*` flags.
 
 Check containers:
 
@@ -125,7 +125,7 @@ PY
    - `SEED_ADMIN_ON_STARTUP=true`
    - `ADMIN_EMAIL=<value>`
    - `ADMIN_PASSWORD=<value>`
-   - `RUN_MIGRATIONS_ON_STARTUP=true` (only for single-service API startup without a dedicated `migrate` service)
+   - `RUN_MIGRATIONS_ON_STARTUP=true`
 
 3. If lockout errors persist after stack recreation, clear Redis auth lock keys (or remove Redis volume):
 
