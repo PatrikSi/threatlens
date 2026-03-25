@@ -31,9 +31,11 @@ def test_sync_item_algorithm_tags_upserts_and_replaces_algorithm_links(db_sessio
     db_session.flush()
 
     stale = Tag(name="vulnerability")
-    db_session.add(stale)
+    noisy = Tag(name="vendor:microsoft")
+    db_session.add_all([stale, noisy])
     db_session.flush()
     db_session.add(ItemTag(item_id=item.id, tag_id=stale.id))
+    db_session.add(ItemTag(item_id=item.id, tag_id=noisy.id, source="ioc", confidence=0.9, rules_version="tagging_v2"))
     db_session.commit()
 
     desired = sync_item_algorithm_tags(
@@ -65,7 +67,7 @@ def test_sync_item_algorithm_tags_upserts_and_replaces_algorithm_links(db_sessio
     assert all(link.confidence >= 0.45 for link in links)
 
 
-def test_build_tag_candidates_adds_richer_signals():
+def test_build_tag_candidates_only_returns_classification_categories():
     candidates = build_tag_candidates(
         primary_category="vulnerability",
         secondary_categories=["apt_campaign"],
@@ -83,12 +85,5 @@ def test_build_tag_candidates_adds_richer_signals():
         feed_url="https://securelist.com/feed/",
         feedback_adjustments={},
     )
-    names = {candidate.name for candidate in candidates}
-    assert "vulnerability" in names
-    assert "apt_campaign" in names
-    assert "ioc:cve" in names
-    assert "cve-2025-12345" in names
-    assert "vendor:microsoft" in names
-    assert "product:windows_server" in names
-    assert "campaign:mustang_panda" in names
-    assert "source:trusted_research" in names
+    assert [candidate.name for candidate in candidates] == ["vulnerability", "apt_campaign"]
+    assert all(candidate.source == "rule" for candidate in candidates)

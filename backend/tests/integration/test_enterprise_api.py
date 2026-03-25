@@ -1731,7 +1731,7 @@ def test_item_detail_returns_tag_details_and_suggestions(client: TestClient, aut
     assert payload["tag_details"][0]["source"] == "rule"
     assert payload["tag_details"][0]["rules_version"] == "tagging_v2"
     suggestion_names = {entry["name"] for entry in payload["tag_suggestions"]}
-    assert "campaign:mustang_panda" in suggestion_names or "source:trusted_research" in suggestion_names
+    assert suggestion_names == {"threat_intelligence_research"}
 
     suggestions_response = client.get(f"/items/{item.id}/tag-suggestions", headers=auth_headers["viewer"])
     assert suggestions_response.status_code == 200
