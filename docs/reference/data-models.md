@@ -101,6 +101,20 @@ Composite PK `(user_id, item_id)`:
 
 - `item_id: UUID` (FK items)
 - `tag_id: UUID` (FK tags)
+- `confidence: float`
+- `source: string(16)` (`rule|ioc|manual|ml`)
+- `rules_version: string(64)?`
+- `updated_at: timestamptz`
+
+### `TagFeedbackEvent`
+
+- `id: UUID` (PK)
+- `item_id: UUID` (FK items)
+- `user_id: UUID` (FK users)
+- `tag_name: string(64)`
+- `signal_type: string(24)` (`manual_add|manual_remove|star|unstar|read|unread`)
+- `signal_value: float`
+- `created_at: timestamptz`
 
 ### `SavedView`
 
@@ -166,6 +180,75 @@ Primary key on `item_id`:
 - `created_at: timestamptz`
 - `updated_at: timestamptz`
 
+### `NotificationWebhook`
+
+- `id: UUID` (PK)
+- `user_id: UUID` (FK users)
+- `name: string(255)`
+- `enabled: bool`
+- `event_type: string(64)` (`rss_item_new`)
+- `url_template: text`
+- `method: string(16)`
+- `feed_scope: string(16)` (`all|selected`)
+- `feed_ids_json: JSON string[]`
+- `query_params_json: JSON [{key,value}]`
+- `headers_json: JSON [{key,value}]`
+- `body_mode: string(16)` (`none|json|form|raw`)
+- `body_fields_json: JSON [{key,value}]`
+- `body_template: text?`
+- `timeout_seconds: int`
+- `created_at: timestamptz`
+- `updated_at: timestamptz`
+
+### `NotificationWebhookDelivery`
+
+- `id: UUID` (PK)
+- `webhook_id: UUID` (FK notification_webhooks)
+- `user_id: UUID` (FK users)
+- `item_id: UUID?` (FK items, `SET NULL`)
+- `feed_id: UUID?` (FK feeds, `SET NULL`)
+- `delivery_kind: string(16)` (`live|retry`)
+- `success: bool`
+- `status_code: int?`
+- `duration_ms: int?`
+- `timeout_seconds: int`
+- `rendered_url: text`
+- `rendered_method: string(16)`
+- `rendered_headers_json: JSON [{key,value}]`
+- `rendered_query_params_json: JSON [{key,value}]`
+- `rendered_body: text?`
+- `response_body_preview: text?`
+- `error: text?`
+- `item_title_snapshot: text?`
+- `feed_name_snapshot: string(255)?`
+- `attempted_at: timestamptz`
+
+### `TaggingSettings`
+
+- `id: UUID` (PK)
+- `enabled_categories_json: JSON string[]`
+- `min_auto_tag_confidence: float`
+- `secondary_tag_limit: int`
+- `created_at: timestamptz`
+- `updated_at: timestamptz`
+
+### `TaggingRule`
+
+- `id: UUID` (PK)
+- `name: string(255)`
+- `tag_name: string(64)`
+- `enabled: bool`
+- `match_type: string(16)` (`contains|regex`)
+- `pattern: text`
+- `case_sensitive: bool`
+- `applies_to_json: JSON string[]`
+- `required_categories_json: JSON string[]`
+- `feed_scope: string(16)` (`all|selected`)
+- `feed_ids_json: JSON string[]`
+- `min_classification_confidence: float?`
+- `created_at: timestamptz`
+- `updated_at: timestamptz`
+
 ## API Schemas (`backend/app/schemas`)
 
 ### Auth Schemas
@@ -173,8 +256,9 @@ Primary key on `item_id`:
 - `LoginRequest`: `email`, `password`
 - `RegisterRequest`: `email`, `password(8..256)`
 - `ChangePasswordRequest`: `current_password`, `new_password(8..256)`
-- `TokenResponse`: `access_token`, `token_type`
-- `UserResponse`: `id`, `email`, `role`, `is_active`, `created_at`
+- `TokenResponse`: `access_token`, `token_type`, `csrf_token`
+- `RegistrationSettingsResponse`: `allow_self_registration`
+- `UserResponse`: `id`, `email`, `role`, `is_active`, `is_approved`, `approved_at`, `created_at`
 
 ### Feed Schemas
 
@@ -197,11 +281,23 @@ Primary key on `item_id`:
 ### Alerts Schemas
 
 - `AlertInterestCreate`, `AlertInterestUpdate`, `AlertInterestResponse`
+- `AlertInterestPreviewRequest`
 - `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
 
 ### Other Schemas
 
 - `TagCreate`, `TagResponse`
+- Notifications:
+  - `NotificationWebhookField`
+  - `NotificationTemplateVariable`
+  - `NotificationWebhookWrite`, `NotificationWebhookResponse`
+  - `NotificationWebhookTestRequest`, `NotificationWebhookTestResponse`
+  - `NotificationWebhookDeliveryResponse`, `NotificationWebhookDeliveryListResponse`
+- Tagging:
+  - `TaggingSettingsUpdate`, `TaggingSettingsResponse`, `TaggingSettingsBundleResponse`
+  - `TaggingRuleWrite`, `TaggingRuleResponse`
+  - `TaggingRulePreviewRequest`, `TaggingRulePreviewItem`, `TaggingRulePreviewResponse`
+  - `TaggingReapplyRequest`, `TaggingReapplyResponse`
 - `SavedViewCreate`, `SavedViewResponse`
 - `ApiTokenCreateRequest`, `ApiTokenCreateResponse`, `ApiTokenResponse`
 - `UserCreateRequest`, `UserUpdateRequest`, `UserAdminResponse`
@@ -224,3 +320,5 @@ The frontend mirrors backend contracts for all major payloads:
 - Items/detail/graph: `ItemListEntry`, `ItemListResponse`, `ItemDetail`, `ItemGraphResponse`
 - Tags: `Tag`
 - Alerts: `AlertInterest`, `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
+- Notifications: `NotificationTemplateVariable`, `NotificationWebhook`, `NotificationWebhookWriteRequest`, `NotificationWebhookTestResponse`, `NotificationWebhookDelivery`, `NotificationWebhookDeliveryListResponse`
+- Tagging: `TaggingSettings`, `TaggingRule`, `TaggingSettingsBundleResponse`, `TaggingRuleWriteRequest`, `TaggingRulePreviewResponse`, `TaggingReapplyResponse`

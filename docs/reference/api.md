@@ -4,6 +4,12 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 
 ## Auth
 
+### `GET /auth/registration-settings`
+
+- Auth: none
+- Response (`RegistrationSettingsResponse`):
+  - `allow_self_registration`
+
 ### `POST /auth/register`
 
 - Auth: none
@@ -11,7 +17,10 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Body (`RegisterRequest`):
   - `email`: valid email
   - `password`: string, `8..256`
-- Response (`UserResponse`): `id`, `email`, `role`, `is_active`, `created_at`
+- Response (`UserResponse`):
+  - `id`, `email`, `role`
+  - `is_active`, `is_approved`, `approved_at`
+  - `created_at`
 
 ### `POST /auth/login`
 
@@ -28,10 +37,21 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Rate limiting:
   - Returns `429` with `Retry-After` when failed-login thresholds are exceeded.
 
+Example:
+
+```bash
+curl -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"admin123"}'
+```
+
 ### `GET /auth/me`
 
 - Auth: JWT or API token
-- Response: `UserResponse`
+- Response (`UserResponse`):
+  - `id`, `email`, `role`
+  - `is_active`, `is_approved`, `approved_at`
+  - `created_at`
 
 ### `POST /auth/logout`
 
@@ -228,6 +248,35 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Auth: `write:alerts`
 - Response: `204`
 
+### `POST /alerts/preview`
+
+- Auth: `read:alerts` + `read:items`
+- Body (`AlertInterestPreviewRequest`):
+  - `name?` (`..255`)
+  - `category` (`1..64`)
+  - `keywords` array (`1..64` entries)
+  - `limit` (`1..25`, default `5`)
+- Response (`AlertMatchListResponse`):
+  - `items[]` (`AlertMatchEntry`)
+  - `total`, `page`, `page_size`
+- Side behavior:
+  - Evaluates an unsaved alert against the current corpus.
+  - Uses `first_seen_desc` ordering and always returns page `1`.
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/alerts/preview \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Microsoft Preview",
+    "category": "vendor",
+    "keywords": ["microsoft", "exchange", "entra id"],
+    "limit": 5
+  }'
+```
+
 ### `GET /alerts/matches`
 
 - Auth: `read:alerts` + `read:items`
@@ -243,6 +292,117 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
   - `items[]` (`AlertMatchEntry` = `ItemListEntry` + `matches[]`)
   - `total`, `page`, `page_size`
 
+## Notifications
+
+### `GET /notifications/template-variables`
+
+- Auth: `read:notifications`
+- Response (`NotificationTemplateVariable[]`):
+  - `key`
+  - `description`
+  - `example`
+
+### `GET /notifications/webhooks`
+
+- Auth: `read:notifications`
+- Response: current user webhooks (`NotificationWebhookResponse[]`)
+
+### `POST /notifications/webhooks`
+
+- Auth: `write:notifications`
+- Body (`NotificationWebhookWrite`):
+  - `name` (`1..255`)
+  - `enabled`
+  - `event_type`: currently `rss_item_new`
+  - `url_template` (`5..4000`)
+  - `method`: `GET|POST|PUT|PATCH|DELETE`
+  - `feed_scope`: `all|selected`
+  - `feed_ids[]`
+  - `query_params[]`: `{ key, value }`
+  - `headers[]`: `{ key, value }`
+  - `body_mode`: `none|json|form|raw`
+  - `body_fields[]`: `{ key, value }`
+  - `body_template?`
+  - `timeout_seconds` (`1..60`)
+- Response: `NotificationWebhookResponse`
+- Side behavior:
+  - Query params embedded in `url_template` are normalized into `query_params`.
+  - Only the authenticated user's webhook is created.
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/notifications/webhooks \
+  -H "Authorization: Bearer <jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Gotify",
+    "enabled": true,
+    "event_type": "rss_item_new",
+    "url_template": "http://gotify.local/message?token=abc123",
+    "method": "POST",
+    "feed_scope": "all",
+    "feed_ids": [],
+    "query_params": [],
+    "headers": [{"key":"Content-Type","value":"application/json"}],
+    "body_mode": "raw",
+    "body_fields": [],
+    "body_template": "{\"title\":\"ThreatLens Alert\",\"message\":\"{{ item.title }}\",\"priority\":5}",
+    "timeout_seconds": 10
+  }'
+```
+
+### `PATCH /notifications/webhooks/{webhook_id}`
+
+- Auth: `write:notifications`
+- Body: same shape as `NotificationWebhookWrite`
+- Response: `NotificationWebhookResponse`
+- Behavior: only updates webhooks belonging to the authenticated user.
+
+### `DELETE /notifications/webhooks/{webhook_id}`
+
+- Auth: `write:notifications`
+- Response: `204`
+- Behavior: only deletes webhooks belonging to the authenticated user.
+
+### `POST /notifications/webhooks/test`
+
+- Auth: `write:notifications`
+- Body (`NotificationWebhookTestRequest`):
+  - `webhook`: `NotificationWebhookWrite`
+  - `sample_feed_id?`: UUID
+  - `sample_item_id?`: UUID
+- Response (`NotificationWebhookTestResponse`):
+  - `success`
+  - `status_code`
+  - `duration_ms`
+  - `rendered_url`
+  - `rendered_method`
+  - `rendered_headers[]`
+  - `rendered_query_params[]`
+  - `rendered_body`
+  - `response_body_preview`
+  - `error`
+
+### `GET /notifications/webhooks/{webhook_id}/deliveries`
+
+- Auth: `read:notifications`
+- Query params:
+  - `page`: int >=1 (default `1`)
+  - `page_size`: `1..100` (default `10`)
+- Response (`NotificationWebhookDeliveryListResponse`):
+  - `deliveries[]`
+  - `total`, `page`, `page_size`
+- Behavior: only lists deliveries for the authenticated user's webhook.
+
+### `POST /notifications/webhooks/{webhook_id}/deliveries/{delivery_id}/retry`
+
+- Auth: `write:notifications`
+- Response (`NotificationWebhookDeliveryResponse`)
+- Behavior:
+  - Replays the stored rendered request snapshot for a past delivery.
+  - Returns the new retry delivery row, not the original delivery.
+
 ## Tags
 
 ### `GET /tags`
@@ -256,6 +416,109 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Body (`TagCreate`):
   - `name` (`1..64`)
 - Response: `TagResponse`
+
+## Tagging
+
+### `GET /tagging/settings`
+
+- Auth: role `admin`, scope `read:tags`
+- Response (`TaggingSettingsBundleResponse`):
+  - `settings`
+    - `enabled_categories[]`
+    - `min_auto_tag_confidence`
+    - `secondary_tag_limit`
+  - `rules[]`
+
+### `PUT /tagging/settings`
+
+- Auth: role `admin`, scope `write:tags`
+- Body (`TaggingSettingsUpdate`):
+  - `enabled_categories[]`
+  - `min_auto_tag_confidence` (`0.05..0.995`)
+  - `secondary_tag_limit` (`0..2`)
+- Response: `TaggingSettingsResponse`
+
+### `POST /tagging/rules`
+
+- Auth: role `admin`, scope `write:tags`
+- Body (`TaggingRuleWrite`):
+  - `name` (`1..255`)
+  - `tag_name` (`1..64`)
+  - `enabled`
+  - `match_type`: `contains|regex`
+  - `pattern` (`1..4000`)
+  - `case_sensitive`
+  - `applies_to[]`: `title|summary|article_text|feed_name`
+  - `required_categories[]`
+  - `feed_scope`: `all|selected`
+  - `feed_ids[]`
+  - `min_classification_confidence?` (`0..1`)
+- Response: `TaggingRuleResponse`
+- Side behavior:
+  - Creates the tag row automatically if `tag_name` does not yet exist.
+  - Regex rules are compiled and validated on create/update.
+
+### `PATCH /tagging/rules/{rule_id}`
+
+- Auth: role `admin`, scope `write:tags`
+- Body: same shape as `TaggingRuleWrite`
+- Response: `TaggingRuleResponse`
+
+### `DELETE /tagging/rules/{rule_id}`
+
+- Auth: role `admin`, scope `write:tags`
+- Response: `204`
+
+### `POST /tagging/rules/preview`
+
+- Auth: role `admin`, scope `read:tags`
+- Body (`TaggingRulePreviewRequest`):
+  - all `TaggingRuleWrite` fields
+  - `limit` (`1..25`, default `5`)
+- Response (`TaggingRulePreviewResponse`):
+  - `total`
+  - `items[]`
+    - `id`
+    - `title`
+    - `feed_name`
+    - `classification`
+    - `first_seen_at`
+    - `current_tags[]`
+    - `matched_sections[]`
+
+Example:
+
+```bash
+curl -X POST http://localhost:8000/tagging/rules/preview \
+  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Fortinet Vendor",
+    "tag_name": "vendor:fortinet",
+    "enabled": true,
+    "match_type": "contains",
+    "pattern": "fortinet",
+    "case_sensitive": false,
+    "applies_to": ["title", "article_text"],
+    "required_categories": ["vulnerability"],
+    "feed_scope": "all",
+    "feed_ids": [],
+    "min_classification_confidence": 0.6,
+    "limit": 5
+  }'
+```
+
+### `POST /tagging/reapply`
+
+- Auth: role `admin`, scope `write:tags`
+- Body (`TaggingReapplyRequest`):
+  - `days` (`1..365`, default `30`)
+  - `limit` (`0..5000`, default `0`)
+- Response (`TaggingReapplyResponse`):
+  - `task_id`
+  - `queued`
+- Side behavior:
+  - Queues a background Celery task to re-tag recent items with current settings and custom rules.
 
 ## Saved Views
 
