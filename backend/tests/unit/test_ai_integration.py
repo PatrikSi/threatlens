@@ -12,7 +12,13 @@ from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.services.ai_config import apply_ai_settings_update, get_or_create_ai_settings
+from app.services.ai_config import (
+    apply_ai_settings_update,
+    build_daily_brief_system_prompt,
+    build_item_enrichment_system_prompt,
+    get_or_create_ai_settings,
+    load_active_ai_settings,
+)
 from app.services.ai_integration import (
     AICompletionResult,
     generate_daily_brief,
@@ -311,3 +317,30 @@ def test_get_latest_daily_brief_returns_most_recent_ready_brief(db_session):
 
     assert latest is not None
     assert latest.id == ready_brief.id
+
+
+def test_prompt_builders_include_saved_custom_instructions(db_session, ai_enabled_env):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            global_instructions="Always stay concise.",
+            item_summary_instructions="Lead with analyst impact.",
+            relevance_instructions="Prioritize identity systems.",
+            daily_brief_instructions="Write for a SOC handoff.",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    active = load_active_ai_settings(db_session)
+    item_prompt = build_item_enrichment_system_prompt(active)
+    daily_prompt = build_daily_brief_system_prompt(active)
+
+    assert "Always stay concise." in item_prompt
+    assert "Summary instructions: Lead with analyst impact." in item_prompt
+    assert "Relevance instructions: Prioritize identity systems." in item_prompt
+    assert "Always stay concise." in daily_prompt
+    assert "Daily brief instructions: Write for a SOC handoff." in daily_prompt

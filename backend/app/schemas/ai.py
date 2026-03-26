@@ -133,6 +133,18 @@ class AISettingsResponse(BaseModel):
     daily_brief_instructions: str | None
     created_at: datetime
     updated_at: datetime
+    prompt_previews: "AIPromptPreviews"
+
+
+class AIPromptPreview(BaseModel):
+    label: str
+    system_prompt: str
+    notes: list[str]
+
+
+class AIPromptPreviews(BaseModel):
+    item_enrichment: AIPromptPreview
+    daily_brief: AIPromptPreview
 
 
 class AITestConnectionResponse(BaseModel):
