@@ -13,6 +13,8 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.services.ai_config import (
+    DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT,
+    DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT,
     apply_ai_settings_update,
     build_daily_brief_system_prompt,
     build_item_enrichment_system_prompt,
@@ -344,3 +346,26 @@ def test_prompt_builders_include_saved_custom_instructions(db_session, ai_enable
     assert "Relevance instructions: Prioritize identity systems." in item_prompt
     assert "Always stay concise." in daily_prompt
     assert "Daily brief instructions: Write for a SOC handoff." in daily_prompt
+
+
+def test_prompt_builders_allow_editable_base_prompts(db_session, ai_enabled_env):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            item_enrichment_system_prompt="You are a focused SOC analyst. Return JSON only.",
+            daily_brief_system_prompt="You are writing a crisp morning brief. Return JSON only.",
+            global_instructions="Keep every answer under 120 words.",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    active = load_active_ai_settings(db_session)
+
+    assert build_item_enrichment_system_prompt(active).startswith("You are a focused SOC analyst.")
+    assert build_daily_brief_system_prompt(active).startswith("You are writing a crisp morning brief.")
+    assert DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT != active.item_enrichment_system_prompt
+    assert DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT != active.daily_brief_system_prompt

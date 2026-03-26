@@ -56,6 +56,8 @@ class AISettingsUpdate(BaseModel):
     company_keywords: list[str] = Field(default_factory=list)
     company_exclusions: list[str] = Field(default_factory=list)
     company_profile_text: str | None = Field(default=None, max_length=4000)
+    item_enrichment_system_prompt: str | None = Field(default=None, max_length=4000)
+    daily_brief_system_prompt: str | None = Field(default=None, max_length=4000)
     global_instructions: str | None = Field(default=None, max_length=4000)
     item_summary_instructions: str | None = Field(default=None, max_length=4000)
     relevance_instructions: str | None = Field(default=None, max_length=4000)
@@ -79,6 +81,8 @@ class AISettingsUpdate(BaseModel):
         "company_name",
         "company_industry",
         "company_profile_text",
+        "item_enrichment_system_prompt",
+        "daily_brief_system_prompt",
         "global_instructions",
         "item_summary_instructions",
         "relevance_instructions",
@@ -127,6 +131,8 @@ class AISettingsResponse(BaseModel):
     company_keywords: list[str]
     company_exclusions: list[str]
     company_profile_text: str | None
+    item_enrichment_system_prompt: str | None
+    daily_brief_system_prompt: str | None
     global_instructions: str | None
     item_summary_instructions: str | None
     relevance_instructions: str | None

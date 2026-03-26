@@ -93,6 +93,8 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
     )
     assert update_response.status_code == 200
     assert update_response.json()["ai_configured"] is True
+    assert update_response.json()["item_enrichment_system_prompt"].startswith("You are ThreatLens")
+    assert update_response.json()["daily_brief_system_prompt"].startswith("You are ThreatLens")
     assert "ThreatLens, producing structured security analysis" in update_response.json()["prompt_previews"]["item_enrichment"]["system_prompt"]
     assert "Keep it concise." in update_response.json()["prompt_previews"]["item_enrichment"]["system_prompt"]
     assert "ThreatLens, writing an executive security briefing" in update_response.json()["prompt_previews"]["daily_brief"]["system_prompt"]
