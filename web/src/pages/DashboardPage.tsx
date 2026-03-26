@@ -1580,8 +1580,6 @@ export function DashboardPage() {
                         const expanded = expandedItemId === item.id
                         const detail = expanded ? detailQuery.data : null
                         const compact = rssFilters.view_mode === 'compact'
-                        const density = computeInformationDensity(item)
-                        const densityTooltipId = `density-tooltip-${item.id}`
 
                         return (
                           <article
@@ -1604,22 +1602,6 @@ export function DashboardPage() {
                                   </a>
                                 </h3>
                                 <div className="flex shrink-0 items-center gap-2">
-                                  <span className="group relative inline-flex">
-                                    <span
-                                      className="cursor-help rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 outline-none dark:bg-teal-900/35 dark:text-teal-200"
-                                      tabIndex={0}
-                                      aria-describedby={densityTooltipId}
-                                    >
-                                      {density.label} {density.score}
-                                    </span>
-                                    <span
-                                      id={densityTooltipId}
-                                      role="tooltip"
-                                      className="pointer-events-none absolute right-0 top-full z-20 mt-2 hidden w-72 rounded-lg border border-slate/20 bg-white/95 px-3 py-2 text-left text-xs leading-relaxed text-slate shadow-lg group-hover:block group-focus-within:block dark:border-cyan-900/50 dark:bg-[#041612]/98 dark:text-white/80"
-                                    >
-                                      {density.explanation}
-                                    </span>
-                                  </span>
                                   <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
                                 </div>
                               </div>
@@ -2332,67 +2314,6 @@ function formatClassificationLabel(value: string): string {
     .split('_')
     .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(' ')
-}
-
-function computeInformationDensity(item: ItemListEntry): { score: number; label: string; explanation: string } {
-  const titleWords = item.title.trim().split(/\s+/).filter(Boolean).length
-  const summaryLength = (item.summary || '').trim().length
-  const visibleTagCount = item.tags.filter((tagName) => !HIDDEN_TAGS.has(tagName)).length
-
-  let score = 0
-  score += Math.min(24, titleWords * 2)
-  score += Math.min(40, Math.floor(summaryLength / 8))
-  score += Math.min(18, visibleTagCount * 6)
-  if (item.classification) score += 10
-  if (item.status === 'error') score += 6
-  if (item.published_at) score += 4
-
-  const normalized = Math.max(1, Math.min(100, score))
-  const signals: string[] = []
-  if (summaryLength >= 240) {
-    signals.push('long summary')
-  } else if (summaryLength >= 80) {
-    signals.push('some summary detail')
-  }
-  if (visibleTagCount >= 3) {
-    signals.push(`${visibleTagCount} visible tags`)
-  } else if (visibleTagCount > 0) {
-    signals.push(`${visibleTagCount} visible tag${visibleTagCount === 1 ? '' : 's'}`)
-  }
-  if (item.classification) {
-    signals.push('classification metadata')
-  }
-  if (item.status === 'error') {
-    signals.push('error state metadata')
-  }
-  if (item.published_at) {
-    signals.push('published timestamp')
-  }
-
-  const signalText =
-    signals.length > 0
-      ? `Key signals: ${signals.join(', ')}.`
-      : 'This item has limited extracted metadata right now.'
-
-  if (normalized >= 70) {
-    return {
-      score: normalized,
-      label: 'High',
-      explanation: `High information density. Richer context is available for this item, usually because it has more extracted detail and metadata. ${signalText}`,
-    }
-  }
-  if (normalized >= 40) {
-    return {
-      score: normalized,
-      label: 'Medium',
-      explanation: `Medium information density. This item has some useful context, but not as much extracted detail as the highest-signal posts. ${signalText}`,
-    }
-  }
-  return {
-    score: normalized,
-    label: 'Low',
-    explanation: `Low information density. This item is a lighter match with less extracted context, fewer tags, or a shorter summary. ${signalText}`,
-  }
 }
 
 function buildSavedViewPreview(view: SavedView, containerWidth: number, containerHeight: number): SavedViewPreview {
