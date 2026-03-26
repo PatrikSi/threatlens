@@ -265,7 +265,7 @@ Run tests inside Docker:
 ```bash
 docker compose build api
 docker compose run --rm -e HOME=/tmp api sh -lc \
-  "pip install --no-cache-dir -r requirements-dev.txt && pytest"
+  "pip install --no-cache-dir -r requirements-dev.txt && python -m pytest"
 ```
 
 ## Backup & Restore
