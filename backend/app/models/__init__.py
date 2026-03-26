@@ -11,6 +11,8 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
+from app.models.tagging_rule import TaggingRule
+from app.models.tagging_settings import TaggingSettings
 from app.models.user import User
 
 __all__ = [
@@ -30,5 +32,7 @@ __all__ = [
     "Tag",
     "ItemTag",
     "TagFeedbackEvent",
+    "TaggingRule",
+    "TaggingSettings",
     "User",
 ]

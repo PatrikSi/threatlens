@@ -38,7 +38,14 @@ def main() -> int:
 
     try:
         query = (
-            select(Item.id, Item.title, Item.summary, Feed.name, Article.text)
+            select(
+                Item.id,
+                Item.title,
+                Item.summary,
+                Feed.id.label("feed_id"),
+                Feed.name.label("feed_name"),
+                Article.text.label("article_text"),
+            )
             .join(Feed, Feed.id == Item.feed_id)
             .outerjoin(Article, Article.item_id == Item.id)
             .where(Item.first_seen_at >= cutoff)
@@ -53,8 +60,8 @@ def main() -> int:
             result = classify_item_content(
                 title=row.title,
                 summary=row.summary,
-                article_text=row.text,
-                feed_name=row.name,
+                article_text=row.article_text,
+                feed_name=row.feed_name,
             )
 
             classification = session.get(ItemClassification, row.id)
@@ -71,6 +78,7 @@ def main() -> int:
                     item_id=row.id,
                     primary_category=classification.primary_category,
                     secondary_categories=classification.secondary_categories,
+                    feed_id=row.feed_id,
                 )
                 tags_synced += len(applied)
                 skipped_up_to_date += 1
@@ -91,6 +99,7 @@ def main() -> int:
                 item_id=row.id,
                 primary_category=result.primary_category,
                 secondary_categories=result.secondary_categories,
+                feed_id=row.feed_id,
             )
             tags_synced += len(applied)
             processed += 1
