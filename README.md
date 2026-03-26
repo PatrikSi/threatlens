@@ -15,11 +15,16 @@ The project is split into a few core services:
 ## Features
 
 - Multi-user support with role-based access control (`admin`, `analyst`, `viewer`)
-- JWT authentication + personal API tokens
+- JWT authentication, browser session cookies, and personal API tokens
 - Audit logging for security-relevant actions
-- Per-user triage state (read, starred, notes, tags)
-- Feed scheduling and refresh controls
-- Article fetching + readable content extraction
+- Multi-window dashboard with RSS, alerts, and notes panes
+- Per-user triage state (read, starred, notes, tags) and saved dashboard views
+- Alert interests with live preview before save
+- Personal webhook notifications with template variables, delivery history, retry, and test-send support
+- Admin tagging controls with custom rules, preview, and background reapply
+- Feed scheduling, metadata detection, import/export, and manual refresh controls
+- Article fetching, readable content extraction, classification, and IOC extraction
+- Stats dashboards for feed health, activity, domains, and signal distribution
 
 ## Setup
 
@@ -74,6 +79,7 @@ Endpoints:
 - Readiness: `http://localhost:8000/health/ready`
 - Worker: `http://localhost:8000/health/worker`
 - Beat: `http://localhost:8000/health/beat`
+- Interactive API docs: `http://localhost:8000/docs`
 
 Stop:
 
@@ -147,6 +153,76 @@ docker compose logs -f worker
 ```bash
 curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
   -H "Authorization: Bearer <jwt>"
+```
+
+## API Examples
+
+Log in and capture a JWT:
+
+```bash
+TOKEN=$(curl -sS http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@example.com","password":"admin123"}' \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+```
+
+Preview an alert before saving it:
+
+```bash
+curl -X POST http://localhost:8000/alerts/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Microsoft Preview",
+    "category": "vendor",
+    "keywords": ["microsoft", "exchange", "entra id"],
+    "limit": 5
+  }'
+```
+
+Create a webhook notification for new RSS items:
+
+```bash
+curl -X POST http://localhost:8000/notifications/webhooks \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Gotify",
+    "enabled": true,
+    "event_type": "rss_item_new",
+    "url_template": "http://gotify.local/message?token=abc123",
+    "method": "POST",
+    "feed_scope": "all",
+    "feed_ids": [],
+    "query_params": [],
+    "headers": [{"key":"Content-Type","value":"application/json"}],
+    "body_mode": "raw",
+    "body_fields": [],
+    "body_template": "{\"title\":\"ThreatLens Alert\",\"message\":\"{{ item.title }}\",\"priority\":5}",
+    "timeout_seconds": 10
+  }'
+```
+
+Preview a custom tagging rule before creating it:
+
+```bash
+curl -X POST http://localhost:8000/tagging/rules/preview \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Fortinet Vendor",
+    "tag_name": "vendor:fortinet",
+    "enabled": true,
+    "match_type": "contains",
+    "pattern": "fortinet",
+    "case_sensitive": false,
+    "applies_to": ["title", "article_text"],
+    "required_categories": ["vulnerability"],
+    "feed_scope": "all",
+    "feed_ids": [],
+    "min_classification_confidence": 0.6,
+    "limit": 5
+  }'
 ```
 
 ## Roles

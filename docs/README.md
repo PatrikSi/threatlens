@@ -11,7 +11,7 @@ This documentation covers:
 - Backend API endpoints, request/response contracts, and query parameters.
 - Database and schema field-level contracts.
 - Frontend pages, UI elements, local state values, constants, storage keys, and API calls.
-- Background worker pipeline, tasks, and classification/IOC extraction value sets.
+- Background worker pipeline, tasks, classification/IOC extraction value sets, webhook dispatch, and custom tagging behavior.
 
 ## Index
 
@@ -28,4 +28,4 @@ This documentation covers:
 - [Alerts](./pages/alerts.md)
 - [Feeds](./pages/feeds.md)
 - [Stats](./pages/stats.md)
-- [Settings](./pages/settings.md)
+- [Settings](./pages/settings.md) including notifications, tagging, tokens, users, and audit logs

@@ -27,6 +27,8 @@ Route tree:
   - `/settings` -> `SettingsLayout`
     - index -> `SettingsOverviewPage`
     - `/settings/account` -> `AccountPage`
+    - `/settings/notifications` -> `NotificationsPage`
+    - `/settings/tagging` -> admin-only `TaggingSettingsPage`
     - `/settings/tokens` -> `TokensPage`
     - `/settings/users` -> admin-only `UsersPage`
     - `/settings/audit-logs` -> admin-only `AuditLogsPage`
@@ -46,6 +48,8 @@ Route tree:
 
 - Theme mode: `threatlens.theme`
 - Dashboard window state: `threatlens.dashboard.windows.v2`
+- Dashboard alert seen timestamps: `threatlens.dashboard.window-seen.v1`
+- User RSS last-open timestamps: `threatlens.user-last-open.v1`
 
 ## Theme System (`ThemeContext.tsx`)
 
@@ -131,6 +135,7 @@ Window behaviors:
 - Per-window controls collapse/expand
 - Per-window rename
 - Scratch note persistence for notes windows
+- RSS and alerts filter state is isolated per window and preserved in saved views
 
 RSS filter values:
 
@@ -182,14 +187,16 @@ Alert category values:
 
 UI elements:
 
-- Create form: name, category, comma-separated keywords
+- Create/edit form: name, category, comma-separated keywords
+- Current match preview while typing
 - Include-disabled toggle
 - Grouped cards by category
-- Enable/disable and delete actions
+- Edit, enable/disable, and delete actions
 
 API calls:
 
 - `GET /alerts?include_disabled=<bool>`
+- `POST /alerts/preview`
 - `POST /alerts`
 - `PATCH /alerts/{id}`
 - `DELETE /alerts/{id}`
@@ -278,10 +285,64 @@ UI elements:
 - Role-aware settings nav
 - Current role badge
 - Role capability cards (Admin, Analyst, Viewer)
+- Settings nav entries:
+  - `Overview`
+  - `Account`
+  - `Notifications`
+  - `API Tokens`
+  - admin-only `Tagging`, `Users`, `Audit Logs`
 
 API calls:
 
 - `GET /auth/me` (via `useCurrentUser`)
+
+### `NotificationsPage`
+
+UI elements:
+
+- Saved webhooks list
+- Webhook create/edit form
+- Feed scope selection (`all` or selected feeds)
+- Query params, headers, content type, and body configuration
+- Template variable reference list
+- Test webhook action with rendered request/response preview
+- Delivery history list with retry action
+
+API calls:
+
+- `GET /feeds`
+- `GET /notifications/template-variables`
+- `GET /notifications/webhooks`
+- `POST /notifications/webhooks`
+- `PATCH /notifications/webhooks/{id}`
+- `DELETE /notifications/webhooks/{id}`
+- `POST /notifications/webhooks/test`
+- `GET /notifications/webhooks/{id}/deliveries?page=1&page_size=10`
+- `POST /notifications/webhooks/{id}/deliveries/{delivery_id}/retry`
+
+### `TaggingSettingsPage`
+
+UI elements:
+
+- Auto-tag defaults editor
+  - enabled built-in categories
+  - minimum confidence
+  - secondary tag limit
+- Retagging queue form
+  - days back
+  - item limit
+- Custom rule list and editor
+- Rule preview with recent matches, matched sections, and current tags
+
+API calls:
+
+- `GET /tagging/settings`
+- `PUT /tagging/settings`
+- `POST /tagging/rules`
+- `PATCH /tagging/rules/{id}`
+- `DELETE /tagging/rules/{id}`
+- `POST /tagging/rules/preview`
+- `POST /tagging/reapply`
 
 ### `AccountPage`
 
@@ -382,6 +443,23 @@ API calls:
 | `pages/UsersPage.tsx` | `POST` | `/users` |
 | `pages/UsersPage.tsx` | `PATCH` | `/users/{id}` |
 | `pages/AccountPage.tsx` | `POST` | `/auth/change-password` |
+| `pages/NotificationsPage.tsx` | `GET` | `/feeds` |
+| `pages/NotificationsPage.tsx` | `GET` | `/notifications/template-variables` |
+| `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks` |
+| `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks` |
+| `pages/NotificationsPage.tsx` | `PATCH` | `/notifications/webhooks/{id}` |
+| `pages/NotificationsPage.tsx` | `DELETE` | `/notifications/webhooks/{id}` |
+| `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks/test` |
+| `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks/{id}/deliveries` |
+| `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks/{id}/deliveries/{delivery_id}/retry` |
+| `pages/TaggingSettingsPage.tsx` | `GET` | `/feeds` |
+| `pages/TaggingSettingsPage.tsx` | `GET` | `/tagging/settings` |
+| `pages/TaggingSettingsPage.tsx` | `PUT` | `/tagging/settings` |
+| `pages/TaggingSettingsPage.tsx` | `POST` | `/tagging/rules` |
+| `pages/TaggingSettingsPage.tsx` | `PATCH` | `/tagging/rules/{id}` |
+| `pages/TaggingSettingsPage.tsx` | `DELETE` | `/tagging/rules/{id}` |
+| `pages/TaggingSettingsPage.tsx` | `POST` | `/tagging/rules/preview` |
+| `pages/TaggingSettingsPage.tsx` | `POST` | `/tagging/reapply` |
 | `pages/TokensPage.tsx` | `GET` | `/tokens` |
 | `pages/TokensPage.tsx` | `POST` | `/tokens` |
 | `pages/TokensPage.tsx` | `DELETE` | `/tokens/{id}` |
@@ -395,6 +473,7 @@ API calls:
 | `pages/FeedsPage.tsx` | `POST` | `/feeds/import` |
 | `pages/FeedsPage.tsx` | `GET` | `/feeds/export` |
 | `pages/AlertsPage.tsx` | `GET` | `/alerts` |
+| `pages/AlertsPage.tsx` | `POST` | `/alerts/preview` |
 | `pages/AlertsPage.tsx` | `POST` | `/alerts` |
 | `pages/AlertsPage.tsx` | `PATCH` | `/alerts/{id}` |
 | `pages/AlertsPage.tsx` | `DELETE` | `/alerts/{id}` |
