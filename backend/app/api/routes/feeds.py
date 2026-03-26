@@ -340,7 +340,7 @@ def refresh_feed(
     if feed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
 
-    celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)])
+    celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)], kwargs={"force": True})
     record_audit(
         db,
         actor_user_id=user.id,

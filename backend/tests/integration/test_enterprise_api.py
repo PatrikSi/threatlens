@@ -235,6 +235,40 @@ def test_admin_can_manage_feeds_and_analyst_can_view(client: TestClient, auth_he
     assert len(list_response.json()) == 1
 
 
+def test_refresh_feed_queues_force_fetch(client: TestClient, auth_headers, db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Refreshable Feed",
+        url="https://example.com/refresh.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    captured: dict[str, object] = {}
+
+    def _send_task(name: str, args=None, kwargs=None):
+        captured["name"] = name
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr("app.api.routes.feeds.celery_app.send_task", _send_task)
+
+    response = client.post(
+        f"/feeds/{feed.id}/refresh",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "queued"}
+    assert captured == {
+        "name": "app.tasks.feed_tasks.fetch_feed",
+        "args": [str(feed.id)],
+        "kwargs": {"force": True},
+    }
+
+
 def test_admin_can_list_users_for_user_directory(client: TestClient, auth_headers):
     response = client.get("/users", headers=auth_headers["admin"])
     assert response.status_code == 200
