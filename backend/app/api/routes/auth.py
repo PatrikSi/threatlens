@@ -15,7 +15,9 @@ from app.core.security import (
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import (
+    AppFeaturesResponse,
     ChangePasswordRequest,
+    CurrentUserResponse,
     LoginRequest,
     RegisterRequest,
     RegistrationSettingsResponse,
@@ -28,10 +30,46 @@ from app.services.auth_rate_limit import check_login_throttle, clear_login_failu
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _resolve_app_features(db: Session | None = None) -> AppFeaturesResponse:
+    settings = get_settings()
+    if not settings.ai_enabled:
+        return AppFeaturesResponse(
+            ai_enabled=False,
+            ai_configured=False,
+            ai_summary_enabled=False,
+            ai_relevance_enabled=False,
+            ai_daily_brief_enabled=False,
+        )
+
+    ai_summary_enabled = True
+    ai_relevance_enabled = True
+    ai_daily_brief_enabled = True
+    ai_configured = False
+    if db is not None:
+        from app.services.ai_config import load_public_ai_feature_flags
+
+        flags = load_public_ai_feature_flags(db)
+        ai_summary_enabled = flags.ai_summary_enabled
+        ai_relevance_enabled = flags.ai_relevance_enabled
+        ai_daily_brief_enabled = flags.ai_daily_brief_enabled
+        ai_configured = flags.ai_configured
+
+    return AppFeaturesResponse(
+        ai_enabled=True,
+        ai_configured=ai_configured,
+        ai_summary_enabled=ai_summary_enabled,
+        ai_relevance_enabled=ai_relevance_enabled,
+        ai_daily_brief_enabled=ai_daily_brief_enabled,
+    )
+
+
 @router.get("/registration-settings", response_model=RegistrationSettingsResponse)
 def registration_settings():
     settings = get_settings()
-    return RegistrationSettingsResponse(allow_self_registration=settings.allow_self_registration)
+    return RegistrationSettingsResponse(
+        allow_self_registration=settings.allow_self_registration,
+        ai_enabled=settings.ai_enabled,
+    )
 
 
 @router.post("/register", response_model=UserResponse)
@@ -106,9 +144,18 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     return TokenResponse(access_token=token, csrf_token=csrf_token)
 
 
-@router.get("/me", response_model=UserResponse)
-def me(user: User = Depends(get_current_user)):
-    return user
+@router.get("/me", response_model=CurrentUserResponse)
+def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return CurrentUserResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        is_approved=user.is_approved,
+        approved_at=user.approved_at,
+        created_at=user.created_at,
+        features=_resolve_app_features(db),
+    )
 
 
 @router.post("/change-password", status_code=status.HTTP_200_OK)

@@ -29,6 +29,15 @@ class TokenResponse(BaseModel):
 
 class RegistrationSettingsResponse(BaseModel):
     allow_self_registration: bool
+    ai_enabled: bool
+
+
+class AppFeaturesResponse(BaseModel):
+    ai_enabled: bool
+    ai_configured: bool
+    ai_summary_enabled: bool
+    ai_relevance_enabled: bool
+    ai_daily_brief_enabled: bool
 
 
 class UserResponse(BaseModel):
@@ -41,3 +50,7 @@ class UserResponse(BaseModel):
     is_approved: bool
     approved_at: datetime | None
     created_at: datetime
+
+
+class CurrentUserResponse(UserResponse):
+    features: AppFeaturesResponse

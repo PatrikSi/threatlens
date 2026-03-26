@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -36,6 +37,9 @@ class ItemListEntry(BaseModel):
     is_starred: bool
     tags: list[str]
     tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
+    ai_relevance_score: float | None = None
+    ai_relevance_label: Literal["low", "medium", "high"] | None = None
+    ai_status: str | None = None
 
 
 class ItemListResponse(BaseModel):
@@ -77,6 +81,17 @@ class ItemClassificationResponse(BaseModel):
     classified_at: datetime
 
 
+class ItemAIInsightResponse(BaseModel):
+    status: str
+    summary_text: str | None
+    relevance_score: float | None
+    relevance_label: Literal["low", "medium", "high"] | None
+    relevance_reasons: list[str]
+    model: str | None
+    generated_at: datetime | None
+    error: str | None
+
+
 class ItemGraphNodeResponse(BaseModel):
     id: str
     type: str
@@ -115,6 +130,7 @@ class ItemDetailResponse(BaseModel):
     tags: list[str]
     tag_details: list[ItemTagDetailResponse] = Field(default_factory=list)
     tag_suggestions: list[ItemTagSuggestionResponse] = Field(default_factory=list)
+    ai_insight: ItemAIInsightResponse | None = None
     article: ArticleResponse | None
     state: ItemStateResponse
 

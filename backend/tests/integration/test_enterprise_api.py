@@ -53,12 +53,12 @@ def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
 def test_registration_settings_endpoint_reflects_config(client: TestClient, monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.auth.get_settings",
-        lambda: SimpleNamespace(allow_self_registration=True),
+        lambda: SimpleNamespace(allow_self_registration=True, ai_enabled=True),
     )
 
     response = client.get("/auth/registration-settings")
     assert response.status_code == 200
-    assert response.json() == {"allow_self_registration": True}
+    assert response.json() == {"allow_self_registration": True, "ai_enabled": True}
 
 
 def test_register_creates_pending_user_when_enabled(client: TestClient, monkeypatch):
