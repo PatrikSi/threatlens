@@ -6,7 +6,9 @@ from sqlalchemy import select
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.tag import ItemTag, Tag
-from app.services.algorithm_tags import build_tag_candidates, sync_item_algorithm_tags
+from app.models.tagging_rule import TaggingRule
+from app.services.algorithm_tags import build_tag_candidates, evaluate_tagging_rule_match, sync_item_algorithm_tags
+from app.services.tagging_config import ActiveTaggingSettings
 
 
 def test_sync_item_algorithm_tags_upserts_and_replaces_algorithm_links(db_session):
@@ -87,3 +89,56 @@ def test_build_tag_candidates_only_returns_classification_categories():
     )
     assert [candidate.name for candidate in candidates] == ["vulnerability", "apt_campaign"]
     assert all(candidate.source == "rule" for candidate in candidates)
+
+
+def test_build_tag_candidates_respects_runtime_settings():
+    candidates = build_tag_candidates(
+        primary_category="multi",
+        secondary_categories=["vulnerability", "apt_campaign"],
+        classification_confidence=0.83,
+        ioc_values_by_type={},
+        title="Multi signal article",
+        summary="summary",
+        article_text="article",
+        feed_name="Threat Research Feed",
+        feed_url="https://example.com/feed.xml",
+        feedback_adjustments={},
+        active_settings=ActiveTaggingSettings(
+            enabled_categories={"vulnerability", "apt_campaign"},
+            min_auto_tag_confidence=0.6,
+            secondary_tag_limit=1,
+        ),
+    )
+
+    assert [candidate.name for candidate in candidates] == ["vulnerability"]
+
+
+def test_evaluate_tagging_rule_match_supports_selected_fields_and_categories():
+    rule = TaggingRule(
+        id=uuid.uuid4(),
+        name="Fortinet vuln rule",
+        tag_name="vendor:fortinet",
+        enabled=True,
+        match_type="contains",
+        pattern="fortinet",
+        case_sensitive=False,
+        applies_to_json=["title", "article_text"],
+        required_categories_json=["vulnerability"],
+        feed_scope="all",
+        feed_ids_json=[],
+        min_classification_confidence=0.4,
+    )
+
+    matched_sections = evaluate_tagging_rule_match(
+        rule=rule,
+        title="Fortinet fixes active exploitation",
+        summary="summary",
+        article_text="The article also mentions Fortinet appliances.",
+        feed_name="Security Feed",
+        feed_id=uuid.uuid4(),
+        primary_category="vulnerability",
+        secondary_categories=[],
+        classification_confidence=0.81,
+    )
+
+    assert matched_sections == ["title", "article_text"]

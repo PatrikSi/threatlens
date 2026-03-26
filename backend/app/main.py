@@ -7,7 +7,7 @@ from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.api.routes import alerts, audit, auth, feeds, health, items, notifications, stats, tags, tokens, users, views
+from app.api.routes import alerts, audit, auth, feeds, health, items, notifications, stats, tagging, tags, tokens, users, views
 
 app = FastAPI(title="ThreatLens API", version="0.1.0")
 settings = get_settings()
@@ -73,6 +73,7 @@ app.include_router(auth.router)
 app.include_router(feeds.router)
 app.include_router(items.router)
 app.include_router(tags.router)
+app.include_router(tagging.router)
 app.include_router(views.router)
 app.include_router(alerts.router)
 app.include_router(tokens.router)

@@ -3,7 +3,7 @@ import uuid
 import secrets
 import logging
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -719,6 +719,7 @@ def classify_item(item_id: str):
                 item_id=parsed_item_id,
                 primary_category=row.primary_category,
                 secondary_categories=row.secondary_categories,
+                feed_id=item.feed_id,
                 classification_confidence=row.confidence,
                 title=item.title,
                 summary=item.summary,
@@ -753,6 +754,7 @@ def classify_item(item_id: str):
             item_id=parsed_item_id,
             primary_category=result.primary_category,
             secondary_categories=result.secondary_categories,
+            feed_id=item.feed_id,
             classification_confidence=result.confidence,
             title=item.title,
             summary=item.summary,
@@ -849,6 +851,7 @@ def extract_item_iocs(item_id: str):
             item_id=parsed_item_id,
             primary_category=classification.primary_category if classification else "threat_intelligence_research",
             secondary_categories=classification.secondary_categories if classification else [],
+            feed_id=item.feed_id,
             classification_confidence=classification.confidence if classification else 0.35,
             ioc_values_by_type=ioc_values_by_type,
             title=item.title,
@@ -862,6 +865,85 @@ def extract_item_iocs(item_id: str):
         db.commit()
 
     return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.reapply_recent_item_tags")
+def reapply_recent_item_tags(days: int = 30, limit: int = 0):
+    if days <= 0:
+        return {"status": "skipped", "reason": "invalid_days", "days": days}
+    if limit < 0:
+        return {"status": "skipped", "reason": "invalid_limit", "limit": limit}
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    processed = 0
+
+    with db_session() as db:
+        query = (
+            select(Item.id)
+            .where(Item.first_seen_at >= cutoff)
+            .order_by(Item.first_seen_at.desc())
+        )
+        if limit:
+            query = query.limit(limit)
+
+        item_ids = list(db.scalars(query).all())
+        for item_id_value in item_ids:
+            item = db.scalar(select(Item).where(Item.id == item_id_value))
+            if item is None:
+                continue
+
+            article = db.scalar(select(Article).where(Article.item_id == item.id))
+            classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item.id))
+            feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+            if feed is None:
+                continue
+
+            if classification is None:
+                result = classify_item_content(
+                    title=item.title,
+                    summary=item.summary,
+                    article_text=article.text if article else None,
+                    feed_name=feed.name,
+                )
+                classification = ItemClassification(item_id=item.id)
+                classification.primary_category = result.primary_category
+                classification.secondary_categories = result.secondary_categories
+                classification.confidence = result.confidence
+                classification.scores_json = result.scores
+                classification.matched_terms_json = result.matched_terms
+                classification.source_hash = result.source_hash
+                classification.rules_version = result.rules_version
+                classification.classified_at = datetime.now(timezone.utc)
+                db.add(classification)
+
+            feedback_adjustments = load_feedback_adjustments(
+                db,
+                tag_names=[classification.primary_category, *(classification.secondary_categories or [])],
+            )
+            sync_item_algorithm_tags(
+                db,
+                item_id=item.id,
+                primary_category=classification.primary_category,
+                secondary_categories=classification.secondary_categories,
+                feed_id=item.feed_id,
+                classification_confidence=classification.confidence,
+                title=item.title,
+                summary=item.summary,
+                article_text=article.text if article else None,
+                feed_name=feed.name,
+                feed_url=feed.url,
+                feedback_adjustments=feedback_adjustments,
+            )
+            processed += 1
+
+        db.commit()
+
+    return {
+        "status": "ok",
+        "days": days,
+        "limit": limit,
+        "processed": processed,
+    }
 
 
 def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:
