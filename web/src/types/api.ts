@@ -431,3 +431,33 @@ export interface NotificationWebhookTestResponse {
   response_body_preview: string | null
   error: string | null
 }
+
+export interface NotificationWebhookDelivery {
+  id: string
+  webhook_id: string
+  user_id: string
+  item_id: string | null
+  feed_id: string | null
+  item_title: string | null
+  feed_name: string | null
+  delivery_kind: 'live' | 'retry'
+  success: boolean
+  status_code: number | null
+  duration_ms: number | null
+  timeout_seconds: number
+  rendered_url: string
+  rendered_method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+  rendered_headers: NotificationWebhookField[]
+  rendered_query_params: NotificationWebhookField[]
+  rendered_body: string | null
+  response_body_preview: string | null
+  error: string | null
+  attempted_at: string
+}
+
+export interface NotificationWebhookDeliveryListResponse {
+  deliveries: NotificationWebhookDelivery[]
+  total: number
+  page: number
+  page_size: number
+}

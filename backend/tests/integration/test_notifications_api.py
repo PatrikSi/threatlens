@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.models.feed import Feed
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import NotificationWebhookTestResponse
 
@@ -173,6 +174,130 @@ def test_notification_webhook_test_endpoint_returns_render_result(client: TestCl
     assert payload["status_code"] == 204
     assert captured["user_id"] == viewer.id
     assert captured["sample_feed_id"] == feed.id
+
+
+def test_user_can_list_notification_webhook_delivery_history(client: TestClient, auth_headers, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="History webhook",
+        url_template="https://hooks.example.com/history",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=viewer.id,
+        delivery_kind="live",
+        success=False,
+        status_code=500,
+        duration_ms=42,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/history",
+        rendered_method="POST",
+        rendered_headers_json=[{"key": "Content-Type", "value": "application/json"}],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"Example"}',
+        response_body_preview="server error",
+        error="HTTP 500",
+        item_title_snapshot="Example item",
+        feed_name_snapshot="Example feed",
+    )
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    response = client.get(f"/notifications/webhooks/{webhook.id}/deliveries?page=1&page_size=10", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["deliveries"][0]["id"] == str(delivery.id)
+    assert payload["deliveries"][0]["delivery_kind"] == "live"
+    assert payload["deliveries"][0]["item_title"] == "Example item"
+    assert payload["deliveries"][0]["response_body_preview"] == "server error"
+
+
+def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=viewer.id,
+        delivery_kind="live",
+        success=False,
+        status_code=500,
+        duration_ms=51,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"Retry"}',
+        response_body_preview="HTTP 500",
+        error="HTTP 500",
+        item_title_snapshot="Retry item",
+        feed_name_snapshot="Retry feed",
+    )
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    def _fake_retry(db, *, webhook, delivery):
+        retried = NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=webhook.user_id,
+            delivery_kind="retry",
+            success=True,
+            status_code=204,
+            duration_ms=12,
+            timeout_seconds=delivery.timeout_seconds,
+            rendered_url=delivery.rendered_url,
+            rendered_method=delivery.rendered_method,
+            rendered_headers_json=delivery.rendered_headers_json,
+            rendered_query_params_json=delivery.rendered_query_params_json,
+            rendered_body=delivery.rendered_body,
+            response_body_preview="ok",
+            error=None,
+            item_title_snapshot=delivery.item_title_snapshot,
+            feed_name_snapshot=delivery.feed_name_snapshot,
+        )
+        db.add(retried)
+        db.flush()
+        return retried
+
+    monkeypatch.setattr("app.api.routes.notifications.retry_notification_webhook_delivery", _fake_retry)
+
+    response = client.post(
+        f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
+        headers=auth_headers["viewer"],
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["delivery_kind"] == "retry"
+    assert payload["success"] is True
+    assert payload["status_code"] == 204
+    assert payload["item_title"] == "Retry item"
 
 
 def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, seed_users):

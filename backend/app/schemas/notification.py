@@ -9,6 +9,7 @@ NotificationEventType = Literal["rss_item_new"]
 NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]
+NotificationDeliveryKind = Literal["live", "retry"]
 
 
 class NotificationWebhookField(BaseModel):
@@ -130,3 +131,33 @@ class NotificationWebhookTestResponse(BaseModel):
     rendered_body: str | None
     response_body_preview: str | None
     error: str | None
+
+
+class NotificationWebhookDeliveryResponse(BaseModel):
+    id: uuid.UUID
+    webhook_id: uuid.UUID
+    user_id: uuid.UUID
+    item_id: uuid.UUID | None
+    feed_id: uuid.UUID | None
+    item_title: str | None
+    feed_name: str | None
+    delivery_kind: NotificationDeliveryKind
+    success: bool
+    status_code: int | None
+    duration_ms: int | None
+    timeout_seconds: int
+    rendered_url: str
+    rendered_method: NotificationMethod
+    rendered_headers: list[NotificationWebhookField]
+    rendered_query_params: list[NotificationWebhookField]
+    rendered_body: str | None
+    response_body_preview: str | None
+    error: str | None
+    attempted_at: datetime
+
+
+class NotificationWebhookDeliveryListResponse(BaseModel):
+    deliveries: list[NotificationWebhookDeliveryResponse]
+    total: int
+    page: int
+    page_size: int

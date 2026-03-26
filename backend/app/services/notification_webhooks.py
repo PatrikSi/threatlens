@@ -17,8 +17,10 @@ from app.core.config import get_settings
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import (
+    NotificationWebhookDeliveryResponse,
     NotificationTemplateVariable,
     NotificationWebhookField,
     NotificationWebhookResponse,
@@ -139,6 +141,37 @@ def notification_webhook_response_from_model(webhook: NotificationWebhook) -> No
         timeout_seconds=payload.timeout_seconds,
         created_at=webhook.created_at,
         updated_at=webhook.updated_at,
+    )
+
+
+def notification_webhook_delivery_response_from_model(
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookDeliveryResponse:
+    return NotificationWebhookDeliveryResponse(
+        id=delivery.id,
+        webhook_id=delivery.webhook_id,
+        user_id=delivery.user_id,
+        item_id=delivery.item_id,
+        feed_id=delivery.feed_id,
+        item_title=delivery.item_title_snapshot,
+        feed_name=delivery.feed_name_snapshot,
+        delivery_kind=delivery.delivery_kind,
+        success=delivery.success,
+        status_code=delivery.status_code,
+        duration_ms=delivery.duration_ms,
+        timeout_seconds=delivery.timeout_seconds,
+        rendered_url=delivery.rendered_url,
+        rendered_method=delivery.rendered_method,
+        rendered_headers=[
+            NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_headers_json or [])
+        ],
+        rendered_query_params=[
+            NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_query_params_json or [])
+        ],
+        rendered_body=delivery.rendered_body,
+        response_body_preview=delivery.response_body_preview,
+        error=delivery.error,
+        attempted_at=delivery.attempted_at,
     )
 
 
@@ -276,7 +309,40 @@ def get_matching_notification_webhooks_for_feed(db: Session, *, feed_id: uuid.UU
 def send_notification_webhook_for_item(db: Session, *, webhook: NotificationWebhook, item: Item, feed: Feed, user: User) -> NotificationWebhookTestResponse:
     payload = notification_webhook_write_from_model(webhook)
     rendered = render_notification_request(payload, user=user, feed=feed, item=item)
-    return _send_rendered_notification_request(rendered)
+    result = _send_rendered_notification_request(rendered)
+    _record_notification_webhook_delivery(
+        db,
+        webhook=webhook,
+        rendered=rendered,
+        result=result,
+        delivery_kind="live",
+        item_id=item.id,
+        feed_id=feed.id,
+        item_title=item.title,
+        feed_name=feed.name,
+    )
+    return result
+
+
+def retry_notification_webhook_delivery(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookDelivery:
+    rendered = _rendered_request_from_delivery(delivery)
+    result = _send_rendered_notification_request(rendered)
+    return _record_notification_webhook_delivery(
+        db,
+        webhook=webhook,
+        rendered=rendered,
+        result=result,
+        delivery_kind="retry",
+        item_id=delivery.item_id,
+        feed_id=delivery.feed_id,
+        item_title=delivery.item_title_snapshot,
+        feed_name=delivery.feed_name_snapshot,
+    )
 
 
 def _resolve_sample_feed_and_item(
@@ -621,3 +687,64 @@ def _origin_tuple(url: str) -> tuple[str, str, int | None]:
         raise RedirectError("Redirect target URL is invalid") from exc
 
     return split.scheme.lower(), (split.hostname or "").lower(), port
+
+
+def _record_notification_webhook_delivery(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    rendered: RenderedNotificationRequest,
+    result: NotificationWebhookTestResponse,
+    delivery_kind: str,
+    item_id: uuid.UUID | None,
+    feed_id: uuid.UUID | None,
+    item_title: str | None,
+    feed_name: str | None,
+) -> NotificationWebhookDelivery:
+    delivery = NotificationWebhookDelivery(
+        webhook_id=webhook.id,
+        user_id=webhook.user_id,
+        item_id=item_id,
+        feed_id=feed_id,
+        delivery_kind=delivery_kind,
+        success=result.success,
+        status_code=result.status_code,
+        duration_ms=result.duration_ms,
+        timeout_seconds=rendered.timeout_seconds,
+        rendered_url=result.rendered_url,
+        rendered_method=result.rendered_method,
+        rendered_headers_json=[field.model_dump() for field in result.rendered_headers],
+        rendered_query_params_json=[field.model_dump() for field in result.rendered_query_params],
+        rendered_body=result.rendered_body,
+        response_body_preview=result.response_body_preview,
+        error=result.error,
+        item_title_snapshot=item_title,
+        feed_name_snapshot=feed_name,
+    )
+    db.add(delivery)
+    db.flush()
+    return delivery
+
+
+def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> RenderedNotificationRequest:
+    rendered_headers = [
+        NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_headers_json or [])
+    ]
+    rendered_query_params = [
+        NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_query_params_json or [])
+    ]
+    body_text = delivery.rendered_body
+
+    return RenderedNotificationRequest(
+        method=delivery.rendered_method,
+        url=delivery.rendered_url,
+        headers=rendered_headers,
+        query_params=rendered_query_params,
+        body=body_text,
+        headers_dict=_canonicalize_headers(rendered_headers),
+        query_param_pairs=[],
+        json_body=None,
+        form_body=None,
+        raw_body=body_text.encode("utf-8") if body_text is not None else None,
+        timeout_seconds=delivery.timeout_seconds,
+    )

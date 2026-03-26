@@ -236,6 +236,7 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 continue
 
             result = send_notification_webhook_for_item(db, webhook=webhook, item=item, feed=feed, user=user)
+            db.commit()
             if result.success:
                 delivered += 1
                 continue
