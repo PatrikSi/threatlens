@@ -60,6 +60,7 @@ Resource scopes:
 - `read:views`, `write:views`
 - `read:alerts`, `write:alerts`
 - `read:tokens`, `write:tokens`
+- `read:notifications`, `write:notifications`
 - `read:users`, `write:users`
 - `read:audit`
 - `read:stats`
@@ -97,9 +98,12 @@ Evaluation rules:
 | `/items` mutate triage (`read/star/note/tags`) | `admin` or `analyst` | `write:items` |
 | `/alerts` read | authenticated user | `read:alerts` |
 | `/alerts` mutate | authenticated user | `write:alerts` |
+| `/alerts/preview` | authenticated user | `read:alerts` and `read:items` |
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
+| `/notifications/*` | authenticated user | `read:notifications` / `write:notifications` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
+| `/tagging/*` | `admin` | `read:tags` / `write:tags` |
 | `/views` read | authenticated user | `read:views` |
 | `/views` mutate | authenticated user | `write:views` |
 | `/tokens` | authenticated user | `read:tokens` / `write:tokens` |

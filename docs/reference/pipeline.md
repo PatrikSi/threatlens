@@ -9,10 +9,15 @@ Defined in `backend/app/tasks/feed_tasks.py`:
 1. `dispatch_due_feeds`
 2. `dispatch_unclassified_items`
 3. `dispatch_items_missing_iocs`
-4. `fetch_feed(feed_id)`
-5. `fetch_article(item_id)`
-6. `classify_item(item_id)`
-7. `extract_item_iocs(item_id)`
+4. `dispatch_feed_metadata_backfill`
+5. `dispatch_new_item_notification_webhooks(item_id)`
+6. `record_beat_heartbeat`
+7. `backfill_feed_metadata(feed_id)`
+8. `fetch_feed(feed_id, force=False)`
+9. `fetch_article(item_id)`
+10. `classify_item(item_id)`
+11. `extract_item_iocs(item_id)`
+12. `reapply_recent_item_tags(days=30, limit=0)`
 
 ## Feed Fetch Stage
 
@@ -86,8 +91,36 @@ The classifier uses weighted regex/token rules for each category and applies fee
 
 `backend/app/services/algorithm_tags.py`:
 
-- Valid algorithm tags are `CLASSIFICATION_CATEGORIES` lowercased.
-- Item tags are synchronized to classification outputs (`primary_category` + `secondary_categories`).
+- Built-in algorithm tags are `CLASSIFICATION_CATEGORIES` lowercased.
+- Runtime tagging settings can:
+  - disable specific built-in categories
+  - raise/lower minimum auto-tag confidence
+  - limit how many secondary category tags are emitted
+- Custom tagging rules can add arbitrary tag names based on:
+  - `contains` or `regex` matching
+  - `title`, `summary`, `article_text`, and/or `feed_name`
+  - optional category requirements
+  - optional selected-feed scoping
+  - optional minimum classification confidence
+- Item tags are synchronized to the current desired set, so stale auto tags are removed on re-sync.
+- Manual tags are preserved and never overwritten by auto-tag sync.
+
+## Notification Webhook Dispatch
+
+- New-item webhook fanout is queued by `dispatch_new_item_notification_webhooks(item_id)` after feed ingestion.
+- Deliveries are matched against:
+  - enabled webhooks
+  - `event_type == rss_item_new`
+  - all feeds or selected-feed scope
+- Delivery records store the fully rendered outbound request snapshot:
+  - URL
+  - method
+  - headers
+  - query params
+  - body
+  - response preview
+  - error/status metadata
+- Retries replay the stored rendered delivery snapshot instead of re-rendering from current item/feed data.
 
 ## IOC Extraction
 
