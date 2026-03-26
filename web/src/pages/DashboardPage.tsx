@@ -1603,7 +1603,11 @@ export function DashboardPage() {
                                   </a>
                                 </h3>
                                 <div className="flex shrink-0 items-center gap-2">
-                                  <span className="rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 dark:bg-teal-900/35 dark:text-teal-200">
+                                  <span
+                                    className="cursor-help rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 dark:bg-teal-900/35 dark:text-teal-200"
+                                    title={density.explanation}
+                                    aria-label={density.explanation}
+                                  >
                                     {density.label} {density.score}
                                   </span>
                                   <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
@@ -2320,7 +2324,7 @@ function formatClassificationLabel(value: string): string {
     .join(' ')
 }
 
-function computeInformationDensity(item: ItemListEntry): { score: number; label: string } {
+function computeInformationDensity(item: ItemListEntry): { score: number; label: string; explanation: string } {
   const titleWords = item.title.trim().split(/\s+/).filter(Boolean).length
   const summaryLength = (item.summary || '').trim().length
   const visibleTagCount = item.tags.filter((tagName) => !HIDDEN_TAGS.has(tagName)).length
@@ -2334,9 +2338,51 @@ function computeInformationDensity(item: ItemListEntry): { score: number; label:
   if (item.published_at) score += 4
 
   const normalized = Math.max(1, Math.min(100, score))
-  if (normalized >= 70) return { score: normalized, label: 'High' }
-  if (normalized >= 40) return { score: normalized, label: 'Medium' }
-  return { score: normalized, label: 'Low' }
+  const signals: string[] = []
+  if (summaryLength >= 240) {
+    signals.push('long summary')
+  } else if (summaryLength >= 80) {
+    signals.push('some summary detail')
+  }
+  if (visibleTagCount >= 3) {
+    signals.push(`${visibleTagCount} visible tags`)
+  } else if (visibleTagCount > 0) {
+    signals.push(`${visibleTagCount} visible tag${visibleTagCount === 1 ? '' : 's'}`)
+  }
+  if (item.classification) {
+    signals.push('classification metadata')
+  }
+  if (item.status === 'error') {
+    signals.push('error state metadata')
+  }
+  if (item.published_at) {
+    signals.push('published timestamp')
+  }
+
+  const signalText =
+    signals.length > 0
+      ? `Key signals: ${signals.join(', ')}.`
+      : 'This item has limited extracted metadata right now.'
+
+  if (normalized >= 70) {
+    return {
+      score: normalized,
+      label: 'High',
+      explanation: `High information density. Richer context is available for this item, usually because it has more extracted detail and metadata. ${signalText}`,
+    }
+  }
+  if (normalized >= 40) {
+    return {
+      score: normalized,
+      label: 'Medium',
+      explanation: `Medium information density. This item has some useful context, but not as much extracted detail as the highest-signal posts. ${signalText}`,
+    }
+  }
+  return {
+    score: normalized,
+    label: 'Low',
+    explanation: `Low information density. This item is a lighter match with less extracted context, fewer tags, or a shorter summary. ${signalText}`,
+  }
 }
 
 function buildSavedViewPreview(view: SavedView, containerWidth: number, containerHeight: number): SavedViewPreview {
