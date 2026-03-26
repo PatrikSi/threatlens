@@ -27,6 +27,23 @@ def test_validate_notification_webhook_payload_rejects_unknown_template_variable
         raise AssertionError("expected payload validation to fail")
 
 
+def test_notification_webhook_write_extracts_query_params_from_url_template():
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="https://hooks.example.com/notify?token=abc123&source={{ feed.name }}",
+        method="POST",
+        query_params=[NotificationWebhookField(key="priority", value="5")],
+        body_mode="none",
+    )
+
+    assert payload.url_template == "https://hooks.example.com/notify"
+    assert [(field.key, field.value) for field in payload.query_params] == [
+        ("priority", "5"),
+        ("token", "abc123"),
+        ("source", "{{ feed.name }}"),
+    ]
+
+
 def test_render_notification_request_expands_templates_into_json_body():
     payload = NotificationWebhookWrite(
         name="Example",
