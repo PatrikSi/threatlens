@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import {
   Feed,
+  NotificationAnalyticsResponse,
+  NotificationEventType,
   NotificationTemplateVariable,
   NotificationWebhookDelivery,
   NotificationWebhookDeliveryListResponse,
@@ -18,12 +20,46 @@ type NotificationWebhookDraft = Omit<NotificationWebhookWriteRequest, 'body_temp
   content_type: string
 }
 
-const DEFAULT_JSON_FIELDS: NotificationWebhookField[] = [
-  { key: 'event.type', value: '{{ event.type }}' },
-  { key: 'item.title', value: '{{ item.title }}' },
-  { key: 'item.url', value: '{{ item.url }}' },
-  { key: 'feed.name', value: '{{ feed.name }}' },
+const EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string; description: string }> = [
+  { value: 'rss_item_new', label: 'New RSS Item', description: 'Fire when a new RSS item is ingested from a feed.' },
+  { value: 'alert_match', label: 'Alert Match', description: 'Fire when an item matches one or more of your alert interests.' },
+  { value: 'feed_failing', label: 'Feed Failing', description: 'Fire when a feed hits repeated fetch failures.' },
+  { value: 'webhook_failed', label: 'Webhook Failed', description: 'Fire when one of your other webhook deliveries fails.' },
+  { value: 'daily_digest', label: 'Daily Digest', description: 'Send a once-per-day digest of the last 24 hours of matching items.' },
 ]
+
+const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {
+  rss_item_new: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'item.title', value: '{{ item.title }}' },
+    { key: 'item.url', value: '{{ item.url }}' },
+    { key: 'feed.name', value: '{{ feed.name }}' },
+  ],
+  alert_match: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'alert.primary_name', value: '{{ alert.primary_name }}' },
+    { key: 'alert.matched_keywords', value: '{{ alert.matched_keywords }}' },
+    { key: 'item.title', value: '{{ item.title }}' },
+  ],
+  feed_failing: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'feed.name', value: '{{ feed.name }}' },
+    { key: 'feed.error_count', value: '{{ feed.error_count }}' },
+    { key: 'feed.last_error', value: '{{ feed.last_error }}' },
+  ],
+  webhook_failed: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'failed_webhook.name', value: '{{ failed_webhook.name }}' },
+    { key: 'failed_webhook.event_type', value: '{{ failed_webhook.event_type }}' },
+    { key: 'failed_webhook.error', value: '{{ failed_webhook.error }}' },
+  ],
+  daily_digest: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'digest.total_items', value: '{{ digest.total_items }}' },
+    { key: 'digest.total_feeds', value: '{{ digest.total_feeds }}' },
+    { key: 'digest.feed_names', value: '{{ digest.feed_names }}' },
+  ],
+}
 
 export function NotificationsPage() {
   const queryClient = useQueryClient()
@@ -48,6 +84,11 @@ export function NotificationsPage() {
     queryFn: () => apiFetch<NotificationTemplateVariable[]>('/notifications/template-variables'),
   })
 
+  const analyticsQuery = useQuery({
+    queryKey: ['notifications', 'analytics'],
+    queryFn: () => apiFetch<NotificationAnalyticsResponse>('/notifications/analytics'),
+  })
+
   const saveWebhook = useMutation({
     mutationFn: (payload: NotificationWebhookWriteRequest) => {
       if (selectedWebhookId) {
@@ -68,6 +109,7 @@ export function NotificationsPage() {
       setFormNotice(selectedWebhookId ? 'Webhook updated.' : 'Webhook created.')
       setTestResult(null)
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks'] })
+      void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
     },
   })
 
@@ -80,6 +122,7 @@ export function NotificationsPage() {
       setFormNotice('Webhook deleted.')
       setTestResult(null)
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks'] })
+      void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
     },
   })
 
@@ -113,12 +156,14 @@ export function NotificationsPage() {
     onSuccess: (delivery) => {
       setFormNotice(delivery.success ? 'Webhook retry succeeded.' : 'Webhook retry failed.')
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks', delivery.webhook_id, 'deliveries'] })
+      void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
     },
   })
 
   const feeds = feedsQuery.data ?? []
   const webhooks = webhooksQuery.data ?? []
   const variables = variablesQuery.data ?? []
+  const analytics = analyticsQuery.data
   const testableFeeds = draft.feed_scope === 'selected' ? feeds.filter((feed) => draft.feed_ids.includes(feed.id)) : feeds
 
   useEffect(() => {
@@ -169,11 +214,85 @@ export function NotificationsPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Webhook Notifications</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">
-          Configure outbound webhooks for new RSS items with templated URL parameters, headers, and payload fields.
+          Configure outbound webhooks for new RSS items, alert matches, feed failures, failed deliveries, and daily digests.
         </p>
         <p className="mt-2 text-xs text-slate dark:text-white/60">
           Variables use `{'{{ item.title }}'}` style placeholders, similar to Grafana-style notification templates.
         </p>
+      </section>
+
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-display text-lg">Notification Analytics</h3>
+            <p className="mt-1 text-sm text-slate dark:text-white/75">
+              Track delivery health across all of your notification webhooks.
+            </p>
+          </div>
+          {analyticsQuery.isLoading && <span className="text-sm text-slate dark:text-white/70">Loading analytics...</span>}
+        </div>
+
+        {analyticsQuery.isError && (
+          <p className="mt-3 text-sm text-red-600">{resolveApiMessage(analyticsQuery.error, 'Failed to load notification analytics.')}</p>
+        )}
+
+        {analytics && (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              <MetricCard label="Total Deliveries" value={String(analytics.total_deliveries)} />
+              <MetricCard label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
+              <MetricCard label="Failures 24h" value={String(analytics.failures_last_24h)} />
+              <MetricCard
+                label="Most Failing Webhook"
+                value={analytics.most_failing_webhook ? analytics.most_failing_webhook.webhook_name : 'None'}
+              />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+              <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+                <h4 className="font-semibold">Event Breakdown</h4>
+                <div className="mt-3 space-y-2">
+                  {analytics.events.length ? (
+                    analytics.events.map((eventSummary) => (
+                      <div key={eventSummary.event_type} className="flex items-center justify-between gap-3 rounded-lg bg-slate/5 px-3 py-2 dark:bg-white/5">
+                        <div>
+                          <p className="text-sm font-semibold">{describeEventType(eventSummary.event_type)}</p>
+                          <p className="text-xs text-slate dark:text-white/60">
+                            {eventSummary.failed_deliveries} failed of {eventSummary.total_deliveries}
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold">{formatFailureRate(eventSummary.failed_deliveries, eventSummary.total_deliveries)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate dark:text-white/70">No deliveries recorded yet.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+                <h4 className="font-semibold">Current Snapshot</h4>
+                <div className="mt-3 space-y-2 text-sm">
+                  <p>
+                    Successful deliveries: <span className="font-semibold">{analytics.successful_deliveries}</span>
+                  </p>
+                  <p>
+                    Failed deliveries: <span className="font-semibold">{analytics.failed_deliveries}</span>
+                  </p>
+                  <p>
+                    Most failing webhook:{' '}
+                    <span className="font-semibold">{analytics.most_failing_webhook?.webhook_name ?? 'None'}</span>
+                  </p>
+                  {analytics.most_failing_webhook?.last_failure_at && (
+                    <p className="text-xs text-slate dark:text-white/60">
+                      Last failure: {formatTimestamp(analytics.most_failing_webhook.last_failure_at)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
@@ -205,7 +324,7 @@ export function NotificationsPage() {
                     <div>
                       <p className="font-semibold">{webhook.name}</p>
                       <p className="mt-1 text-xs text-slate dark:text-white/65">
-                        {webhook.method} · {describeFeedScope(webhook.feed_scope, webhook.feed_ids.length)}
+                        {describeEventType(webhook.event_type)} · {webhook.method} · {describeFeedScope(webhook.feed_scope, webhook.feed_ids.length)}
                       </p>
                     </div>
                     <span
@@ -227,7 +346,7 @@ export function NotificationsPage() {
             {webhooksQuery.isError && <p className="text-sm text-red-600">{resolveApiMessage(webhooksQuery.error, 'Failed to load webhooks.')}</p>}
             {!webhooksQuery.isLoading && !webhooks.length && (
               <p className="rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
-                No webhooks yet. Create one to call external systems when a new feed item lands.
+                No webhooks yet. Create one to call external systems when ThreatLens sees new items, alert matches, feed failures, or digest windows.
               </p>
             )}
           </div>
@@ -238,7 +357,7 @@ export function NotificationsPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h3 className="font-display text-lg">{selectedWebhookId ? 'Edit Webhook' : 'Create Webhook'}</h3>
-                <p className="mt-1 text-sm text-slate dark:text-white/75">Trigger: new RSS item ingested into ThreatLens.</p>
+                <p className="mt-1 text-sm text-slate dark:text-white/75">{describeEventDescription(draft.event_type)}</p>
               </div>
               <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
                 <input
@@ -259,6 +378,23 @@ export function NotificationsPage() {
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Slack ingest webhook"
                 />
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Event Type</label>
+                <select
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  value={draft.event_type}
+                  onChange={(event) =>
+                    setDraft((current) => applyEventType(current, event.target.value as NotificationEventType))
+                  }
+                >
+                  {EVENT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate dark:text-white/60">{describeEventDescription(draft.event_type)}</p>
               </div>
               <div>
                 <label className="text-sm font-semibold">HTTP Method</label>
@@ -663,6 +799,9 @@ export function NotificationsPage() {
                             <span className="rounded-full bg-slate/10 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-white/10 dark:text-white/70">
                               {delivery.delivery_kind === 'retry' ? 'Retry' : 'Live'}
                             </span>
+                            <span className="rounded-full bg-slate/10 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-white/10 dark:text-white/70">
+                              {describeEventType(delivery.event_type)}
+                            </span>
                           </div>
                           <p className="mt-2 font-semibold">{delivery.item_title || 'Webhook delivery'}</p>
                           <p className="mt-1 text-xs text-slate dark:text-white/60">
@@ -737,7 +876,7 @@ export function NotificationsPage() {
 
             {selectedWebhookId && deliveriesQuery.data && deliveriesQuery.data.deliveries.length === 0 && (
               <p className="mt-3 text-sm text-slate dark:text-white/70">
-                No deliveries yet. Once new RSS items arrive, delivery attempts will show up here automatically.
+                No deliveries yet. Matching events will show up here automatically after the first live delivery attempt.
               </p>
             )}
           </section>
@@ -826,7 +965,7 @@ function createDefaultDraft(): NotificationWebhookDraft {
     query_params: [],
     headers: [],
     body_mode: 'json',
-    body_fields: DEFAULT_JSON_FIELDS.map((field) => ({ ...field })),
+    body_fields: buildDefaultJsonFields('rss_item_new'),
     body_template: '',
     content_type: '',
     timeout_seconds: 10,
@@ -858,7 +997,7 @@ function createRequestFromDraft(draft: NotificationWebhookDraft): NotificationWe
   return {
     name: normalizedDraft.name.trim(),
     enabled: normalizedDraft.enabled,
-    event_type: 'rss_item_new',
+    event_type: normalizedDraft.event_type,
     url_template: normalizedDraft.url_template.trim(),
     method: normalizedDraft.method,
     feed_scope: normalizedDraft.feed_scope,
@@ -883,7 +1022,7 @@ function applyBodyMode(current: NotificationWebhookDraft, nextBodyMode: Notifica
     return {
       ...current,
       body_mode: 'json',
-      body_fields: current.body_fields.length ? current.body_fields : DEFAULT_JSON_FIELDS.map((field) => ({ ...field })),
+      body_fields: current.body_fields.length ? current.body_fields : buildDefaultJsonFields(current.event_type),
       body_template: '',
     }
   }
@@ -911,6 +1050,19 @@ function applyBodyMode(current: NotificationWebhookDraft, nextBodyMode: Notifica
     body_fields: [],
     body_template: '',
   }
+}
+
+function applyEventType(current: NotificationWebhookDraft, eventType: NotificationEventType): NotificationWebhookDraft {
+  const next = { ...current, event_type: eventType }
+  if (current.body_mode !== 'json') {
+    return next
+  }
+  const currentFields = JSON.stringify(current.body_fields)
+  const currentDefaultFields = JSON.stringify(buildDefaultJsonFields(current.event_type))
+  if (!current.body_fields.length || currentFields === currentDefaultFields) {
+    return { ...next, body_fields: buildDefaultJsonFields(eventType) }
+  }
+  return next
 }
 
 function normalizeDraftUrlQuery(current: NotificationWebhookDraft): NotificationWebhookDraft {
@@ -1032,6 +1184,18 @@ function resolveDefaultContentTypeLabel(bodyMode: NotificationWebhookDraft['body
   return 'none'
 }
 
+function buildDefaultJsonFields(eventType: NotificationEventType): NotificationWebhookField[] {
+  return EVENT_DEFAULT_JSON_FIELDS[eventType].map((field) => ({ ...field }))
+}
+
+function describeEventType(eventType: NotificationEventType): string {
+  return EVENT_OPTIONS.find((option) => option.value === eventType)?.label ?? eventType
+}
+
+function describeEventDescription(eventType: NotificationEventType): string {
+  return EVENT_OPTIONS.find((option) => option.value === eventType)?.description ?? eventType
+}
+
 function describeFeedScope(scope: NotificationWebhook['feed_scope'], count: number): string {
   if (scope === 'all') {
     return 'all feeds'
@@ -1052,6 +1216,13 @@ function formatTimestamp(value: string): string {
     return value
   }
   return parsed.toLocaleString()
+}
+
+function formatFailureRate(failedDeliveries: number, totalDeliveries: number): string {
+  if (totalDeliveries <= 0) {
+    return '0.0% failed'
+  }
+  return `${((failedDeliveries / totalDeliveries) * 100).toFixed(1)}% failed`
 }
 
 function resolveApiMessage(error: unknown, fallback: string): string {

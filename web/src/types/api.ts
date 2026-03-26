@@ -383,12 +383,14 @@ export interface NotificationTemplateVariable {
   example: string
 }
 
+export type NotificationEventType = 'rss_item_new' | 'alert_match' | 'feed_failing' | 'webhook_failed' | 'daily_digest'
+
 export interface NotificationWebhook {
   id: string
   user_id: string
   name: string
   enabled: boolean
-  event_type: 'rss_item_new'
+  event_type: NotificationEventType
   url_template: string
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   feed_scope: 'all' | 'selected'
@@ -406,7 +408,7 @@ export interface NotificationWebhook {
 export interface NotificationWebhookWriteRequest {
   name: string
   enabled: boolean
-  event_type: 'rss_item_new'
+  event_type: NotificationEventType
   url_template: string
   method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   feed_scope: 'all' | 'selected'
@@ -436,6 +438,7 @@ export interface NotificationWebhookDelivery {
   id: string
   webhook_id: string
   user_id: string
+  event_type: NotificationEventType
   item_id: string | null
   feed_id: string | null
   item_title: string | null
@@ -460,6 +463,29 @@ export interface NotificationWebhookDeliveryListResponse {
   total: number
   page: number
   page_size: number
+}
+
+export interface NotificationAnalyticsEventSummary {
+  event_type: NotificationEventType
+  total_deliveries: number
+  failed_deliveries: number
+}
+
+export interface NotificationAnalyticsWebhookSummary {
+  webhook_id: string
+  webhook_name: string
+  failed_deliveries: number
+  last_failure_at: string | null
+}
+
+export interface NotificationAnalyticsResponse {
+  total_deliveries: number
+  successful_deliveries: number
+  failed_deliveries: number
+  success_rate_pct: number
+  failures_last_24h: number
+  most_failing_webhook: NotificationAnalyticsWebhookSummary | null
+  events: NotificationAnalyticsEventSummary[]
 }
 
 export interface TaggingSettings {
