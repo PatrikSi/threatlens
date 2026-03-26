@@ -18,6 +18,13 @@ class NotificationWebhookDelivery(Base):
         index=True,
     )
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type_snapshot: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="rss_item_new",
+        server_default="rss_item_new",
+        index=True,
+    )
     item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
     feed_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("feeds.id", ondelete="SET NULL"), nullable=True)
     delivery_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="live", server_default="live")

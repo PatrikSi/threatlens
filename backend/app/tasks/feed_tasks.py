@@ -22,6 +22,8 @@ from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.connectors.rss import RSSConnector
 from app.services.algorithm_tags import sync_item_algorithm_tags
@@ -30,7 +32,17 @@ from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
-from app.services.notification_webhooks import get_matching_notification_webhooks_for_feed, send_notification_webhook_for_item
+from app.services.notification_webhooks import (
+    FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS,
+    FEED_FAILING_NOTIFICATION_THRESHOLD,
+    FailedWebhookContext,
+    build_alert_match_context_for_item,
+    build_daily_digest_context,
+    get_matching_notification_webhooks,
+    get_matching_notification_webhooks_for_feed,
+    has_recent_notification_delivery,
+    send_notification_webhook,
+)
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
@@ -216,7 +228,12 @@ def dispatch_feed_metadata_backfill():
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_new_item_notification_webhooks")
 def dispatch_new_item_notification_webhooks(item_id: str):
     with db_session() as db:
-        item = db.scalar(select(Item).where(Item.id == uuid.UUID(item_id)))
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
         if item is None:
             return {"status": "skipped", "reason": "item_not_found", "item_id": item_id}
 
@@ -235,19 +252,27 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 skipped += 1
                 continue
 
-            result = send_notification_webhook_for_item(db, webhook=webhook, item=item, feed=feed, user=user)
+            attempt = send_notification_webhook(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="rss_item_new",
+                item=item,
+                feed=feed,
+            )
             db.commit()
-            if result.success:
+            if attempt.result.success:
                 delivered += 1
                 continue
 
             failed += 1
+            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
             logger.warning(
                 "notification_webhook_delivery_failed webhook_id=%s item_id=%s status_code=%s error=%s",
                 webhook.id,
                 item.id,
-                result.status_code,
-                result.error,
+                attempt.result.status_code,
+                attempt.result.error,
             )
 
         return {
@@ -258,6 +283,269 @@ def dispatch_new_item_notification_webhooks(item_id: str):
             "failed": failed,
             "skipped": skipped,
         }
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks")
+def dispatch_alert_match_notification_webhooks(item_id: str):
+    with db_session() as db:
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        if item is None:
+            return {"status": "skipped", "reason": "item_not_found", "item_id": item_id}
+
+        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+        if feed is None:
+            return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
+
+        webhooks = get_matching_notification_webhooks(db, event_type="alert_match", feed_id=feed.id)
+        delivered = 0
+        failed = 0
+        skipped = 0
+        cached_contexts: dict[uuid.UUID, object | None] = {}
+
+        for webhook in webhooks:
+            user = db.scalar(select(User).where(User.id == webhook.user_id))
+            if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            if webhook.user_id not in cached_contexts:
+                cached_contexts[webhook.user_id] = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
+
+            alert_context = cached_contexts[webhook.user_id]
+            if alert_context is None:
+                skipped += 1
+                continue
+
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="alert_match",
+                item_id=item.id,
+            ):
+                skipped += 1
+                continue
+
+            attempt = send_notification_webhook(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="alert_match",
+                item=item,
+                feed=feed,
+                alert_context=alert_context,
+            )
+            db.commit()
+            if attempt.result.success:
+                delivered += 1
+                continue
+
+            failed += 1
+            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+
+        return {
+            "status": "ok",
+            "item_id": item_id,
+            "matched_webhooks": len(webhooks),
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+        }
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks")
+def dispatch_feed_failing_notification_webhooks(feed_id: str):
+    with db_session() as db:
+        try:
+            parsed_feed_id = uuid.UUID(feed_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
+
+        feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
+        if feed is None:
+            return {"status": "skipped", "reason": "feed_not_found", "feed_id": feed_id}
+        if feed.error_count < FEED_FAILING_NOTIFICATION_THRESHOLD:
+            return {"status": "skipped", "reason": "below_failure_threshold", "feed_id": feed_id}
+
+        webhooks = get_matching_notification_webhooks(db, event_type="feed_failing", feed_id=feed.id)
+        delivered = 0
+        failed = 0
+        skipped = 0
+        cooldown_start = datetime.now(timezone.utc) - timedelta(hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS)
+
+        for webhook in webhooks:
+            user = db.scalar(select(User).where(User.id == webhook.user_id))
+            if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="feed_failing",
+                feed_id=feed.id,
+                since=cooldown_start,
+            ):
+                skipped += 1
+                continue
+
+            attempt = send_notification_webhook(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="feed_failing",
+                feed=feed,
+                item=None,
+                feed_name=feed.name,
+            )
+            db.commit()
+            if attempt.result.success:
+                delivered += 1
+                continue
+
+            failed += 1
+            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+
+        return {
+            "status": "ok",
+            "feed_id": feed_id,
+            "matched_webhooks": len(webhooks),
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+        }
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks")
+def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
+    with db_session() as db:
+        try:
+            parsed_delivery_id = uuid.UUID(delivery_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_delivery_id", "delivery_id": delivery_id}
+
+        failed_delivery = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == parsed_delivery_id))
+        if failed_delivery is None:
+            return {"status": "skipped", "reason": "delivery_not_found", "delivery_id": delivery_id}
+        if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
+            return {"status": "skipped", "reason": "not_eligible", "delivery_id": delivery_id}
+
+        source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id))
+        if source_webhook is None:
+            return {"status": "skipped", "reason": "source_webhook_not_found", "delivery_id": delivery_id}
+
+        user = db.scalar(select(User).where(User.id == failed_delivery.user_id))
+        if user is None or not user.is_active or not user.is_approved:
+            return {"status": "skipped", "reason": "user_not_active", "delivery_id": delivery_id}
+
+        feed = None
+        if failed_delivery.feed_id is not None:
+            feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id))
+
+        failed_context = FailedWebhookContext(
+            id=source_webhook.id,
+            name=source_webhook.name,
+            event_type=failed_delivery.event_type_snapshot,
+            status_code=failed_delivery.status_code,
+            error=failed_delivery.error,
+            attempted_at=failed_delivery.attempted_at,
+        )
+
+        webhooks = get_matching_notification_webhooks(
+            db,
+            event_type="webhook_failed",
+            feed_id=failed_delivery.feed_id,
+            user_id=failed_delivery.user_id,
+        )
+        delivered = 0
+        failed = 0
+        skipped = 0
+        for webhook in webhooks:
+            if webhook.id == failed_delivery.webhook_id:
+                skipped += 1
+                continue
+
+            attempt = send_notification_webhook(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="webhook_failed",
+                feed=feed,
+                item=None,
+                failed_webhook_context=failed_context,
+                feed_name=getattr(feed, "name", None),
+            )
+            db.commit()
+            if attempt.result.success:
+                delivered += 1
+            else:
+                failed += 1
+
+        return {
+            "status": "ok",
+            "delivery_id": delivery_id,
+            "matched_webhooks": len(webhooks),
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+        }
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks")
+def dispatch_daily_digest_notification_webhooks():
+    with db_session() as db:
+        webhooks = get_matching_notification_webhooks(db, event_type="daily_digest")
+        delivered = 0
+        failed = 0
+        skipped = 0
+        digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+
+        for webhook in webhooks:
+            user = db.scalar(select(User).where(User.id == webhook.user_id))
+            if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="daily_digest",
+                since=digest_day_start,
+                success_only=True,
+            ):
+                skipped += 1
+                continue
+
+            feed_ids = [uuid.UUID(value) for value in (webhook.feed_ids_json or [])] if webhook.feed_scope == "selected" else None
+            digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=feed_ids)
+            if digest_context is None or digest_context.total_items <= 0:
+                skipped += 1
+                continue
+
+            attempt = send_notification_webhook(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="daily_digest",
+                feed=None,
+                item=None,
+                digest_context=digest_context,
+                item_title=f"{digest_context.total_items} items in last 24h",
+                feed_name=", ".join(digest_context.feed_names[:3]) or None,
+            )
+            db.commit()
+            if attempt.result.success:
+                delivered += 1
+                continue
+
+            failed += 1
+            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+
+        return {"status": "ok", "matched_webhooks": len(webhooks), "delivered": delivered, "failed": failed, "skipped": skipped}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -420,7 +708,8 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 headers["If-Modified-Since"] = feed.last_modified
 
             if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
-                _mark_feed_failure(db, feed, "unsafe_feed_url")
+                if _mark_feed_failure(db, feed, "unsafe_feed_url") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
                 return {"status": "error", "feed_id": feed_id}
 
             try:
@@ -454,7 +743,8 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                             return {"status": "not_modified", "feed_id": feed_id}
 
                         if status_code != 200:
-                            _mark_feed_failure(db, feed, f"http_status:{status_code}")
+                            if _mark_feed_failure(db, feed, f"http_status:{status_code}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                                dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
                             return {"status": "error", "feed_id": feed_id}
 
                         body_chunks: list[bytes] = []
@@ -473,11 +763,13 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
                 except MaxRetriesExceededError:
                     logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
-                    _mark_feed_failure(db, feed, f"network_error:{exc}")
+                    if _mark_feed_failure(db, feed, f"network_error:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                        dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
                     return {"status": "error", "feed_id": feed_id}
             except FeedResponseTooLargeError as exc:
                 logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
-                _mark_feed_failure(db, feed, str(exc))
+                if _mark_feed_failure(db, feed, str(exc)) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
                 return {"status": "error", "feed_id": feed_id}
 
             connector = RSSConnector()
@@ -729,6 +1021,7 @@ def classify_item(item_id: str):
                 feedback_adjustments=feedback_adjustments,
             )
             db.commit()
+            dispatch_alert_match_notification_webhooks.delay(item_id)
             extract_item_iocs.delay(item_id)
             return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
 
@@ -765,6 +1058,7 @@ def classify_item(item_id: str):
         )
         db.commit()
 
+    dispatch_alert_match_notification_webhooks.delay(item_id)
     extract_item_iocs.delay(item_id)
     return {"status": "ok", "item_id": item_id, "category": result.primary_category}
 
@@ -1071,3 +1365,4 @@ def _mark_feed_failure(db: Session, feed: Feed, error: str):
     feed.last_error = error
     db.add(feed)
     db.commit()
+    return feed.error_count

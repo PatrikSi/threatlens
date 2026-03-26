@@ -6,6 +6,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
@@ -16,12 +17,18 @@ from app.services.notification_webhooks import (
     _read_response_preview,
     _send_request_with_redirects,
     RedirectError,
+    build_alert_match_context_for_item,
+    get_notification_analytics,
     render_notification_request,
     retry_notification_webhook_delivery,
     send_notification_webhook_for_item,
     validate_notification_webhook_payload,
 )
-from app.tasks.feed_tasks import dispatch_new_item_notification_webhooks
+from app.tasks.feed_tasks import (
+    dispatch_alert_match_notification_webhooks,
+    dispatch_feed_failing_notification_webhooks,
+    dispatch_new_item_notification_webhooks,
+)
 
 
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
@@ -313,6 +320,7 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert result.success is True
     delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
     assert delivery is not None
+    assert delivery.event_type_snapshot == "rss_item_new"
     assert delivery.delivery_kind == "live"
     assert delivery.item_id == item.id
     assert delivery.feed_id == feed.id
@@ -341,6 +349,7 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
         id=uuid.uuid4(),
         webhook_id=webhook.id,
         user_id=webhook.user_id,
+        event_type_snapshot="rss_item_new",
         item_id=uuid.uuid4(),
         feed_id=uuid.uuid4(),
         delivery_kind="live",
@@ -501,21 +510,29 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
 
     delivered_ids: list[uuid.UUID] = []
 
-    def _send(_db, *, webhook, item, feed, user):
+    def _send(_db, *, webhook, user, event_type, item, feed, **_kwargs):
         delivered_ids.append(webhook.id)
+        assert event_type == "rss_item_new"
 
         class _Result:
             success = True
             status_code = 204
             error = None
 
-        return _Result()
+        class _Delivery:
+            id = uuid.uuid4()
+
+        class _Attempt:
+            result = _Result()
+            delivery = _Delivery()
+
+        return _Attempt()
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook_for_item", _send)
+    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -524,3 +541,340 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     assert result["matched_webhooks"] == 3
     assert result["delivered"] == 2
     assert result["skipped"] == 1
+
+
+def test_build_alert_match_context_for_item_collects_matching_alerts(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=uuid.uuid4(),
+        url="https://example.com/items/1",
+        title="LockBit phishing wave hits finance sector",
+        summary="Credential theft activity observed against finance teams.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:alert-context",
+        content_hash="c" * 64,
+        status="new",
+    )
+    db_session.add_all(
+        [
+            user,
+            item,
+            AlertInterest(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                name="Ransomware Watch",
+                category="malware",
+                keywords=["lockbit", "ransomware"],
+                enabled=True,
+            ),
+            AlertInterest(
+                id=uuid.uuid4(),
+                user_id=user.id,
+                name="Credential Theft",
+                category="identity",
+                keywords=["credential theft", "mfa fatigue"],
+                enabled=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    context = build_alert_match_context_for_item(db_session, user_id=user.id, item=item)
+
+    assert context is not None
+    assert context.count == 2
+    assert context.primary_name == "Ransomware Watch"
+    assert context.names == ["Ransomware Watch", "Credential Theft"]
+    assert context.categories == ["malware", "identity"]
+    assert context.matched_keywords == ["lockbit", "credential theft"]
+
+
+def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_users(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    matching_user = User(
+        id=uuid.uuid4(),
+        email="matching@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    non_matching_user = User(
+        id=uuid.uuid4(),
+        email="other@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/alert-match",
+        title="LockBit operators expand phishing campaign",
+        summary="Credential theft and LockBit activity observed.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:alert-match-dispatch",
+        content_hash="d" * 64,
+        status="content_fetched",
+    )
+    matching_webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=matching_user.id,
+        name="Alert webhook",
+        event_type="alert_match",
+        url_template="https://example.com/match",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    ignored_webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=non_matching_user.id,
+        name="Other alert webhook",
+        event_type="alert_match",
+        url_template="https://example.com/other",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all(
+        [
+            feed,
+            matching_user,
+            non_matching_user,
+            item,
+            matching_webhook,
+            ignored_webhook,
+            AlertInterest(
+                id=uuid.uuid4(),
+                user_id=matching_user.id,
+                name="Ransomware Watch",
+                category="malware",
+                keywords=["lockbit"],
+                enabled=True,
+            ),
+            AlertInterest(
+                id=uuid.uuid4(),
+                user_id=non_matching_user.id,
+                name="Cloud Watch",
+                category="cloud",
+                keywords=["aws"],
+                enabled=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    delivered_ids: list[uuid.UUID] = []
+
+    def _send(_db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs):
+        delivered_ids.append(webhook.id)
+        assert event_type == "alert_match"
+        assert alert_context is not None
+
+        class _Result:
+            success = True
+            status_code = 204
+            error = None
+
+        class _Delivery:
+            id = uuid.uuid4()
+
+        class _Attempt:
+            result = _Result()
+            delivery = _Delivery()
+
+        return _Attempt()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    result = dispatch_alert_match_notification_webhooks(str(item.id))
+
+    assert delivered_ids == [matching_webhook.id]
+    assert result["matched_webhooks"] == 2
+    assert result["delivered"] == 1
+    assert result["skipped"] == 1
+
+
+def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Failing feed",
+        url="https://example.com/failing.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        error_count=3,
+        last_error="http_status:500",
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Feed failure webhook",
+        event_type="feed_failing",
+        url_template="https://example.com/failing-hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    recent_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="feed_failing",
+        feed_id=feed.id,
+        delivery_kind="live",
+        success=True,
+        status_code=204,
+        duration_ms=12,
+        timeout_seconds=10,
+        rendered_url="https://example.com/failing-hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview="ok",
+        error=None,
+        feed_name_snapshot=feed.name,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([feed, user, webhook, recent_delivery])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    result = dispatch_feed_failing_notification_webhooks(str(feed.id))
+
+    assert result["matched_webhooks"] == 1
+    assert result["delivered"] == 0
+    assert result["skipped"] == 1
+
+
+def test_get_notification_analytics_summarizes_delivery_history(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Analytics webhook",
+        url_template="https://example.com/analytics",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all(
+        [
+            user,
+            webhook,
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=user.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                success=True,
+                status_code=204,
+                duration_ms=10,
+                timeout_seconds=10,
+                rendered_url="https://example.com/analytics",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview="ok",
+                error=None,
+                attempted_at=datetime.now(timezone.utc),
+            ),
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=user.id,
+                event_type_snapshot="alert_match",
+                delivery_kind="live",
+                success=False,
+                status_code=500,
+                duration_ms=18,
+                timeout_seconds=10,
+                rendered_url="https://example.com/analytics",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview="HTTP 500",
+                error="HTTP 500",
+                attempted_at=datetime.now(timezone.utc),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    analytics = get_notification_analytics(db_session, user_id=user.id)
+
+    assert analytics.total_deliveries == 2
+    assert analytics.successful_deliveries == 1
+    assert analytics.failed_deliveries == 1
+    assert analytics.failures_last_24h == 1
+    assert analytics.success_rate_pct == 50.0
+    assert analytics.most_failing_webhook is not None
+    assert analytics.most_failing_webhook.webhook_id == webhook.id
+    assert [(entry.event_type, entry.total_deliveries, entry.failed_deliveries) for entry in analytics.events] == [
+        ("alert_match", 1, 1),
+        ("rss_item_new", 1, 0),
+    ]

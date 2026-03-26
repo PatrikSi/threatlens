@@ -34,6 +34,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_feed_metadata_backfill",
             "schedule": 600.0,
         },
+        "dispatch-daily-digest-notifications": {
+            "task": "app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks",
+            "schedule": 3600.0,
+        },
         "record-beat-heartbeat": {
             "task": "app.tasks.feed_tasks.record_beat_heartbeat",
             "schedule": float(settings.beat_heartbeat_interval_seconds),
