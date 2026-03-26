@@ -438,18 +438,6 @@ export function AiSettingsPage() {
               </div>
             </section>
 
-            {settingsQuery.data?.prompt_previews && (
-              <section className="rounded-xl border border-slate/20 bg-slate/5 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-                <h3 className="font-display text-lg">Effective System Prompts</h3>
-                <p className="mt-1 text-sm text-slate dark:text-white/70">
-                  These are the saved system prompts ThreatLens is currently sending. They update after you save changes above. Company context and item data are sent separately as structured JSON.
-                </p>
-                <div className="mt-3 grid gap-3">
-                  <PromptPreviewCard preview={settingsQuery.data.prompt_previews.item_enrichment} />
-                  <PromptPreviewCard preview={settingsQuery.data.prompt_previews.daily_brief} />
-                </div>
-              </section>
-            )}
           </div>
 
           <aside className="space-y-4">
@@ -682,20 +670,6 @@ function PromptArea({
         placeholder={placeholder}
       />
     </label>
-  )
-}
-
-function PromptPreviewCard({ preview }: { preview: AISettings['prompt_previews']['item_enrichment'] }) {
-  return (
-    <div className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-      <p className="text-sm font-semibold">{preview.label}</p>
-      {preview.notes.length > 0 && (
-        <p className="mt-1 text-xs text-slate dark:text-white/60">{preview.notes.join(' ')}</p>
-      )}
-      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap rounded border border-slate/20 bg-[#f8fafb] p-3 text-xs leading-5 text-slate-800 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/80">
-        {preview.system_prompt}
-      </pre>
-    </div>
   )
 }
 
