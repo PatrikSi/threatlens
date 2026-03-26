@@ -31,13 +31,20 @@ Configured category values:
 
 ## UI Elements
 
-- Create form:
+- Create/edit form:
   - Interest name
   - Category select
   - Keywords (comma-separated)
+- Cancel edit / reset when editing an existing alert
+- Current match preview:
+  - live preview while typing
+  - total current matches
+  - up to 5 recent matching items
+  - matched keyword chips
 - `Include disabled` toggle for listing
 - Grouped alert cards by category
 - Per-alert actions:
+  - Edit
   - Enable/Disable
   - Delete
 
@@ -54,8 +61,11 @@ Backend normalizes:
 - `POST /alerts`
 - `PATCH /alerts/{id}`
 - `DELETE /alerts/{id}`
+- `POST /alerts/preview`
 
 ## How Alerts Drive Matching
+
+The edit form preview calls `POST /alerts/preview`.
 
 Dashboard alert windows call `GET /alerts/matches`.
 

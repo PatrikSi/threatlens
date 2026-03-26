@@ -51,8 +51,11 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Collapse/expand controls panel
 - Remove window
 - Z-order bring-to-front on click
-- `Mark Seen` control for RSS/Alerts windows
-- `What changed` badges (`+N new`) based on per-window seen timestamp state
+- `Mark Seen` control for alert windows
+- `What changed` badges (`+N new`)
+  - RSS windows use the current user's last-open timestamp in that browser
+  - alert windows use per-window seen timestamps
+- RSS and alert filters operate independently per window
 
 ## RSS Window
 
@@ -77,10 +80,6 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Star/unstar
 - Edit note
 - Rendered summary/article with sanitized rich text
-
-### Density indicator
-
-- Badge displays computed content-density class and score.
 
 ## Alerts Window
 
@@ -111,9 +110,10 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 
 - Local storage key: `threatlens.dashboard.windows.v2`
 - Local storage key: `threatlens.dashboard.window-seen.v1`
+- Local storage key: `threatlens.user-last-open.v1`
 - Saved view payload includes:
-  - RSS filter state
-  - Alerts filter state
+  - per-window RSS filter state
+  - per-window alerts filter state
   - Window list (type, title, rect, snap, collapse, scratch note)
   - UI state (`show_advanced_filters`)
 
