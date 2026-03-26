@@ -35,6 +35,8 @@ type AISettingsDraft = {
   company_keywords: string
   company_exclusions: string
   company_profile_text: string
+  item_enrichment_system_prompt: string
+  daily_brief_system_prompt: string
   global_instructions: string
   item_summary_instructions: string
   relevance_instructions: string
@@ -64,6 +66,8 @@ const DEFAULT_DRAFT: AISettingsDraft = {
   company_keywords: '',
   company_exclusions: '',
   company_profile_text: '',
+  item_enrichment_system_prompt: '',
+  daily_brief_system_prompt: '',
   global_instructions: '',
   item_summary_instructions: '',
   relevance_instructions: '',
@@ -391,7 +395,22 @@ export function AiSettingsPage() {
 
             <section className="rounded-xl border border-slate/20 bg-slate/5 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
               <h3 className="font-display text-lg">Prompt Tuning</h3>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                The base system prompts below start with the built-in ThreatLens defaults and can be edited directly. Additional helper instructions are appended after them.
+              </p>
               <div className="mt-3 grid gap-3">
+                <PromptArea
+                  label="Item Enrichment System Prompt"
+                  value={draft.item_enrichment_system_prompt}
+                  onChange={(value) => updateDraft(setDraft, 'item_enrichment_system_prompt', value)}
+                  placeholder="Base system prompt for article summaries and relevance scoring."
+                />
+                <PromptArea
+                  label="Daily Brief System Prompt"
+                  value={draft.daily_brief_system_prompt}
+                  onChange={(value) => updateDraft(setDraft, 'daily_brief_system_prompt', value)}
+                  placeholder="Base system prompt for daily brief generation."
+                />
                 <PromptArea
                   label="Global Instructions"
                   value={draft.global_instructions}
@@ -704,6 +723,8 @@ function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     company_keywords: settings.company_keywords.join('\n'),
     company_exclusions: settings.company_exclusions.join('\n'),
     company_profile_text: settings.company_profile_text ?? '',
+    item_enrichment_system_prompt: settings.item_enrichment_system_prompt ?? '',
+    daily_brief_system_prompt: settings.daily_brief_system_prompt ?? '',
     global_instructions: settings.global_instructions ?? '',
     item_summary_instructions: settings.item_summary_instructions ?? '',
     relevance_instructions: settings.relevance_instructions ?? '',
@@ -736,6 +757,8 @@ function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest
     company_keywords: parseListText(draft.company_keywords),
     company_exclusions: parseListText(draft.company_exclusions),
     company_profile_text: normalizeOptionalText(draft.company_profile_text),
+    item_enrichment_system_prompt: normalizeOptionalText(draft.item_enrichment_system_prompt),
+    daily_brief_system_prompt: normalizeOptionalText(draft.daily_brief_system_prompt),
     global_instructions: normalizeOptionalText(draft.global_instructions),
     item_summary_instructions: normalizeOptionalText(draft.item_summary_instructions),
     relevance_instructions: normalizeOptionalText(draft.relevance_instructions),
