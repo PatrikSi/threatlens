@@ -1,8 +1,7 @@
-import { ChangeEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChangeEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
-import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import {
@@ -46,6 +45,31 @@ interface DashboardWindow {
   controls_collapsed: boolean
   scratch_note: string
   time_override: WindowTimeFilter | null
+  rss_filters: DashboardRssWindowFilters | null
+  alert_filters: DashboardAlertWindowFilters | null
+}
+
+interface DashboardRssWindowFilters {
+  selected_feed_ids: string[]
+  selected_tags: string[]
+  q: string
+  read_status: ReadStatusFilter
+  star_status: StarStatusFilter
+  view_mode: DashboardViewMode
+  page: number
+  page_size: number
+  sort: TimeSort
+  show_advanced_filters: boolean
+}
+
+interface DashboardAlertWindowFilters {
+  selected_alert_ids: string[]
+  selected_categories: string[]
+  q: string
+  view_mode: AlertViewMode
+  page: number
+  page_size: number
+  sort: TimeSort
 }
 
 interface DashboardSavedViewQuery {
@@ -104,7 +128,7 @@ interface SavedViewPreview {
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
-const DASHBOARD_VIEW_VERSION = 3
+const DASHBOARD_VIEW_VERSION = 4
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
@@ -128,28 +152,128 @@ const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> 
   { value: 'bottom_right', label: 'Bottom Right' },
 ]
 
+function createDefaultRssWindowFilters(showAdvancedFilters = false): DashboardRssWindowFilters {
+  return {
+    selected_feed_ids: [],
+    selected_tags: [],
+    q: '',
+    read_status: 'all',
+    star_status: 'all',
+    view_mode: 'compact',
+    page: 1,
+    page_size: 25,
+    sort: 'published_at_desc',
+    show_advanced_filters: showAdvancedFilters,
+  }
+}
+
+function createDefaultAlertWindowFilters(): DashboardAlertWindowFilters {
+  return {
+    selected_alert_ids: [],
+    selected_categories: [],
+    q: '',
+    view_mode: 'expanded',
+    page: 1,
+    page_size: 25,
+    sort: 'published_at_desc',
+  }
+}
+
+function parseRssWindowFiltersCandidate(
+  raw: unknown,
+  fallback?: Partial<DashboardRssWindowFilters>,
+  showAdvancedFallback = false,
+): DashboardRssWindowFilters {
+  const source = isRecord(raw) ? raw : {}
+  const base = {
+    ...createDefaultRssWindowFilters(showAdvancedFallback),
+    ...fallback,
+  }
+
+  const selectedFeedIds = Array.isArray(source.selected_feed_ids)
+    ? source.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
+    : (base.selected_feed_ids ?? [])
+  const selectedTags = Array.isArray(source.selected_tags)
+    ? source.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
+    : (base.selected_tags ?? [])
+
+  return {
+    selected_feed_ids: [...selectedFeedIds],
+    selected_tags: [...selectedTags],
+    q: typeof source.q === 'string' ? source.q : (base.q ?? ''),
+    read_status:
+      source.read_status === 'read' || source.read_status === 'unread'
+        ? source.read_status
+        : (base.read_status ?? 'all'),
+    star_status:
+      source.star_status === 'starred' || source.star_status === 'unstarred'
+        ? source.star_status
+        : (base.star_status ?? 'all'),
+    view_mode:
+      source.view_mode === 'expanded' || source.view_mode === 'compact'
+        ? source.view_mode
+        : (base.view_mode ?? 'compact'),
+    page: typeof source.page === 'number' && source.page >= 1 ? Math.floor(source.page) : (base.page ?? 1),
+    page_size:
+      typeof source.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(source.page_size)
+        ? source.page_size
+        : (base.page_size ?? 25),
+    sort:
+      typeof source.sort === 'string' && isTimeSort(source.sort)
+        ? source.sort
+        : (base.sort ?? 'published_at_desc'),
+    show_advanced_filters:
+      typeof source.show_advanced_filters === 'boolean'
+        ? source.show_advanced_filters
+        : (base.show_advanced_filters ?? showAdvancedFallback),
+  }
+}
+
+function parseAlertWindowFiltersCandidate(
+  raw: unknown,
+  fallback?: Partial<DashboardAlertWindowFilters>,
+): DashboardAlertWindowFilters {
+  const source = isRecord(raw) ? raw : {}
+  const base = {
+    ...createDefaultAlertWindowFilters(),
+    ...fallback,
+  }
+
+  const selectedAlertIds = Array.isArray(source.selected_alert_ids)
+    ? source.selected_alert_ids.filter((entry): entry is string => typeof entry === 'string')
+    : (base.selected_alert_ids ?? [])
+  const selectedCategories = Array.isArray(source.selected_categories)
+    ? source.selected_categories.filter((entry): entry is string => typeof entry === 'string')
+    : (base.selected_categories ?? [])
+
+  return {
+    selected_alert_ids: [...selectedAlertIds],
+    selected_categories: [...selectedCategories],
+    q: typeof source.q === 'string' ? source.q : (base.q ?? ''),
+    view_mode:
+      source.view_mode === 'compact' || source.view_mode === 'expanded'
+        ? source.view_mode
+        : (base.view_mode ?? 'expanded'),
+    page: typeof source.page === 'number' && source.page >= 1 ? Math.floor(source.page) : (base.page ?? 1),
+    page_size:
+      typeof source.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(source.page_size)
+        ? source.page_size
+        : (base.page_size ?? 25),
+    sort:
+      typeof source.sort === 'string' && isTimeSort(source.sort)
+        ? source.sort
+        : (base.sort ?? 'published_at_desc'),
+  }
+}
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const rootRef = useRef<HTMLDivElement | null>(null)
 
-  const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
-  const [selectedTags, setSelectedTags] = useState<string[]>([])
-  const [q, setQ] = useState('')
-  const [readStatus, setReadStatus] = useState<ReadStatusFilter>('all')
-  const [starStatus, setStarStatus] = useState<StarStatusFilter>('all')
-  const [viewMode, setViewMode] = useState<DashboardViewMode>('compact')
   const [dashboardTimeRange, setDashboardTimeRange] = useState<TimeRangeFilter>('all')
   const [dashboardCustomSinceDate, setDashboardCustomSinceDate] = useState('')
   const [dashboardCustomUntilDate, setDashboardCustomUntilDate] = useState('')
-  const [sort, setSort] = useState<TimeSort>('published_at_desc')
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false)
-
-  const [alertSelectedIds, setAlertSelectedIds] = useState<string[]>([])
-  const [alertSelectedCategories, setAlertSelectedCategories] = useState<string[]>([])
-  const [alertQ, setAlertQ] = useState('')
-  const [alertViewMode, setAlertViewMode] = useState<AlertViewMode>('expanded')
-  const [alertSort, setAlertSort] = useState<TimeSort>('published_at_desc')
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
@@ -161,13 +285,8 @@ export function DashboardPage() {
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
 
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState<number>(25)
   const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
-
-  const [alertPage, setAlertPage] = useState(1)
-  const [alertPageSize, setAlertPageSize] = useState<number>(25)
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => loadDashboardWindows())
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>(() => loadWindowSeenState())
@@ -199,7 +318,7 @@ export function DashboardPage() {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.setItem(WINDOW_STORAGE_KEY, JSON.stringify(windows))
+    window.localStorage.setItem(WINDOW_STORAGE_KEY, JSON.stringify(serializeDashboardWindowLayouts(windows)))
   }, [windows])
 
   useEffect(() => {
@@ -254,22 +373,7 @@ export function DashboardPage() {
     })
   }, [windows])
 
-  const debouncedQ = useDebouncedValue(q)
-  const debouncedAlertQ = useDebouncedValue(alertQ)
-
-  const feedIdsParam = useMemo(() => selectedFeedIds.slice().sort().join(','), [selectedFeedIds])
-  const selectedTagsParam = useMemo(
-    () =>
-      selectedTags
-        .filter((tagName) => !HIDDEN_TAGS.has(tagName))
-        .slice()
-        .sort()
-        .join(','),
-    [selectedTags],
-  )
-
-  const alertIdsParam = useMemo(() => alertSelectedIds.slice().sort().join(','), [alertSelectedIds])
-  const alertCategoriesParam = useMemo(() => alertSelectedCategories.slice().sort().join(','), [alertSelectedCategories])
+  const deferredWindows = useDeferredValue(windows)
 
   const dashboardTimeFilter = useMemo<WindowTimeFilter>(
     () => ({
@@ -280,19 +384,14 @@ export function DashboardPage() {
     [dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate],
   )
 
-  const rssQueryTimeWindow = useMemo(() => {
-    const filters = windows
-      .filter((window) => window.type === 'rss')
-      .map((window) => resolveWindowTimeFilter(window, dashboardTimeFilter))
-    return combineTimeWindows(filters)
-  }, [dashboardTimeFilter, windows])
-
-  const alertQueryTimeWindow = useMemo(() => {
-    const filters = windows
-      .filter((window) => window.type === 'alerts')
-      .map((window) => resolveWindowTimeFilter(window, dashboardTimeFilter))
-    return combineTimeWindows(filters)
-  }, [dashboardTimeFilter, windows])
+  const rssWindows = useMemo(
+    () => deferredWindows.filter((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss'),
+    [deferredWindows],
+  )
+  const alertWindows = useMemo(
+    () => deferredWindows.filter((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts'),
+    [deferredWindows],
+  )
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -364,90 +463,134 @@ export function DashboardPage() {
       apiFetch(`/items/${payload.itemId}/note`, {
         method: 'POST',
         body: JSON.stringify({ note: payload.note }),
-      }),
+    }),
     onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
   })
 
-  const itemsQuery = useQuery({
-    queryKey: [
-      'items',
-      feedIdsParam,
-      selectedTagsParam,
-      debouncedQ,
-      readStatus,
-      starStatus,
-      rssQueryTimeWindow.sinceIso,
-      rssQueryTimeWindow.untilIso,
-      sort,
-      page,
-      pageSize,
-    ],
-    retry: 1,
-    queryFn: () => {
-      const params = new URLSearchParams()
-      params.set('page', String(page))
-      params.set('page_size', String(pageSize))
-      params.set('sort', sort)
+  const rssWindowQueries = useQueries({
+    queries: rssWindows.map((windowLayout) => {
+      const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
+      const selectedFeedIdsParam = rssFilters.selected_feed_ids.slice().sort().join(',')
+      const selectedTagsParam = rssFilters.selected_tags
+        .filter((tagName) => !HIDDEN_TAGS.has(tagName))
+        .slice()
+        .sort()
+        .join(',')
+      const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
+      const timeWindow = deriveTimeWindow(
+        effectiveWindowTimeFilter.time_range,
+        effectiveWindowTimeFilter.custom_since_date,
+        effectiveWindowTimeFilter.custom_until_date,
+      )
 
-      if (feedIdsParam) params.set('feed_ids', feedIdsParam)
-      if (selectedTagsParam) params.set('tags', selectedTagsParam)
-      if (debouncedQ) params.set('q', debouncedQ)
-      if (rssQueryTimeWindow.sinceIso) params.set('since', rssQueryTimeWindow.sinceIso)
-      if (rssQueryTimeWindow.untilIso) params.set('until', rssQueryTimeWindow.untilIso)
+      return {
+        queryKey: [
+          'items',
+          selectedFeedIdsParam,
+          selectedTagsParam,
+          rssFilters.q,
+          rssFilters.read_status,
+          rssFilters.star_status,
+          timeWindow.sinceIso,
+          timeWindow.untilIso,
+          rssFilters.sort,
+          rssFilters.page,
+          rssFilters.page_size,
+        ],
+        retry: 1,
+        queryFn: () => {
+          const params = new URLSearchParams()
+          params.set('page', String(rssFilters.page))
+          params.set('page_size', String(rssFilters.page_size))
+          params.set('sort', rssFilters.sort)
 
-      if (readStatus === 'read') params.set('is_read', 'true')
-      if (readStatus === 'unread') params.set('is_read', 'false')
-      if (starStatus === 'starred') params.set('is_starred', 'true')
-      if (starStatus === 'unstarred') params.set('is_starred', 'false')
+          if (selectedFeedIdsParam) params.set('feed_ids', selectedFeedIdsParam)
+          if (selectedTagsParam) params.set('tags', selectedTagsParam)
+          if (rssFilters.q) params.set('q', rssFilters.q)
+          if (timeWindow.sinceIso) params.set('since', timeWindow.sinceIso)
+          if (timeWindow.untilIso) params.set('until', timeWindow.untilIso)
 
-      return apiFetch<ItemListResponse>(`/items?${params.toString()}`)
-    },
+          if (rssFilters.read_status === 'read') params.set('is_read', 'true')
+          if (rssFilters.read_status === 'unread') params.set('is_read', 'false')
+          if (rssFilters.star_status === 'starred') params.set('is_starred', 'true')
+          if (rssFilters.star_status === 'unstarred') params.set('is_starred', 'false')
+
+          return apiFetch<ItemListResponse>(`/items?${params.toString()}`)
+        },
+      }
+    }),
   })
 
-  const alertMatchesQuery = useQuery({
-    queryKey: [
-      'alert-matches',
-      alertIdsParam,
-      alertCategoriesParam,
-      debouncedAlertQ,
-      alertQueryTimeWindow.sinceIso,
-      alertQueryTimeWindow.untilIso,
-      alertSort,
-      alertPage,
-      alertPageSize,
-    ],
-    queryFn: () => {
-      const params = new URLSearchParams()
-      params.set('page', String(alertPage))
-      params.set('page_size', String(alertPageSize))
-      params.set('sort', alertSort)
+  const alertWindowQueries = useQueries({
+    queries: alertWindows.map((windowLayout) => {
+      const alertFilters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
+      const selectedAlertIdsParam = alertFilters.selected_alert_ids.slice().sort().join(',')
+      const selectedAlertCategoriesParam = alertFilters.selected_categories.slice().sort().join(',')
+      const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
+      const timeWindow = deriveTimeWindow(
+        effectiveWindowTimeFilter.time_range,
+        effectiveWindowTimeFilter.custom_since_date,
+        effectiveWindowTimeFilter.custom_until_date,
+      )
 
-      if (alertIdsParam) params.set('alert_ids', alertIdsParam)
-      if (alertCategoriesParam) params.set('categories', alertCategoriesParam)
-      if (debouncedAlertQ) params.set('q', debouncedAlertQ)
-      if (alertQueryTimeWindow.sinceIso) params.set('since', alertQueryTimeWindow.sinceIso)
-      if (alertQueryTimeWindow.untilIso) params.set('until', alertQueryTimeWindow.untilIso)
+      return {
+        queryKey: [
+          'alert-matches',
+          selectedAlertIdsParam,
+          selectedAlertCategoriesParam,
+          alertFilters.q,
+          timeWindow.sinceIso,
+          timeWindow.untilIso,
+          alertFilters.sort,
+          alertFilters.page,
+          alertFilters.page_size,
+        ],
+        queryFn: () => {
+          const params = new URLSearchParams()
+          params.set('page', String(alertFilters.page))
+          params.set('page_size', String(alertFilters.page_size))
+          params.set('sort', alertFilters.sort)
 
-      return apiFetch<AlertMatchListResponse>(`/alerts/matches?${params.toString()}`)
-    },
+          if (selectedAlertIdsParam) params.set('alert_ids', selectedAlertIdsParam)
+          if (selectedAlertCategoriesParam) params.set('categories', selectedAlertCategoriesParam)
+          if (alertFilters.q) params.set('q', alertFilters.q)
+          if (timeWindow.sinceIso) params.set('since', timeWindow.sinceIso)
+          if (timeWindow.untilIso) params.set('until', timeWindow.untilIso)
+
+          return apiFetch<AlertMatchListResponse>(`/alerts/matches?${params.toString()}`)
+        },
+      }
+    }),
   })
+
+  const rssQueriesByWindowId = useMemo(
+    () =>
+      Object.fromEntries(rssWindows.map((windowLayout, index) => [windowLayout.id, rssWindowQueries[index] ?? null])) as Record<
+        string,
+        (typeof rssWindowQueries)[number] | null
+      >,
+    [rssWindowQueries, rssWindows],
+  )
+
+  const alertQueriesByWindowId = useMemo(
+    () =>
+      Object.fromEntries(alertWindows.map((windowLayout, index) => [windowLayout.id, alertWindowQueries[index] ?? null])) as Record<
+        string,
+        (typeof alertWindowQueries)[number] | null
+      >,
+    [alertWindowQueries, alertWindows],
+  )
 
   useEffect(() => {
-    const items = itemsQuery.data?.items ?? []
-    if (!items.length) {
-      setExpandedItemId('')
-      return
-    }
-
     if (!expandedItemId) {
       return
     }
 
-    const selectedExists = items.some((item) => item.id === expandedItemId)
+    const selectedExists = rssWindowQueries.some((query) => (query.data?.items ?? []).some((item) => item.id === expandedItemId))
     if (!selectedExists) {
       setExpandedItemId('')
     }
-  }, [itemsQuery.data?.items, expandedItemId])
+  }, [expandedItemId, rssWindowQueries])
 
   const detailQuery = useQuery({
     queryKey: ['item', expandedItemId],
@@ -458,16 +601,6 @@ export function DashboardPage() {
   useEffect(() => {
     setNoteDraft(detailQuery.data?.state.note ?? '')
   }, [detailQuery.data?.state.note])
-
-  const totalPages = useMemo(() => {
-    const total = itemsQuery.data?.total ?? 0
-    return Math.max(1, Math.ceil(total / pageSize))
-  }, [itemsQuery.data?.total, pageSize])
-
-  const alertTotalPages = useMemo(() => {
-    const total = alertMatchesQuery.data?.total ?? 0
-    return Math.max(1, Math.ceil(total / alertPageSize))
-  }, [alertMatchesQuery.data?.total, alertPageSize])
 
   const availableAlertCategories = useMemo(() => {
     const categories = new Set<string>()
@@ -699,51 +832,17 @@ export function DashboardPage() {
 
     saveView.mutate({
       name,
-      query: buildDashboardSavedViewState(
-        {
-          selected_feed_ids: selectedFeedIds,
-          selected_tags: selectedTags,
-          q,
-          read_status: readStatus,
-          star_status: starStatus,
-          view_mode: viewMode,
-          page_size: pageSize,
-          time_range: dashboardTimeRange,
-          custom_since_date: dashboardCustomSinceDate,
-          custom_until_date: dashboardCustomUntilDate,
-          sort,
-        },
-        {
-          selected_alert_ids: alertSelectedIds,
-          selected_categories: alertSelectedCategories,
-          q: alertQ,
-          view_mode: alertViewMode,
-          page_size: alertPageSize,
-          time_range: dashboardTimeRange,
-          custom_since_date: dashboardCustomSinceDate,
-          custom_until_date: dashboardCustomUntilDate,
-          sort: alertSort,
-        },
-        windows,
-        showAdvancedFilters,
-      ),
+      query: buildDashboardSavedViewState(windows, {
+        time_range: dashboardTimeRange,
+        custom_since_date: dashboardCustomSinceDate,
+        custom_until_date: dashboardCustomUntilDate,
+      }),
     })
   }
 
   const applySavedView = (view: SavedView) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
-
-    setPage(1)
-    setAlertPage(1)
-
-    setSelectedFeedIds(parsed.rss_filters.selected_feed_ids)
-    setSelectedTags(parsed.rss_filters.selected_tags)
-    setQ(parsed.rss_filters.q)
-    setReadStatus(parsed.rss_filters.read_status)
-    setStarStatus(parsed.rss_filters.star_status)
-    setViewMode(parsed.rss_filters.view_mode)
-    setPageSize(parsed.rss_filters.page_size)
     const nextDashboardTimeRange =
       parsed.rss_filters.time_range !== 'all' || parsed.rss_filters.custom_since_date || parsed.rss_filters.custom_until_date
         ? parsed.rss_filters.time_range
@@ -756,16 +855,6 @@ export function DashboardPage() {
     setDashboardTimeRange(nextDashboardTimeRange)
     setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
     setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
-    setSort(parsed.rss_filters.sort)
-    setShowAdvancedFilters(parsed.ui.show_advanced_filters)
-
-    setAlertSelectedIds(parsed.alert_filters.selected_alert_ids)
-    setAlertSelectedCategories(parsed.alert_filters.selected_categories)
-    setAlertQ(parsed.alert_filters.q)
-    setAlertViewMode(parsed.alert_filters.view_mode)
-    setAlertPageSize(parsed.alert_filters.page_size)
-    setAlertSort(parsed.alert_filters.sort)
-
     setWindows(parsed.windows)
     setActiveSavedViewId(view.id)
   }
@@ -834,14 +923,52 @@ export function DashboardPage() {
     }
   }
 
-  const clearRssSelection = () => {
-    setPage(1)
+  const updateWindowRssFilters = (
+    windowId: string,
+    updater: (current: DashboardRssWindowFilters) => DashboardRssWindowFilters,
+    resetPage = true,
+  ) => {
     setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.type !== 'rss') {
+          return window
+        }
+
+        const nextFilters = updater(window.rss_filters ?? createDefaultRssWindowFilters())
+        return {
+          ...window,
+          rss_filters: {
+            ...nextFilters,
+            page: resetPage ? 1 : nextFilters.page,
+          },
+        }
+      }),
+    )
   }
 
-  const clearAlertSelection = () => {
-    setAlertPage(1)
+  const updateWindowAlertFilters = (
+    windowId: string,
+    updater: (current: DashboardAlertWindowFilters) => DashboardAlertWindowFilters,
+    resetPage = true,
+  ) => {
     setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.type !== 'alerts') {
+          return window
+        }
+
+        const nextFilters = updater(window.alert_filters ?? createDefaultAlertWindowFilters())
+        return {
+          ...window,
+          alert_filters: {
+            ...nextFilters,
+            page: resetPage ? 1 : nextFilters.page,
+          },
+        }
+      }),
+    )
   }
 
   const markWindowSeen = (windowId: string) => {
@@ -851,31 +978,54 @@ export function DashboardPage() {
     }))
   }
 
+  const resetAllWindowPages = () => {
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.type === 'rss') {
+          return {
+            ...window,
+            rss_filters: {
+              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+              page: 1,
+            },
+          }
+        }
+
+        if (window.type === 'alerts') {
+          return {
+            ...window,
+            alert_filters: {
+              ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+              page: 1,
+            },
+          }
+        }
+
+        return window
+      }),
+    )
+  }
+
   const updateDashboardTimeRange = (nextRange: TimeRangeFilter) => {
     setActiveSavedViewId(null)
-    setPage(1)
-    setAlertPage(1)
+    resetAllWindowPages()
     setDashboardTimeRange(nextRange)
   }
 
   const updateDashboardCustomSinceDate = (nextDate: string) => {
     setActiveSavedViewId(null)
-    setPage(1)
-    setAlertPage(1)
+    resetAllWindowPages()
     setDashboardCustomSinceDate(nextDate)
   }
 
   const updateDashboardCustomUntilDate = (nextDate: string) => {
     setActiveSavedViewId(null)
-    setPage(1)
-    setAlertPage(1)
+    resetAllWindowPages()
     setDashboardCustomUntilDate(nextDate)
   }
 
   const updateWindowTimeRange = (windowId: string, nextValue: string) => {
     setActiveSavedViewId(null)
-    setPage(1)
-    setAlertPage(1)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type === 'notes') {
@@ -896,6 +1046,19 @@ export function DashboardPage() {
         const base = window.time_override ?? dashboardTimeFilter
         return {
           ...window,
+          ...(window.type === 'rss'
+            ? {
+                rss_filters: {
+                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+                  page: 1,
+                },
+              }
+            : {
+                alert_filters: {
+                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+                  page: 1,
+                },
+              }),
           time_override: {
             ...base,
             time_range: nextValue,
@@ -907,8 +1070,6 @@ export function DashboardPage() {
 
   const updateWindowCustomTimeDate = (windowId: string, key: 'custom_since_date' | 'custom_until_date', value: string) => {
     setActiveSavedViewId(null)
-    setPage(1)
-    setAlertPage(1)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type === 'notes') {
@@ -918,6 +1079,19 @@ export function DashboardPage() {
         const base = window.time_override ?? dashboardTimeFilter
         return {
           ...window,
+          ...(window.type === 'rss'
+            ? {
+                rss_filters: {
+                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+                  page: 1,
+                },
+              }
+            : {
+                alert_filters: {
+                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+                  page: 1,
+                },
+              }),
           time_override: {
             ...base,
             time_range: 'custom',
@@ -1077,17 +1251,29 @@ export function DashboardPage() {
               ? normalizePanelRect(windowLayout.rect, containerDimensions.width, containerDimensions.height)
               : getSnapRect(windowLayout.snap, containerDimensions.width, containerDimensions.height)
           const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
+          const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
+          const alertFilters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
+          const rssQuery = rssQueriesByWindowId[windowLayout.id]
+          const alertQuery = alertQueriesByWindowId[windowLayout.id]
           const rssWindowItems =
             windowLayout.type === 'rss'
-              ? filterEntriesByTimeWindow(itemsQuery.data?.items ?? [], effectiveWindowTimeFilter)
+              ? rssQuery?.data?.items ?? []
               : []
           const alertWindowItems =
             windowLayout.type === 'alerts'
-              ? filterEntriesByTimeWindow(alertMatchesQuery.data?.items ?? [], effectiveWindowTimeFilter)
+              ? alertQuery?.data?.items ?? []
               : []
           const lastSeenAtIso = windowSeenAt[windowLayout.id] ?? ''
           const rssChangedCount = windowLayout.type === 'rss' ? countNewEntriesSince(rssWindowItems, rssLastOpenedAt) : 0
           const alertChangedCount = windowLayout.type === 'alerts' ? countNewEntriesSince(alertWindowItems, lastSeenAtIso) : 0
+          const rssTotalPages =
+            windowLayout.type === 'rss'
+              ? Math.max(1, Math.ceil((rssQuery?.data?.total ?? 0) / Math.max(1, rssFilters.page_size)))
+              : 1
+          const alertTotalPages =
+            windowLayout.type === 'alerts'
+              ? Math.max(1, Math.ceil((alertQuery?.data?.total ?? 0) / Math.max(1, alertFilters.page_size)))
+              : 1
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
           const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border border-slate/20 bg-white/85 text-[13px] dark:border-cyan-900/40 dark:bg-[#041612]/96 ${
@@ -1200,19 +1386,16 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                          selectedFeedIds.length === 0
+                          rssFilters.selected_feed_ids.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
                             : 'border-slate/25 dark:border-cyan-900/40'
                         }`}
-                        onClick={() => {
-                          clearRssSelection()
-                          setSelectedFeedIds([])
-                        }}
+                        onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_feed_ids: [] }))}
                       >
                         All
                       </button>
                       {feedsQuery.data?.map((feed) => {
-                        const active = selectedFeedIds.includes(feed.id)
+                        const active = rssFilters.selected_feed_ids.includes(feed.id)
                         const health = resolveFeedHealth(feed)
                         return (
                           <button
@@ -1221,12 +1404,14 @@ export function DashboardPage() {
                             className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
                               active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/25 dark:border-cyan-900/40'
                             }`}
-                            onClick={() => {
-                              clearRssSelection()
-                              setSelectedFeedIds((current) =>
-                                current.includes(feed.id) ? current.filter((id) => id !== feed.id) : [...current, feed.id],
-                              )
-                            }}
+                            onClick={() =>
+                              updateWindowRssFilters(windowLayout.id, (current) => ({
+                                ...current,
+                                selected_feed_ids: current.selected_feed_ids.includes(feed.id)
+                                  ? current.selected_feed_ids.filter((id) => id !== feed.id)
+                                  : [...current.selected_feed_ids, feed.id],
+                              }))
+                            }
                           >
                             <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${feedHealthDotClass(health.status)}`} />
                             {feed.name}
@@ -1239,21 +1424,18 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                          selectedTags.length === 0
+                          rssFilters.selected_tags.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
                             : 'border-slate/25 dark:border-cyan-900/40'
                         }`}
-                        onClick={() => {
-                          clearRssSelection()
-                          setSelectedTags([])
-                        }}
+                        onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_tags: [] }))}
                       >
                         All
                       </button>
                       {tagsQuery.data
                         ?.filter((tag) => !HIDDEN_TAGS.has(tag.name))
                         .map((tag) => {
-                          const active = selectedTags.includes(tag.name)
+                          const active = rssFilters.selected_tags.includes(tag.name)
                           return (
                             <button
                               key={tag.id}
@@ -1263,14 +1445,14 @@ export function DashboardPage() {
                                   ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
                                   : 'border-slate/25 dark:border-cyan-900/40'
                               }`}
-                              onClick={() => {
-                                clearRssSelection()
-                                setSelectedTags((current) =>
-                                  current.includes(tag.name)
-                                    ? current.filter((entry) => entry !== tag.name)
-                                    : [...current, tag.name],
-                                )
-                              }}
+                              onClick={() =>
+                                updateWindowRssFilters(windowLayout.id, (current) => ({
+                                  ...current,
+                                  selected_tags: current.selected_tags.includes(tag.name)
+                                    ? current.selected_tags.filter((entry) => entry !== tag.name)
+                                    : [...current.selected_tags, tag.name],
+                                }))
+                              }
                             >
                               #{tag.name}
                             </button>
@@ -1281,11 +1463,8 @@ export function DashboardPage() {
 
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <input
-                        value={q}
-                        onChange={(event) => {
-                          clearRssSelection()
-                          setQ(event.target.value)
-                        }}
+                        value={rssFilters.q}
+                        onChange={(event) => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         placeholder="Search title, summary, URL"
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
@@ -1303,11 +1482,10 @@ export function DashboardPage() {
                       </select>
                       <select
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={sort}
-                        onChange={(event) => {
-                          clearRssSelection()
-                          setSort(event.target.value as TimeSort)
-                        }}
+                        value={rssFilters.sort}
+                        onChange={(event) =>
+                          updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
+                        }
                       >
                         <option value="published_at_desc">Newest</option>
                         <option value="published_at_asc">Oldest</option>
@@ -1317,21 +1495,15 @@ export function DashboardPage() {
                       <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
-                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${viewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
-                          onClick={() => {
-                            clearRssSelection()
-                            setViewMode('expanded')
-                          }}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${rssFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'expanded' }), false)}
                         >
                           Expanded
                         </button>
                         <button
                           type="button"
-                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${viewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
-                          onClick={() => {
-                            clearRssSelection()
-                            setViewMode('compact')
-                          }}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${rssFilters.view_mode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'compact' }), false)}
                         >
                           Compact
                         </button>
@@ -1339,24 +1511,29 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
-                        onClick={() => {
-                          setActiveSavedViewId(null)
-                          setShowAdvancedFilters((current) => !current)
-                        }}
+                        onClick={() =>
+                          updateWindowRssFilters(
+                            windowLayout.id,
+                            (current) => ({ ...current, show_advanced_filters: !current.show_advanced_filters }),
+                            false,
+                          )
+                        }
                       >
-                        {showAdvancedFilters ? 'Hide Filters' : 'More Filters'}
+                        {rssFilters.show_advanced_filters ? 'Hide Filters' : 'More Filters'}
                       </button>
                       </div>
 
-                      {showAdvancedFilters && (
+                      {rssFilters.show_advanced_filters && (
                         <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
                         <select
                           className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                          value={readStatus}
-                          onChange={(event) => {
-                            clearRssSelection()
-                            setReadStatus(event.target.value as ReadStatusFilter)
-                          }}
+                          value={rssFilters.read_status}
+                          onChange={(event) =>
+                            updateWindowRssFilters(windowLayout.id, (current) => ({
+                              ...current,
+                              read_status: event.target.value as ReadStatusFilter,
+                            }))
+                          }
                         >
                           <option value="all">Read: All</option>
                           <option value="unread">Read: Unread</option>
@@ -1364,11 +1541,13 @@ export function DashboardPage() {
                         </select>
                         <select
                           className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-                          value={starStatus}
-                          onChange={(event) => {
-                            clearRssSelection()
-                            setStarStatus(event.target.value as StarStatusFilter)
-                          }}
+                          value={rssFilters.star_status}
+                          onChange={(event) =>
+                            updateWindowRssFilters(windowLayout.id, (current) => ({
+                              ...current,
+                              star_status: event.target.value as StarStatusFilter,
+                            }))
+                          }
                         >
                           <option value="all">Stars: All</option>
                           <option value="starred">Stars: Starred</option>
@@ -1400,7 +1579,7 @@ export function DashboardPage() {
                       {rssWindowItems.map((item) => {
                         const expanded = expandedItemId === item.id
                         const detail = expanded ? detailQuery.data : null
-                        const compact = viewMode === 'compact'
+                        const compact = rssFilters.view_mode === 'compact'
                         const density = computeInformationDensity(item)
 
                         return (
@@ -1562,13 +1741,13 @@ export function DashboardPage() {
                         )
                       })}
 
-                      {itemsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
-                      {itemsQuery.isError && (
+                      {rssQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
+                      {rssQuery?.isError && (
                         <p className="text-sm text-red-600">
-                          Failed to load items. {(itemsQuery.error as Error | undefined)?.message ?? ''}
+                          Failed to load items. {(rssQuery.error as Error | undefined)?.message ?? ''}
                         </p>
                       )}
-                      {!itemsQuery.isLoading && !rssWindowItems.length && (
+                      {!rssQuery?.isLoading && !rssWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items match current filters.</p>
                       )}
                     </div>
@@ -1577,24 +1756,27 @@ export function DashboardPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
                       className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                      disabled={page <= 1}
-                      onClick={() => setPage((current) => current - 1)}
+                      disabled={rssFilters.page <= 1}
+                      onClick={() =>
+                        updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
+                      }
                     >
                       Prev
                     </button>
                     <span className="w-full text-center sm:w-auto">
-                      Page {page} / {totalPages}
+                      Page {rssFilters.page} / {rssTotalPages}
                     </span>
                     <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
                         className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={pageSize}
-                        onChange={(event) => {
-                          setActiveSavedViewId(null)
-                          setPage(1)
-                          setPageSize(Number(event.target.value))
-                        }}
+                        value={rssFilters.page_size}
+                        onChange={(event) =>
+                          updateWindowRssFilters(windowLayout.id, (current) => ({
+                            ...current,
+                            page_size: Number(event.target.value),
+                          }))
+                        }
                       >
                         {PAGE_SIZE_OPTIONS.map((option) => (
                           <option key={option} value={option}>
@@ -1604,8 +1786,10 @@ export function DashboardPage() {
                       </select>
                       <button
                         className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                        disabled={page >= totalPages}
-                        onClick={() => setPage((current) => current + 1)}
+                        disabled={rssFilters.page >= rssTotalPages}
+                        onClick={() =>
+                          updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
+                        }
                       >
                         Next
                       </button>
@@ -1620,19 +1804,16 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                          alertSelectedCategories.length === 0
+                          alertFilters.selected_categories.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
                             : 'border-slate/25 dark:border-cyan-900/40'
                         }`}
-                        onClick={() => {
-                          clearAlertSelection()
-                          setAlertSelectedCategories([])
-                        }}
+                        onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_categories: [] }))}
                       >
                         All Categories
                       </button>
                       {availableAlertCategories.map((category) => {
-                        const active = alertSelectedCategories.includes(category)
+                        const active = alertFilters.selected_categories.includes(category)
                         return (
                           <button
                             key={category}
@@ -1640,14 +1821,14 @@ export function DashboardPage() {
                             className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
                               active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/25 dark:border-cyan-900/40'
                             }`}
-                            onClick={() => {
-                              clearAlertSelection()
-                              setAlertSelectedCategories((current) =>
-                                current.includes(category)
-                                  ? current.filter((entry) => entry !== category)
-                                  : [...current, category],
-                              )
-                            }}
+                            onClick={() =>
+                              updateWindowAlertFilters(windowLayout.id, (current) => ({
+                                ...current,
+                                selected_categories: current.selected_categories.includes(category)
+                                  ? current.selected_categories.filter((entry) => entry !== category)
+                                  : [...current.selected_categories, category],
+                              }))
+                            }
                           >
                             {formatClassificationLabel(category)}
                           </button>
@@ -1659,19 +1840,16 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                          alertSelectedIds.length === 0
+                          alertFilters.selected_alert_ids.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
                             : 'border-slate/25 dark:border-cyan-900/40'
                         }`}
-                        onClick={() => {
-                          clearAlertSelection()
-                          setAlertSelectedIds([])
-                        }}
+                        onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_alert_ids: [] }))}
                       >
                         All Interests
                       </button>
                       {alertInterestsQuery.data?.map((interest) => {
-                        const active = alertSelectedIds.includes(interest.id)
+                        const active = alertFilters.selected_alert_ids.includes(interest.id)
                         return (
                           <button
                             key={interest.id}
@@ -1681,14 +1859,14 @@ export function DashboardPage() {
                                 ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
                                 : 'border-slate/25 dark:border-cyan-900/40'
                             }`}
-                            onClick={() => {
-                              clearAlertSelection()
-                              setAlertSelectedIds((current) =>
-                                current.includes(interest.id)
-                                  ? current.filter((entry) => entry !== interest.id)
-                                  : [...current, interest.id],
-                              )
-                            }}
+                            onClick={() =>
+                              updateWindowAlertFilters(windowLayout.id, (current) => ({
+                                ...current,
+                                selected_alert_ids: current.selected_alert_ids.includes(interest.id)
+                                  ? current.selected_alert_ids.filter((entry) => entry !== interest.id)
+                                  : [...current.selected_alert_ids, interest.id],
+                              }))
+                            }
                           >
                             {interest.name}
                           </button>
@@ -1698,11 +1876,8 @@ export function DashboardPage() {
 
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <input
-                        value={alertQ}
-                        onChange={(event) => {
-                          clearAlertSelection()
-                          setAlertQ(event.target.value)
-                        }}
+                        value={alertFilters.q}
+                        onChange={(event) => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         placeholder="Search matched alert items"
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
@@ -1720,11 +1895,10 @@ export function DashboardPage() {
                       </select>
                       <select
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={alertSort}
-                        onChange={(event) => {
-                          clearAlertSelection()
-                          setAlertSort(event.target.value as TimeSort)
-                        }}
+                        value={alertFilters.sort}
+                        onChange={(event) =>
+                          updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
+                        }
                       >
                         <option value="published_at_desc">Newest</option>
                         <option value="published_at_asc">Oldest</option>
@@ -1734,21 +1908,15 @@ export function DashboardPage() {
                       <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
-                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertViewMode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
-                          onClick={() => {
-                            clearAlertSelection()
-                            setAlertViewMode('expanded')
-                          }}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'expanded' }), false)}
                         >
                           Expanded
                         </button>
                         <button
                           type="button"
-                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertViewMode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
-                          onClick={() => {
-                            clearAlertSelection()
-                            setAlertViewMode('compact')
-                          }}
+                          className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertFilters.view_mode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
+                          onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'compact' }), false)}
                         >
                           Compact
                         </button>
@@ -1774,7 +1942,7 @@ export function DashboardPage() {
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
                       {alertWindowItems.map((item) => {
-                        const compactAlerts = alertViewMode === 'compact'
+                        const compactAlerts = alertFilters.view_mode === 'compact'
                         return (
                         <article key={item.id} className={`rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-3'} dark:border-cyan-900/40`}>
                           <div className="flex items-start justify-between gap-2">
@@ -1815,13 +1983,13 @@ export function DashboardPage() {
                         </article>
                       )})}
 
-                      {alertMatchesQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert matches...</p>}
-                      {alertMatchesQuery.isError && (
+                      {alertQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert matches...</p>}
+                      {alertQuery?.isError && (
                         <p className="text-sm text-red-600">
-                          Failed to load alert matches. {(alertMatchesQuery.error as Error | undefined)?.message ?? ''}
+                          Failed to load alert matches. {(alertQuery.error as Error | undefined)?.message ?? ''}
                         </p>
                       )}
-                      {!alertMatchesQuery.isLoading && !alertWindowItems.length && (
+                      {!alertQuery?.isLoading && !alertWindowItems.length && (
                         <p className="text-sm text-slate dark:text-slate-300">No items matched current alert filters.</p>
                       )}
                     </div>
@@ -1830,24 +1998,27 @@ export function DashboardPage() {
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
                       className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                      disabled={alertPage <= 1}
-                      onClick={() => setAlertPage((current) => current - 1)}
+                      disabled={alertFilters.page <= 1}
+                      onClick={() =>
+                        updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
+                      }
                     >
                       Prev
                     </button>
                     <span className="w-full text-center sm:w-auto">
-                      Page {alertPage} / {alertTotalPages}
+                      Page {alertFilters.page} / {alertTotalPages}
                     </span>
                     <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
                         className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
-                        value={alertPageSize}
-                        onChange={(event) => {
-                          setActiveSavedViewId(null)
-                          setAlertPage(1)
-                          setAlertPageSize(Number(event.target.value))
-                        }}
+                        value={alertFilters.page_size}
+                        onChange={(event) =>
+                          updateWindowAlertFilters(windowLayout.id, (current) => ({
+                            ...current,
+                            page_size: Number(event.target.value),
+                          }))
+                        }
                       >
                         {PAGE_SIZE_OPTIONS.map((option) => (
                           <option key={option} value={option}>
@@ -1857,8 +2028,10 @@ export function DashboardPage() {
                       </select>
                       <button
                         className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                        disabled={alertPage >= alertTotalPages}
-                        onClick={() => setAlertPage((current) => current + 1)}
+                        disabled={alertFilters.page >= alertTotalPages}
+                        onClick={() =>
+                          updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
+                        }
                       >
                         Next
                       </button>
@@ -2043,6 +2216,15 @@ function parseEndOfDay(date: string): Date | null {
 
 function isTimeRangeFilter(value: unknown): value is TimeRangeFilter {
   return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'custom'
+}
+
+function isTimeSort(value: unknown): value is TimeSort {
+  return (
+    value === 'published_at_desc' ||
+    value === 'published_at_asc' ||
+    value === 'first_seen_desc' ||
+    value === 'first_seen_asc'
+  )
 }
 
 function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter | null {
@@ -2269,6 +2451,19 @@ function countNewEntriesSince<T extends { first_seen_at: string }>(entries: T[],
   return count
 }
 
+function serializeDashboardWindowLayouts(windows: DashboardWindow[]) {
+  return windows.map((window) => ({
+    id: window.id,
+    type: window.type,
+    title: window.title,
+    snap: window.snap,
+    rect: { ...window.rect },
+    controls_collapsed: window.controls_collapsed,
+    scratch_note: window.scratch_note,
+    time_override: window.time_override ? { ...window.time_override } : null,
+  }))
+}
+
 function loadDashboardWindows(): DashboardWindow[] {
   if (typeof window === 'undefined') {
     return [createWindowLayout('rss', 1, 1380, 760, 'full')]
@@ -2307,6 +2502,8 @@ function loadDashboardWindows(): DashboardWindow[] {
         controls_collapsed: entry.controls_collapsed === true,
         scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
         time_override: parseWindowTimeFilterCandidate(entry.time_override),
+        rss_filters: entry.type === 'rss' ? parseRssWindowFiltersCandidate(entry.rss_filters) : null,
+        alert_filters: entry.type === 'alerts' ? parseAlertWindowFiltersCandidate(entry.alert_filters) : null,
       })
     }
 
@@ -2377,6 +2574,8 @@ function createWindowLayout(
     controls_collapsed: false,
     scratch_note: '',
     time_override: null,
+    rss_filters: type === 'rss' ? createDefaultRssWindowFilters() : null,
+    alert_filters: type === 'alerts' ? createDefaultAlertWindowFilters() : null,
   }
 }
 
@@ -2423,6 +2622,83 @@ function getSnapRect(snap: DashboardWindowSnap, containerWidth: number, containe
   }
 }
 
+function parseSavedViewRssFilters(raw: Record<string, unknown>): DashboardSavedViewQuery {
+  const selectedFeedIds = Array.isArray(raw.selected_feed_ids)
+    ? raw.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
+    : []
+  const selectedTags = Array.isArray(raw.selected_tags)
+    ? raw.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
+    : []
+
+  return {
+    selected_feed_ids: selectedFeedIds,
+    selected_tags: selectedTags,
+    q: typeof raw.q === 'string' ? raw.q : '',
+    read_status: raw.read_status === 'read' || raw.read_status === 'unread' ? raw.read_status : 'all',
+    star_status: raw.star_status === 'starred' || raw.star_status === 'unstarred' ? raw.star_status : 'all',
+    view_mode: raw.view_mode === 'expanded' ? 'expanded' : 'compact',
+    page_size: typeof raw.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(raw.page_size) ? raw.page_size : 25,
+    time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
+    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
+    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
+    sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
+  }
+}
+
+function parseSavedViewAlertFilters(raw: Record<string, unknown>): DashboardAlertViewQuery {
+  const selectedAlertIds = Array.isArray(raw.selected_alert_ids)
+    ? raw.selected_alert_ids.filter((entry): entry is string => typeof entry === 'string')
+    : []
+  const selectedAlertCategories = Array.isArray(raw.selected_categories)
+    ? raw.selected_categories.filter((entry): entry is string => typeof entry === 'string')
+    : []
+
+  return {
+    selected_alert_ids: selectedAlertIds,
+    selected_categories: selectedAlertCategories,
+    q: typeof raw.q === 'string' ? raw.q : '',
+    view_mode: raw.view_mode === 'compact' ? 'compact' : 'expanded',
+    page_size: typeof raw.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(raw.page_size) ? raw.page_size : 25,
+    time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
+    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
+    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
+    sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
+  }
+}
+
+function buildSavedViewRssFilters(rssFilters: DashboardRssWindowFilters, dashboardTimeFilter: WindowTimeFilter): DashboardSavedViewQuery {
+  return {
+    selected_feed_ids: [...rssFilters.selected_feed_ids],
+    selected_tags: [...rssFilters.selected_tags],
+    q: rssFilters.q,
+    read_status: rssFilters.read_status,
+    star_status: rssFilters.star_status,
+    view_mode: rssFilters.view_mode,
+    page_size: rssFilters.page_size,
+    time_range: dashboardTimeFilter.time_range,
+    custom_since_date: dashboardTimeFilter.custom_since_date,
+    custom_until_date: dashboardTimeFilter.custom_until_date,
+    sort: rssFilters.sort,
+  }
+}
+
+function buildSavedViewAlertFilters(
+  alertFilters: DashboardAlertWindowFilters,
+  dashboardTimeFilter: WindowTimeFilter,
+): DashboardAlertViewQuery {
+  return {
+    selected_alert_ids: [...alertFilters.selected_alert_ids],
+    selected_categories: [...alertFilters.selected_categories],
+    q: alertFilters.q,
+    view_mode: alertFilters.view_mode,
+    page_size: alertFilters.page_size,
+    time_range: dashboardTimeFilter.time_range,
+    custom_since_date: dashboardTimeFilter.custom_since_date,
+    custom_until_date: dashboardTimeFilter.custom_until_date,
+    sort: alertFilters.sort,
+  }
+}
+
 function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: number, containerHeight: number): DashboardSavedViewState {
   const fallback = createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
 
@@ -2430,6 +2706,13 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
   const legacyLayout = isRecord(raw.layout) ? raw.layout : {}
   const legacyWindows = isRecord(legacyLayout.windows) ? legacyLayout.windows : {}
   const legacyFeedRect = parsePanelRectCandidate(legacyWindows.feeds) || parsePanelRectCandidate(raw.panel_rect) || fallback.rect
+  const rssSource = isRecord(raw.rss_filters) ? raw.rss_filters : legacyFilters
+  const alertSource = isRecord(raw.alert_filters) ? raw.alert_filters : {}
+  const uiSource = isRecord(raw.ui) ? raw.ui : {}
+
+  const rssFilters = parseSavedViewRssFilters(rssSource)
+  const alertFilters = parseSavedViewAlertFilters(alertSource)
+  const showAdvancedFilters = typeof uiSource.show_advanced_filters === 'boolean' ? uiSource.show_advanced_filters : false
 
   const parsedWindows: DashboardWindow[] = []
   if (Array.isArray(raw.windows)) {
@@ -2452,6 +2735,14 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
         controls_collapsed: entry.controls_collapsed === true,
         scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
         time_override: parseWindowTimeFilterCandidate(entry.time_override),
+        rss_filters:
+          entry.type === 'rss'
+            ? parseRssWindowFiltersCandidate(entry.rss_filters, { ...rssFilters, page: 1 }, showAdvancedFilters)
+            : null,
+        alert_filters:
+          entry.type === 'alerts'
+            ? parseAlertWindowFiltersCandidate(entry.alert_filters, { ...alertFilters, page: 1 })
+            : null,
       })
     }
   }
@@ -2466,120 +2757,32 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
       controls_collapsed: false,
       scratch_note: '',
       time_override: null,
+      rss_filters: parseRssWindowFiltersCandidate(null, { ...rssFilters, page: 1 }, showAdvancedFilters),
+      alert_filters: null,
     })
   }
 
-  const rssSource = isRecord(raw.rss_filters) ? raw.rss_filters : legacyFilters
-  const alertSource = isRecord(raw.alert_filters) ? raw.alert_filters : {}
-  const uiSource = isRecord(raw.ui) ? raw.ui : {}
-
-  const selectedFeedIds = Array.isArray(rssSource.selected_feed_ids)
-    ? rssSource.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
-    : []
-  const selectedTags = Array.isArray(rssSource.selected_tags)
-    ? rssSource.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
-    : []
-
-  const selectedAlertIds = Array.isArray(alertSource.selected_alert_ids)
-    ? alertSource.selected_alert_ids.filter((entry): entry is string => typeof entry === 'string')
-    : []
-  const selectedAlertCategories = Array.isArray(alertSource.selected_categories)
-    ? alertSource.selected_categories.filter((entry): entry is string => typeof entry === 'string')
-    : []
-
-  const readStatus = rssSource.read_status === 'read' || rssSource.read_status === 'unread' ? rssSource.read_status : 'all'
-  const starStatus =
-    rssSource.star_status === 'starred' || rssSource.star_status === 'unstarred' ? rssSource.star_status : 'all'
-  const viewMode = rssSource.view_mode === 'expanded' ? 'expanded' : 'compact'
-  const pageSize =
-    typeof rssSource.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(rssSource.page_size)
-      ? rssSource.page_size
-      : 25
-
-  const alertPageSize =
-    typeof alertSource.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(alertSource.page_size)
-      ? alertSource.page_size
-      : 25
-
-  const timeRange =
-    rssSource.time_range === '24h' ||
-    rssSource.time_range === '7d' ||
-    rssSource.time_range === '30d' ||
-    rssSource.time_range === 'custom'
-      ? rssSource.time_range
-      : 'all'
-
-  const alertTimeRange =
-    alertSource.time_range === '24h' ||
-    alertSource.time_range === '7d' ||
-    alertSource.time_range === '30d' ||
-    alertSource.time_range === 'custom'
-      ? alertSource.time_range
-      : 'all'
-
-  const sortValues: TimeSort[] = ['published_at_desc', 'published_at_asc', 'first_seen_desc', 'first_seen_asc']
-  const sort =
-    typeof rssSource.sort === 'string' && sortValues.includes(rssSource.sort as TimeSort)
-      ? (rssSource.sort as TimeSort)
-      : 'published_at_desc'
-
-  const alertSort =
-    typeof alertSource.sort === 'string' && sortValues.includes(alertSource.sort as TimeSort)
-      ? (alertSource.sort as TimeSort)
-      : 'published_at_desc'
-  const alertViewMode = alertSource.view_mode === 'compact' ? 'compact' : 'expanded'
-
   return {
     version: DASHBOARD_VIEW_VERSION,
-    rss_filters: {
-      selected_feed_ids: selectedFeedIds,
-      selected_tags: selectedTags,
-      q: typeof rssSource.q === 'string' ? rssSource.q : '',
-      read_status: readStatus,
-      star_status: starStatus,
-      view_mode: viewMode,
-      page_size: pageSize,
-      time_range: timeRange,
-      custom_since_date: typeof rssSource.custom_since_date === 'string' ? rssSource.custom_since_date : '',
-      custom_until_date: typeof rssSource.custom_until_date === 'string' ? rssSource.custom_until_date : '',
-      sort,
-    },
-    alert_filters: {
-      selected_alert_ids: selectedAlertIds,
-      selected_categories: selectedAlertCategories,
-      q: typeof alertSource.q === 'string' ? alertSource.q : '',
-      view_mode: alertViewMode,
-      page_size: alertPageSize,
-      time_range: alertTimeRange,
-      custom_since_date: typeof alertSource.custom_since_date === 'string' ? alertSource.custom_since_date : '',
-      custom_until_date: typeof alertSource.custom_until_date === 'string' ? alertSource.custom_until_date : '',
-      sort: alertSort,
-    },
+    rss_filters: rssFilters,
+    alert_filters: alertFilters,
     windows: normalizeDashboardWindows(parsedWindows, containerWidth, containerHeight),
     ui: {
-      show_advanced_filters: typeof uiSource.show_advanced_filters === 'boolean' ? uiSource.show_advanced_filters : false,
+      show_advanced_filters: showAdvancedFilters,
     },
   }
 }
 
-function buildDashboardSavedViewState(
-  rssFilters: DashboardSavedViewQuery,
-  alertFilters: DashboardAlertViewQuery,
-  windows: DashboardWindow[],
-  showAdvancedFilters: boolean,
-): DashboardSavedViewState {
+function buildDashboardSavedViewState(windows: DashboardWindow[], dashboardTimeFilter: WindowTimeFilter): DashboardSavedViewState {
+  const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
+  const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
+  const rssWindowFilters = firstRssWindow?.rss_filters ?? createDefaultRssWindowFilters()
+  const alertWindowFilters = firstAlertWindow?.alert_filters ?? createDefaultAlertWindowFilters()
+
   return {
     version: DASHBOARD_VIEW_VERSION,
-    rss_filters: {
-      ...rssFilters,
-      selected_feed_ids: [...rssFilters.selected_feed_ids],
-      selected_tags: [...rssFilters.selected_tags],
-    },
-    alert_filters: {
-      ...alertFilters,
-      selected_alert_ids: [...alertFilters.selected_alert_ids],
-      selected_categories: [...alertFilters.selected_categories],
-    },
+    rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
+    alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
     windows: windows.map((window) => ({
       id: window.id,
       type: window.type,
@@ -2589,9 +2792,25 @@ function buildDashboardSavedViewState(
       controls_collapsed: window.controls_collapsed,
       scratch_note: window.scratch_note,
       time_override: window.time_override ? { ...window.time_override } : null,
+      rss_filters: window.rss_filters
+        ? {
+            ...window.rss_filters,
+            selected_feed_ids: [...window.rss_filters.selected_feed_ids],
+            selected_tags: [...window.rss_filters.selected_tags],
+            page: 1,
+          }
+        : null,
+      alert_filters: window.alert_filters
+        ? {
+            ...window.alert_filters,
+            selected_alert_ids: [...window.alert_filters.selected_alert_ids],
+            selected_categories: [...window.alert_filters.selected_categories],
+            page: 1,
+          }
+        : null,
     })),
     ui: {
-      show_advanced_filters: showAdvancedFilters,
+      show_advanced_filters: rssWindowFilters.show_advanced_filters,
     },
   }
 }
