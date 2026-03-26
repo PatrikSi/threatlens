@@ -618,6 +618,8 @@ export interface AISettings {
   company_keywords: string[]
   company_exclusions: string[]
   company_profile_text: string | null
+  item_enrichment_system_prompt: string | null
+  daily_brief_system_prompt: string | null
   global_instructions: string | null
   item_summary_instructions: string | null
   relevance_instructions: string | null
@@ -651,6 +653,8 @@ export interface AISettingsUpdateRequest {
   company_keywords: string[]
   company_exclusions: string[]
   company_profile_text: string | null
+  item_enrichment_system_prompt: string | null
+  daily_brief_system_prompt: string | null
   global_instructions: string | null
   item_summary_instructions: string | null
   relevance_instructions: string | null

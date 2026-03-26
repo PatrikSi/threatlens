@@ -311,7 +311,7 @@ def build_prompt_previews(active: ActiveAISettings) -> AIPromptPreviews:
             notes=[
                 "Used when generating dashboard daily briefings.",
                 "This editable base prompt is followed by any global and daily brief instructions you configure below.",
-                "Company profile, classification, tags, and article content are sent separately as structured JSON.",
+                "Company profile and the selected briefing items are sent separately as structured JSON.",
             ],
         ),
     )
