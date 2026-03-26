@@ -7,6 +7,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { RoleRoute } from './components/RoleRoute'
 import { ThemeProvider } from './components/ThemeContext'
 import { AccountPage } from './pages/AccountPage'
+import { AiSettingsPage } from './pages/AiSettingsPage'
 import { AlertsPage } from './pages/AlertsPage'
 import { AuditLogsPage } from './pages/AuditLogsPage'
 import { DashboardPage } from './pages/DashboardPage'
@@ -49,6 +50,14 @@ export default function App() {
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="feeds" element={<FeedsPage />} />
               <Route path="stats" element={<StatsPage />} />
+              <Route
+                path="ai"
+                element={
+                  <RoleRoute roles={['admin']}>
+                    <AiSettingsPage />
+                  </RoleRoute>
+                }
+              />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsOverviewPage />} />
                 <Route path="account" element={<AccountPage />} />

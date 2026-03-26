@@ -12,6 +12,7 @@ const NAV_LINKS = [
   { to: '/alerts', label: 'Alerts' },
   { to: '/feeds', label: 'Feeds' },
   { to: '/stats', label: 'Stats' },
+  { to: '/ai', label: 'AI', adminOnly: true, requiresAi: true },
   { to: '/settings', label: 'Settings' },
 ]
 
@@ -24,6 +25,15 @@ export function AppShell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const isDashboardRoute = location.pathname === '/'
+  const navLinks = NAV_LINKS.filter((link) => {
+    if (link.adminOnly && meQuery.data?.role !== 'admin') {
+      return false
+    }
+    if (link.requiresAi && !meQuery.data?.features.ai_enabled) {
+      return false
+    }
+    return true
+  })
 
   const logout = useMutation({
     mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),
@@ -68,7 +78,7 @@ export function AppShell() {
           {mobileNavOpen && (
             <div className="mt-3 space-y-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
               <nav className="grid grid-cols-2 gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
-                {NAV_LINKS.map((link) => (
+                {navLinks.map((link) => (
                   <Link
                     key={link.to}
                     to={link.to}
@@ -119,7 +129,7 @@ export function AppShell() {
           <div className="flex items-center gap-6">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
-              {NAV_LINKS.map((link) => (
+              {navLinks.map((link) => (
                 <Link key={link.to} to={link.to} className="rounded px-3 py-1 hover:bg-cyan/10 hover:text-cyan">
                   {link.label}
                 </Link>

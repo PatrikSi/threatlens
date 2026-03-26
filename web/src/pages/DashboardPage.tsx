@@ -1,10 +1,11 @@
 import { ChangeEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import {
+  AIDailyBrief,
   AlertInterest,
   AlertMatchListResponse,
   Feed,
@@ -21,7 +22,7 @@ type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 type DashboardViewMode = 'expanded' | 'compact'
 type AlertViewMode = 'expanded' | 'compact'
-type DashboardWindowType = 'rss' | 'alerts' | 'notes'
+type DashboardWindowType = 'rss' | 'alerts' | 'notes' | 'daily_brief'
 type DashboardWindowSnap = 'free' | 'full' | 'left' | 'right' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
 type WindowTimeFilter = {
   time_range: TimeRangeFilter
@@ -122,13 +123,14 @@ interface SavedViewPreview {
     rss: number
     alerts: number
     notes: number
+    daily_brief: number
   }
 }
 
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
-const DASHBOARD_VIEW_VERSION = 4
+const DASHBOARD_VIEW_VERSION = 5
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
@@ -270,6 +272,7 @@ export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const aiFeatures = meQuery.data?.features
 
   const [dashboardTimeRange, setDashboardTimeRange] = useState<TimeRangeFilter>('all')
   const [dashboardCustomSinceDate, setDashboardCustomSinceDate] = useState('')
@@ -295,6 +298,9 @@ export function DashboardPage() {
   const initializedLastOpenUserRef = useRef<string | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
+  const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
+  const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
+  const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
 
   useEffect(() => {
     const syncLayout = () => {
@@ -372,6 +378,24 @@ export function DashboardPage() {
       return next
     })
   }, [windows])
+
+  useEffect(() => {
+    if (aiDailyBriefEnabled) {
+      return
+    }
+
+    const { width, height } = getWindowContainerDimensions(rootRef.current)
+    setWindows((current) => {
+      const filtered = current.filter((window) => window.type !== 'daily_brief')
+      if (filtered.length === current.length) {
+        return current
+      }
+      if (!filtered.length) {
+        return [createWindowLayout('rss', 1, width, height, 'full')]
+      }
+      return normalizeDashboardWindows(filtered, width, height)
+    })
+  }, [aiDailyBriefEnabled])
 
   const deferredWindows = useDeferredValue(windows)
 
@@ -596,6 +620,22 @@ export function DashboardPage() {
     queryKey: ['item', expandedItemId],
     enabled: Boolean(expandedItemId),
     queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
+  })
+
+  const dailyBriefQuery = useQuery({
+    queryKey: ['ai', 'daily-brief', 'latest'],
+    enabled: aiDailyBriefEnabled,
+    retry: false,
+    queryFn: async () => {
+      try {
+        return await apiFetch<AIDailyBrief>('/ai/daily-brief/latest')
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          return null
+        }
+        throw error
+      }
+    },
   })
 
   useEffect(() => {
@@ -1028,7 +1068,7 @@ export function DashboardPage() {
     setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
-        if (window.id !== windowId || window.type === 'notes') {
+        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
           return window
         }
 
@@ -1072,7 +1112,7 @@ export function DashboardPage() {
     setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
-        if (window.id !== windowId || window.type === 'notes') {
+        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
           return window
         }
 
@@ -1105,6 +1145,7 @@ export function DashboardPage() {
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
+  const dailyBriefWindowCount = windows.filter((window) => window.type === 'daily_brief').length
   const containerDimensions = getWindowContainerDimensions(rootRef.current)
   const savedViewPreviews = useMemo(
     () =>
@@ -1213,6 +1254,15 @@ export function DashboardPage() {
                 >
                   Notes Window ({notesWindowCount})
                 </button>
+                {aiDailyBriefEnabled && (
+                  <button
+                    type="button"
+                    className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                    onClick={() => addWindow('daily_brief')}
+                  >
+                    Daily Brief Window ({dailyBriefWindowCount})
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1306,6 +1356,8 @@ export function DashboardPage() {
                     <p className="text-xs text-slate dark:text-slate-300">RSS feed triage with saved filters and notes.</p>
                   ) : windowLayout.type === 'alerts' ? (
                     <p className="text-xs text-slate dark:text-slate-300">Keyword-driven matching against your configured alert interests.</p>
+                  ) : windowLayout.type === 'daily_brief' ? (
+                    <p className="text-xs text-slate dark:text-slate-300">AI-generated daily briefing for the current corpus and company profile.</p>
                   ) : (
                     <p className="text-xs text-slate dark:text-slate-300">Scratch notes persisted in dashboard layout and saved views.</p>
                   )}
@@ -1340,7 +1392,7 @@ export function DashboardPage() {
                       Mark Seen
                     </button>
                   )}
-                  {windowLayout.type !== 'notes' && (
+                  {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && (
                     <button
                       type="button"
                       className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
@@ -1617,6 +1669,11 @@ export function DashboardPage() {
                                   )}
                                   {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
                                   {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                                  {aiRelevanceEnabled && item.ai_relevance_label && (
+                                    <span className={`rounded px-1.5 py-0.5 ${aiRelevanceTone(item.ai_relevance_label)}`}>
+                                      AI {formatAiRelevanceLabel(item.ai_relevance_label)}
+                                    </span>
+                                  )}
                                   {item.tags
                                     .filter((tagName) => !HIDDEN_TAGS.has(tagName))
                                     .slice(0, 3)
@@ -1695,6 +1752,44 @@ export function DashboardPage() {
                                         {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
                                       </div>
                                     </div>
+
+                                    {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
+                                      <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                        <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">AI Insight</p>
+                                        {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
+                                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                                            <span className={`rounded px-2 py-1 text-xs font-semibold ${aiRelevanceTone(detail.ai_insight.relevance_label)}`}>
+                                              {formatAiRelevanceLabel(detail.ai_insight.relevance_label)} Relevance
+                                            </span>
+                                            {typeof detail.ai_insight.relevance_score === 'number' && (
+                                              <span className="text-xs text-slate dark:text-white/65">
+                                                Score {Math.round(detail.ai_insight.relevance_score * 100)}%
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {aiRelevanceEnabled && detail.ai_insight.relevance_reasons.length > 0 && (
+                                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
+                                            {detail.ai_insight.relevance_reasons.map((reason, index) => (
+                                              <li key={`${detail.id}-ai-reason-${index}`}>{reason}</li>
+                                            ))}
+                                          </ul>
+                                        )}
+                                        {aiSummaryEnabled && detail.ai_insight.summary_text && (
+                                          <div className="mt-3 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                                            {renderArticleBlocks(detail.ai_insight.summary_text, `${detail.id}-ai-summary`)}
+                                          </div>
+                                        )}
+                                        <p className="mt-2 text-xs text-slate dark:text-white/60">
+                                          Generated {formatPublishedAt(detail.ai_insight.generated_at)}{detail.ai_insight.model ? ` via ${detail.ai_insight.model}` : ''}.
+                                        </p>
+                                      </div>
+                                    )}
+                                    {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'error' && detail.ai_insight.error && (
+                                      <div className="mt-3 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200">
+                                        AI enrichment failed: {detail.ai_insight.error}
+                                      </div>
+                                    )}
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Full Article</p>
@@ -2034,6 +2129,89 @@ export function DashboardPage() {
                     </div>
                   </div>
                 </>
+              ) : windowLayout.type === 'daily_brief' ? (
+                <div className="flex flex-1 flex-col p-3">
+                  {dailyBriefQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
+                  {dailyBriefQuery.isError && (
+                    <p className="text-sm text-red-600">
+                      Failed to load the daily brief. {(dailyBriefQuery.error as Error | undefined)?.message ?? ''}
+                    </p>
+                  )}
+                  {!dailyBriefQuery.isLoading && !dailyBriefQuery.data && (
+                    <p className="text-sm text-slate dark:text-white/75">
+                      No AI daily brief is available yet. An admin can generate one from the AI page after the endpoint is configured.
+                    </p>
+                  )}
+                  {dailyBriefQuery.data && (
+                    <div className="space-y-3 overflow-auto">
+                      <div className="rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                        <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">AI Daily Brief</p>
+                        <h3 className="mt-2 font-display text-lg">{dailyBriefQuery.data.title || 'Daily Brief'}</h3>
+                        <p className="mt-1 text-xs text-slate dark:text-white/60">
+                          Generated {formatPublishedAt(dailyBriefQuery.data.generated_at)} for {dailyBriefQuery.data.item_count} items covering{' '}
+                          {formatPublishedAt(dailyBriefQuery.data.window_start)} to {formatPublishedAt(dailyBriefQuery.data.window_end)}.
+                        </p>
+                        {dailyBriefQuery.data.brief_text && (
+                          <div className="mt-3 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                            {renderArticleBlocks(dailyBriefQuery.data.brief_text, `${windowLayout.id}-brief`)}
+                          </div>
+                        )}
+                      </div>
+
+                      {dailyBriefQuery.data.key_points.length > 0 && (
+                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Key Points</p>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
+                            {dailyBriefQuery.data.key_points.map((point, index) => (
+                              <li key={`${windowLayout.id}-brief-point-${index}`}>{point}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {dailyBriefQuery.data.recommended_actions.length > 0 && (
+                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Recommended Actions</p>
+                          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
+                            {dailyBriefQuery.data.recommended_actions.map((action, index) => (
+                              <li key={`${windowLayout.id}-brief-action-${index}`}>{action}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {dailyBriefQuery.data.items.length > 0 && (
+                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Referenced Items</p>
+                          <div className="mt-2 space-y-2">
+                            {dailyBriefQuery.data.items.map((item) => (
+                              <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
+                                <div className="flex items-start justify-between gap-2">
+                                  <a
+                                    href={item.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-sm font-semibold hover:text-cyan hover:underline"
+                                  >
+                                    {item.title}
+                                  </a>
+                                  {item.relevance_label && (
+                                    <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${aiRelevanceTone(item.relevance_label)}`}>
+                                      {formatAiRelevanceLabel(item.relevance_label)}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-xs text-slate dark:text-white/65">
+                                  {item.feed_name} • Published {formatPublishedAt(item.published_at)}
+                                </p>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="flex flex-1 flex-col p-3">
                   <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Scratch Notes</label>
@@ -2119,6 +2297,9 @@ export function DashboardPage() {
                         </span>
                         <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
                           Notes {view.window_type_counts.notes}
+                        </span>
+                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                          Daily Brief {view.window_type_counts.daily_brief}
                         </span>
                       </div>
                     </div>
@@ -2234,7 +2415,7 @@ function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter | null
 }
 
 function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter): WindowTimeFilter {
-  if (windowLayout.type === 'notes') {
+  if (windowLayout.type === 'notes' || windowLayout.type === 'daily_brief') {
     return dashboardTimeFilter
   }
   return windowLayout.time_override ?? dashboardTimeFilter
@@ -2316,18 +2497,36 @@ function formatClassificationLabel(value: string): string {
     .join(' ')
 }
 
+function formatAiRelevanceLabel(value: 'low' | 'medium' | 'high'): string {
+  if (value === 'high') return 'High'
+  if (value === 'medium') return 'Medium'
+  return 'Low'
+}
+
+function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
+  if (value === 'high') {
+    return 'bg-red-100 text-red-800 dark:bg-red-950/35 dark:text-red-200'
+  }
+  if (value === 'medium') {
+    return 'bg-amber-100 text-amber-800 dark:bg-amber-950/35 dark:text-amber-200'
+  }
+  return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-200'
+}
+
 function buildSavedViewPreview(view: SavedView, containerWidth: number, containerHeight: number): SavedViewPreview {
   const parsed = parseDashboardSavedView(view.query_json, containerWidth, containerHeight)
   const counts = {
     rss: 0,
     alerts: 0,
     notes: 0,
+    daily_brief: 0,
   }
 
   for (const window of parsed.windows) {
     if (window.type === 'rss') counts.rss += 1
     if (window.type === 'alerts') counts.alerts += 1
     if (window.type === 'notes') counts.notes += 1
+    if (window.type === 'daily_brief') counts.daily_brief += 1
   }
 
   return {
@@ -2376,6 +2575,7 @@ function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
 function thumbnailWindowTone(type: DashboardWindowType): string {
   if (type === 'rss') return 'border-cyan-500/40 bg-cyan-400/30 dark:bg-cyan-500/35'
   if (type === 'alerts') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
+  if (type === 'daily_brief') return 'border-emerald-500/40 bg-emerald-400/30 dark:bg-emerald-500/35'
   return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
 }
 
@@ -2518,6 +2718,7 @@ function normalizeDashboardWindows(windows: DashboardWindow[], containerWidth: n
 function defaultWindowTitle(type: DashboardWindowType, index: number): string {
   if (type === 'rss') return `RSS Feed ${index}`
   if (type === 'alerts') return `Alerts ${index}`
+  if (type === 'daily_brief') return `Daily Brief ${index}`
   return `Notes ${index}`
 }
 
@@ -3175,7 +3376,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function isWindowType(value: unknown): value is DashboardWindowType {
-  return value === 'rss' || value === 'alerts' || value === 'notes'
+  return value === 'rss' || value === 'alerts' || value === 'notes' || value === 'daily_brief'
 }
 
 function isWindowSnap(value: unknown): value is DashboardWindowSnap {
