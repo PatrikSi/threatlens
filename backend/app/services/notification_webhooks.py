@@ -213,7 +213,7 @@ def render_notification_request(
     elif payload.body_mode == "raw":
         body_text = _render_template(payload.body_template or "", context)
         raw_body = body_text.encode("utf-8")
-        headers_dict.setdefault("Content-Type", "text/plain; charset=utf-8")
+        headers_dict.setdefault("Content-Type", _default_raw_content_type(body_text))
 
     return RenderedNotificationRequest(
         method=payload.method,
@@ -420,6 +420,13 @@ def _assign_nested_json_value(target: dict, key_path: str, value: str) -> None:
             raise TemplateRenderError(f"Conflicting JSON body field path: {key_path}")
         cursor = existing
     cursor[parts[-1]] = value
+
+
+def _default_raw_content_type(body_text: str) -> str:
+    stripped = body_text.lstrip()
+    if stripped.startswith("{") or stripped.startswith("["):
+        return "application/json"
+    return "text/plain; charset=utf-8"
 
 
 def _send_rendered_notification_request(rendered: RenderedNotificationRequest) -> NotificationWebhookTestResponse:

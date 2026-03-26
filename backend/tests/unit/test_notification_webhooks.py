@@ -71,6 +71,36 @@ def test_render_notification_request_expands_templates_into_json_body():
     }
 
 
+def test_render_notification_request_defaults_raw_json_to_application_json():
+    payload = NotificationWebhookWrite(
+        name="Gotify",
+        url_template="http://192.168.0.191:8093/message",
+        method="POST",
+        query_params=[NotificationWebhookField(key="token", value="example")],
+        body_mode="raw",
+        body_template='{\n  "title": "ThreatLens Alert",\n  "message": "Test notification from ThreatLens",\n  "priority": 5\n}',
+    )
+
+    rendered = render_notification_request(
+        payload,
+        user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
+        feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+        item=Item(
+            id=uuid.uuid4(),
+            feed_id=uuid.uuid4(),
+            url="https://example.com/articles/1",
+            title="Threat report",
+            summary="summary",
+            published_at=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc),
+            dedupe_key="dedupe",
+            content_hash="a" * 64,
+            status="new",
+        ),
+    )
+
+    assert rendered.headers_dict["Content-Type"] == "application/json"
+
+
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
