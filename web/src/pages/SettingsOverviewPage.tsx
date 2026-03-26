@@ -17,6 +17,7 @@ export function SettingsOverviewPage() {
             'Access and query audit logs',
             'Create/revoke own and other users\' API tokens',
             'Configure personal webhook notifications',
+            'Tune global auto-tagging and manage custom tag rules',
             'Full feed and triage management',
           ]}
         />
