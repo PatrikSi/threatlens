@@ -1581,6 +1581,7 @@ export function DashboardPage() {
                         const detail = expanded ? detailQuery.data : null
                         const compact = rssFilters.view_mode === 'compact'
                         const density = computeInformationDensity(item)
+                        const densityTooltipId = `density-tooltip-${item.id}`
 
                         return (
                           <article
@@ -1603,12 +1604,21 @@ export function DashboardPage() {
                                   </a>
                                 </h3>
                                 <div className="flex shrink-0 items-center gap-2">
-                                  <span
-                                    className="cursor-help rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 dark:bg-teal-900/35 dark:text-teal-200"
-                                    title={density.explanation}
-                                    aria-label={density.explanation}
-                                  >
-                                    {density.label} {density.score}
+                                  <span className="group relative inline-flex">
+                                    <span
+                                      className="cursor-help rounded bg-teal-100 px-1.5 py-0.5 text-[11px] text-teal-800 outline-none dark:bg-teal-900/35 dark:text-teal-200"
+                                      tabIndex={0}
+                                      aria-describedby={densityTooltipId}
+                                    >
+                                      {density.label} {density.score}
+                                    </span>
+                                    <span
+                                      id={densityTooltipId}
+                                      role="tooltip"
+                                      className="pointer-events-none absolute right-0 top-full z-20 mt-2 hidden w-72 rounded-lg border border-slate/20 bg-white/95 px-3 py-2 text-left text-xs leading-relaxed text-slate shadow-lg group-hover:block group-focus-within:block dark:border-cyan-900/50 dark:bg-[#041612]/98 dark:text-white/80"
+                                    >
+                                      {density.explanation}
+                                    </span>
                                   </span>
                                   <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
                                 </div>
