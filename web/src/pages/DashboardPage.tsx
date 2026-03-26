@@ -2142,7 +2142,7 @@ export function DashboardPage() {
                   </div>
                 </>
               ) : windowLayout.type === 'daily_brief' ? (
-                <div className="flex flex-1 flex-col p-3">
+                <div className="flex min-h-0 flex-1 flex-col p-3">
                   {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
                   {dailyBriefHistoryQuery.isError && (
                     <p className="text-sm text-red-600">
@@ -2164,7 +2164,7 @@ export function DashboardPage() {
                     }
 
                     return (
-                    <div className="space-y-3 overflow-auto">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-auto">
                       <div className="rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
