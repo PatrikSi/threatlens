@@ -196,6 +196,7 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
         id=uuid.uuid4(),
         webhook_id=webhook.id,
         user_id=viewer.id,
+        event_type_snapshot="rss_item_new",
         delivery_kind="live",
         success=False,
         status_code=500,
@@ -219,6 +220,7 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
     payload = response.json()
     assert payload["total"] == 1
     assert payload["deliveries"][0]["id"] == str(delivery.id)
+    assert payload["deliveries"][0]["event_type"] == "rss_item_new"
     assert payload["deliveries"][0]["delivery_kind"] == "live"
     assert payload["deliveries"][0]["item_title"] == "Example item"
     assert payload["deliveries"][0]["response_body_preview"] == "server error"
@@ -244,6 +246,7 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
         id=uuid.uuid4(),
         webhook_id=webhook.id,
         user_id=viewer.id,
+        event_type_snapshot="rss_item_new",
         delivery_kind="live",
         success=False,
         status_code=500,
@@ -267,6 +270,7 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
             id=uuid.uuid4(),
             webhook_id=webhook.id,
             user_id=webhook.user_id,
+            event_type_snapshot=delivery.event_type_snapshot,
             delivery_kind="retry",
             success=True,
             status_code=204,
@@ -294,10 +298,85 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
     )
     assert response.status_code == 200
     payload = response.json()
+    assert payload["event_type"] == "rss_item_new"
     assert payload["delivery_kind"] == "retry"
     assert payload["success"] is True
     assert payload["status_code"] == 204
     assert payload["item_title"] == "Retry item"
+
+
+def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Analytics webhook",
+        url_template="https://hooks.example.com/analytics",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all(
+        [
+            webhook,
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                success=True,
+                status_code=204,
+                duration_ms=12,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/analytics",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview="ok",
+                error=None,
+            ),
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="feed_failing",
+                delivery_kind="live",
+                success=False,
+                status_code=500,
+                duration_ms=18,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/analytics",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview="HTTP 500",
+                error="HTTP 500",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get("/notifications/analytics", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total_deliveries"] == 2
+    assert payload["successful_deliveries"] == 1
+    assert payload["failed_deliveries"] == 1
+    assert payload["failures_last_24h"] == 1
+    assert payload["success_rate_pct"] == 50.0
+    assert payload["most_failing_webhook"]["webhook_id"] == str(webhook.id)
+    assert payload["events"] == [
+        {"event_type": "feed_failing", "total_deliveries": 1, "failed_deliveries": 1},
+        {"event_type": "rss_item_new", "total_deliveries": 1, "failed_deliveries": 0},
+    ]
 
 
 def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, seed_users):

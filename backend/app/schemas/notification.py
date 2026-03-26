@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-NotificationEventType = Literal["rss_item_new"]
+NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest"]
 NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]
@@ -137,6 +137,7 @@ class NotificationWebhookDeliveryResponse(BaseModel):
     id: uuid.UUID
     webhook_id: uuid.UUID
     user_id: uuid.UUID
+    event_type: NotificationEventType
     item_id: uuid.UUID | None
     feed_id: uuid.UUID | None
     item_title: str | None
@@ -161,3 +162,26 @@ class NotificationWebhookDeliveryListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class NotificationAnalyticsEventSummary(BaseModel):
+    event_type: NotificationEventType
+    total_deliveries: int
+    failed_deliveries: int
+
+
+class NotificationAnalyticsWebhookSummary(BaseModel):
+    webhook_id: uuid.UUID
+    webhook_name: str
+    failed_deliveries: int
+    last_failure_at: datetime | None
+
+
+class NotificationAnalyticsResponse(BaseModel):
+    total_deliveries: int
+    successful_deliveries: int
+    failed_deliveries: int
+    success_rate_pct: float
+    failures_last_24h: int
+    most_failing_webhook: NotificationAnalyticsWebhookSummary | None
+    events: list[NotificationAnalyticsEventSummary]
