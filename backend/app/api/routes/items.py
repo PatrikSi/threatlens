@@ -12,6 +12,7 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.tag import ItemTag, Tag
@@ -22,6 +23,7 @@ from app.schemas.item import (
     ItemGraphNodeResponse,
     ItemGraphResponse,
     ItemClassificationResponse,
+    ItemAIInsightResponse,
     ItemListEntry,
     ItemListResponse,
     ItemStateResponse,
@@ -321,10 +323,14 @@ def list_items(
             ItemClassification.primary_category.label("primary_category"),
             func.coalesce(state_subq.c.is_read, False).label("is_read"),
             func.coalesce(state_subq.c.is_starred, False).label("is_starred"),
+            ItemAIEnrichment.relevance_score.label("ai_relevance_score"),
+            ItemAIEnrichment.relevance_label.label("ai_relevance_label"),
+            ItemAIEnrichment.status.label("ai_status"),
         )
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .outerjoin(state_subq, state_subq.c.item_id == Item.id)
+        .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
     )
 
     filters = []
@@ -400,6 +406,9 @@ def list_items(
             is_starred=row.is_starred,
             tags=tags_by_item.get(row.Item.id, []),
             tag_details=tag_details_by_item.get(row.Item.id, []),
+            ai_relevance_score=float(row.ai_relevance_score) if row.ai_relevance_score is not None else None,
+            ai_relevance_label=row.ai_relevance_label,
+            ai_status=row.ai_status,
         )
         for row in rows
     ]
@@ -425,6 +434,7 @@ def get_item(
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
     classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
+    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     state = db.scalar(
         select(ItemState).where(and_(ItemState.user_id == user.id, ItemState.item_id == item_id))
@@ -476,6 +486,18 @@ def get_item(
         tags=existing_tag_names,
         tag_details=tag_details_by_item.get(item_id, []),
         tag_suggestions=tag_suggestions,
+        ai_insight=ItemAIInsightResponse(
+            status=enrichment.status,
+            summary_text=enrichment.summary_text,
+            relevance_score=float(enrichment.relevance_score) if enrichment.relevance_score is not None else None,
+            relevance_label=enrichment.relevance_label,
+            relevance_reasons=list(enrichment.relevance_reasons_json or []),
+            model=enrichment.model,
+            generated_at=enrichment.generated_at,
+            error=enrichment.error,
+        )
+        if enrichment
+        else None,
         article=article,
         state=state_view,
     )

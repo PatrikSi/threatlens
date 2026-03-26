@@ -18,6 +18,8 @@ SCOPE_READ_USERS = "read:users"
 SCOPE_WRITE_USERS = "write:users"
 SCOPE_READ_AUDIT = "read:audit"
 SCOPE_READ_STATS = "read:stats"
+SCOPE_READ_AI = "read:ai"
+SCOPE_WRITE_AI = "write:ai"
 
 SCOPE_READ_ALL = "read:*"
 SCOPE_WRITE_ALL = "write:*"
@@ -43,6 +45,8 @@ ALLOWED_API_TOKEN_SCOPES = {
     SCOPE_WRITE_USERS,
     SCOPE_READ_AUDIT,
     SCOPE_READ_STATS,
+    SCOPE_READ_AI,
+    SCOPE_WRITE_AI,
     SCOPE_READ_ALL,
     SCOPE_WRITE_ALL,
     SCOPE_ADMIN_ALL,

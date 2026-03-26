@@ -25,6 +25,8 @@ from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.services.ai_config import load_active_ai_settings
+from app.services.ai_integration import generate_daily_brief, generate_item_ai_enrichment
 from app.services.connectors.rss import RSSConnector
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
@@ -548,6 +550,24 @@ def dispatch_daily_digest_notification_webhooks():
         return {"status": "ok", "matched_webhooks": len(webhooks), "delivered": delivered, "failed": failed, "skipped": skipped}
 
 
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")
+def dispatch_daily_ai_brief_generation():
+    with db_session() as db:
+        active_ai_settings = load_active_ai_settings(db)
+        if not active_ai_settings.ai_enabled:
+            return {"status": "skipped", "reason": "ai_disabled"}
+        if not active_ai_settings.ai_configured:
+            return {"status": "skipped", "reason": "ai_not_configured"}
+        if not active_ai_settings.daily_brief_enabled:
+            return {"status": "skipped", "reason": "daily_brief_disabled"}
+
+        brief = generate_daily_brief(db, force=False)
+        db.commit()
+        if brief is None:
+            return {"status": "skipped", "reason": "no_items"}
+        return {"status": brief.status, "brief_date": brief.brief_date.isoformat()}
+
+
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
 def record_beat_heartbeat():
     now = datetime.now(timezone.utc).isoformat()
@@ -992,6 +1012,14 @@ def classify_item(item_id: str):
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
         feed_name = feed.name if feed is not None else ""
         feed_url = feed.url if feed is not None else ""
+        active_ai_settings = load_active_ai_settings(db)
+        queue_ai_enrichment = bool(
+            active_ai_settings.ai_enabled
+            and active_ai_settings.ai_configured
+            and active_ai_settings.auto_enrich_new_items
+            and article is not None
+            and (article.text or "").strip()
+        )
 
         result = classify_item_content(
             title=item.title,
@@ -1023,6 +1051,8 @@ def classify_item(item_id: str):
             db.commit()
             dispatch_alert_match_notification_webhooks.delay(item_id)
             extract_item_iocs.delay(item_id)
+            if queue_ai_enrichment:
+                generate_item_ai_enrichment_task.delay(item_id)
             return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
 
         if row is None:
@@ -1060,7 +1090,52 @@ def classify_item(item_id: str):
 
     dispatch_alert_match_notification_webhooks.delay(item_id)
     extract_item_iocs.delay(item_id)
+    if queue_ai_enrichment:
+        generate_item_ai_enrichment_task.delay(item_id)
     return {"status": "ok", "item_id": item_id, "category": result.primary_category}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.generate_item_ai_enrichment")
+def generate_item_ai_enrichment_task(item_id: str, force: bool = False):
+    with db_session() as db:
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        enrichment = generate_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+        db.commit()
+        if enrichment is None:
+            return {"status": "skipped", "reason": "not_eligible", "item_id": item_id}
+        return {"status": enrichment.status, "item_id": item_id}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.reprocess_recent_ai_items")
+def reprocess_recent_ai_items(days: int, limit: int):
+    runtime_settings = get_settings()
+    effective_limit = max(1, min(int(limit), int(runtime_settings.dispatch_ai_reprocess_batch_size)))
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+
+    with db_session() as db:
+        active_ai_settings = load_active_ai_settings(db)
+        if not active_ai_settings.ai_enabled:
+            return {"queued": 0, "reason": "ai_disabled"}
+        if not active_ai_settings.ai_configured:
+            return {"queued": 0, "reason": "ai_not_configured"}
+
+        item_ids = db.scalars(
+            select(Item.id)
+            .join(Article, Article.item_id == Item.id)
+            .where(Item.first_seen_at >= cutoff, Article.text.is_not(None))
+            .order_by(Item.first_seen_at.desc())
+            .limit(effective_limit)
+        ).all()
+
+    queued = 0
+    for item_id_value in item_ids:
+        generate_item_ai_enrichment_task.delay(str(item_id_value), force=True)
+        queued += 1
+    return {"queued": queued}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.extract_item_iocs")

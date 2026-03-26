@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     allow_legacy_unscoped_tokens: bool = False
     allow_self_registration: bool = False
     default_api_token_expiry_days: int = 90
+    ai_enabled: bool = False
+    ai_api_key: str | None = None
 
     auth_cookie_name: str = "threatlens_session"
     auth_cookie_domain: str | None = None
@@ -59,6 +61,7 @@ class Settings(BaseSettings):
     dispatch_items_missing_iocs_batch_size: int = 200
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
+    dispatch_ai_reprocess_batch_size: int = 100
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
