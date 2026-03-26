@@ -1,6 +1,6 @@
 """add notification delivery event snapshots
 
-Revision ID: 0013_notification_event_snapshots
+Revision ID: 0013_notification_events
 Revises: 0012_custom_tagging
 Create Date: 2026-03-26 00:00:03.000000
 """
@@ -9,7 +9,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "0013_notification_event_snapshots"
+revision = "0013_notification_events"
 down_revision = "0012_custom_tagging"
 branch_labels = None
 depends_on = None
