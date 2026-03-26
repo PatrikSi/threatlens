@@ -13,6 +13,7 @@ import {
 
 type NotificationWebhookDraft = Omit<NotificationWebhookWriteRequest, 'body_template'> & {
   body_template: string
+  content_type: string
 }
 
 const DEFAULT_JSON_FIELDS: NotificationWebhookField[] = [
@@ -124,15 +125,19 @@ export function NotificationsPage() {
   }
 
   const onSave = () => {
+    const normalizedDraft = normalizeDraftUrlQuery(draft)
+    setDraft(normalizedDraft)
     setFormNotice(null)
-    saveWebhook.mutate(createRequestFromDraft(draft))
+    saveWebhook.mutate(createRequestFromDraft(normalizedDraft))
   }
 
   const onTest = () => {
+    const normalizedDraft = normalizeDraftUrlQuery(draft)
+    setDraft(normalizedDraft)
     setFormNotice(null)
     testWebhook.mutate({
-      webhook: createRequestFromDraft(draft),
-      sample_feed_id: sampleFeedId || (draft.feed_scope === 'selected' ? draft.feed_ids[0] : undefined),
+      webhook: createRequestFromDraft(normalizedDraft),
+      sample_feed_id: sampleFeedId || (normalizedDraft.feed_scope === 'selected' ? normalizedDraft.feed_ids[0] : undefined),
     })
   }
 
@@ -257,8 +262,12 @@ export function NotificationsPage() {
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.url_template}
                   onChange={(event) => setDraft((current) => ({ ...current, url_template: event.target.value }))}
+                  onBlur={() => setDraft((current) => normalizeDraftUrlQuery(current))}
                   placeholder="https://hooks.example.com/notify?source={{ feed.name }}"
                 />
+                <p className="mt-1 text-xs text-slate dark:text-white/60">
+                  Query strings like `?token=abc` are automatically moved into Query Parameters.
+                </p>
               </div>
               <div>
                 <label className="text-sm font-semibold">Timeout (seconds)</label>
@@ -288,6 +297,25 @@ export function NotificationsPage() {
                   <option value="raw">Raw body</option>
                   <option value="none">No body</option>
                 </select>
+              </div>
+              <div>
+                <label className="text-sm font-semibold">Content Type</label>
+                <input
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                  list="notification-content-types"
+                  value={draft.content_type}
+                  onChange={(event) => setDraft((current) => ({ ...current, content_type: event.target.value }))}
+                  placeholder={`Auto (${resolveDefaultContentTypeLabel(draft.body_mode)})`}
+                />
+                <datalist id="notification-content-types">
+                  <option value="application/json" />
+                  <option value="application/x-www-form-urlencoded" />
+                  <option value="text/plain; charset=utf-8" />
+                  <option value="text/markdown; charset=utf-8" />
+                </datalist>
+                <p className="mt-1 text-xs text-slate dark:text-white/60">
+                  Leave blank to use the default for the selected body mode.
+                </p>
               </div>
             </div>
 
@@ -356,7 +384,7 @@ export function NotificationsPage() {
               />
               <KeyValueEditor
                 title="Headers"
-                description="Custom headers such as authorization, routing, or tenant IDs."
+                description="Custom headers such as authorization, routing, or tenant IDs. Content-Type is managed separately above."
                 fields={draft.headers}
                 addLabel="Add header"
                 keyPlaceholder="Authorization"
@@ -622,11 +650,13 @@ function createDefaultDraft(): NotificationWebhookDraft {
     body_mode: 'json',
     body_fields: DEFAULT_JSON_FIELDS.map((field) => ({ ...field })),
     body_template: '',
+    content_type: '',
     timeout_seconds: 10,
   }
 }
 
 function createDraftFromWebhook(webhook: NotificationWebhook): NotificationWebhookDraft {
+  const { contentType, headers } = splitContentTypeHeader(webhook.headers)
   return {
     name: webhook.name,
     enabled: webhook.enabled,
@@ -636,29 +666,31 @@ function createDraftFromWebhook(webhook: NotificationWebhook): NotificationWebho
     feed_scope: webhook.feed_scope,
     feed_ids: [...webhook.feed_ids],
     query_params: webhook.query_params.map((field) => ({ ...field })),
-    headers: webhook.headers.map((field) => ({ ...field })),
+    headers: headers.map((field) => ({ ...field })),
     body_mode: webhook.body_mode,
     body_fields: webhook.body_fields.map((field) => ({ ...field })),
     body_template: webhook.body_template ?? '',
+    content_type: contentType,
     timeout_seconds: webhook.timeout_seconds,
   }
 }
 
 function createRequestFromDraft(draft: NotificationWebhookDraft): NotificationWebhookWriteRequest {
+  const normalizedDraft = normalizeDraftUrlQuery(draft)
   return {
-    name: draft.name.trim(),
-    enabled: draft.enabled,
+    name: normalizedDraft.name.trim(),
+    enabled: normalizedDraft.enabled,
     event_type: 'rss_item_new',
-    url_template: draft.url_template.trim(),
-    method: draft.method,
-    feed_scope: draft.feed_scope,
-    feed_ids: draft.feed_scope === 'selected' ? draft.feed_ids : [],
-    query_params: sanitizeFields(draft.query_params),
-    headers: sanitizeFields(draft.headers),
-    body_mode: draft.body_mode,
-    body_fields: draft.body_mode === 'json' || draft.body_mode === 'form' ? sanitizeFields(draft.body_fields) : [],
-    body_template: draft.body_mode === 'raw' ? draft.body_template : null,
-    timeout_seconds: draft.timeout_seconds,
+    url_template: normalizedDraft.url_template.trim(),
+    method: normalizedDraft.method,
+    feed_scope: normalizedDraft.feed_scope,
+    feed_ids: normalizedDraft.feed_scope === 'selected' ? normalizedDraft.feed_ids : [],
+    query_params: sanitizeFields(normalizedDraft.query_params),
+    headers: buildRequestHeaders(normalizedDraft),
+    body_mode: normalizedDraft.body_mode,
+    body_fields: normalizedDraft.body_mode === 'json' || normalizedDraft.body_mode === 'form' ? sanitizeFields(normalizedDraft.body_fields) : [],
+    body_template: normalizedDraft.body_mode === 'raw' ? normalizedDraft.body_template : null,
+    timeout_seconds: normalizedDraft.timeout_seconds,
   }
 }
 
@@ -703,6 +735,19 @@ function applyBodyMode(current: NotificationWebhookDraft, nextBodyMode: Notifica
   }
 }
 
+function normalizeDraftUrlQuery(current: NotificationWebhookDraft): NotificationWebhookDraft {
+  const extracted = extractUrlQueryParams(current.url_template)
+  if (extracted == null) {
+    return current
+  }
+
+  return {
+    ...current,
+    url_template: extracted.baseUrl,
+    query_params: mergeQueryParams(current.query_params, extracted.queryParams),
+  }
+}
+
 function toggleFeedSelection(current: NotificationWebhookDraft, feedId: string): NotificationWebhookDraft {
   const alreadySelected = current.feed_ids.includes(feedId)
   return {
@@ -718,6 +763,95 @@ function updateField(fields: NotificationWebhookField[], index: number, patch: P
 
 function emptyField(): NotificationWebhookField {
   return { key: '', value: '' }
+}
+
+function splitContentTypeHeader(headers: NotificationWebhookField[]): { contentType: string; headers: NotificationWebhookField[] } {
+  let contentType = ''
+  const remainingHeaders: NotificationWebhookField[] = []
+
+  for (const header of headers) {
+    if (header.key.trim().toLowerCase() === 'content-type') {
+      if (!contentType) {
+        contentType = header.value
+      }
+      continue
+    }
+    remainingHeaders.push({ ...header })
+  }
+
+  return { contentType, headers: remainingHeaders }
+}
+
+function buildRequestHeaders(draft: NotificationWebhookDraft): NotificationWebhookField[] {
+  const headers = sanitizeFields(draft.headers).filter((header) => header.key.trim().toLowerCase() !== 'content-type')
+  const contentType = draft.content_type.trim()
+  if (contentType) {
+    headers.push({ key: 'Content-Type', value: contentType })
+  }
+  return headers
+}
+
+function extractUrlQueryParams(urlTemplate: string): { baseUrl: string; queryParams: NotificationWebhookField[] } | null {
+  const trimmedUrl = urlTemplate.trim()
+  const queryIndex = trimmedUrl.indexOf('?')
+  if (queryIndex === -1) {
+    return null
+  }
+
+  const hashIndex = trimmedUrl.indexOf('#', queryIndex)
+  const baseUrl = hashIndex === -1 ? trimmedUrl.slice(0, queryIndex) : `${trimmedUrl.slice(0, queryIndex)}${trimmedUrl.slice(hashIndex)}`
+  const rawQuery = hashIndex === -1 ? trimmedUrl.slice(queryIndex + 1) : trimmedUrl.slice(queryIndex + 1, hashIndex)
+  const queryParams = rawQuery
+    .split('&')
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .map((segment) => {
+      const separatorIndex = segment.indexOf('=')
+      const rawKey = separatorIndex === -1 ? segment : segment.slice(0, separatorIndex)
+      const rawValue = separatorIndex === -1 ? '' : segment.slice(separatorIndex + 1)
+      return {
+        key: decodeQueryComponent(rawKey),
+        value: decodeQueryComponent(rawValue),
+      }
+    })
+    .filter((field) => field.key.trim().length > 0)
+
+  if (!queryParams.length) {
+    return { baseUrl, queryParams: [] }
+  }
+
+  return { baseUrl, queryParams }
+}
+
+function mergeQueryParams(existing: NotificationWebhookField[], extracted: NotificationWebhookField[]): NotificationWebhookField[] {
+  if (!extracted.length) {
+    return existing
+  }
+
+  const extractedKeys = new Set(extracted.map((field) => field.key))
+  return [...existing.filter((field) => !extractedKeys.has(field.key)), ...extracted]
+}
+
+function decodeQueryComponent(value: string): string {
+  const normalized = value.replace(/\+/g, ' ')
+  try {
+    return decodeURIComponent(normalized)
+  } catch {
+    return normalized
+  }
+}
+
+function resolveDefaultContentTypeLabel(bodyMode: NotificationWebhookDraft['body_mode']): string {
+  if (bodyMode === 'json') {
+    return 'application/json'
+  }
+  if (bodyMode === 'form') {
+    return 'application/x-www-form-urlencoded'
+  }
+  if (bodyMode === 'raw') {
+    return 'auto detect'
+  }
+  return 'none'
 }
 
 function describeFeedScope(scope: NotificationWebhook['feed_scope'], count: number): string {
