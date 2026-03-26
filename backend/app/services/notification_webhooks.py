@@ -7,7 +7,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from urllib.parse import urlencode, urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy import select
@@ -61,6 +61,21 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
 TEMPLATE_VARIABLE_KEYS = frozenset(variable.key for variable in TEMPLATE_VARIABLES)
 TEMPLATE_PATTERN = __import__("re").compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 MAX_RESPONSE_PREVIEW_CHARS = 4000
+BLOCKED_REQUEST_HEADERS = frozenset(
+    {
+        "connection",
+        "content-length",
+        "expect",
+        "host",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    }
+)
 
 
 class TemplateRenderError(ValueError):
@@ -189,8 +204,7 @@ def render_notification_request(
     rendered_url = _render_template(payload.url_template, context)
     rendered_query_params = [_render_field(field, context) for field in payload.query_params]
     rendered_headers = [_render_field(field, context) for field in payload.headers]
-
-    headers_dict = {field.key: field.value for field in rendered_headers}
+    headers_dict = _canonicalize_headers(rendered_headers)
     query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
 
     body_text: str | None = None
@@ -214,6 +228,8 @@ def render_notification_request(
         body_text = _render_template(payload.body_template or "", context)
         raw_body = body_text.encode("utf-8")
         headers_dict.setdefault("Content-Type", _default_raw_content_type(body_text))
+
+    rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
 
     return RenderedNotificationRequest(
         method=payload.method,
@@ -429,6 +445,31 @@ def _default_raw_content_type(body_text: str) -> str:
     return "text/plain; charset=utf-8"
 
 
+def _canonicalize_headers(fields: list[NotificationWebhookField]) -> dict[str, str]:
+    canonical_headers: dict[str, str] = {}
+    seen_names: set[str] = set()
+
+    for field in fields:
+        header_name = field.key.strip()
+        if not header_name:
+            raise TemplateRenderError("Header name cannot be empty")
+
+        normalized_name = header_name.lower()
+        if normalized_name in BLOCKED_REQUEST_HEADERS:
+            raise TemplateRenderError(f"Header is not allowed: {header_name}")
+        if normalized_name in seen_names:
+            raise TemplateRenderError(f"Duplicate header: {header_name}")
+
+        seen_names.add(normalized_name)
+        canonical_headers[_canonical_header_name(header_name)] = field.value
+
+    return canonical_headers
+
+
+def _canonical_header_name(header_name: str) -> str:
+    return "-".join(part[:1].upper() + part[1:] for part in header_name.split("-"))
+
+
 def _send_rendered_notification_request(rendered: RenderedNotificationRequest) -> NotificationWebhookTestResponse:
     timeout = httpx.Timeout(
         connect=rendered.timeout_seconds,
@@ -466,19 +507,42 @@ def _send_rendered_notification_request(rendered: RenderedNotificationRequest) -
         )
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
-    response_body_preview = response.text[:MAX_RESPONSE_PREVIEW_CHARS]
-    return NotificationWebhookTestResponse(
-        success=200 <= response.status_code < 400,
-        status_code=response.status_code,
-        duration_ms=duration_ms,
-        rendered_url=str(response.request.url),
-        rendered_method=rendered.method,
-        rendered_headers=rendered.headers,
-        rendered_query_params=rendered.query_params,
-        rendered_body=rendered.body,
-        response_body_preview=response_body_preview,
-        error=None if 200 <= response.status_code < 400 else f"HTTP {response.status_code}",
-    )
+    try:
+        response_body_preview = _read_response_preview(response, max_bytes=MAX_RESPONSE_PREVIEW_CHARS)
+        return NotificationWebhookTestResponse(
+            success=200 <= response.status_code < 400,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            rendered_url=str(response.request.url),
+            rendered_method=response.request.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview=response_body_preview,
+            error=None if 200 <= response.status_code < 400 else f"HTTP {response.status_code}",
+        )
+    finally:
+        response.close()
+
+
+def _read_response_preview(response: httpx.Response, *, max_bytes: int) -> str:
+    preview_chunks: list[bytes] = []
+    remaining = max_bytes
+
+    for chunk in response.iter_bytes():
+        if remaining <= 0:
+            break
+
+        if len(chunk) <= remaining:
+            preview_chunks.append(chunk)
+            remaining -= len(chunk)
+            continue
+
+        preview_chunks.append(chunk[:remaining])
+        remaining = 0
+        break
+
+    return b"".join(preview_chunks).decode("utf-8", errors="replace")
 
 
 def _send_request_with_redirects(
@@ -498,18 +562,19 @@ def _send_request_with_redirects(
     current_json_body = json_body
     current_form_body = form_body
     current_raw_body = raw_body
+    current_params = list(params)
 
     while True:
         ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_fetch)
-        response = client.request(
+        request_url = _merge_request_url(current_url, current_params)
+        request = client.build_request(
             current_method,
-            current_url,
+            request_url,
             headers=headers,
-            params=params,
             json=current_json_body,
             data=current_form_body if current_form_body is not None else current_raw_body,
-            follow_redirects=False,
         )
+        response = client.send(request, stream=True, follow_redirects=False)
         if response.status_code not in REDIRECT_STATUS_CODES:
             return response
 
@@ -525,9 +590,34 @@ def _send_request_with_redirects(
 
         redirect_status = response.status_code
         response.close()
-        current_url = urljoin(current_url, location)
+        redirect_url = urljoin(current_url, location)
+        if _origin_tuple(redirect_url) != _origin_tuple(current_url):
+            raise RedirectError("Cross-origin redirects are not allowed")
+        current_url = redirect_url
+        current_params = []
         if redirect_status in {301, 302, 303} and current_method not in {"GET", "HEAD"}:
             current_method = "GET"
             current_json_body = None
             current_form_body = None
             current_raw_body = None
+
+
+def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
+    if not params:
+        return url
+
+    split = urlsplit(url)
+    query_pairs = parse_qsl(split.query, keep_blank_values=True)
+    query_pairs.extend(params)
+    merged_query = urlencode(query_pairs, doseq=True)
+    return urlunsplit((split.scheme, split.netloc, split.path, merged_query, split.fragment))
+
+
+def _origin_tuple(url: str) -> tuple[str, str, int | None]:
+    split = urlsplit(url)
+    try:
+        port = split.port
+    except ValueError as exc:
+        raise RedirectError("Redirect target URL is invalid") from exc
+
+    return split.scheme.lower(), (split.hostname or "").lower(), port
