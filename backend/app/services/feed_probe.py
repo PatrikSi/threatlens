@@ -28,7 +28,7 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
     settings = get_settings()
     target_url = url.strip()
 
-    if not is_fetchable_url(target_url):
+    if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
         raise FeedProbeError("Feed URL is not allowed")
 
     timeout = httpx.Timeout(
@@ -44,6 +44,7 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                 client,
                 "GET",
                 target_url,
+                allow_private_network=settings.allow_private_network_fetch,
                 max_redirects=settings.outbound_max_redirects,
             )
             try:
