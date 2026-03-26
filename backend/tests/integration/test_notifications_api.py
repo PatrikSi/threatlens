@@ -84,6 +84,34 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
     assert db_session.scalar(select(NotificationWebhook).where(NotificationWebhook.id == uuid.UUID(webhook_id))) is None
 
 
+def test_notification_webhook_create_extracts_query_string_into_params(client: TestClient, auth_headers):
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Query parser",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/notify?token=abc123&priority=5",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert response.status_code == 201
+    payload = response.json()
+    assert payload["url_template"] == "https://hooks.example.com/notify"
+    assert payload["query_params"] == [
+        {"key": "token", "value": "abc123"},
+        {"key": "priority", "value": "5"},
+    ]
+
+
 def test_notification_webhook_test_endpoint_returns_render_result(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
     viewer = seed_users["viewer"]
     feed = Feed(
