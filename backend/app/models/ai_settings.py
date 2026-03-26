@@ -34,6 +34,8 @@ class AISettings(Base):
     company_keywords_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     company_exclusions_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     company_profile_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    item_enrichment_system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    daily_brief_system_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     global_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     item_summary_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     relevance_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)

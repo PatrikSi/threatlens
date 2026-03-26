@@ -49,10 +49,29 @@ class ActiveAISettings:
     company_keywords: list[str]
     company_exclusions: list[str]
     company_profile_text: str | None
+    item_enrichment_system_prompt: str | None
+    daily_brief_system_prompt: str | None
     global_instructions: str | None
     item_summary_instructions: str | None
     relevance_instructions: str | None
     daily_brief_instructions: str | None
+
+
+DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT = "\n".join(
+    [
+        "You are ThreatLens, producing structured security analysis for a single defended organization.",
+        "Return only JSON with the requested keys. Do not include markdown code fences.",
+        "Be conservative. If the content is weak or not clearly relevant, use a lower relevance score.",
+    ]
+)
+
+DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
+    [
+        "You are ThreatLens, writing an executive security briefing for one defended organization.",
+        "Return only JSON with these keys: title, brief_text, key_points, recommended_actions.",
+        "Use concise, factual language and focus on what matters to the company profile.",
+    ]
+)
 
 
 def get_or_create_ai_settings(db: Session) -> AISettings:
@@ -104,6 +123,8 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.company_keywords_json = list(payload.company_keywords)
     settings.company_exclusions_json = list(payload.company_exclusions)
     settings.company_profile_text = _normalize_optional_text(payload.company_profile_text)
+    settings.item_enrichment_system_prompt = _normalize_optional_text(payload.item_enrichment_system_prompt)
+    settings.daily_brief_system_prompt = _normalize_optional_text(payload.daily_brief_system_prompt)
     settings.global_instructions = _normalize_optional_text(payload.global_instructions)
     settings.item_summary_instructions = _normalize_optional_text(payload.item_summary_instructions)
     settings.relevance_instructions = _normalize_optional_text(payload.relevance_instructions)
@@ -141,6 +162,8 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         company_keywords=[entry for entry in (settings.company_keywords_json or []) if entry],
         company_exclusions=[entry for entry in (settings.company_exclusions_json or []) if entry],
         company_profile_text=settings.company_profile_text,
+        item_enrichment_system_prompt=resolve_item_enrichment_system_prompt(settings.item_enrichment_system_prompt),
+        daily_brief_system_prompt=resolve_daily_brief_system_prompt(settings.daily_brief_system_prompt),
         global_instructions=settings.global_instructions,
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
@@ -174,6 +197,8 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         company_keywords=[entry for entry in (settings.company_keywords_json or []) if entry],
         company_exclusions=[entry for entry in (settings.company_exclusions_json or []) if entry],
         company_profile_text=settings.company_profile_text,
+        item_enrichment_system_prompt=resolve_item_enrichment_system_prompt(settings.item_enrichment_system_prompt),
+        daily_brief_system_prompt=resolve_daily_brief_system_prompt(settings.daily_brief_system_prompt),
         global_instructions=settings.global_instructions,
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
@@ -240,6 +265,8 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         company_keywords=[entry for entry in (settings.company_keywords_json or []) if entry],
         company_exclusions=[entry for entry in (settings.company_exclusions_json or []) if entry],
         company_profile_text=settings.company_profile_text,
+        item_enrichment_system_prompt=resolve_item_enrichment_system_prompt(settings.item_enrichment_system_prompt),
+        daily_brief_system_prompt=resolve_daily_brief_system_prompt(settings.daily_brief_system_prompt),
         global_instructions=settings.global_instructions,
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
@@ -248,11 +275,7 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
 
 
 def build_item_enrichment_system_prompt(active: ActiveAISettings) -> str:
-    system_parts = [
-        "You are ThreatLens, producing structured security analysis for a single defended organization.",
-        "Return only JSON with the requested keys. Do not include markdown code fences.",
-        "Be conservative. If the content is weak or not clearly relevant, use a lower relevance score.",
-    ]
+    system_parts = [resolve_item_enrichment_system_prompt(active.item_enrichment_system_prompt)]
     if active.global_instructions:
         system_parts.append(active.global_instructions)
     if active.item_summary_instructions and active.summary_enabled:
@@ -263,11 +286,7 @@ def build_item_enrichment_system_prompt(active: ActiveAISettings) -> str:
 
 
 def build_daily_brief_system_prompt(active: ActiveAISettings) -> str:
-    system_parts = [
-        "You are ThreatLens, writing an executive security briefing for one defended organization.",
-        "Return only JSON with these keys: title, brief_text, key_points, recommended_actions.",
-        "Use concise, factual language and focus on what matters to the company profile.",
-    ]
+    system_parts = [resolve_daily_brief_system_prompt(active.daily_brief_system_prompt)]
     if active.global_instructions:
         system_parts.append(active.global_instructions)
     if active.daily_brief_instructions:
@@ -282,6 +301,7 @@ def build_prompt_previews(active: ActiveAISettings) -> AIPromptPreviews:
             system_prompt=build_item_enrichment_system_prompt(active),
             notes=[
                 "Used for article summaries and relevance scoring.",
+                "This editable base prompt is followed by any global, summary, and relevance instructions you configure below.",
                 "Company profile, classification, tags, and article content are sent separately as structured JSON.",
             ],
         ),
@@ -290,10 +310,19 @@ def build_prompt_previews(active: ActiveAISettings) -> AIPromptPreviews:
             system_prompt=build_daily_brief_system_prompt(active),
             notes=[
                 "Used when generating dashboard daily briefings.",
-                "Company profile and the selected briefing items are sent separately as structured JSON.",
+                "This editable base prompt is followed by any global and daily brief instructions you configure below.",
+                "Company profile, classification, tags, and article content are sent separately as structured JSON.",
             ],
         ),
     )
+
+
+def resolve_item_enrichment_system_prompt(value: str | None) -> str:
+    return _normalize_optional_text(value) or DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT
+
+
+def resolve_daily_brief_system_prompt(value: str | None) -> str:
+    return _normalize_optional_text(value) or DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT
 
 
 def _normalize_optional_text(value: str | None) -> str | None:
