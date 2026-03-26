@@ -6,12 +6,25 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.user import User
+
+
+@pytest.fixture(autouse=True)
+def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_FETCH", "false")
+    monkeypatch.setenv("AI_ENABLED", "false")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
 
 
 @pytest.fixture()

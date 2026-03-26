@@ -1,7 +1,7 @@
 """add ai integration tables
 
 Revision ID: 0014_ai_integration
-Revises: 0013_notification_event_snapshots
+Revises: 0013_notification_events
 Create Date: 2026-03-26 00:00:03.000000
 """
 
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 revision = "0014_ai_integration"
-down_revision = "0013_notification_event_snapshots"
+down_revision = "0013_notification_events"
 branch_labels = None
 depends_on = None
 
