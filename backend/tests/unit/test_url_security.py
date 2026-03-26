@@ -17,7 +17,7 @@ def test_runtime_fetchable_url_allows_public_dns_resolution(monkeypatch):
     assert is_runtime_fetchable_url("https://example.com/feed.xml")
 
 
-def test_runtime_fetchable_url_allows_private_dns_resolution_by_default(monkeypatch):
+def test_runtime_fetchable_url_blocks_private_dns_resolution_by_default(monkeypatch):
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
@@ -26,10 +26,10 @@ def test_runtime_fetchable_url_allows_private_dns_resolution_by_default(monkeypa
         ],
     )
 
-    assert is_runtime_fetchable_url("https://internal.example.com/feed.xml")
+    assert not is_runtime_fetchable_url("https://internal.example.com/feed.xml")
 
 
-def test_runtime_fetchable_url_allows_local_host_suffix_by_default(monkeypatch):
+def test_runtime_fetchable_url_blocks_local_host_suffix_by_default(monkeypatch):
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
@@ -38,10 +38,22 @@ def test_runtime_fetchable_url_allows_local_host_suffix_by_default(monkeypatch):
         ],
     )
 
-    assert is_runtime_fetchable_url("https://corp.local/feed.xml")
+    assert not is_runtime_fetchable_url("https://corp.local/feed.xml")
 
 
-def test_ensure_runtime_fetchable_url_can_still_raise_when_private_targets_are_explicitly_disabled(monkeypatch):
+def test_runtime_fetchable_url_can_allow_private_targets_when_explicitly_enabled(monkeypatch):
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *_args, **_kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0)),
+        ],
+    )
+
+    assert is_runtime_fetchable_url("https://localhost/feed.xml", allow_private_network=True)
+
+
+def test_ensure_runtime_fetchable_url_raises_for_private_targets_by_default(monkeypatch):
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
@@ -51,4 +63,4 @@ def test_ensure_runtime_fetchable_url_can_still_raise_when_private_targets_are_e
     )
 
     with pytest.raises(ValueError):
-        ensure_runtime_fetchable_url("https://localhost/feed.xml", allow_private_network=False)
+        ensure_runtime_fetchable_url("https://localhost/feed.xml")

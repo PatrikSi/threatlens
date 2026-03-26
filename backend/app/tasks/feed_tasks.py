@@ -416,7 +416,7 @@ def fetch_feed(self, feed_id: str):
             if feed.last_modified:
                 headers["If-Modified-Since"] = feed.last_modified
 
-            if not is_fetchable_url(feed.url):
+            if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
                 _mark_feed_failure(db, feed, "unsafe_feed_url")
                 return {"status": "error", "feed_id": feed_id}
 
@@ -433,6 +433,7 @@ def fetch_feed(self, feed_id: str):
                         "GET",
                         feed.url,
                         headers=headers,
+                        allow_private_network=settings.allow_private_network_fetch,
                         max_redirects=settings.outbound_max_redirects,
                     )
                     try:
@@ -527,7 +528,7 @@ def fetch_article(self, item_id: str):
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
         target_url = item.canonical_url or item.url
-        if not is_fetchable_url(target_url):
+        if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
             _store_article_error(
                 db,
                 item,
@@ -559,6 +560,7 @@ def fetch_article(self, item_id: str):
                         client,
                         "GET",
                         target_url,
+                        allow_private_network=settings.allow_private_network_fetch,
                         max_redirects=settings.outbound_max_redirects,
                     )
                     try:
@@ -661,7 +663,7 @@ def fetch_article(self, item_id: str):
         article.fetch_ms = fetch_ms
         article.error = extracted.get("error")
 
-        if canonical and is_fetchable_url(canonical):
+        if canonical and is_fetchable_url(canonical, allow_private_network=settings.allow_private_network_fetch):
             item.canonical_url = canonical
 
         if article.text:

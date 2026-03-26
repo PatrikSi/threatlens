@@ -500,7 +500,7 @@ def _send_request_with_redirects(
     current_raw_body = raw_body
 
     while True:
-        ensure_runtime_fetchable_url(current_url)
+        ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_fetch)
         response = client.request(
             current_method,
             current_url,

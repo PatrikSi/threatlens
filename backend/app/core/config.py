@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     article_connect_timeout_seconds: int = 5
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
+    allow_private_network_fetch: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
