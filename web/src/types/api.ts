@@ -579,6 +579,17 @@ export interface TaggingReapplyResponse {
   queued: boolean
 }
 
+export interface AIPromptPreview {
+  label: string
+  system_prompt: string
+  notes: string[]
+}
+
+export interface AIPromptPreviews {
+  item_enrichment: AIPromptPreview
+  daily_brief: AIPromptPreview
+}
+
 export interface AISettings {
   id: string
   ai_enabled: boolean
@@ -613,6 +624,7 @@ export interface AISettings {
   daily_brief_instructions: string | null
   created_at: string
   updated_at: string
+  prompt_previews: AIPromptPreviews
 }
 
 export interface AISettingsUpdateRequest {
