@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import case, func, select
+from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
@@ -201,6 +201,7 @@ def generate_daily_brief(
 
     existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == brief_date))
     if existing is not None and existing.status == "ready" and not force:
+        prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
         return existing
 
     window_end = now
@@ -259,6 +260,7 @@ def generate_daily_brief(
         brief.error = str(exc)
         brief.generated_at = now
         db.add(brief)
+        prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
         return brief
 
     brief.status = "ready"
@@ -276,11 +278,45 @@ def generate_daily_brief(
     brief.error = None
     brief.generated_at = now
     db.add(brief)
+    prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
     return brief
 
 
 def get_latest_daily_brief(db: Session) -> AIDailyBrief | None:
-    return db.scalar(select(AIDailyBrief).order_by(AIDailyBrief.brief_date.desc()))
+    return db.scalar(
+        select(AIDailyBrief)
+        .where(AIDailyBrief.status == "ready")
+        .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast())
+    )
+
+
+def get_recent_daily_briefs(db: Session, *, limit: int) -> list[AIDailyBrief]:
+    return list(
+        db.scalars(
+            select(AIDailyBrief)
+            .where(AIDailyBrief.status == "ready")
+            .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.generated_at.desc().nullslast())
+            .limit(limit)
+        )
+    )
+
+
+def prune_daily_brief_history(db: Session, *, keep_limit: int) -> int:
+    if keep_limit < 1:
+        return 0
+
+    stale_ids = list(
+        db.scalars(
+            select(AIDailyBrief.id)
+            .order_by(AIDailyBrief.brief_date.desc(), AIDailyBrief.created_at.desc())
+            .offset(keep_limit)
+        )
+    )
+    if not stale_ids:
+        return 0
+
+    db.execute(delete(AIDailyBrief).where(AIDailyBrief.id.in_(stale_ids)))
+    return len(stale_ids)
 
 
 def daily_brief_response_from_model(db: Session, brief: AIDailyBrief) -> AIDailyBriefResponse:

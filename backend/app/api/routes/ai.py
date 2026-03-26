@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, get_current_user, require_token_scopes
@@ -29,6 +29,8 @@ from app.services.ai_integration import (
     generate_daily_brief,
     get_ai_usage_summary,
     get_latest_daily_brief,
+    get_recent_daily_briefs,
+    prune_daily_brief_history,
     test_ai_connection,
 )
 from app.services.audit import record_audit
@@ -76,8 +78,10 @@ def update_ai_settings_route(
             "relevance_enabled": payload.relevance_enabled,
             "daily_brief_enabled": payload.daily_brief_enabled,
             "auto_enrich_new_items": payload.auto_enrich_new_items,
+            "daily_brief_history_limit": payload.daily_brief_history_limit,
         },
     )
+    prune_daily_brief_history(db, keep_limit=payload.daily_brief_history_limit)
     db.commit()
     db.refresh(settings)
     return ai_settings_response_from_model(settings)
@@ -130,6 +134,22 @@ def get_latest_daily_brief_route(
     if brief is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No daily brief has been generated yet")
     return daily_brief_response_from_model(db, brief)
+
+
+@router.get("/daily-briefs", response_model=list[AIDailyBriefResponse], dependencies=[Depends(require_ai_enabled)])
+def list_daily_briefs_route(
+    limit: int | None = Query(default=None, ge=1, le=90),
+    db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+):
+    active = load_active_ai_settings(db)
+    if not active.ai_configured or not active.daily_brief_enabled:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief is unavailable")
+
+    effective_limit = limit or active.daily_brief_history_limit
+    briefs = get_recent_daily_briefs(db, limit=effective_limit)
+    return [daily_brief_response_from_model(db, brief) for brief in briefs]
 
 
 @router.post("/daily-brief/generate", response_model=AIDailyBriefResponse, dependencies=[Depends(require_ai_enabled)])

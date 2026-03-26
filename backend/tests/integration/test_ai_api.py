@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.models.ai_daily_brief import AIDailyBrief
 from app.core.config import get_settings
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
@@ -118,10 +119,17 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
     assert payload["status"] == "ready"
     assert payload["title"] == "Daily Brief"
     assert payload["items"][0]["id"] == str(item.id)
+    assert payload["item_count"] == 1
 
     latest_response = client.get("/ai/daily-brief/latest", headers=auth_headers["viewer"])
     assert latest_response.status_code == 200
     assert latest_response.json()["title"] == "Daily Brief"
+
+    list_response = client.get("/ai/daily-briefs", headers=auth_headers["viewer"])
+    assert list_response.status_code == 200
+    briefs_payload = list_response.json()
+    assert len(briefs_payload) == 1
+    assert briefs_payload[0]["id"] == payload["id"]
 
     usage_response = client.get("/ai/usage", headers=auth_headers["admin"])
     assert usage_response.status_code == 200
@@ -207,3 +215,56 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
 def test_viewer_cannot_access_ai_admin_routes(client: TestClient, auth_headers, ai_enabled_env):
     response = client.get("/ai/settings", headers=auth_headers["viewer"])
     assert response.status_code == 403
+
+
+def test_daily_brief_history_limit_update_prunes_old_briefs(client: TestClient, auth_headers, db_session, ai_enabled_env):
+    older_brief = AIDailyBrief(
+        brief_date=datetime(2026, 3, 24, 0, 0, tzinfo=timezone.utc).date(),
+        status="ready",
+        window_start=datetime(2026, 3, 23, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 3, 24, 0, 0, tzinfo=timezone.utc),
+        title="Older brief",
+        brief_text="Older brief text",
+        generated_at=datetime(2026, 3, 24, 0, 5, tzinfo=timezone.utc),
+    )
+    latest_brief = AIDailyBrief(
+        brief_date=datetime(2026, 3, 25, 0, 0, tzinfo=timezone.utc).date(),
+        status="ready",
+        window_start=datetime(2026, 3, 24, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 3, 25, 0, 0, tzinfo=timezone.utc),
+        title="Latest brief",
+        brief_text="Latest brief text",
+        generated_at=datetime(2026, 3, 25, 0, 5, tzinfo=timezone.utc),
+    )
+    db_session.add_all([older_brief, latest_brief])
+    db_session.commit()
+
+    response = client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "daily_brief_history_limit": 1,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+            "company_regions": [],
+            "company_stack": [],
+            "company_priority_topics": [],
+            "company_keywords": [],
+            "company_exclusions": [],
+        },
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 200
+    assert response.json()["daily_brief_history_limit"] == 1
+
+    remaining_briefs = db_session.scalars(select(AIDailyBrief).order_by(AIDailyBrief.brief_date.desc())).all()
+    assert [brief.title for brief in remaining_briefs] == ["Latest brief"]
