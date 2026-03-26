@@ -723,7 +723,7 @@ function applyBodyMode(current: NotificationWebhookDraft, nextBodyMode: Notifica
     return {
       ...current,
       body_mode: 'raw',
-      body_template: current.body_template || '{"title":"{{ item.title }}","url":"{{ item.url }}"}',
+      body_template: current.body_template,
     }
   }
 
