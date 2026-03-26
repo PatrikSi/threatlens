@@ -24,6 +24,7 @@ type AISettingsDraft = {
   auto_enrich_new_items: boolean
   daily_brief_window_hours: string
   daily_brief_max_items: string
+  daily_brief_history_limit: string
   relevance_medium_threshold: string
   relevance_high_threshold: string
   company_name: string
@@ -52,6 +53,7 @@ const DEFAULT_DRAFT: AISettingsDraft = {
   auto_enrich_new_items: true,
   daily_brief_window_hours: '24',
   daily_brief_max_items: '20',
+  daily_brief_history_limit: '7',
   relevance_medium_threshold: '0.55',
   relevance_high_threshold: '0.80',
   company_name: '',
@@ -136,6 +138,7 @@ export function AiSettingsPage() {
       setNotice('Daily brief generated.')
       void queryClient.invalidateQueries({ queryKey: ['ai', 'usage'] })
       void queryClient.invalidateQueries({ queryKey: ['ai', 'daily-brief', 'latest'] })
+      void queryClient.invalidateQueries({ queryKey: ['ai', 'daily-briefs'] })
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
     },
   })
@@ -306,6 +309,18 @@ export function AiSettingsPage() {
                     onChange={(event) => updateDraft(setDraft, 'daily_brief_max_items', event.target.value)}
                     inputMode="numeric"
                   />
+                </label>
+                <label className="text-sm">
+                  <span className="font-semibold">Retained Daily Briefings</span>
+                  <input
+                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                    value={draft.daily_brief_history_limit}
+                    onChange={(event) => updateDraft(setDraft, 'daily_brief_history_limit', event.target.value)}
+                    inputMode="numeric"
+                  />
+                  <span className="mt-1 block text-xs text-slate dark:text-white/60">
+                    Keep only the most recent X daily briefings for dashboard selection. Older briefings are discarded automatically.
+                  </span>
                 </label>
               </div>
             </section>
@@ -651,6 +666,7 @@ function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     auto_enrich_new_items: settings.auto_enrich_new_items,
     daily_brief_window_hours: String(settings.daily_brief_window_hours),
     daily_brief_max_items: String(settings.daily_brief_max_items),
+    daily_brief_history_limit: String(settings.daily_brief_history_limit),
     relevance_medium_threshold: String(settings.relevance_medium_threshold),
     relevance_high_threshold: String(settings.relevance_high_threshold),
     company_name: settings.company_name ?? '',
@@ -682,6 +698,7 @@ function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest
     auto_enrich_new_items: draft.auto_enrich_new_items,
     daily_brief_window_hours: Number(draft.daily_brief_window_hours) || 24,
     daily_brief_max_items: Number(draft.daily_brief_max_items) || 20,
+    daily_brief_history_limit: Number(draft.daily_brief_history_limit) || 7,
     relevance_medium_threshold: Number(draft.relevance_medium_threshold) || 0.55,
     relevance_high_threshold: Number(draft.relevance_high_threshold) || 0.8,
     company_name: normalizeOptionalText(draft.company_name),

@@ -596,6 +596,7 @@ export interface AISettings {
   auto_enrich_new_items: boolean
   daily_brief_window_hours: number
   daily_brief_max_items: number
+  daily_brief_history_limit: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null
@@ -627,6 +628,7 @@ export interface AISettingsUpdateRequest {
   auto_enrich_new_items: boolean
   daily_brief_window_hours: number
   daily_brief_max_items: number
+  daily_brief_history_limit: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null

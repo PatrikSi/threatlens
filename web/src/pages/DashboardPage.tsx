@@ -48,6 +48,7 @@ interface DashboardWindow {
   time_override: WindowTimeFilter | null
   rss_filters: DashboardRssWindowFilters | null
   alert_filters: DashboardAlertWindowFilters | null
+  selected_daily_brief_id: string | null
 }
 
 interface DashboardRssWindowFilters {
@@ -130,7 +131,7 @@ interface SavedViewPreview {
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
-const DASHBOARD_VIEW_VERSION = 5
+const DASHBOARD_VIEW_VERSION = 6
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
@@ -622,16 +623,16 @@ export function DashboardPage() {
     queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
   })
 
-  const dailyBriefQuery = useQuery({
-    queryKey: ['ai', 'daily-brief', 'latest'],
+  const dailyBriefHistoryQuery = useQuery({
+    queryKey: ['ai', 'daily-briefs'],
     enabled: aiDailyBriefEnabled,
     retry: false,
     queryFn: async () => {
       try {
-        return await apiFetch<AIDailyBrief>('/ai/daily-brief/latest')
+        return await apiFetch<AIDailyBrief[]>('/ai/daily-briefs')
       } catch (error) {
         if (error instanceof ApiError && error.status === 404) {
-          return null
+          return []
         }
         throw error
       }
@@ -1008,6 +1009,17 @@ export function DashboardPage() {
           },
         }
       }),
+    )
+  }
+
+  const updateWindowDailyBriefSelection = (windowId: string, selectedDailyBriefId: string) => {
+    setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) =>
+        window.id === windowId && window.type === 'daily_brief'
+          ? { ...window, selected_daily_brief_id: selectedDailyBriefId || null }
+          : window,
+      ),
     )
   }
 
@@ -2131,60 +2143,81 @@ export function DashboardPage() {
                 </>
               ) : windowLayout.type === 'daily_brief' ? (
                 <div className="flex flex-1 flex-col p-3">
-                  {dailyBriefQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
-                  {dailyBriefQuery.isError && (
+                  {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
+                  {dailyBriefHistoryQuery.isError && (
                     <p className="text-sm text-red-600">
-                      Failed to load the daily brief. {(dailyBriefQuery.error as Error | undefined)?.message ?? ''}
+                      Failed to load the daily brief. {(dailyBriefHistoryQuery.error as Error | undefined)?.message ?? ''}
                     </p>
                   )}
-                  {!dailyBriefQuery.isLoading && !dailyBriefQuery.data && (
+                  {!dailyBriefHistoryQuery.isLoading && !(dailyBriefHistoryQuery.data?.length ?? 0) && (
                     <p className="text-sm text-slate dark:text-white/75">
                       No AI daily brief is available yet. An admin can generate one from the AI page after the endpoint is configured.
                     </p>
                   )}
-                  {dailyBriefQuery.data && (
+                  {(dailyBriefHistoryQuery.data?.length ?? 0) > 0 && (() => {
+                    const availableBriefs = dailyBriefHistoryQuery.data ?? []
+                    const selectedBrief =
+                      availableBriefs.find((brief) => brief.id === windowLayout.selected_daily_brief_id) ?? availableBriefs[0]
+
+                    if (!selectedBrief) {
+                      return null
+                    }
+
+                    return (
                     <div className="space-y-3 overflow-auto">
                       <div className="rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                        <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">AI Daily Brief</p>
-                        <h3 className="mt-2 font-display text-lg">{dailyBriefQuery.data.title || 'Daily Brief'}</h3>
-                        <p className="mt-1 text-xs text-slate dark:text-white/60">
-                          Generated {formatPublishedAt(dailyBriefQuery.data.generated_at)} for {dailyBriefQuery.data.item_count} items covering{' '}
-                          {formatPublishedAt(dailyBriefQuery.data.window_start)} to {formatPublishedAt(dailyBriefQuery.data.window_end)}.
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Briefing</span>
+                            <select
+                              className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                              value={selectedBrief.id}
+                              onChange={(event) => updateWindowDailyBriefSelection(windowLayout.id, event.target.value)}
+                            >
+                              {availableBriefs.map((brief) => (
+                                <option key={brief.id} value={brief.id}>
+                                  {formatDailyBriefOptionLabel(brief)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                          <span className="rounded border border-slate/20 bg-white/70 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/60">
+                            {availableBriefs.length} retained
+                          </span>
+                        </div>
+                        <p className="mt-3 text-xs text-slate dark:text-white/60">
+                          Generated {formatPublishedAt(selectedBrief.generated_at)} for {selectedBrief.item_count} items covering{' '}
+                          {formatPublishedAt(selectedBrief.window_start)} to {formatPublishedAt(selectedBrief.window_end)}.
                         </p>
-                        {dailyBriefQuery.data.brief_text && (
-                          <div className="mt-3 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
-                            {renderArticleBlocks(dailyBriefQuery.data.brief_text, `${windowLayout.id}-brief`)}
-                          </div>
-                        )}
                       </div>
 
-                      {dailyBriefQuery.data.key_points.length > 0 && (
+                      {selectedBrief.key_points.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                           <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Key Points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
-                            {dailyBriefQuery.data.key_points.map((point, index) => (
+                            {selectedBrief.key_points.map((point, index) => (
                               <li key={`${windowLayout.id}-brief-point-${index}`}>{point}</li>
                             ))}
                           </ul>
                         </div>
                       )}
 
-                      {dailyBriefQuery.data.recommended_actions.length > 0 && (
+                      {selectedBrief.recommended_actions.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                           <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Recommended Actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
-                            {dailyBriefQuery.data.recommended_actions.map((action, index) => (
+                            {selectedBrief.recommended_actions.map((action, index) => (
                               <li key={`${windowLayout.id}-brief-action-${index}`}>{action}</li>
                             ))}
                           </ul>
                         </div>
                       )}
 
-                      {dailyBriefQuery.data.items.length > 0 && (
+                      {selectedBrief.items.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                           <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Referenced Items</p>
                           <div className="mt-2 space-y-2">
-                            {dailyBriefQuery.data.items.map((item) => (
+                            {selectedBrief.items.map((item) => (
                               <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
                                 <div className="flex items-start justify-between gap-2">
                                   <a
@@ -2210,7 +2243,8 @@ export function DashboardPage() {
                         </div>
                       )}
                     </div>
-                  )}
+                    )
+                  })()}
                 </div>
               ) : (
                 <div className="flex flex-1 flex-col p-3">
@@ -2490,6 +2524,14 @@ function formatPublishedAt(value: string | null) {
   return dt.toLocaleString()
 }
 
+function formatDailyBriefOptionLabel(brief: AIDailyBrief) {
+  const briefDate = new Date(brief.brief_date)
+  if (Number.isNaN(briefDate.getTime())) {
+    return `${brief.brief_date} · ${brief.item_count} items`
+  }
+  return `${briefDate.toLocaleDateString()} · ${brief.item_count} items`
+}
+
 function formatClassificationLabel(value: string): string {
   return value
     .split('_')
@@ -2638,6 +2680,7 @@ function serializeDashboardWindowLayouts(windows: DashboardWindow[]) {
     controls_collapsed: window.controls_collapsed,
     scratch_note: window.scratch_note,
     time_override: window.time_override ? { ...window.time_override } : null,
+    selected_daily_brief_id: window.selected_daily_brief_id,
   }))
 }
 
@@ -2681,6 +2724,10 @@ function loadDashboardWindows(): DashboardWindow[] {
         time_override: parseWindowTimeFilterCandidate(entry.time_override),
         rss_filters: entry.type === 'rss' ? parseRssWindowFiltersCandidate(entry.rss_filters) : null,
         alert_filters: entry.type === 'alerts' ? parseAlertWindowFiltersCandidate(entry.alert_filters) : null,
+        selected_daily_brief_id:
+          entry.type === 'daily_brief' && typeof entry.selected_daily_brief_id === 'string' && entry.selected_daily_brief_id
+            ? entry.selected_daily_brief_id
+            : null,
       })
     }
 
@@ -2754,6 +2801,7 @@ function createWindowLayout(
     time_override: null,
     rss_filters: type === 'rss' ? createDefaultRssWindowFilters() : null,
     alert_filters: type === 'alerts' ? createDefaultAlertWindowFilters() : null,
+    selected_daily_brief_id: null,
   }
 }
 
@@ -2921,6 +2969,10 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
           entry.type === 'alerts'
             ? parseAlertWindowFiltersCandidate(entry.alert_filters, { ...alertFilters, page: 1 })
             : null,
+        selected_daily_brief_id:
+          entry.type === 'daily_brief' && typeof entry.selected_daily_brief_id === 'string' && entry.selected_daily_brief_id
+            ? entry.selected_daily_brief_id
+            : null,
       })
     }
   }
@@ -2937,6 +2989,7 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
       time_override: null,
       rss_filters: parseRssWindowFiltersCandidate(null, { ...rssFilters, page: 1 }, showAdvancedFilters),
       alert_filters: null,
+      selected_daily_brief_id: null,
     })
   }
 
@@ -2986,6 +3039,7 @@ function buildDashboardSavedViewState(windows: DashboardWindow[], dashboardTimeF
             page: 1,
           }
         : null,
+      selected_daily_brief_id: window.selected_daily_brief_id,
     })),
     ui: {
       show_advanced_filters: rssWindowFilters.show_advanced_filters,
