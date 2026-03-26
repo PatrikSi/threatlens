@@ -1907,6 +1907,18 @@ def test_alert_interest_crud_and_matching(client: TestClient, auth_headers, db_s
     assert filtered_payload["total"] == 1
     assert filtered_payload["items"][0]["title"].lower().startswith("apt29")
 
+    preview_response = client.post(
+        "/alerts/preview",
+        json={"name": "Preview", "category": "vendor", "keywords": ["microsoft", "exchange"], "limit": 3},
+        headers=auth_headers["viewer"],
+    )
+    assert preview_response.status_code == 200
+    preview_payload = preview_response.json()
+    assert preview_payload["total"] == 1
+    assert len(preview_payload["items"]) == 1
+    assert preview_payload["items"][0]["title"].lower().startswith("microsoft")
+    assert preview_payload["items"][0]["matches"][0]["matched_keywords"] == ["microsoft", "exchange"]
+
     id_filtered = client.get(f"/alerts/matches?alert_ids={vendor_id}", headers=auth_headers["viewer"])
     assert id_filtered.status_code == 200
     id_payload = id_filtered.json()

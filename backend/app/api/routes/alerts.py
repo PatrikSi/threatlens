@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -22,6 +23,7 @@ from app.models.tag import ItemTag, Tag
 from app.models.user import User
 from app.schemas.alert import (
     AlertInterestCreate,
+    AlertInterestPreviewRequest,
     AlertInterestResponse,
     AlertInterestUpdate,
     AlertMatchEntry,
@@ -39,6 +41,14 @@ ALERT_SORT_OPTIONS = {
     "first_seen_desc": Item.first_seen_at.desc(),
     "first_seen_asc": Item.first_seen_at.asc(),
 }
+
+
+@dataclass(frozen=True)
+class _AlertMatchDefinition:
+    id: uuid.UUID
+    name: str
+    category: str
+    keywords: list[str]
 
 
 def _normalize_name(value: str) -> str:
@@ -251,6 +261,28 @@ def delete_alert_interest(
     db.commit()
 
 
+@router.post("/preview", response_model=AlertMatchListResponse)
+def preview_alert_interest(
+    payload: AlertInterestPreviewRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+):
+    preview = _AlertMatchDefinition(
+        id=uuid.uuid4(),
+        name=_normalize_name(payload.name or "Preview"),
+        category=_normalize_category(payload.category),
+        keywords=_normalize_keywords(payload.keywords),
+    )
+    return _list_matches_for_alerts(
+        db,
+        user=user,
+        alerts=[preview],
+        page=1,
+        page_size=payload.limit,
+        sort="first_seen_desc",
+    )
+
+
 @router.get("/matches", response_model=AlertMatchListResponse)
 def list_alert_matches(
     q: str | None = None,
@@ -267,7 +299,6 @@ def list_alert_matches(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
-    settings = get_settings()
     selected_alert_ids = _parse_uuid_csv(alert_ids, "Invalid alert id in alert_ids")
     selected_categories = _parse_category_csv(categories)
 
@@ -280,6 +311,36 @@ def list_alert_matches(
         alerts_query = alerts_query.where(AlertInterest.category.in_(selected_categories))
 
     alerts = db.scalars(alerts_query.order_by(AlertInterest.created_at.desc())).all()
+    return _list_matches_for_alerts(
+        db,
+        user=user,
+        alerts=list(alerts),
+        q=q,
+        is_starred=is_starred,
+        is_read=is_read,
+        since=since,
+        until=until,
+        page=page,
+        page_size=page_size,
+        sort=sort,
+    )
+
+
+def _list_matches_for_alerts(
+    db: Session,
+    *,
+    user: User,
+    alerts: list[AlertInterest | _AlertMatchDefinition],
+    q: str | None = None,
+    is_starred: bool | None = None,
+    is_read: bool | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    page: int = 1,
+    page_size: int = 25,
+    sort: str = "published_at_desc",
+) -> AlertMatchListResponse:
+    settings = get_settings()
     if not alerts:
         return AlertMatchListResponse(items=[], total=0, page=page, page_size=page_size)
 

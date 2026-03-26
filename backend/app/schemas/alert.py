@@ -20,6 +20,13 @@ class AlertInterestUpdate(BaseModel):
     enabled: bool | None = None
 
 
+class AlertInterestPreviewRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=255)
+    category: str = Field(min_length=1, max_length=64)
+    keywords: list[str] = Field(min_length=1, max_length=64)
+    limit: int = Field(default=5, ge=1, le=25)
+
+
 class AlertInterestResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
