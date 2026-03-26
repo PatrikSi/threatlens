@@ -2,12 +2,21 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
+import httpx
+import pytest
+
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.user import User
 from app.schemas.notification import NotificationWebhookField, NotificationWebhookWrite
-from app.services.notification_webhooks import render_notification_request, validate_notification_webhook_payload
+from app.services.notification_webhooks import (
+    _read_response_preview,
+    _send_request_with_redirects,
+    RedirectError,
+    render_notification_request,
+    validate_notification_webhook_payload,
+)
 from app.tasks.feed_tasks import dispatch_new_item_notification_webhooks
 
 
@@ -116,6 +125,123 @@ def test_render_notification_request_defaults_raw_json_to_application_json():
     )
 
     assert rendered.headers_dict["Content-Type"] == "application/json"
+    assert [(field.key, field.value) for field in rendered.headers] == [("Content-Type", "application/json")]
+
+
+def test_render_notification_request_rejects_duplicate_headers_case_insensitively():
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        headers=[
+            NotificationWebhookField(key="Content-Type", value="application/json"),
+            NotificationWebhookField(key="content-type", value="text/plain"),
+        ],
+        body_mode="none",
+    )
+
+    with pytest.raises(ValueError, match="Duplicate header"):
+        render_notification_request(
+            payload,
+            user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
+            feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+            item=Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.uuid4(),
+                url="https://example.com/articles/1",
+                title="Threat report",
+                summary="summary",
+                published_at=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc),
+                dedupe_key="dedupe",
+                content_hash="a" * 64,
+                status="new",
+            ),
+        )
+
+
+def test_render_notification_request_rejects_host_header_override():
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        headers=[NotificationWebhookField(key="Host", value="internal.example.com")],
+        body_mode="none",
+    )
+
+    with pytest.raises(ValueError, match="Header is not allowed"):
+        render_notification_request(
+            payload,
+            user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
+            feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+            item=Item(
+                id=uuid.uuid4(),
+                feed_id=uuid.uuid4(),
+                url="https://example.com/articles/1",
+                title="Threat report",
+                summary="summary",
+                published_at=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc),
+                dedupe_key="dedupe",
+                content_hash="a" * 64,
+                status="new",
+            ),
+        )
+
+
+def test_send_request_with_redirects_does_not_replay_original_query_params_after_redirect(monkeypatch):
+    seen_urls: list[str] = []
+    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://hooks.example.com/final?server=1"})
+        return httpx.Response(204, request=request)
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as client:
+        response = _send_request_with_redirects(
+            client,
+            method="POST",
+            url="https://hooks.example.com/start?orig=1",
+            headers={"Content-Type": "application/json"},
+            params=[("token", "abc123")],
+            json_body={"title": "ThreatLens"},
+            form_body=None,
+            raw_body=None,
+        )
+
+    assert response.status_code == 204
+    assert seen_urls == [
+        "https://hooks.example.com/start?orig=1&token=abc123",
+        "https://hooks.example.com/final?server=1",
+    ]
+
+
+def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
+    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(302, headers={"Location": "https://other.example.com/final"})
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(RedirectError, match="Cross-origin redirects are not allowed"):
+            _send_request_with_redirects(
+                client,
+                method="POST",
+                url="https://hooks.example.com/start",
+                headers={"Content-Type": "application/json"},
+                params=[],
+                json_body={"title": "ThreatLens"},
+                form_body=None,
+                raw_body=None,
+            )
+
+
+def test_read_response_preview_caps_body_size():
+    response = httpx.Response(200, content=b"a" * 5000)
+
+    assert _read_response_preview(response, max_bytes=4000) == "a" * 4000
 
 
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):
