@@ -8,6 +8,18 @@ export interface User {
   created_at: string
 }
 
+export interface AppFeatures {
+  ai_enabled: boolean
+  ai_configured: boolean
+  ai_summary_enabled: boolean
+  ai_relevance_enabled: boolean
+  ai_daily_brief_enabled: boolean
+}
+
+export interface CurrentUser extends User {
+  features: AppFeatures
+}
+
 export interface TokenResponse {
   access_token: string
   token_type: string
@@ -32,6 +44,7 @@ export interface UserUpdateRequest {
 
 export interface RegistrationSettingsResponse {
   allow_self_registration: boolean
+  ai_enabled: boolean
 }
 
 export interface ApiToken {
@@ -261,6 +274,9 @@ export interface ItemListEntry {
   is_read: boolean
   is_starred: boolean
   tags: string[]
+  ai_relevance_score: number | null
+  ai_relevance_label: 'low' | 'medium' | 'high' | null
+  ai_status: string | null
 }
 
 export interface ItemListResponse {
@@ -313,6 +329,16 @@ export interface ItemDetail {
   } | null
   last_error: string | null
   tags: string[]
+  ai_insight: {
+    status: string
+    summary_text: string | null
+    relevance_score: number | null
+    relevance_label: 'low' | 'medium' | 'high' | null
+    relevance_reasons: string[]
+    model: string | null
+    generated_at: string | null
+    error: string | null
+  } | null
   article: Article | null
   state: ItemState
 }
@@ -549,6 +575,134 @@ export interface TaggingRulePreviewResponse {
 }
 
 export interface TaggingReapplyResponse {
+  task_id: string
+  queued: boolean
+}
+
+export interface AISettings {
+  id: string
+  ai_enabled: boolean
+  ai_configured: boolean
+  api_key_configured: boolean
+  provider_type: 'openai_compatible'
+  base_url: string | null
+  model: string | null
+  temperature: number
+  max_completion_tokens: number
+  request_timeout_seconds: number
+  summary_enabled: boolean
+  relevance_enabled: boolean
+  daily_brief_enabled: boolean
+  auto_enrich_new_items: boolean
+  daily_brief_window_hours: number
+  daily_brief_max_items: number
+  relevance_medium_threshold: number
+  relevance_high_threshold: number
+  company_name: string | null
+  company_industry: string | null
+  company_regions: string[]
+  company_stack: string[]
+  company_priority_topics: string[]
+  company_keywords: string[]
+  company_exclusions: string[]
+  company_profile_text: string | null
+  global_instructions: string | null
+  item_summary_instructions: string | null
+  relevance_instructions: string | null
+  daily_brief_instructions: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AISettingsUpdateRequest {
+  provider_type: 'openai_compatible'
+  base_url: string | null
+  model: string | null
+  temperature: number
+  max_completion_tokens: number
+  request_timeout_seconds: number
+  summary_enabled: boolean
+  relevance_enabled: boolean
+  daily_brief_enabled: boolean
+  auto_enrich_new_items: boolean
+  daily_brief_window_hours: number
+  daily_brief_max_items: number
+  relevance_medium_threshold: number
+  relevance_high_threshold: number
+  company_name: string | null
+  company_industry: string | null
+  company_regions: string[]
+  company_stack: string[]
+  company_priority_topics: string[]
+  company_keywords: string[]
+  company_exclusions: string[]
+  company_profile_text: string | null
+  global_instructions: string | null
+  item_summary_instructions: string | null
+  relevance_instructions: string | null
+  daily_brief_instructions: string | null
+}
+
+export interface AITestConnectionResponse {
+  success: boolean
+  latency_ms: number | null
+  provider: 'openai_compatible'
+  model: string | null
+  error: string | null
+}
+
+export interface AIUsageFeatureSummary {
+  feature_type: 'item_enrichment' | 'daily_brief' | 'connection_test'
+  total_requests: number
+  successful_requests: number
+  failed_requests: number
+  total_tokens: number
+  average_latency_ms: number
+  last_request_at: string | null
+}
+
+export interface AIUsageSummary {
+  total_requests: number
+  successful_requests: number
+  failed_requests: number
+  success_rate_pct: number
+  requests_last_24h: number
+  total_prompt_tokens: number
+  total_completion_tokens: number
+  total_tokens: number
+  average_latency_ms: number
+  last_request_at: string | null
+  features: AIUsageFeatureSummary[]
+}
+
+export interface AIDailyBriefItem {
+  id: string
+  title: string
+  feed_name: string
+  url: string
+  published_at: string | null
+  relevance_score: number | null
+  relevance_label: 'low' | 'medium' | 'high' | null
+}
+
+export interface AIDailyBrief {
+  id: string
+  brief_date: string
+  status: string
+  window_start: string
+  window_end: string
+  title: string | null
+  brief_text: string | null
+  key_points: string[]
+  recommended_actions: string[]
+  item_count: number
+  items: AIDailyBriefItem[]
+  model: string | null
+  generated_at: string | null
+  error: string | null
+}
+
+export interface AIReprocessResponse {
   task_id: string
   queued: boolean
 }
