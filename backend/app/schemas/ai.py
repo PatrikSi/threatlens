@@ -45,6 +45,7 @@ class AISettingsUpdate(BaseModel):
     auto_enrich_new_items: bool = True
     daily_brief_window_hours: int = Field(default=24, ge=6, le=168)
     daily_brief_max_items: int = Field(default=20, ge=5, le=100)
+    daily_brief_history_limit: int = Field(default=7, ge=1, le=90)
     relevance_medium_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
     relevance_high_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     company_name: str | None = Field(default=None, max_length=255)
@@ -115,6 +116,7 @@ class AISettingsResponse(BaseModel):
     auto_enrich_new_items: bool
     daily_brief_window_hours: int
     daily_brief_max_items: int
+    daily_brief_history_limit: int
     relevance_medium_threshold: float
     relevance_high_threshold: float
     company_name: str | None

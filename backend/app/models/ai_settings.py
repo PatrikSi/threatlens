@@ -23,6 +23,7 @@ class AISettings(Base):
     auto_enrich_new_items: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     daily_brief_window_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
     daily_brief_max_items: Mapped[int] = mapped_column(Integer, nullable=False, default=20, server_default="20")
+    daily_brief_history_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
     relevance_medium_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.55, server_default="0.55")
     relevance_high_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.8, server_default="0.8")
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

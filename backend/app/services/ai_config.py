@@ -38,6 +38,7 @@ class ActiveAISettings:
     auto_enrich_new_items: bool
     daily_brief_window_hours: int
     daily_brief_max_items: int
+    daily_brief_history_limit: int
     relevance_medium_threshold: float
     relevance_high_threshold: float
     company_name: str | None
@@ -70,6 +71,7 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
         auto_enrich_new_items=True,
         daily_brief_window_hours=24,
         daily_brief_max_items=20,
+        daily_brief_history_limit=7,
         relevance_medium_threshold=0.55,
         relevance_high_threshold=0.8,
     )
@@ -91,6 +93,7 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.auto_enrich_new_items = payload.auto_enrich_new_items
     settings.daily_brief_window_hours = payload.daily_brief_window_hours
     settings.daily_brief_max_items = payload.daily_brief_max_items
+    settings.daily_brief_history_limit = payload.daily_brief_history_limit
     settings.relevance_medium_threshold = payload.relevance_medium_threshold
     settings.relevance_high_threshold = payload.relevance_high_threshold
     settings.company_name = _normalize_optional_text(payload.company_name)
@@ -127,6 +130,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         auto_enrich_new_items=bool(settings.auto_enrich_new_items),
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
+        daily_brief_history_limit=int(settings.daily_brief_history_limit),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
@@ -191,6 +195,7 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         auto_enrich_new_items=bool(settings.auto_enrich_new_items),
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
+        daily_brief_history_limit=int(settings.daily_brief_history_limit),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
