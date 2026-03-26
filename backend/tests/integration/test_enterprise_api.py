@@ -1604,6 +1604,48 @@ def test_set_item_tags_rejects_duplicate_tag_ids(client: TestClient, auth_header
     assert response.status_code == 422
 
 
+def test_list_tags_only_returns_tags_attached_to_items(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "VisibleTagFeed",
+            "url": "https://example.com/visible-tag.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="visible-tag-item",
+        url="https://example.com/visible-tag-item",
+        canonical_url="https://example.com/visible-tag-item",
+        title="Visible tag target",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="visible-tag-item",
+        content_hash="a" * 64,
+        status="new",
+    )
+    active_tag = Tag(name="active_tag")
+    orphan_tag = Tag(name="campaign:legacy")
+    db_session.add_all([item, active_tag, orphan_tag])
+    db_session.flush()
+    db_session.add(ItemTag(item_id=item.id, tag_id=active_tag.id, source="rule", confidence=0.8, rules_version="tagging_v2"))
+    db_session.commit()
+
+    response = client.get("/tags", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+
+    names = [entry["name"] for entry in response.json()]
+    assert "active_tag" in names
+    assert "campaign:legacy" not in names
+
+
 def test_set_item_tags_records_feedback_and_metadata(client: TestClient, auth_headers, db_session):
     feed_response = client.post(
         "/feeds",

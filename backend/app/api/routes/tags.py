@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
 from app.core.token_scopes import SCOPE_READ_TAGS, SCOPE_WRITE_TAGS
 from app.db.session import get_db
-from app.models.tag import Tag
+from app.models.tag import ItemTag, Tag
 from app.models.user import User
 from app.schemas.tag import TagCreate, TagResponse
 from app.services.audit import record_audit
@@ -18,7 +18,11 @@ def list_tags(
     db: Session = Depends(get_db),
     _user: User = Depends(require_token_scopes(SCOPE_READ_TAGS)),
 ):
-    tags = db.scalars(select(Tag).order_by(Tag.name.asc())).all()
+    tags = db.scalars(
+        select(Tag)
+        .where(exists(select(1).where(ItemTag.tag_id == Tag.id)))
+        .order_by(Tag.name.asc())
+    ).all()
     return list(tags)
 
 
