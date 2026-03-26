@@ -26,7 +26,12 @@ from app.schemas.ai import (
     AIUsageFeatureSummary,
     AIUsageSummaryResponse,
 )
-from app.services.ai_config import ActiveAISettings, load_active_ai_settings
+from app.services.ai_config import (
+    ActiveAISettings,
+    build_daily_brief_system_prompt,
+    build_item_enrichment_system_prompt,
+    load_active_ai_settings,
+)
 
 FEATURE_ITEM_ENRICHMENT = "item_enrichment"
 FEATURE_DAILY_BRIEF = "daily_brief"
@@ -451,20 +456,8 @@ def _build_item_enrichment_messages(
             "relevance_reasons: 1-4 short bullet-style reasons."
         )
 
-    system_parts = [
-        "You are ThreatLens, producing structured security analysis for a single defended organization.",
-        "Return only JSON with the requested keys. Do not include markdown code fences.",
-        "Be conservative. If the content is weak or not clearly relevant, use a lower relevance score.",
-    ]
-    if active.global_instructions:
-        system_parts.append(active.global_instructions)
-    if active.item_summary_instructions and active.summary_enabled:
-        system_parts.append(f"Summary instructions: {active.item_summary_instructions}")
-    if active.relevance_instructions and active.relevance_enabled:
-        system_parts.append(f"Relevance instructions: {active.relevance_instructions}")
-
     return [
-        {"role": "system", "content": "\n".join(system_parts)},
+        {"role": "system", "content": build_item_enrichment_system_prompt(active)},
         {
             "role": "user",
             "content": json.dumps(
@@ -499,16 +492,6 @@ def _build_daily_brief_messages(
     window_start: datetime,
     window_end: datetime,
 ) -> list[dict[str, str]]:
-    system_parts = [
-        "You are ThreatLens, writing an executive security briefing for one defended organization.",
-        "Return only JSON with these keys: title, brief_text, key_points, recommended_actions.",
-        "Use concise, factual language and focus on what matters to the company profile.",
-    ]
-    if active.global_instructions:
-        system_parts.append(active.global_instructions)
-    if active.daily_brief_instructions:
-        system_parts.append(f"Daily brief instructions: {active.daily_brief_instructions}")
-
     compact_items = [
         {
             "id": str(row.id),
@@ -525,7 +508,7 @@ def _build_daily_brief_messages(
     ]
 
     return [
-        {"role": "system", "content": "\n".join(system_parts)},
+        {"role": "system", "content": build_daily_brief_system_prompt(active)},
         {
             "role": "user",
             "content": json.dumps(

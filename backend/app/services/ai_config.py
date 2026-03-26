@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.ai_settings import AISettings
-from app.schemas.ai import AISettingsResponse, AISettingsUpdate
+from app.schemas.ai import AIPromptPreview, AIPromptPreviews, AISettingsResponse, AISettingsUpdate
 
 
 @dataclass(frozen=True)
@@ -113,6 +113,39 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
 def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
     runtime_settings = get_settings()
     ai_configured = bool(_normalize_optional_text(settings.base_url) and _normalize_optional_text(settings.model))
+    active = ActiveAISettings(
+        id=settings.id,
+        ai_enabled=runtime_settings.ai_enabled,
+        ai_configured=ai_configured,
+        provider_type=settings.provider_type,
+        base_url=_normalize_optional_text(settings.base_url),
+        model=_normalize_optional_text(settings.model),
+        api_key=runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None,
+        temperature=float(settings.temperature),
+        max_completion_tokens=int(settings.max_completion_tokens),
+        request_timeout_seconds=int(settings.request_timeout_seconds),
+        summary_enabled=bool(settings.summary_enabled),
+        relevance_enabled=bool(settings.relevance_enabled),
+        daily_brief_enabled=bool(settings.daily_brief_enabled),
+        auto_enrich_new_items=bool(settings.auto_enrich_new_items),
+        daily_brief_window_hours=int(settings.daily_brief_window_hours),
+        daily_brief_max_items=int(settings.daily_brief_max_items),
+        daily_brief_history_limit=int(settings.daily_brief_history_limit),
+        relevance_medium_threshold=float(settings.relevance_medium_threshold),
+        relevance_high_threshold=float(settings.relevance_high_threshold),
+        company_name=settings.company_name,
+        company_industry=settings.company_industry,
+        company_regions=[entry for entry in (settings.company_regions_json or []) if entry],
+        company_stack=[entry for entry in (settings.company_stack_json or []) if entry],
+        company_priority_topics=[entry for entry in (settings.company_priority_topics_json or []) if entry],
+        company_keywords=[entry for entry in (settings.company_keywords_json or []) if entry],
+        company_exclusions=[entry for entry in (settings.company_exclusions_json or []) if entry],
+        company_profile_text=settings.company_profile_text,
+        global_instructions=settings.global_instructions,
+        item_summary_instructions=settings.item_summary_instructions,
+        relevance_instructions=settings.relevance_instructions,
+        daily_brief_instructions=settings.daily_brief_instructions,
+    )
     return AISettingsResponse(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
@@ -147,6 +180,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         daily_brief_instructions=settings.daily_brief_instructions,
         created_at=settings.created_at,
         updated_at=settings.updated_at,
+        prompt_previews=build_prompt_previews(active),
     )
 
 
@@ -210,6 +244,55 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         item_summary_instructions=settings.item_summary_instructions,
         relevance_instructions=settings.relevance_instructions,
         daily_brief_instructions=settings.daily_brief_instructions,
+    )
+
+
+def build_item_enrichment_system_prompt(active: ActiveAISettings) -> str:
+    system_parts = [
+        "You are ThreatLens, producing structured security analysis for a single defended organization.",
+        "Return only JSON with the requested keys. Do not include markdown code fences.",
+        "Be conservative. If the content is weak or not clearly relevant, use a lower relevance score.",
+    ]
+    if active.global_instructions:
+        system_parts.append(active.global_instructions)
+    if active.item_summary_instructions and active.summary_enabled:
+        system_parts.append(f"Summary instructions: {active.item_summary_instructions}")
+    if active.relevance_instructions and active.relevance_enabled:
+        system_parts.append(f"Relevance instructions: {active.relevance_instructions}")
+    return "\n".join(system_parts)
+
+
+def build_daily_brief_system_prompt(active: ActiveAISettings) -> str:
+    system_parts = [
+        "You are ThreatLens, writing an executive security briefing for one defended organization.",
+        "Return only JSON with these keys: title, brief_text, key_points, recommended_actions.",
+        "Use concise, factual language and focus on what matters to the company profile.",
+    ]
+    if active.global_instructions:
+        system_parts.append(active.global_instructions)
+    if active.daily_brief_instructions:
+        system_parts.append(f"Daily brief instructions: {active.daily_brief_instructions}")
+    return "\n".join(system_parts)
+
+
+def build_prompt_previews(active: ActiveAISettings) -> AIPromptPreviews:
+    return AIPromptPreviews(
+        item_enrichment=AIPromptPreview(
+            label="Item Enrichment",
+            system_prompt=build_item_enrichment_system_prompt(active),
+            notes=[
+                "Used for article summaries and relevance scoring.",
+                "Company profile, classification, tags, and article content are sent separately as structured JSON.",
+            ],
+        ),
+        daily_brief=AIPromptPreview(
+            label="Daily Brief",
+            system_prompt=build_daily_brief_system_prompt(active),
+            notes=[
+                "Used when generating dashboard daily briefings.",
+                "Company profile and the selected briefing items are sent separately as structured JSON.",
+            ],
+        ),
     )
 
 
