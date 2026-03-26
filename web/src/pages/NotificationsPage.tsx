@@ -5,6 +5,8 @@ import { ApiError, apiFetch } from '../api/client'
 import {
   Feed,
   NotificationTemplateVariable,
+  NotificationWebhookDelivery,
+  NotificationWebhookDeliveryListResponse,
   NotificationWebhook,
   NotificationWebhookField,
   NotificationWebhookTestResponse,
@@ -90,6 +92,27 @@ export function NotificationsPage() {
     onSuccess: (result) => {
       setTestResult(result)
       setFormNotice(result.success ? 'Webhook test succeeded.' : 'Webhook test failed.')
+    },
+  })
+
+  const deliveriesQuery = useQuery({
+    queryKey: ['notifications', 'webhooks', selectedWebhookId, 'deliveries'],
+    queryFn: () =>
+      apiFetch<NotificationWebhookDeliveryListResponse>(
+        `/notifications/webhooks/${selectedWebhookId}/deliveries?page=1&page_size=10`,
+      ),
+    enabled: Boolean(selectedWebhookId),
+  })
+
+  const retryDelivery = useMutation({
+    mutationFn: (payload: { webhookId: string; deliveryId: string }) =>
+      apiFetch<NotificationWebhookDelivery>(
+        `/notifications/webhooks/${payload.webhookId}/deliveries/${payload.deliveryId}/retry`,
+        { method: 'POST' },
+      ),
+    onSuccess: (delivery) => {
+      setFormNotice(delivery.success ? 'Webhook retry succeeded.' : 'Webhook retry failed.')
+      void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks', delivery.webhook_id, 'deliveries'] })
     },
   })
 
@@ -563,6 +586,161 @@ export function NotificationsPage() {
               </div>
             </div>
           </section>
+
+          <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="font-display text-lg">Delivery History</h3>
+                <p className="mt-1 text-sm text-slate dark:text-white/75">
+                  Review the last deliveries for this webhook, including the rendered request and response preview.
+                </p>
+              </div>
+              {deliveriesQuery.data?.deliveries[0] && (
+                <span
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    deliveriesQuery.data.deliveries[0].success
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                      : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                  }`}
+                >
+                  Last status: {describeDeliveryStatus(deliveriesQuery.data.deliveries[0])}
+                </span>
+              )}
+            </div>
+
+            {!selectedWebhookId && (
+              <p className="mt-3 text-sm text-slate dark:text-white/70">
+                Select a webhook to see its recent delivery attempts.
+              </p>
+            )}
+
+            {selectedWebhookId && deliveriesQuery.isLoading && (
+              <p className="mt-3 text-sm text-slate dark:text-white/70">Loading delivery history...</p>
+            )}
+
+            {selectedWebhookId && deliveriesQuery.isError && (
+              <p className="mt-3 text-sm text-red-600">{resolveApiMessage(deliveriesQuery.error, 'Failed to load delivery history.')}</p>
+            )}
+
+            {selectedWebhookId && retryDelivery.isError && (
+              <p className="mt-3 text-sm text-red-600">{resolveApiMessage(retryDelivery.error, 'Failed to retry webhook delivery.')}</p>
+            )}
+
+            {selectedWebhookId && deliveriesQuery.data?.deliveries.length ? (
+              <div className="mt-4 space-y-3">
+                <div className="grid gap-3 md:grid-cols-4">
+                  <MetricCard label="Attempts" value={String(deliveriesQuery.data.total)} />
+                  <MetricCard
+                    label="Last Code"
+                    value={deliveriesQuery.data.deliveries[0].status_code != null ? String(deliveriesQuery.data.deliveries[0].status_code) : 'n/a'}
+                  />
+                  <MetricCard
+                    label="Last Duration"
+                    value={
+                      deliveriesQuery.data.deliveries[0].duration_ms != null
+                        ? `${deliveriesQuery.data.deliveries[0].duration_ms} ms`
+                        : 'n/a'
+                    }
+                  />
+                  <MetricCard label="Last Attempt" value={formatTimestamp(deliveriesQuery.data.deliveries[0].attempted_at)} />
+                </div>
+
+                {deliveriesQuery.data.deliveries.map((delivery) => (
+                  <details key={delivery.id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                delivery.success
+                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                                  : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                              }`}
+                            >
+                              {describeDeliveryStatus(delivery)}
+                            </span>
+                            <span className="rounded-full bg-slate/10 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-white/10 dark:text-white/70">
+                              {delivery.delivery_kind === 'retry' ? 'Retry' : 'Live'}
+                            </span>
+                          </div>
+                          <p className="mt-2 font-semibold">{delivery.item_title || 'Webhook delivery'}</p>
+                          <p className="mt-1 text-xs text-slate dark:text-white/60">
+                            {delivery.feed_name || 'Unknown feed'} • {formatTimestamp(delivery.attempted_at)}
+                          </p>
+                        </div>
+                        <div className="text-right text-xs text-slate dark:text-white/60">
+                          <p>{delivery.rendered_method}</p>
+                          <p>{delivery.duration_ms != null ? `${delivery.duration_ms} ms` : 'n/a'}</p>
+                        </div>
+                      </div>
+                    </summary>
+
+                    <div className="mt-4 space-y-3 text-sm">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                          disabled={retryDelivery.isPending}
+                          onClick={() => retryDelivery.mutate({ webhookId: delivery.webhook_id, deliveryId: delivery.id })}
+                        >
+                          Retry delivery
+                        </button>
+                        <span className="text-xs text-slate dark:text-white/60">Timeout: {delivery.timeout_seconds}s</span>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered URL</p>
+                        <code className="mt-1 block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{delivery.rendered_url}</code>
+                      </div>
+
+                      {delivery.rendered_headers.length > 0 && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Headers</p>
+                          <div className="mt-1 space-y-1">
+                            {delivery.rendered_headers.map((header, index) => (
+                              <code key={`${delivery.id}-header-${index}`} className="block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
+                                {header.key}: {header.value}
+                              </code>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {delivery.rendered_body && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered Body</p>
+                          <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{delivery.rendered_body}</pre>
+                        </div>
+                      )}
+
+                      {delivery.response_body_preview && (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Response Preview</p>
+                          <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
+                            {delivery.response_body_preview}
+                          </pre>
+                        </div>
+                      )}
+
+                      {delivery.error && <p className="text-sm text-red-600">{delivery.error}</p>}
+                    </div>
+                  </details>
+                ))}
+
+                {deliveriesQuery.data.total > deliveriesQuery.data.deliveries.length && (
+                  <p className="text-xs text-slate dark:text-white/60">
+                    Showing the latest {deliveriesQuery.data.deliveries.length} deliveries out of {deliveriesQuery.data.total}.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            {selectedWebhookId && deliveriesQuery.data && deliveriesQuery.data.deliveries.length === 0 && (
+              <p className="mt-3 text-sm text-slate dark:text-white/70">
+                No deliveries yet. Once new RSS items arrive, delivery attempts will show up here automatically.
+              </p>
+            )}
+          </section>
         </div>
       </div>
     </div>
@@ -859,6 +1037,21 @@ function describeFeedScope(scope: NotificationWebhook['feed_scope'], count: numb
     return 'all feeds'
   }
   return `${count} selected feed${count === 1 ? '' : 's'}`
+}
+
+function describeDeliveryStatus(delivery: NotificationWebhookDelivery): string {
+  if (delivery.status_code != null) {
+    return `${delivery.success ? 'Success' : 'Failed'} · HTTP ${delivery.status_code}`
+  }
+  return delivery.success ? 'Success' : 'Failed'
+}
+
+function formatTimestamp(value: string): string {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+  return parsed.toLocaleString()
 }
 
 function resolveApiMessage(error: unknown, fallback: string): string {

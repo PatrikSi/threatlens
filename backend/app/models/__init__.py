@@ -8,6 +8,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
@@ -24,6 +25,7 @@ __all__ = [
     "ItemClassification",
     "ItemState",
     "NotificationWebhook",
+    "NotificationWebhookDelivery",
     "SavedView",
     "Tag",
     "ItemTag",

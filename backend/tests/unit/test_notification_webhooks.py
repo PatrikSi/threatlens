@@ -4,17 +4,21 @@ from datetime import datetime, timezone
 
 import httpx
 import pytest
+from sqlalchemy import select
 
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.schemas.notification import NotificationWebhookField, NotificationWebhookWrite
+from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse, NotificationWebhookWrite
 from app.services.notification_webhooks import (
     _read_response_preview,
     _send_request_with_redirects,
     RedirectError,
     render_notification_request,
+    retry_notification_webhook_delivery,
+    send_notification_webhook_for_item,
     validate_notification_webhook_payload,
 )
 from app.tasks.feed_tasks import dispatch_new_item_notification_webhooks
@@ -242,6 +246,155 @@ def test_read_response_preview_caps_body_size():
     response = httpx.Response(200, content=b"a" * 5000)
 
     assert _read_response_preview(response, max_bytes=4000) == "a" * 4000
+
+
+def test_send_notification_webhook_for_item_records_delivery_history(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/1",
+        title="Threat report",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:history",
+        content_hash="b" * 64,
+        status="new",
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="History webhook",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all([feed, user, item, webhook])
+    db_session.commit()
+
+    def _fake_send(rendered):
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=202,
+            duration_ms=18,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview="accepted",
+            error=None,
+        )
+
+    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+
+    result = send_notification_webhook_for_item(db_session, webhook=webhook, item=item, feed=feed, user=user)
+
+    assert result.success is True
+    delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
+    assert delivery is not None
+    assert delivery.delivery_kind == "live"
+    assert delivery.item_id == item.id
+    assert delivery.feed_id == feed.id
+    assert delivery.item_title_snapshot == item.title
+    assert delivery.feed_name_snapshot == feed.name
+    assert delivery.status_code == 202
+    assert delivery.response_body_preview == "accepted"
+
+
+def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_session, monkeypatch):
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        name="Retry webhook",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    original_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=webhook.user_id,
+        item_id=uuid.uuid4(),
+        feed_id=uuid.uuid4(),
+        delivery_kind="live",
+        success=False,
+        status_code=500,
+        duration_ms=41,
+        timeout_seconds=12,
+        rendered_url="https://example.com/hook?token=abc",
+        rendered_method="POST",
+        rendered_headers_json=[{"key": "Content-Type", "value": "application/json"}],
+        rendered_query_params_json=[{"key": "token", "value": "abc"}],
+        rendered_body='{"title":"ThreatLens"}',
+        response_body_preview="server error",
+        error="HTTP 500",
+        item_title_snapshot="Threat report",
+        feed_name_snapshot="Unit42",
+    )
+    db_session.add_all([webhook, original_delivery])
+    db_session.commit()
+
+    captured: dict[str, object] = {}
+
+    def _fake_send(rendered):
+        captured["url"] = rendered.url
+        captured["query_param_pairs"] = list(rendered.query_param_pairs)
+        captured["raw_body"] = rendered.raw_body
+        captured["timeout_seconds"] = rendered.timeout_seconds
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=11,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview="ok",
+            error=None,
+        )
+
+    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+
+    retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
+
+    assert captured["url"] == "https://example.com/hook?token=abc"
+    assert captured["query_param_pairs"] == []
+    assert captured["raw_body"] == b'{"title":"ThreatLens"}'
+    assert captured["timeout_seconds"] == 12
+    assert retried.delivery_kind == "retry"
+    assert retried.item_id == original_delivery.item_id
+    assert retried.feed_id == original_delivery.feed_id
+    assert retried.item_title_snapshot == "Threat report"
+    assert retried.feed_name_snapshot == "Unit42"
+    assert retried.success is True
 
 
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):

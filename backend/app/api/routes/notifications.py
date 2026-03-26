@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
@@ -9,8 +9,11 @@ from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICA
 from app.db.session import get_db
 from app.models.feed import Feed
 from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import (
+    NotificationWebhookDeliveryListResponse,
+    NotificationWebhookDeliveryResponse,
     NotificationTemplateVariable,
     NotificationWebhookResponse,
     NotificationWebhookTestRequest,
@@ -22,7 +25,9 @@ from app.services.notification_webhooks import (
     apply_notification_webhook_updates,
     build_notification_webhook,
     list_template_variables,
+    notification_webhook_delivery_response_from_model,
     notification_webhook_response_from_model,
+    retry_notification_webhook_delivery,
     test_notification_webhook,
     validate_notification_webhook_payload,
 )
@@ -124,6 +129,81 @@ def delete_notification_webhook(
         metadata={"name": webhook.name},
     )
     db.commit()
+
+
+@router.get("/webhooks/{webhook_id}/deliveries", response_model=NotificationWebhookDeliveryListResponse)
+def list_notification_webhook_deliveries(
+    webhook_id: uuid.UUID,
+    page: int = 1,
+    page_size: int = 10,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
+):
+    if page < 1 or page_size < 1 or page_size > 100:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid pagination")
+
+    webhook = db.scalar(
+        select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
+    )
+    if webhook is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
+
+    deliveries_query = select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id)
+    total = db.scalar(select(func.count()).select_from(deliveries_query.subquery())) or 0
+    deliveries = db.scalars(
+        deliveries_query
+        .order_by(NotificationWebhookDelivery.attempted_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return NotificationWebhookDeliveryListResponse(
+        deliveries=[notification_webhook_delivery_response_from_model(delivery) for delivery in deliveries],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.post("/webhooks/{webhook_id}/deliveries/{delivery_id}/retry", response_model=NotificationWebhookDeliveryResponse)
+def retry_notification_webhook_delivery_route(
+    webhook_id: uuid.UUID,
+    delivery_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+):
+    webhook = db.scalar(
+        select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
+    )
+    if webhook is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
+
+    delivery = db.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.id == delivery_id,
+            NotificationWebhookDelivery.webhook_id == webhook.id,
+        )
+    )
+    if delivery is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook delivery not found")
+
+    retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="notifications.webhook.retry",
+        resource_type="notification_webhook_delivery",
+        resource_id=str(retried.id),
+        metadata={
+            "webhook_id": str(webhook.id),
+            "retry_of_delivery_id": str(delivery.id),
+            "success": retried.success,
+            "status_code": retried.status_code,
+        },
+        success=retried.success,
+    )
+    db.commit()
+    db.refresh(retried)
+    return notification_webhook_delivery_response_from_model(retried)
 
 
 @router.post("/webhooks/test", response_model=NotificationWebhookTestResponse)
