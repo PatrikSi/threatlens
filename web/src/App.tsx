@@ -16,6 +16,7 @@ import { NotificationsPage } from './pages/NotificationsPage'
 import { SettingsLayout } from './pages/SettingsLayout'
 import { SettingsOverviewPage } from './pages/SettingsOverviewPage'
 import { StatsPage } from './pages/StatsPage'
+import { TaggingSettingsPage } from './pages/TaggingSettingsPage'
 import { TokensPage } from './pages/TokensPage'
 import { UsersPage } from './pages/UsersPage'
 
@@ -52,6 +53,14 @@ export default function App() {
                 <Route index element={<SettingsOverviewPage />} />
                 <Route path="account" element={<AccountPage />} />
                 <Route path="notifications" element={<NotificationsPage />} />
+                <Route
+                  path="tagging"
+                  element={
+                    <RoleRoute roles={['admin']}>
+                      <TaggingSettingsPage />
+                    </RoleRoute>
+                  }
+                />
                 <Route path="tokens" element={<TokensPage />} />
                 <Route
                   path="users"

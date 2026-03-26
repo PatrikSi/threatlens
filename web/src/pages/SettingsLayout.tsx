@@ -11,6 +11,7 @@ export function SettingsLayout() {
     { to: '/settings', label: 'Overview' },
     { to: '/settings/account', label: 'Account' },
     { to: '/settings/notifications', label: 'Notifications' },
+    ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Tagging' }] : []),
     { to: '/settings/tokens', label: 'API Tokens' },
     ...(role === 'admin' ? [{ to: '/settings/users', label: 'Users' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/audit-logs', label: 'Audit Logs' }] : []),
