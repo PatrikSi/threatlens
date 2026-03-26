@@ -400,7 +400,7 @@ def _clean_text(value: object) -> str | None:
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
-def fetch_feed(self, feed_id: str):
+def fetch_feed(self, feed_id: str, force: bool = False):
     with feed_lock(feed_id) as acquired:
         if not acquired:
             return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
@@ -409,6 +409,8 @@ def fetch_feed(self, feed_id: str):
             feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
             if feed is None or not feed.enabled:
                 return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
+            if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
+                return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
 
             headers: dict[str, str] = {}
             if feed.etag:
