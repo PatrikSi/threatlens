@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -60,6 +61,7 @@ AI_STATUS_RUNNING = "running"
 AI_STATUS_READY = "ready"
 AI_STATUS_ERROR = "error"
 AI_STATUS_SKIPPED = "skipped"
+AI_TERMINAL_STATUSES = {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}
 
 AI_TASK_NAMES = {
     "app.tasks.feed_tasks.generate_item_ai_enrichment": AI_TASK_TYPE_ITEM_ENRICHMENT,
@@ -163,6 +165,8 @@ def start_ai_task_run(
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
+    if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
+        return run
     now = datetime.now(timezone.utc)
     run.status = AI_STATUS_RUNNING
     run.started_at = run.started_at or now
@@ -204,6 +208,8 @@ def finish_ai_task_run(
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
+    if run.finished_at is not None and run.status in AI_TERMINAL_STATUSES:
+        return run
     now = datetime.now(timezone.utc)
     if run.started_at is None:
         run.started_at = _coerce_utc(run.queued_at) if run.queued_at is not None else now
@@ -863,8 +869,13 @@ def _flatten_live_tasks(raw_tasks: dict[str, list[dict[str, Any]]], *, state: st
                 continue
             kwargs = raw.get("kwargs") or {}
             request = raw.get("request") or {}
-            task_run_id = _extract_uuid(kwargs.get("task_run_id") or request.get("kwargs", {}).get("task_run_id"))
-            item_id = _extract_uuid(kwargs.get("item_id"))
+            args = _coerce_live_args(raw.get("args") or request.get("args"))
+            task_run_id = _extract_uuid(
+                kwargs.get("task_run_id")
+                or request.get("kwargs", {}).get("task_run_id")
+                or _extract_positional_task_run_id(name, args)
+            )
+            item_id = _extract_uuid(kwargs.get("item_id") or _extract_positional_item_id(name, args))
             parent_run_id = _extract_uuid(kwargs.get("parent_run_id"))
             eta_value = raw.get("eta")
             received_value = raw.get("time_start") or raw.get("received") or raw.get("acknowledged")
@@ -883,6 +894,37 @@ def _flatten_live_tasks(raw_tasks: dict[str, list[dict[str, Any]]], *, state: st
                 )
             )
     return entries
+
+
+def _coerce_live_args(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return list(value)
+    if isinstance(value, str):
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return []
+        if isinstance(parsed, (list, tuple)):
+            return list(parsed)
+    return []
+
+
+def _extract_positional_task_run_id(task_name: str, args: list[Any]) -> Any:
+    if task_name == "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation" and len(args) > 1:
+        return args[1]
+    if task_name == "app.tasks.feed_tasks.generate_item_ai_enrichment" and len(args) > 2:
+        return args[2]
+    if task_name == "app.tasks.feed_tasks.reprocess_recent_ai_items" and len(args) > 6:
+        return args[6]
+    return None
+
+
+def _extract_positional_item_id(task_name: str, args: list[Any]) -> Any:
+    if task_name == "app.tasks.feed_tasks.generate_item_ai_enrichment" and args:
+        return args[0]
+    return None
 
 
 def _is_stale_unfinished_run(run: AITaskRun, live_task_ids: set[str], stale_before: datetime) -> bool:

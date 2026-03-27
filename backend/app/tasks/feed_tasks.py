@@ -679,7 +679,7 @@ def dispatch_daily_ai_brief_generation(
                 model=None,
                 metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
             )
-        start_ai_task_run(
+        started_run = start_ai_task_run(
             db,
             run_id=run.id,
             worker_name=getattr(self.request, "hostname", None),
@@ -687,6 +687,8 @@ def dispatch_daily_ai_brief_generation(
             metadata_updates={"force": bool(force)},
         )
         db.commit()
+        if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
+            return {"status": "skipped", "reason": "canceled"}
         active_ai_settings = load_active_ai_settings(db)
         if not active_ai_settings.ai_enabled:
             finish_ai_task_run(
@@ -1313,7 +1315,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
             except ValueError:
                 parsed_run_id = None
         if parsed_run_id:
-            start_ai_task_run(
+            started_run = start_ai_task_run(
                 db,
                 run_id=parsed_run_id,
                 worker_name=getattr(self.request, "hostname", None),
@@ -1321,6 +1323,8 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 metadata_updates={"force": bool(force)},
             )
             db.commit()
+            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
+                return {"status": "skipped", "reason": "canceled", "item_id": item_id}
 
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -1442,7 +1446,7 @@ def reprocess_recent_ai_items(
             except ValueError:
                 parsed_actor_user_id = None
         if parsed_run_id:
-            start_ai_task_run(
+            started_run = start_ai_task_run(
                 db,
                 run_id=parsed_run_id,
                 worker_name=getattr(self.request, "hostname", None),
@@ -1458,6 +1462,8 @@ def reprocess_recent_ai_items(
                 },
             )
             db.commit()
+            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
+                return {"queued": 0, "reason": "canceled"}
 
         active_ai_settings = load_active_ai_settings(db)
         if not active_ai_settings.ai_enabled:
