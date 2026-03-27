@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models.article import Article
+from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -26,7 +27,24 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.ai_config import load_active_ai_settings
-from app.services.ai_integration import generate_daily_brief, generate_item_ai_enrichment
+from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
+from app.services.ai_ops import (
+    AI_STATUS_ERROR,
+    AI_STATUS_READY,
+    AI_STATUS_RUNNING,
+    AI_STATUS_SKIPPED,
+    AI_TASK_TYPE_DAILY_BRIEF,
+    AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPROCESS,
+    AI_TRIGGER_AUTO,
+    AI_TRIGGER_MANUAL,
+    AI_TRIGGER_SCHEDULED,
+    finish_ai_task_run,
+    queue_ai_task_run,
+    record_ai_task_event,
+    start_ai_task_run,
+    update_ai_task_run_celery,
+)
 from app.services.connectors.rss import RSSConnector
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
@@ -118,6 +136,77 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
                 redis_client.delete(key)
         except redis.RedisError:
             pass
+
+
+def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) -> None:
+    with db_session() as db:
+        update_ai_task_run_celery(db, run_id=run_id, celery_task_id=celery_task_id)
+        db.commit()
+
+
+def _queue_item_ai_enrichment_run(
+    *,
+    item_id: uuid.UUID,
+    trigger_source: str,
+    reason: str | None,
+    actor_user_id: uuid.UUID | None = None,
+    parent_run_id: uuid.UUID | None = None,
+    force: bool = False,
+    model: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> uuid.UUID:
+    with db_session() as db:
+        run = queue_ai_task_run(
+            db,
+            task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+            trigger_source=trigger_source,
+            actor_user_id=actor_user_id,
+            item_id=item_id,
+            parent_run_id=parent_run_id,
+            model=model,
+            metadata=metadata,
+            reason=reason,
+        )
+        db.commit()
+        run_id = run.id
+    task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
+    task_id = getattr(task, "id", None)
+    if task_id:
+        _update_task_run_celery_id(run_id, task_id)
+    return run_id
+
+
+def _record_skipped_item_ai_enrichment_run(
+    *,
+    item_id: uuid.UUID,
+    trigger_source: str,
+    reason: str,
+    actor_user_id: uuid.UUID | None = None,
+    parent_run_id: uuid.UUID | None = None,
+    model: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> uuid.UUID:
+    with db_session() as db:
+        run = queue_ai_task_run(
+            db,
+            task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+            trigger_source=trigger_source,
+            actor_user_id=actor_user_id,
+            item_id=item_id,
+            parent_run_id=parent_run_id,
+            model=model,
+            metadata=metadata,
+            reason=reason,
+        )
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_SKIPPED,
+            reason=reason,
+            metadata_updates=metadata,
+        )
+        db.commit()
+        return run.id
 
 
 @contextmanager
@@ -550,22 +639,77 @@ def dispatch_daily_digest_notification_webhooks():
         return {"status": "ok", "matched_webhooks": len(webhooks), "delivered": delivered, "failed": failed, "skipped": skipped}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")
-def dispatch_daily_ai_brief_generation():
+@celery_app.task(bind=True, name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")
+def dispatch_daily_ai_brief_generation(self):
     with db_session() as db:
+        run = queue_ai_task_run(
+            db,
+            task_type=AI_TASK_TYPE_DAILY_BRIEF,
+            trigger_source=AI_TRIGGER_SCHEDULED,
+            model=None,
+            metadata={"force": False, "scheduled": True},
+        )
+        start_ai_task_run(
+            db,
+            run_id=run.id,
+            worker_name=getattr(self.request, "hostname", None),
+            celery_task_id=getattr(self.request, "id", None),
+        )
+        db.commit()
         active_ai_settings = load_active_ai_settings(db)
         if not active_ai_settings.ai_enabled:
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=AI_STATUS_SKIPPED,
+                reason="ai_disabled",
+                worker_name=getattr(self.request, "hostname", None),
+            )
+            db.commit()
             return {"status": "skipped", "reason": "ai_disabled"}
         if not active_ai_settings.ai_configured:
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=AI_STATUS_SKIPPED,
+                reason="ai_not_configured",
+                worker_name=getattr(self.request, "hostname", None),
+            )
+            db.commit()
             return {"status": "skipped", "reason": "ai_not_configured"}
         if not active_ai_settings.daily_brief_enabled:
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=AI_STATUS_SKIPPED,
+                reason="daily_brief_disabled",
+                worker_name=getattr(self.request, "hostname", None),
+            )
+            db.commit()
             return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-        brief = generate_daily_brief(db, force=False)
+        result = run_daily_brief_generation(db, force=False)
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+            reason=result.reason,
+            error=result.brief.error if result.brief is not None and result.status == "error" else None,
+            worker_name=getattr(self.request, "hostname", None),
+            model=result.brief.model if result.brief is not None else active_ai_settings.model,
+            prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
+            completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+            total_tokens=result.brief.total_tokens if result.brief is not None else None,
+            latency_ms=result.brief.latency_ms if result.brief is not None else None,
+            prompt_char_count=result.prompt_char_count,
+            response_char_count=result.response_char_count,
+            metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
+            daily_brief_id=result.brief.id if result.brief is not None else None,
+        )
         db.commit()
-        if brief is None:
-            return {"status": "skipped", "reason": "no_items"}
-        return {"status": brief.status, "brief_date": brief.brief_date.isoformat()}
+        if result.brief is None:
+            return {"status": result.status, "reason": result.reason}
+        return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -1013,13 +1157,18 @@ def classify_item(item_id: str):
         feed_name = feed.name if feed is not None else ""
         feed_url = feed.url if feed is not None else ""
         active_ai_settings = load_active_ai_settings(db)
-        queue_ai_enrichment = bool(
-            active_ai_settings.ai_enabled
-            and active_ai_settings.ai_configured
-            and active_ai_settings.auto_enrich_new_items
-            and article is not None
-            and (article.text or "").strip()
-        )
+        ai_enrichment_skip_reason = None
+        if not active_ai_settings.ai_enabled:
+            ai_enrichment_skip_reason = "ai_disabled"
+        elif not active_ai_settings.ai_configured:
+            ai_enrichment_skip_reason = "ai_not_configured"
+        elif not active_ai_settings.auto_enrich_new_items:
+            ai_enrichment_skip_reason = "auto_enrich_disabled"
+        elif article is None:
+            ai_enrichment_skip_reason = "no_article"
+        elif not (article.text or "").strip():
+            ai_enrichment_skip_reason = "no_article_text"
+        queue_ai_enrichment = ai_enrichment_skip_reason is None
 
         result = classify_item_content(
             title=item.title,
@@ -1052,7 +1201,21 @@ def classify_item(item_id: str):
             dispatch_alert_match_notification_webhooks.delay(item_id)
             extract_item_iocs.delay(item_id)
             if queue_ai_enrichment:
-                generate_item_ai_enrichment_task.delay(item_id)
+                _queue_item_ai_enrichment_run(
+                    item_id=parsed_item_id,
+                    trigger_source=AI_TRIGGER_AUTO,
+                    reason=None,
+                    model=getattr(active_ai_settings, "model", None),
+                    metadata={"category": row.primary_category, "feed_name": feed_name, "force": False},
+                )
+            else:
+                _record_skipped_item_ai_enrichment_run(
+                    item_id=parsed_item_id,
+                    trigger_source=AI_TRIGGER_AUTO,
+                    reason=ai_enrichment_skip_reason or "not_eligible",
+                    model=getattr(active_ai_settings, "model", None),
+                    metadata={"category": row.primary_category, "feed_name": feed_name},
+                )
             return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
 
         if row is None:
@@ -1091,36 +1254,136 @@ def classify_item(item_id: str):
     dispatch_alert_match_notification_webhooks.delay(item_id)
     extract_item_iocs.delay(item_id)
     if queue_ai_enrichment:
-        generate_item_ai_enrichment_task.delay(item_id)
+        _queue_item_ai_enrichment_run(
+            item_id=parsed_item_id,
+            trigger_source=AI_TRIGGER_AUTO,
+            reason=None,
+            model=getattr(active_ai_settings, "model", None),
+            metadata={"category": result.primary_category, "feed_name": feed_name, "force": False},
+        )
+    else:
+        _record_skipped_item_ai_enrichment_run(
+            item_id=parsed_item_id,
+            trigger_source=AI_TRIGGER_AUTO,
+            reason=ai_enrichment_skip_reason or "not_eligible",
+            model=getattr(active_ai_settings, "model", None),
+            metadata={"category": result.primary_category, "feed_name": feed_name},
+        )
     return {"status": "ok", "item_id": item_id, "category": result.primary_category}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.generate_item_ai_enrichment")
-def generate_item_ai_enrichment_task(item_id: str, force: bool = False):
+@celery_app.task(bind=True, name="app.tasks.feed_tasks.generate_item_ai_enrichment")
+def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, task_run_id: str | None = None):
     with db_session() as db:
+        parsed_run_id = None
+        if task_run_id:
+            try:
+                parsed_run_id = uuid.UUID(task_run_id)
+            except ValueError:
+                parsed_run_id = None
+        if parsed_run_id:
+            start_ai_task_run(
+                db,
+                run_id=parsed_run_id,
+                worker_name=getattr(self.request, "hostname", None),
+                celery_task_id=getattr(self.request, "id", None),
+                metadata_updates={"force": bool(force)},
+            )
+            db.commit()
+
         try:
             parsed_item_id = uuid.UUID(item_id)
         except ValueError:
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="invalid_item_id",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
-        enrichment = generate_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+        result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+        if parsed_run_id:
+            finish_ai_task_run(
+                db,
+                run_id=parsed_run_id,
+                status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+                reason=result.reason,
+                error=result.enrichment.error if result.enrichment is not None and result.status == "error" else None,
+                worker_name=getattr(self.request, "hostname", None),
+                model=result.enrichment.model if result.enrichment is not None else None,
+                prompt_tokens=result.enrichment.prompt_tokens if result.enrichment is not None else None,
+                completion_tokens=result.enrichment.completion_tokens if result.enrichment is not None else None,
+                total_tokens=result.enrichment.total_tokens if result.enrichment is not None else None,
+                latency_ms=result.enrichment.latency_ms if result.enrichment is not None else None,
+                prompt_char_count=result.prompt_char_count,
+                response_char_count=result.response_char_count,
+                input_text_chars=result.input_text_chars,
+                metadata_updates={
+                    "summary_available": bool(result.enrichment.summary_text) if result.enrichment is not None else False,
+                    "relevance_label": result.enrichment.relevance_label if result.enrichment is not None else None,
+                },
+            )
         db.commit()
-        if enrichment is None:
-            return {"status": "skipped", "reason": "not_eligible", "item_id": item_id}
-        return {"status": enrichment.status, "item_id": item_id}
+        if result.enrichment is None:
+            return {"status": "skipped", "reason": result.reason or "not_eligible", "item_id": item_id}
+        return {"status": result.status, "reason": result.reason, "item_id": item_id}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.reprocess_recent_ai_items")
-def reprocess_recent_ai_items(days: int, limit: int):
+@celery_app.task(bind=True, name="app.tasks.feed_tasks.reprocess_recent_ai_items")
+def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | None = None, actor_user_id: str | None = None):
     runtime_settings = get_settings()
     effective_limit = max(1, min(int(limit), int(runtime_settings.dispatch_ai_reprocess_batch_size)))
     cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
 
     with db_session() as db:
+        parsed_run_id = None
+        parsed_actor_user_id = None
+        if task_run_id:
+            try:
+                parsed_run_id = uuid.UUID(task_run_id)
+            except ValueError:
+                parsed_run_id = None
+        if actor_user_id:
+            try:
+                parsed_actor_user_id = uuid.UUID(actor_user_id)
+            except ValueError:
+                parsed_actor_user_id = None
+        if parsed_run_id:
+            start_ai_task_run(
+                db,
+                run_id=parsed_run_id,
+                worker_name=getattr(self.request, "hostname", None),
+                celery_task_id=getattr(self.request, "id", None),
+                metadata_updates={"days": int(days), "limit": int(limit), "effective_limit": effective_limit},
+            )
+            db.commit()
+
         active_ai_settings = load_active_ai_settings(db)
         if not active_ai_settings.ai_enabled:
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="ai_disabled",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
             return {"queued": 0, "reason": "ai_disabled"}
         if not active_ai_settings.ai_configured:
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="ai_not_configured",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
             return {"queued": 0, "reason": "ai_not_configured"}
 
         item_ids = db.scalars(
@@ -1131,11 +1394,54 @@ def reprocess_recent_ai_items(days: int, limit: int):
             .limit(effective_limit)
         ).all()
 
+        if parsed_run_id:
+            run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
+            if run is not None:
+                run.target_count = len(item_ids)
+                db.add(run)
+                record_ai_task_event(
+                    db,
+                    run_id=parsed_run_id,
+                    event_type="selection_complete",
+                    payload={"target_count": len(item_ids), "days": int(days), "limit": int(limit), "effective_limit": effective_limit},
+                )
+                db.commit()
+        if not item_ids:
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="no_items",
+                    worker_name=getattr(self.request, "hostname", None),
+                    metadata_updates={"days": int(days), "limit": int(limit)},
+                )
+                db.commit()
+            return {"queued": 0, "reason": "no_items"}
+
     queued = 0
     for item_id_value in item_ids:
-        generate_item_ai_enrichment_task.delay(str(item_id_value), force=True)
+        _queue_item_ai_enrichment_run(
+            item_id=item_id_value,
+            trigger_source=AI_TRIGGER_MANUAL,
+            reason=None,
+            actor_user_id=parsed_actor_user_id,
+            parent_run_id=parsed_run_id,
+            force=True,
+            model=active_ai_settings.model,
+            metadata={"days": int(days), "limit": int(limit), "parent_task": "reprocess"},
+        )
         queued += 1
-    return {"queued": queued}
+    if parsed_run_id:
+        with db_session() as db:
+            record_ai_task_event(
+                db,
+                run_id=parsed_run_id,
+                event_type="children_queued",
+                payload={"queued": queued},
+            )
+            db.commit()
+    return {"queued": queued, "run_id": task_run_id}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.extract_item_iocs")

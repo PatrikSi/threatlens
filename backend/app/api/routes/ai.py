@@ -1,4 +1,5 @@
 import uuid
+from hashlib import sha256
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
@@ -9,11 +10,17 @@ from app.core.token_scopes import SCOPE_READ_AI, SCOPE_READ_ITEMS, SCOPE_WRITE_A
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ai import (
+    AIAuditEntryResponse,
     AIDailyBriefResponse,
+    AIDailyBriefSourceItemResponse,
+    AILiveStatusResponse,
+    AIOpsOverviewResponse,
     AIReprocessRequest,
     AIReprocessResponse,
     AISettingsResponse,
     AISettingsUpdate,
+    AITaskRunDetailResponse,
+    AITaskRunListResponse,
     AITestConnectionResponse,
     AIUsageSummaryResponse,
 )
@@ -26,12 +33,32 @@ from app.services.ai_config import (
 from app.services.ai_integration import (
     AIIntegrationError,
     daily_brief_response_from_model,
-    generate_daily_brief,
     get_ai_usage_summary,
     get_latest_daily_brief,
     get_recent_daily_briefs,
     prune_daily_brief_history,
+    run_daily_brief_generation,
     test_ai_connection,
+)
+from app.services.ai_ops import (
+    AI_STATUS_ERROR,
+    AI_STATUS_READY,
+    AI_STATUS_SKIPPED,
+    AI_TASK_TYPE_CONNECTION_TEST,
+    AI_TASK_TYPE_DAILY_BRIEF,
+    AI_TASK_TYPE_REPROCESS,
+    AI_TRIGGER_MANUAL,
+    finish_ai_task_run,
+    get_ai_live_status,
+    get_ai_ops_overview,
+    get_ai_task_run_detail,
+    list_ai_manual_actions,
+    list_ai_prompt_history,
+    list_ai_task_runs,
+    list_daily_brief_source_items,
+    queue_ai_task_run,
+    start_ai_task_run,
+    update_ai_task_run_celery,
 )
 from app.services.audit import record_audit
 from app.tasks.feed_tasks import reprocess_recent_ai_items
@@ -42,6 +69,12 @@ router = APIRouter(prefix="/ai", tags=["ai"])
 def require_ai_enabled():
     if not get_settings().ai_enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI features are disabled")
+
+
+def _hash_prompt(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return sha256(value.encode("utf-8", errors="ignore")).hexdigest()
 
 
 @router.get("/settings", response_model=AISettingsResponse, dependencies=[Depends(require_ai_enabled)])
@@ -63,8 +96,52 @@ def update_ai_settings_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
     settings = get_or_create_ai_settings(db)
+    before_values = {
+        "base_url": settings.base_url,
+        "model": settings.model,
+        "summary_enabled": settings.summary_enabled,
+        "relevance_enabled": settings.relevance_enabled,
+        "daily_brief_enabled": settings.daily_brief_enabled,
+        "auto_enrich_new_items": settings.auto_enrich_new_items,
+        "daily_brief_history_limit": settings.daily_brief_history_limit,
+        "temperature": settings.temperature,
+        "max_completion_tokens": settings.max_completion_tokens,
+        "request_timeout_seconds": settings.request_timeout_seconds,
+        "relevance_medium_threshold": settings.relevance_medium_threshold,
+        "relevance_high_threshold": settings.relevance_high_threshold,
+        "item_enrichment_system_prompt": settings.item_enrichment_system_prompt,
+        "daily_brief_system_prompt": settings.daily_brief_system_prompt,
+        "global_instructions": settings.global_instructions,
+        "item_summary_instructions": settings.item_summary_instructions,
+        "relevance_instructions": settings.relevance_instructions,
+        "daily_brief_instructions": settings.daily_brief_instructions,
+    }
     apply_ai_settings_update(settings, payload)
     db.add(settings)
+    after_changed_fields = [
+        field_name
+        for field_name in (
+            "base_url",
+            "model",
+            "summary_enabled",
+            "relevance_enabled",
+            "daily_brief_enabled",
+            "auto_enrich_new_items",
+            "daily_brief_history_limit",
+            "temperature",
+            "max_completion_tokens",
+            "request_timeout_seconds",
+            "relevance_medium_threshold",
+            "relevance_high_threshold",
+            "item_enrichment_system_prompt",
+            "daily_brief_system_prompt",
+            "global_instructions",
+            "item_summary_instructions",
+            "relevance_instructions",
+            "daily_brief_instructions",
+        )
+        if before_values[field_name] != getattr(payload, field_name)
+    ]
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -79,6 +156,15 @@ def update_ai_settings_route(
             "daily_brief_enabled": payload.daily_brief_enabled,
             "auto_enrich_new_items": payload.auto_enrich_new_items,
             "daily_brief_history_limit": payload.daily_brief_history_limit,
+            "changed_fields": after_changed_fields,
+            "prompt_hashes": {
+                "item_enrichment_system_prompt": _hash_prompt(payload.item_enrichment_system_prompt),
+                "daily_brief_system_prompt": _hash_prompt(payload.daily_brief_system_prompt),
+                "global_instructions": _hash_prompt(payload.global_instructions),
+                "item_summary_instructions": _hash_prompt(payload.item_summary_instructions),
+                "relevance_instructions": _hash_prompt(payload.relevance_instructions),
+                "daily_brief_instructions": _hash_prompt(payload.daily_brief_instructions),
+            },
         },
     )
     prune_daily_brief_history(db, keep_limit=payload.daily_brief_history_limit)
@@ -93,18 +179,49 @@ def test_ai_connection_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
+    settings = get_or_create_ai_settings(db)
+    run = queue_ai_task_run(
+        db,
+        task_type=AI_TASK_TYPE_CONNECTION_TEST,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model=settings.model,
+        metadata={"base_url": settings.base_url, "model": settings.model},
+    )
+    start_ai_task_run(db, run_id=run.id, worker_name="api")
+    db.commit()
     try:
         result = test_ai_connection(db)
     except AIIntegrationError as exc:
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_ERROR,
+            reason="request_failed",
+            error=str(exc),
+            worker_name="api",
+            model=settings.model,
+        )
+        db.commit()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
+    finish_ai_task_run(
+        db,
+        run_id=run.id,
+        status=AI_STATUS_READY if result.success else AI_STATUS_ERROR,
+        reason=None if result.success else "unexpected_response",
+        error=result.error,
+        worker_name="api",
+        model=result.model,
+        latency_ms=result.latency_ms,
+    )
     record_audit(
         db,
         actor_user_id=admin.id,
         action="ai.connection.test",
         resource_type="ai_settings",
         success=result.success,
-        metadata={"model": result.model, "latency_ms": result.latency_ms},
+        metadata={"model": result.model, "latency_ms": result.latency_ms, "run_id": str(run.id)},
     )
     db.commit()
     return result
@@ -158,8 +275,38 @@ def generate_daily_brief_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
-    brief = generate_daily_brief(db, force=True)
-    if brief is None:
+    settings = get_or_create_ai_settings(db)
+    run = queue_ai_task_run(
+        db,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model=settings.model,
+        metadata={"force": True},
+    )
+    start_ai_task_run(db, run_id=run.id, worker_name="api", metadata_updates={"force": True})
+    db.commit()
+
+    result = run_daily_brief_generation(db, force=True)
+    finish_ai_task_run(
+        db,
+        run_id=run.id,
+        status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+        reason=result.reason,
+        error=result.brief.error if result.brief is not None and result.status == "error" else None,
+        worker_name="api",
+        model=result.brief.model if result.brief is not None else settings.model,
+        prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
+        completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+        total_tokens=result.brief.total_tokens if result.brief is not None else None,
+        latency_ms=result.brief.latency_ms if result.brief is not None else None,
+        prompt_char_count=result.prompt_char_count,
+        response_char_count=result.response_char_count,
+        metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
+        daily_brief_id=result.brief.id if result.brief is not None else None,
+    )
+    if result.brief is None:
+        db.commit()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No items are available for a daily brief")
 
     record_audit(
@@ -167,13 +314,19 @@ def generate_daily_brief_route(
         actor_user_id=admin.id,
         action="ai.daily_brief.generate",
         resource_type="ai_daily_brief",
-        resource_id=str(brief.id),
-        success=brief.status == "ready",
-        metadata={"brief_date": brief.brief_date.isoformat(), "status": brief.status},
+        resource_id=str(result.brief.id),
+        success=result.brief.status == "ready",
+        metadata={
+            "brief_date": result.brief.brief_date.isoformat(),
+            "status": result.brief.status,
+            "run_id": str(run.id),
+            "items_considered": result.items_considered,
+            "items_selected": result.items_selected,
+        },
     )
     db.commit()
-    db.refresh(brief)
-    return daily_brief_response_from_model(db, brief)
+    db.refresh(result.brief)
+    return daily_brief_response_from_model(db, result.brief)
 
 
 @router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])
@@ -183,13 +336,129 @@ def reprocess_ai_for_recent_items_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
-    task = reprocess_recent_ai_items.delay(payload.days, payload.limit)
+    settings = get_or_create_ai_settings(db)
+    run = queue_ai_task_run(
+        db,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model=settings.model,
+        metadata={"days": payload.days, "limit": payload.limit},
+    )
+    db.commit()
+    task = reprocess_recent_ai_items.delay(payload.days, payload.limit, task_run_id=str(run.id), actor_user_id=str(admin.id))
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task.id)
     record_audit(
         db,
         actor_user_id=admin.id,
         action="ai.reprocess.queue",
         resource_type="ai_settings",
-        metadata={"days": payload.days, "limit": payload.limit, "task_id": task.id},
+        metadata={"days": payload.days, "limit": payload.limit, "task_id": task.id, "run_id": str(run.id)},
     )
     db.commit()
-    return AIReprocessResponse(task_id=task.id, queued=True)
+    return AIReprocessResponse(task_id=task.id, queued=True, run_id=run.id)
+
+
+@router.get("/ops/overview", response_model=AIOpsOverviewResponse, dependencies=[Depends(require_ai_enabled)])
+def get_ai_ops_overview_route(
+    days: int = Query(default=30, ge=1, le=365),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    return get_ai_ops_overview(db, days=days)
+
+
+@router.get("/ops/live", response_model=AILiveStatusResponse, dependencies=[Depends(require_ai_enabled)])
+def get_ai_ops_live_route(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = (db, admin)
+    return get_ai_live_status(db)
+
+
+@router.get("/ops/runs", response_model=AITaskRunListResponse, dependencies=[Depends(require_ai_enabled)])
+def list_ai_ops_runs_route(
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    days: int | None = Query(default=None, ge=1, le=365),
+    task_type: str | None = Query(default=None),
+    status_value: str | None = Query(default=None, alias="status"),
+    trigger_source: str | None = Query(default=None),
+    model: str | None = Query(default=None),
+    parent_run_id: uuid.UUID | None = Query(default=None),
+    only_failures: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    since = None
+    if days is not None:
+        from datetime import datetime, timedelta, timezone
+
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+    return list_ai_task_runs(
+        db,
+        limit=limit,
+        offset=offset,
+        task_type=task_type,
+        status=status_value,
+        trigger_source=trigger_source,
+        model=model,
+        since=since,
+        parent_run_id=parent_run_id,
+        only_failures=only_failures,
+    )
+
+
+@router.get("/ops/runs/{run_id}", response_model=AITaskRunDetailResponse, dependencies=[Depends(require_ai_enabled)])
+def get_ai_ops_run_detail_route(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    detail = get_ai_task_run_detail(db, run_id=run_id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+    return detail
+
+
+@router.get("/ops/manual-actions", response_model=list[AIAuditEntryResponse], dependencies=[Depends(require_ai_enabled)])
+def list_ai_ops_manual_actions_route(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    return list_ai_manual_actions(db, limit=limit)
+
+
+@router.get("/ops/prompt-history", response_model=list[AIAuditEntryResponse], dependencies=[Depends(require_ai_enabled)])
+def list_ai_ops_prompt_history_route(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    return list_ai_prompt_history(db, limit=limit)
+
+
+@router.get("/daily-briefs/{brief_id}/sources", response_model=list[AIDailyBriefSourceItemResponse], dependencies=[Depends(require_ai_enabled)])
+def list_daily_brief_sources_route(
+    brief_id: uuid.UUID,
+    included: bool | None = Query(default=None),
+    limit: int = Query(default=200, ge=1, le=500),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
+):
+    _ = admin
+    return list_daily_brief_source_items(db, daily_brief_id=brief_id, included=included, limit=limit)
