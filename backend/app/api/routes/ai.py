@@ -110,6 +110,7 @@ def update_ai_settings_route(
         "temperature": settings.temperature,
         "max_completion_tokens": settings.max_completion_tokens,
         "request_timeout_seconds": settings.request_timeout_seconds,
+        "request_max_retries": settings.request_max_retries,
         "relevance_medium_threshold": settings.relevance_medium_threshold,
         "relevance_high_threshold": settings.relevance_high_threshold,
         "item_enrichment_system_prompt": settings.item_enrichment_system_prompt,
@@ -134,6 +135,7 @@ def update_ai_settings_route(
             "temperature",
             "max_completion_tokens",
             "request_timeout_seconds",
+            "request_max_retries",
             "relevance_medium_threshold",
             "relevance_high_threshold",
             "item_enrichment_system_prompt",
@@ -159,6 +161,7 @@ def update_ai_settings_route(
             "daily_brief_enabled": payload.daily_brief_enabled,
             "auto_enrich_new_items": payload.auto_enrich_new_items,
             "daily_brief_history_limit": payload.daily_brief_history_limit,
+            "request_max_retries": payload.request_max_retries,
             "changed_fields": after_changed_fields,
             "prompt_hashes": {
                 "item_enrichment_system_prompt": _hash_prompt(payload.item_enrichment_system_prompt),

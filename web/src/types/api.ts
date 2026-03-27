@@ -601,6 +601,7 @@ export interface AISettings {
   temperature: number
   max_completion_tokens: number
   request_timeout_seconds: number
+  request_max_retries: number
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
@@ -636,6 +637,7 @@ export interface AISettingsUpdateRequest {
   temperature: number
   max_completion_tokens: number
   request_timeout_seconds: number
+  request_max_retries: number
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean

@@ -17,6 +17,7 @@ class AISettings(Base):
     temperature: Mapped[float] = mapped_column(Float, nullable=False, default=0.2, server_default="0.2")
     max_completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=700, server_default="700")
     request_timeout_seconds: Mapped[int] = mapped_column(Integer, nullable=False, default=60, server_default="60")
+    request_max_retries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     summary_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     relevance_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     daily_brief_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
