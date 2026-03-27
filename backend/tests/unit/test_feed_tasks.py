@@ -283,3 +283,51 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
     assert refreshed_parent.error_count == 0
     assert refreshed_parent.status == "ready"
     get_settings.cache_clear()
+
+
+def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        lambda db, *, item_id, force=False: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 1, "limit": 1},
+    )
+    parent_run.target_count = 1
+    db_session.add(parent_run)
+    child_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        parent_run_id=parent_run.id,
+        item_id=uuid.uuid4(),
+        metadata={"parent_task": "reprocess"},
+    )
+    db_session.commit()
+
+    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+
+    assert result == {"status": "error", "reason": "unexpected_error", "item_id": str(child_run.item_id)}
+
+    db_session.expire_all()
+    refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert refreshed_child is not None
+    assert refreshed_child.status == "error"
+    assert refreshed_child.reason == "unexpected_error"
+    assert refreshed_child.error == "boom"
+
+    assert refreshed_parent is not None
+    assert refreshed_parent.processed_count == 1
+    assert refreshed_parent.error_count == 1
+    assert refreshed_parent.status == "error"

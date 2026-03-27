@@ -1305,7 +1305,22 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 db.commit()
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
-        result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+        try:
+            result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+        except Exception as exc:
+            db.rollback()
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_ERROR,
+                    reason="unexpected_error",
+                    error=str(exc),
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+            logger.exception("AI enrichment task failed unexpectedly for item %s", item_id)
+            return {"status": "error", "reason": "unexpected_error", "item_id": item_id}
         if parsed_run_id:
             finish_ai_task_run(
                 db,
