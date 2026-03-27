@@ -26,6 +26,7 @@ from app.services.ai_integration import (
     generate_daily_brief,
     generate_item_ai_enrichment,
     get_latest_daily_brief,
+    run_item_ai_enrichment,
 )
 from app.schemas.ai import AISettingsUpdate
 
@@ -126,6 +127,113 @@ def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_sessi
     stored = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
     assert stored is not None
     assert stored.total_tokens == 100
+
+    usage_events = db_session.scalars(select(AIUsageEvent)).all()
+    assert len(usage_events) == 1
+    assert usage_events[0].feature_type == "item_enrichment"
+
+
+def test_run_item_ai_enrichment_skips_when_matching_enrichment_is_already_pending(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-pending",
+        url="https://example.com/articles/unit42-pending",
+        canonical_url="https://example.com/articles/unit42-pending",
+        title="Fortinet edge exploitation observed",
+        summary="Researchers observed new edge exploitation activity.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-pending",
+        content_hash="c" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices and remote access services.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=["incident_breach"],
+        confidence=0.87,
+        scores_json={"vulnerability": 7.8},
+        matched_terms_json={"vulnerability": ["title:exploit"]},
+        source_hash="hash",
+        rules_version="v2",
+        classified_at=datetime.now(timezone.utc),
+    )
+    db_session.add_all([feed, item, article, classification])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            company_name="Example Corp",
+            company_stack=["Fortinet"],
+            company_keywords=["vpn"],
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    def _fake_call(active, *, messages):
+        _ = (active, messages)
+        return AICompletionResult(
+            payload={
+                "summary_text": "AI summary of the exploitation activity.",
+                "relevance_score": 0.91,
+                "relevance_reasons": ["Mentions Fortinet", "Targets exposed edge systems"],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=75,
+            prompt_tokens=80,
+            completion_tokens=20,
+            total_tokens=100,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fake_call)
+
+    enrichment = generate_item_ai_enrichment(db_session, item_id=item.id, force=True)
+    db_session.commit()
+    assert enrichment is not None
+
+    enrichment.status = "pending"
+    enrichment.summary_text = None
+    enrichment.relevance_score = None
+    enrichment.relevance_label = None
+    enrichment.relevance_reasons_json = []
+    db_session.add(enrichment)
+    db_session.commit()
+
+    def _unexpected_call(active, *, messages):
+        _ = (active, messages)
+        raise AssertionError("AI request should not run while matching enrichment is already pending")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _unexpected_call)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=False)
+
+    assert result.status == "skipped"
+    assert result.reason == "already_pending"
+    assert result.enrichment is not None
 
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1

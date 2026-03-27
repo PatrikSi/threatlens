@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from sqlalchemy import case, delete, func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
@@ -158,7 +159,7 @@ def run_item_ai_enrichment(
 
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
-    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
+    enrichment = _ensure_item_ai_enrichment_row(db, item_id=item_id)
     tag_names = _load_item_tag_names(db, item_id=item_id)
     source_hash = _compute_item_source_hash(
         active,
@@ -169,17 +170,23 @@ def run_item_ai_enrichment(
         feed_name=feed.name if feed is not None else "",
     )
 
-    if enrichment is not None and enrichment.source_hash == source_hash and enrichment.status == "ready" and not force:
-        return AIItemEnrichmentResult(
-            enrichment=enrichment,
-            status="skipped",
-            reason="source_hash_unchanged",
-            input_text_chars=len(article.text or ""),
-        )
+    if enrichment is not None and enrichment.source_hash == source_hash:
+        if enrichment.status == "ready" and not force:
+            return AIItemEnrichmentResult(
+                enrichment=enrichment,
+                status="skipped",
+                reason="source_hash_unchanged",
+                input_text_chars=len(article.text or ""),
+            )
+        if enrichment.status == "pending" and not force:
+            return AIItemEnrichmentResult(
+                enrichment=enrichment,
+                status="skipped",
+                reason="already_pending",
+                input_text_chars=len(article.text or ""),
+            )
 
     now = datetime.now(timezone.utc)
-    if enrichment is None:
-        enrichment = ItemAIEnrichment(item_id=item_id)
     enrichment.status = "pending"
     enrichment.source_hash = source_hash
     enrichment.error = None
@@ -242,6 +249,23 @@ def run_item_ai_enrichment(
         prompt_char_count=completion.prompt_char_count,
         response_char_count=completion.response_char_count,
     )
+
+
+def _ensure_item_ai_enrichment_row(db: Session, *, item_id: uuid.UUID) -> ItemAIEnrichment:
+    db.execute(
+        pg_insert(ItemAIEnrichment)
+        .values(
+            item_id=item_id,
+            status="pending",
+            source_hash="",
+            relevance_reasons_json=[],
+        )
+        .on_conflict_do_nothing(index_elements=[ItemAIEnrichment.item_id])
+    )
+    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
+    if enrichment is None:
+        raise AIIntegrationError("Failed to initialize AI enrichment state")
+    return enrichment
 
 
 def generate_daily_brief(
