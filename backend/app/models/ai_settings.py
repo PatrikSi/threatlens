@@ -25,6 +25,8 @@ class AISettings(Base):
     daily_brief_window_hours: Mapped[int] = mapped_column(Integer, nullable=False, default=24, server_default="24")
     daily_brief_max_items: Mapped[int] = mapped_column(Integer, nullable=False, default=20, server_default="20")
     daily_brief_history_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=7, server_default="7")
+    daily_brief_schedule_hour_utc: Mapped[int] = mapped_column(Integer, nullable=False, default=9, server_default="9")
+    daily_brief_schedule_minute_utc: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     relevance_medium_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.55, server_default="0.55")
     relevance_high_threshold: Mapped[float] = mapped_column(Float, nullable=False, default=0.8, server_default="0.8")
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

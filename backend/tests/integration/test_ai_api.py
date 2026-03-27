@@ -82,6 +82,8 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
             "auto_enrich_new_items": True,
             "daily_brief_window_hours": 24,
             "daily_brief_max_items": 10,
+            "daily_brief_schedule_hour_utc": 6,
+            "daily_brief_schedule_minute_utc": 45,
             "relevance_medium_threshold": 0.55,
             "relevance_high_threshold": 0.8,
             "company_name": "Example Corp",
@@ -102,6 +104,8 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
     assert update_response.status_code == 200
     assert update_response.json()["ai_configured"] is True
     assert update_response.json()["request_max_retries"] == 2
+    assert update_response.json()["daily_brief_schedule_hour_utc"] == 6
+    assert update_response.json()["daily_brief_schedule_minute_utc"] == 45
     assert update_response.json()["item_enrichment_system_prompt"].startswith("You are ThreatLens")
     assert update_response.json()["daily_brief_system_prompt"].startswith("You are ThreatLens")
     assert "ThreatLens, producing structured security analysis" in update_response.json()["prompt_previews"]["item_enrichment"]["system_prompt"]
