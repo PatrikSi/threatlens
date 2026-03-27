@@ -15,10 +15,12 @@ from app.schemas.ai import (
     AIDailyBriefSourceItemResponse,
     AILiveStatusResponse,
     AIOpsOverviewResponse,
+    AIQueuedTaskResponse,
     AIReprocessRequest,
     AIReprocessResponse,
     AISettingsResponse,
     AISettingsUpdate,
+    AITaskRunResponse,
     AITaskRunDetailResponse,
     AITaskRunListResponse,
     AITestConnectionResponse,
@@ -48,6 +50,7 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
+    cancel_ai_task_run,
     finish_ai_task_run,
     get_ai_live_status,
     get_ai_ops_overview,
@@ -61,7 +64,7 @@ from app.services.ai_ops import (
     update_ai_task_run_celery,
 )
 from app.services.audit import record_audit
-from app.tasks.feed_tasks import reprocess_recent_ai_items
+from app.tasks.feed_tasks import dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -329,6 +332,36 @@ def generate_daily_brief_route(
     return daily_brief_response_from_model(db, result.brief)
 
 
+@router.post("/daily-brief/queue", response_model=AIQueuedTaskResponse, dependencies=[Depends(require_ai_enabled)])
+def queue_daily_brief_route(
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
+):
+    settings = get_or_create_ai_settings(db)
+    run = queue_ai_task_run(
+        db,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model=settings.model,
+        metadata={"force": True, "queued_by": "api"},
+    )
+    db.commit()
+    task = dispatch_daily_ai_brief_generation.delay(True, str(run.id), str(admin.id))
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task.id)
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="ai.daily_brief.queue",
+        resource_type="ai_daily_brief",
+        success=True,
+        metadata={"task_id": task.id, "run_id": str(run.id)},
+    )
+    db.commit()
+    return AIQueuedTaskResponse(task_id=task.id, queued=True, run_id=run.id)
+
+
 @router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])
 def reprocess_ai_for_recent_items_route(
     payload: AIReprocessRequest,
@@ -343,17 +376,42 @@ def reprocess_ai_for_recent_items_route(
         trigger_source=AI_TRIGGER_MANUAL,
         actor_user_id=admin.id,
         model=settings.model,
-        metadata={"days": payload.days, "limit": payload.limit},
+        metadata={
+            "days": payload.days,
+            "limit": payload.limit,
+            "start_time": payload.start_time.isoformat() if payload.start_time else None,
+            "end_time": payload.end_time.isoformat() if payload.end_time else None,
+            "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
+            "item_ids": [str(item_id) for item_id in payload.item_ids],
+        },
     )
     db.commit()
-    task = reprocess_recent_ai_items.delay(payload.days, payload.limit, task_run_id=str(run.id), actor_user_id=str(admin.id))
+    task = reprocess_recent_ai_items.delay(
+        payload.days,
+        payload.limit,
+        payload.start_time.isoformat() if payload.start_time else None,
+        payload.end_time.isoformat() if payload.end_time else None,
+        [str(feed_id) for feed_id in payload.feed_ids],
+        [str(item_id) for item_id in payload.item_ids],
+        task_run_id=str(run.id),
+        actor_user_id=str(admin.id),
+    )
     update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task.id)
     record_audit(
         db,
         actor_user_id=admin.id,
         action="ai.reprocess.queue",
         resource_type="ai_settings",
-        metadata={"days": payload.days, "limit": payload.limit, "task_id": task.id, "run_id": str(run.id)},
+        metadata={
+            "days": payload.days,
+            "limit": payload.limit,
+            "start_time": payload.start_time.isoformat() if payload.start_time else None,
+            "end_time": payload.end_time.isoformat() if payload.end_time else None,
+            "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
+            "item_ids": [str(item_id) for item_id in payload.item_ids],
+            "task_id": task.id,
+            "run_id": str(run.id),
+        },
     )
     db.commit()
     return AIReprocessResponse(task_id=task.id, queued=True, run_id=run.id)
@@ -427,6 +485,32 @@ def get_ai_ops_run_detail_route(
     if detail is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
     return detail
+
+
+@router.post("/ops/runs/{run_id}/cancel", response_model=AITaskRunResponse, dependencies=[Depends(require_ai_enabled)])
+def cancel_ai_ops_run_route(
+    run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
+):
+    run = cancel_ai_task_run(db, run_id=run_id, actor_user_id=admin.id)
+    if run is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="ai.run.cancel",
+        resource_type="ai_task_run",
+        resource_id=str(run.id),
+        success=True,
+        metadata={"task_type": run.task_type, "status": run.status, "reason": run.reason},
+    )
+    db.commit()
+    detail = get_ai_task_run_detail(db, run_id=run.id)
+    if detail is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
+    return detail.run
 
 
 @router.get("/ops/manual-actions", response_model=list[AIAuditEntryResponse], dependencies=[Depends(require_ai_enabled)])

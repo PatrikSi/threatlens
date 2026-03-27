@@ -640,20 +640,51 @@ def dispatch_daily_digest_notification_webhooks():
 
 
 @celery_app.task(bind=True, name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")
-def dispatch_daily_ai_brief_generation(self):
+def dispatch_daily_ai_brief_generation(
+    self,
+    force: bool = False,
+    task_run_id: str | None = None,
+    actor_user_id: str | None = None,
+):
     with db_session() as db:
-        run = queue_ai_task_run(
-            db,
-            task_type=AI_TASK_TYPE_DAILY_BRIEF,
-            trigger_source=AI_TRIGGER_SCHEDULED,
-            model=None,
-            metadata={"force": False, "scheduled": True},
-        )
+        parsed_run_id = None
+        parsed_actor_user_id = None
+        if task_run_id:
+            try:
+                parsed_run_id = uuid.UUID(task_run_id)
+            except ValueError:
+                parsed_run_id = None
+        if actor_user_id:
+            try:
+                parsed_actor_user_id = uuid.UUID(actor_user_id)
+            except ValueError:
+                parsed_actor_user_id = None
+        if parsed_run_id:
+            run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
+            if run is None:
+                run = queue_ai_task_run(
+                    db,
+                    task_type=AI_TASK_TYPE_DAILY_BRIEF,
+                    trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                    actor_user_id=parsed_actor_user_id,
+                    model=None,
+                    metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
+                )
+        else:
+            run = queue_ai_task_run(
+                db,
+                task_type=AI_TASK_TYPE_DAILY_BRIEF,
+                trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                actor_user_id=parsed_actor_user_id,
+                model=None,
+                metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
+            )
         start_ai_task_run(
             db,
             run_id=run.id,
             worker_name=getattr(self.request, "hostname", None),
             celery_task_id=getattr(self.request, "id", None),
+            metadata_updates={"force": bool(force)},
         )
         db.commit()
         active_ai_settings = load_active_ai_settings(db)
@@ -688,7 +719,7 @@ def dispatch_daily_ai_brief_generation(self):
             db.commit()
             return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-        result = run_daily_brief_generation(db, force=False)
+        result = run_daily_brief_generation(db, force=force)
         finish_ai_task_run(
             db,
             run_id=run.id,
@@ -1348,11 +1379,54 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
         return {"status": result.status, "reason": result.reason, "item_id": item_id}
 
 
+def _parse_uuid_text_list(values: list[str] | None) -> list[uuid.UUID]:
+    parsed: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for raw in values or []:
+        try:
+            candidate = uuid.UUID(str(raw))
+        except (TypeError, ValueError):
+            continue
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        parsed.append(candidate)
+    return parsed
+
+
+def _parse_datetime_text(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 @celery_app.task(bind=True, name="app.tasks.feed_tasks.reprocess_recent_ai_items")
-def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | None = None, actor_user_id: str | None = None):
+def reprocess_recent_ai_items(
+    self,
+    days: int | None,
+    limit: int,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    feed_ids: list[str] | None = None,
+    item_ids: list[str] | None = None,
+    task_run_id: str | None = None,
+    actor_user_id: str | None = None,
+):
     runtime_settings = get_settings()
     effective_limit = max(1, min(int(limit), int(runtime_settings.dispatch_ai_reprocess_batch_size)))
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days)))
+    parsed_start_time = _parse_datetime_text(start_time)
+    parsed_end_time = _parse_datetime_text(end_time)
+    parsed_feed_ids = _parse_uuid_text_list(feed_ids)
+    parsed_item_ids = _parse_uuid_text_list(item_ids)
+    cutoff = None
+    if parsed_start_time is None and parsed_end_time is None and not parsed_item_ids:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days or 7)))
 
     with db_session() as db:
         parsed_run_id = None
@@ -1373,7 +1447,15 @@ def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | No
                 run_id=parsed_run_id,
                 worker_name=getattr(self.request, "hostname", None),
                 celery_task_id=getattr(self.request, "id", None),
-                metadata_updates={"days": int(days), "limit": int(limit), "effective_limit": effective_limit},
+                metadata_updates={
+                    "days": int(days or 0) if days is not None else None,
+                    "limit": int(limit),
+                    "effective_limit": effective_limit,
+                    "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
+                    "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
+                    "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
+                    "explicit_item_count": len(parsed_item_ids),
+                },
             )
             db.commit()
 
@@ -1401,13 +1483,25 @@ def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | No
                 db.commit()
             return {"queued": 0, "reason": "ai_not_configured"}
 
-        item_ids = db.scalars(
+        selection_query = (
             select(Item.id)
             .join(Article, Article.item_id == Item.id)
-            .where(Item.first_seen_at >= cutoff, Article.text.is_not(None))
-            .order_by(Item.first_seen_at.desc())
-            .limit(effective_limit)
-        ).all()
+            .where(Article.text.is_not(None))
+        )
+        if parsed_item_ids:
+            selection_query = selection_query.where(Item.id.in_(parsed_item_ids))
+        else:
+            if cutoff is not None:
+                selection_query = selection_query.where(Item.first_seen_at >= cutoff)
+            if parsed_start_time is not None:
+                selection_query = selection_query.where(Item.first_seen_at >= parsed_start_time)
+            if parsed_end_time is not None:
+                selection_query = selection_query.where(Item.first_seen_at <= parsed_end_time)
+            if parsed_feed_ids:
+                selection_query = selection_query.where(Item.feed_id.in_(parsed_feed_ids))
+            selection_query = selection_query.limit(effective_limit)
+
+        item_ids = db.scalars(selection_query.order_by(Item.first_seen_at.desc())).all()
 
         if parsed_run_id:
             run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
@@ -1418,7 +1512,16 @@ def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | No
                     db,
                     run_id=parsed_run_id,
                     event_type="selection_complete",
-                    payload={"target_count": len(item_ids), "days": int(days), "limit": int(limit), "effective_limit": effective_limit},
+                    payload={
+                        "target_count": len(item_ids),
+                        "days": int(days or 0) if days is not None else None,
+                        "limit": int(limit),
+                        "effective_limit": effective_limit,
+                        "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
+                        "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
+                        "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
+                        "explicit_item_count": len(parsed_item_ids),
+                    },
                 )
                 db.commit()
         if not item_ids:
@@ -1429,7 +1532,14 @@ def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | No
                     status=AI_STATUS_SKIPPED,
                     reason="no_items",
                     worker_name=getattr(self.request, "hostname", None),
-                    metadata_updates={"days": int(days), "limit": int(limit)},
+                    metadata_updates={
+                        "days": int(days or 0) if days is not None else None,
+                        "limit": int(limit),
+                        "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
+                        "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
+                        "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
+                        "explicit_item_count": len(parsed_item_ids),
+                    },
                 )
                 db.commit()
             return {"queued": 0, "reason": "no_items"}
@@ -1444,7 +1554,15 @@ def reprocess_recent_ai_items(self, days: int, limit: int, task_run_id: str | No
             parent_run_id=parsed_run_id,
             force=True,
             model=active_ai_settings.model,
-            metadata={"days": int(days), "limit": int(limit), "parent_task": "reprocess"},
+            metadata={
+                "days": int(days or 0) if days is not None else None,
+                "limit": int(limit),
+                "parent_task": "reprocess",
+                "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
+                "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
+                "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
+                "explicit_item_count": len(parsed_item_ids),
+            },
         )
         queued += 1
     if parsed_run_id:

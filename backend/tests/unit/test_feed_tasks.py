@@ -331,3 +331,105 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     assert refreshed_parent.processed_count == 1
     assert refreshed_parent.error_count == 1
     assert refreshed_parent.status == "error"
+
+
+def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+
+    item_ids: list[uuid.UUID] = []
+    for index in range(3):
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"specific-{index}",
+            url=f"https://example.com/articles/specific-{index}",
+            canonical_url=f"https://example.com/articles/specific-{index}",
+            title=f"Targeted article {index}",
+            summary="Summary",
+            published_at=datetime.now(timezone.utc),
+            first_seen_at=datetime.now(timezone.utc),
+            dedupe_key=f"specific-{index}",
+            content_hash=str(index + 3) * 64,
+            status="content_fetched",
+        )
+        article = Article(
+            item_id=item.id,
+            final_url=item.url,
+            http_status=200,
+            text="Researchers observed Fortinet exploitation in the wild.",
+            extraction_method="readable",
+        )
+        db_session.add_all([item, article])
+        item_ids.append(item.id)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    scheduled: list[tuple[str, bool, str | None]] = []
+
+    class _FakeTask:
+        def __init__(self, task_id: str):
+            self.id = task_id
+
+    def _fake_delay(item_id: str, force: bool = False, task_run_id: str | None = None):
+        scheduled.append((item_id, force, task_run_id))
+        return _FakeTask(f"child-{len(scheduled)}")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": None, "limit": 100},
+    )
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(
+        None,
+        100,
+        None,
+        None,
+        None,
+        [str(item_ids[2]), str(item_ids[0])],
+        task_run_id=str(parent_run.id),
+    )
+
+    assert result["queued"] == 2
+    assert [scheduled_item_id for scheduled_item_id, _force, _task_run_id in scheduled] == [str(item_ids[2]), str(item_ids[0])]
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert refreshed_parent is not None
+    assert refreshed_parent.target_count == 2
+    get_settings.cache_clear()

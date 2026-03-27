@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_task_run import AITaskRun
 from app.core.config import get_settings
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
@@ -200,9 +201,22 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     class _FakeTask:
         id = "ai-reprocess-123"
 
-    def _fake_delay(days: int, limit: int, task_run_id: str | None = None, actor_user_id: str | None = None):
+    def _fake_delay(
+        days: int | None,
+        limit: int,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        feed_ids: list[str] | None = None,
+        item_ids: list[str] | None = None,
+        task_run_id: str | None = None,
+        actor_user_id: str | None = None,
+    ):
         captured["days"] = days
         captured["limit"] = limit
+        captured["start_time"] = start_time
+        captured["end_time"] = end_time
+        captured["feed_ids"] = feed_ids or []
+        captured["item_ids"] = item_ids or []
         captured["task_run_id"] = task_run_id
         captured["actor_user_id"] = actor_user_id
         return _FakeTask()
@@ -211,7 +225,14 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
 
     reprocess_response = client.post(
         "/ai/reprocess",
-        json={"days": 14, "limit": 250},
+        json={
+            "days": 14,
+            "limit": 250,
+            "start_time": "2026-03-01T00:00:00Z",
+            "end_time": "2026-03-20T12:00:00Z",
+            "feed_ids": [str(uuid.uuid4())],
+            "item_ids": [str(uuid.uuid4())],
+        },
         headers=auth_headers["admin"],
     )
     assert reprocess_response.status_code == 200
@@ -221,8 +242,85 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     assert response_payload["run_id"]
     assert captured["days"] == 14
     assert captured["limit"] == 250
+    assert captured["start_time"] == "2026-03-01T00:00:00+00:00"
+    assert captured["end_time"] == "2026-03-20T12:00:00+00:00"
+    assert len(captured["feed_ids"]) == 1
+    assert len(captured["item_ids"]) == 1
     assert captured["task_run_id"] == response_payload["run_id"]
     assert captured["actor_user_id"]
+
+
+def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    captured: dict[str, object] = {}
+
+    class _FakeBriefTask:
+        id = "ai-brief-123"
+
+    def _fake_brief_delay(force: bool = False, task_run_id: str | None = None, actor_user_id: str | None = None):
+        captured["force"] = force
+        captured["task_run_id"] = task_run_id
+        captured["actor_user_id"] = actor_user_id
+        return _FakeBriefTask()
+
+    monkeypatch.setattr("app.api.routes.ai.dispatch_daily_ai_brief_generation.delay", _fake_brief_delay)
+
+    queue_response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
+    assert queue_response.status_code == 200
+    queue_payload = queue_response.json()
+    assert queue_payload["task_id"] == "ai-brief-123"
+    assert queue_payload["queued"] is True
+    assert queue_payload["run_id"]
+    assert captured["force"] is True
+    assert captured["task_run_id"] == queue_payload["run_id"]
+    assert captured["actor_user_id"]
+
+    run_id = uuid.UUID(queue_payload["run_id"])
+    run = db_session.get(AITaskRun, run_id)
+    assert run is not None
+    run.status = "queued"
+    run.celery_task_id = "ai-brief-123"
+    db_session.add(run)
+    db_session.commit()
+
+    revoked: list[tuple[str, bool, str]] = []
+
+    def _fake_revoke(task_id: str, terminate: bool = False, signal: str = "SIGTERM"):
+        revoked.append((task_id, terminate, signal))
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: ([], [], [], []))
+    monkeypatch.setattr("app.services.ai_ops.celery_app.control.revoke", _fake_revoke)
+
+    cancel_response = client.post(f"/ai/ops/runs/{run_id}/cancel", headers=auth_headers["admin"])
+    assert cancel_response.status_code == 200
+    cancel_payload = cancel_response.json()
+    assert cancel_payload["id"] == str(run_id)
+    assert cancel_payload["status"] == "skipped"
+    assert cancel_payload["reason"] == "canceled"
+    assert revoked == [("ai-brief-123", False, "SIGTERM")]
 
 
 def test_viewer_cannot_access_ai_admin_routes(client: TestClient, auth_headers, ai_enabled_env):
