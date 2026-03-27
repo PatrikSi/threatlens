@@ -5,9 +5,7 @@ import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import {
   AIAuditEntryResponse,
-  AIDailyBrief,
   AIDailyBriefSourceItemResponse,
-  AIFailureGroupResponse,
   AIQueuedTaskResponse,
   AILiveTaskResponse,
   AILiveStatusResponse,
@@ -25,7 +23,7 @@ import {
   ItemListResponse,
 } from '../types/api'
 
-type AiTab = 'overview' | 'runs' | 'configuration'
+type AiTab = 'overview' | 'activity' | 'configuration'
 
 type AISettingsDraft = {
   base_url: string
@@ -114,7 +112,6 @@ export function AiSettingsPage() {
   const [draft, setDraft] = useState<AISettingsDraft>(DEFAULT_DRAFT)
   const [notice, setNotice] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
-  const [latestGeneratedBrief, setLatestGeneratedBrief] = useState<AIDailyBrief | null>(null)
   const [reprocessDays, setReprocessDays] = useState('7')
   const [reprocessLimit, setReprocessLimit] = useState('100')
   const [reprocessStartTime, setReprocessStartTime] = useState('')
@@ -128,7 +125,7 @@ export function AiSettingsPage() {
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
-  const runsTabRef = useRef<HTMLDivElement | null>(null)
+  const activityTabRef = useRef<HTMLDivElement | null>(null)
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
@@ -240,14 +237,14 @@ export function AiSettingsPage() {
     queryKey: ['ai', 'ops', 'runs', days, selectedModel, runPage, runFilters],
     queryFn: () => apiFetch<AITaskRunListResponse>(runsPath),
     enabled: aiEnabled,
-    refetchInterval: activeTab === 'runs' ? 10000 : false,
+    refetchInterval: activeTab === 'activity' ? 10000 : false,
   })
 
   const runDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'run', selectedRunId],
     queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`),
     enabled: aiEnabled && Boolean(selectedRunId),
-    refetchInterval: activeTab === 'runs' ? 10000 : false,
+    refetchInterval: activeTab === 'activity' ? 10000 : false,
   })
 
   const briefSourcesQuery = useQuery({
@@ -306,7 +303,6 @@ export function AiSettingsPage() {
         method: 'POST',
       }),
     onSuccess: (result) => {
-      setLatestGeneratedBrief(null)
       setNotice(`Queued daily brief task ${result.task_id}.`)
       invalidateAiQueries(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
@@ -375,20 +371,6 @@ export function AiSettingsPage() {
     return ['all', ...Array.from(values)]
   }, [overviewQuery.data?.per_model, settingsQuery.data?.model])
 
-  const filteredFailures = useMemo(() => {
-    if (selectedModel === 'all') {
-      return overviewQuery.data?.failures ?? []
-    }
-    return (overviewQuery.data?.failures ?? []).filter((row) => row.model === selectedModel)
-  }, [overviewQuery.data?.failures, selectedModel])
-
-  const filteredPerModel = useMemo(() => {
-    if (selectedModel === 'all') {
-      return overviewQuery.data?.per_model ?? []
-    }
-    return (overviewQuery.data?.per_model ?? []).filter((row) => row.model === selectedModel)
-  }, [overviewQuery.data?.per_model, selectedModel])
-
   const activeTopLevelRuns = useMemo(() => {
     const byId = new Map<string, AITaskRunResponse>()
     for (const run of [...(runningRunsQuery.data?.items ?? []), ...(queuedRunsQuery.data?.items ?? [])]) {
@@ -417,13 +399,23 @@ export function AiSettingsPage() {
     (queuedRunsQuery.isLoading && !queuedRunsQuery.data) ||
     (runningRunsQuery.isLoading && !runningRunsQuery.data)
 
+  function clearReprocessScope() {
+    setReprocessDays('7')
+    setReprocessLimit('100')
+    setReprocessStartTime('')
+    setReprocessEndTime('')
+    setReprocessFeedIds([])
+    setReprocessItemSearch('')
+    setSelectedReprocessItems([])
+  }
+
   function openRunInHistory(runId: string) {
     setSelectedModel('all')
     setRunFilters(DEFAULT_RUN_FILTERS)
     setRunPage(0)
     setSelectedRunId(runId)
     setPendingRunNavigation(runId)
-    setActiveTab('runs')
+    setActiveTab('activity')
     void queryClient.prefetchQuery({
       queryKey: ['ai', 'ops', 'run', runId],
       queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${runId}`),
@@ -431,11 +423,11 @@ export function AiSettingsPage() {
   }
 
   useEffect(() => {
-    if (activeTab !== 'runs' || !pendingRunNavigation) {
+    if (activeTab !== 'activity' || !pendingRunNavigation) {
       return
     }
     const timer = window.setTimeout(() => {
-      runsTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      activityTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       setPendingRunNavigation(null)
     }, 50)
     return () => window.clearTimeout(timer)
@@ -464,10 +456,10 @@ export function AiSettingsPage() {
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-display text-2xl">AI Workspace</h2>
+              <h2 className="font-display text-2xl">AI</h2>
               <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
                 {settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'}
               </span>
@@ -482,217 +474,156 @@ export function AiSettingsPage() {
               )}
             </div>
             <p className="mt-1 text-sm text-slate dark:text-white/75">
-              Monitor local AI health, inspect run history, and adjust how ThreatLens uses summaries, relevance scoring, and
-              daily briefs.
-            </p>
-            <p className="mt-2 text-xs text-slate dark:text-white/60">
-              Model: {settingsQuery.data?.model || 'not configured'}
-              {settingsQuery.data?.base_url ? `, ${settingsQuery.data.base_url}` : ''}
+              Manage local AI configuration, monitor health, and operate brief and enrichment jobs without leaving Settings.
             </p>
           </div>
+        </div>
+      </section>
+      {notice && (
+        <p className="rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-sm text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100">
+          {notice}
+        </p>
+      )}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={days}
-              onChange={(event) => {
-                setDays(Number(event.target.value))
-                setRunPage(0)
+      <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <h3 className="font-display text-xl">AI Workspace</h3>
+          <p className="mt-1 text-sm text-slate dark:text-white/70">
+            Use the sections below to review health, work with queued jobs, and manage provider settings.
+          </p>
+          <nav className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
+            <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} fullWidth>
+              Overview
+            </TabButton>
+            <TabButton active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} fullWidth>
+              Operations
+            </TabButton>
+            <TabButton active={activeTab === 'configuration'} onClick={() => setActiveTab('configuration')} fullWidth>
+              Configuration
+            </TabButton>
+          </nav>
+
+          <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-800/40 dark:bg-cyan-950/40">
+            <p className="font-semibold">Current model</p>
+            <p className="mt-1 text-cyan-800 dark:text-cyan-200">{settingsQuery.data?.model || 'Not configured'}</p>
+            <p className="mt-3 font-semibold">Endpoint</p>
+            <p className="mt-1 break-all text-cyan-800 dark:text-cyan-200">{settingsQuery.data?.base_url || 'Not configured'}</p>
+          </div>
+        </aside>
+
+        <section className="space-y-4">
+          {activeTab === 'overview' && (
+            <OverviewTab
+              settings={settingsQuery.data}
+              readiness={readiness}
+              overview={overviewQuery.data}
+              isLoading={overviewQuery.isLoading}
+              isError={overviewQuery.isError}
+              errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
+              onShowFailure={() => setActiveTab('activity')}
+              days={days}
+              setDays={setDays}
+              onRefresh={() => invalidateAiQueries(queryClient)}
+            />
+          )}
+
+          {activeTab === 'activity' && (
+            <div ref={activityTabRef}>
+              <ActivityTab
+                days={days}
+                setDays={setDays}
+                selectedModel={selectedModel}
+                setSelectedModel={setSelectedModel}
+                modelOptions={modelOptions}
+                onRefresh={() => invalidateAiQueries(queryClient)}
+                runs={activeTopLevelRuns}
+                live={liveStatusQuery.data}
+                activeTasksLoading={activeTasksLoading}
+                onOpenRun={openRunInHistory}
+                onCancelRun={(runId) => {
+                  setNotice(null)
+                  cancelRunMutation.mutate(runId)
+                }}
+                cancelingRunId={cancelingRunId}
+                dailyBriefEnabled={draft.daily_brief_enabled}
+                generatePending={generateBriefMutation.isPending}
+                onGenerateDailyBrief={() => {
+                  setNotice(null)
+                  generateBriefMutation.mutate()
+                }}
+                reprocessDays={reprocessDays}
+                setReprocessDays={setReprocessDays}
+                reprocessLimit={reprocessLimit}
+                setReprocessLimit={setReprocessLimit}
+                reprocessStartTime={reprocessStartTime}
+                setReprocessStartTime={setReprocessStartTime}
+                reprocessEndTime={reprocessEndTime}
+                setReprocessEndTime={setReprocessEndTime}
+                feeds={feedsQuery.data ?? []}
+                selectedFeedIds={reprocessFeedIds}
+                setSelectedFeedIds={setReprocessFeedIds}
+                itemSearch={reprocessItemSearch}
+                setItemSearch={setReprocessItemSearch}
+                candidateItems={candidateItems}
+                selectedItems={selectedReprocessItems}
+                onAddItem={(item) => {
+                  setSelectedReprocessItems((current) => {
+                    if (current.some((entry) => entry.id === item.id)) {
+                      return current
+                    }
+                    return [...current, item]
+                  })
+                }}
+                onRemoveItem={(itemId) => {
+                  setSelectedReprocessItems((current) => current.filter((item) => item.id !== itemId))
+                }}
+                onClearScope={clearReprocessScope}
+                reprocessPending={reprocessMutation.isPending}
+                onQueueReprocess={() => {
+                  setNotice(null)
+                  reprocessMutation.mutate()
+                }}
+                itemSearchLoading={candidateItemsQuery.isLoading}
+                itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
+                filters={runFilters}
+                setFilters={setRunFilters}
+                runPage={runPage}
+                setRunPage={setRunPage}
+                runsQuery={runsQuery}
+                selectedRunId={selectedRunId}
+                setSelectedRunId={setSelectedRunId}
+                runDetailQuery={runDetailQuery}
+                briefSources={briefSourcesQuery.data ?? []}
+              />
+            </div>
+          )}
+
+          {activeTab === 'configuration' && (
+            <ConfigurationTab
+              draft={draft}
+              setDraft={setDraft}
+              settings={settingsQuery.data}
+              readiness={readiness}
+              isLoading={settingsQuery.isLoading}
+              isError={settingsQuery.isError}
+              errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
+              savePending={saveMutation.isPending}
+              onSave={() => {
+                setNotice(null)
+                saveMutation.mutate(createRequestFromDraft(draft))
               }}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-            >
-              <option value={1}>Last 24h</option>
-              <option value={7}>Last 7d</option>
-              <option value={30}>Last 30d</option>
-              <option value={90}>Last 90d</option>
-            </select>
-            <select
-              value={selectedModel}
-              onChange={(event) => {
-                setSelectedModel(event.target.value)
-                setRunPage(0)
-              }}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-            >
-              {modelOptions.map((model) => (
-                <option key={model} value={model}>
-                  {model === 'all' ? 'All models' : model}
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
-              onClick={() => invalidateAiQueries(queryClient)}
-            >
-              Refresh
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-              onClick={() => {
+              onTestConnection={() => {
                 setNotice(null)
                 testConnectionMutation.mutate()
               }}
-              disabled={testConnectionMutation.isPending || !settingsQuery.data?.ai_configured}
-            >
-              {testConnectionMutation.isPending ? 'Testing...' : 'Test Connection'}
-            </button>
-          </div>
-        </div>
-
-        {notice && (
-          <p className="mt-3 rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-sm text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100">
-            {notice}
-          </p>
-        )}
-
-        <div className="mt-4 space-y-4">
-          <ActiveTasksPanel
-            runs={activeTopLevelRuns}
-            live={liveStatusQuery.data}
-            isLoading={activeTasksLoading}
-            onOpenRun={openRunInHistory}
-            onCancelRun={(runId) => {
-              setNotice(null)
-              cancelRunMutation.mutate(runId)
-            }}
-            cancelingRunId={cancelingRunId}
-          />
-
-          <QueueWorkPanel
-            dailyBriefEnabled={draft.daily_brief_enabled}
-            generatePending={generateBriefMutation.isPending}
-            onGenerateDailyBrief={() => {
-              setNotice(null)
-              generateBriefMutation.mutate()
-            }}
-            reprocessDays={reprocessDays}
-            setReprocessDays={setReprocessDays}
-            reprocessLimit={reprocessLimit}
-            setReprocessLimit={setReprocessLimit}
-            reprocessStartTime={reprocessStartTime}
-            setReprocessStartTime={setReprocessStartTime}
-            reprocessEndTime={reprocessEndTime}
-            setReprocessEndTime={setReprocessEndTime}
-            feeds={feedsQuery.data ?? []}
-            selectedFeedIds={reprocessFeedIds}
-            setSelectedFeedIds={setReprocessFeedIds}
-            itemSearch={reprocessItemSearch}
-            setItemSearch={setReprocessItemSearch}
-            candidateItems={candidateItems}
-            selectedItems={selectedReprocessItems}
-            onAddItem={(item) => {
-              setSelectedReprocessItems((current) => {
-                if (current.some((entry) => entry.id === item.id)) {
-                  return current
-                }
-                return [...current, item]
-              })
-            }}
-            onRemoveItem={(itemId) => {
-              setSelectedReprocessItems((current) => current.filter((item) => item.id !== itemId))
-            }}
-            onClearScope={() => {
-              setReprocessDays('7')
-              setReprocessLimit('100')
-              setReprocessStartTime('')
-              setReprocessEndTime('')
-              setReprocessFeedIds([])
-              setReprocessItemSearch('')
-              setSelectedReprocessItems([])
-            }}
-            reprocessPending={reprocessMutation.isPending}
-            onQueueReprocess={() => {
-              setNotice(null)
-              reprocessMutation.mutate()
-            }}
-            itemSearchLoading={candidateItemsQuery.isLoading}
-            itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
-          />
-        </div>
-
-        {testResult && (
-          <div className="mt-3 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
-            <p className="font-semibold">{testResult.success ? 'Connection succeeded' : 'Connection failed'}</p>
-            <p className="mt-1 text-slate dark:text-white/70">
-              Model: {testResult.model || 'unknown'}
-              {typeof testResult.latency_ms === 'number' ? `, ${testResult.latency_ms} ms` : ''}
-            </p>
-            {testResult.error && <p className="mt-1 text-red-600">{testResult.error}</p>}
-          </div>
-        )}
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
-            Overview
-          </TabButton>
-          <TabButton active={activeTab === 'runs'} onClick={() => setActiveTab('runs')}>
-            Runs &amp; Logs
-          </TabButton>
-          <TabButton active={activeTab === 'configuration'} onClick={() => setActiveTab('configuration')}>
-            Configuration
-          </TabButton>
-        </div>
-      </section>
-
-      {activeTab === 'overview' && (
-        <OverviewTab
-          settings={settingsQuery.data}
-          readiness={readiness}
-          overview={overviewQuery.data}
-          isLoading={overviewQuery.isLoading}
-          isError={overviewQuery.isError}
-          errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
-          failures={filteredFailures}
-          perModel={filteredPerModel}
-          promptHistory={promptHistoryQuery.data ?? []}
-          manualActions={manualActionsQuery.data ?? []}
-          latestGeneratedBrief={latestGeneratedBrief}
-          onShowFailure={() => setActiveTab('runs')}
-        />
-      )}
-
-      {activeTab === 'runs' && (
-        <div ref={runsTabRef}>
-          <RunsTab
-            days={days}
-            selectedModel={selectedModel}
-            filters={runFilters}
-            setFilters={setRunFilters}
-            runPage={runPage}
-            setRunPage={setRunPage}
-            runsQuery={runsQuery}
-            selectedRunId={selectedRunId}
-            setSelectedRunId={setSelectedRunId}
-            runDetailQuery={runDetailQuery}
-            briefSources={briefSourcesQuery.data ?? []}
-            manualActions={manualActionsQuery.data ?? []}
-            promptHistory={promptHistoryQuery.data ?? []}
-            onCancelRun={(runId) => {
-              setNotice(null)
-              cancelRunMutation.mutate(runId)
-            }}
-            cancelingRunId={cancelingRunId}
-          />
-        </div>
-      )}
-
-      {activeTab === 'configuration' && (
-        <ConfigurationTab
-          draft={draft}
-          setDraft={setDraft}
-          settings={settingsQuery.data}
-          readiness={readiness}
-          isLoading={settingsQuery.isLoading}
-          isError={settingsQuery.isError}
-          errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
-          savePending={saveMutation.isPending}
-          onSave={() => {
-            setNotice(null)
-            saveMutation.mutate(createRequestFromDraft(draft))
-          }}
-        />
-      )}
+              testPending={testConnectionMutation.isPending}
+              testResult={testResult}
+              promptHistory={promptHistoryQuery.data ?? []}
+              manualActions={manualActionsQuery.data ?? []}
+            />
+          )}
+        </section>
+      </div>
     </div>
   )
 }
@@ -704,12 +635,10 @@ function OverviewTab({
   isLoading,
   isError,
   errorMessage,
-  failures,
-  perModel,
-  promptHistory,
-  manualActions,
-  latestGeneratedBrief,
   onShowFailure,
+  days,
+  setDays,
+  onRefresh,
 }: {
   settings: AISettings | undefined
   readiness: string | null
@@ -717,12 +646,10 @@ function OverviewTab({
   isLoading: boolean
   isError: boolean
   errorMessage: string
-  failures: AIFailureGroupResponse[]
-  perModel: AIOpsOverviewResponse['per_model']
-  promptHistory: AIAuditEntryResponse[]
-  manualActions: AIAuditEntryResponse[]
-  latestGeneratedBrief: AIDailyBrief | null
   onShowFailure: () => void
+  days: number
+  setDays: Dispatch<SetStateAction<number>>
+  onRefresh: () => void
 }) {
   if (isLoading && !overview) {
     return <Panel title="Overview">Loading AI analytics...</Panel>
@@ -737,21 +664,68 @@ function OverviewTab({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      <Panel title="Overview" subtitle="Start here to see whether AI is healthy, how much it is being used, and where it needs attention.">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <MiniStat label="Model" value={settings?.model || 'Not configured'} />
+            <MiniStat label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
+            <MiniStat label="Success Rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
+            <MiniStat label="Queued" value={overview.live.queued_count} />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            >
+              <option value={1}>Last 24h</option>
+              <option value={7}>Last 7d</option>
+              <option value={30}>Last 30d</option>
+              <option value={90}>Last 90d</option>
+            </select>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+              onClick={onRefresh}
+            >
+              Refresh
+            </button>
+          </div>
+        </div>
+      </Panel>
+
       <OverviewSection
-        title="Operational Health"
-        description="Start here for runtime readiness, current workload, and whether the AI endpoint and feature set are healthy."
+        title="Health"
+        description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
       >
         <div className="grid gap-4 xl:grid-cols-3">
-          <Panel title="Readiness" subtitle={readiness ?? 'Loading runtime state...'}>
+          <Panel title="AI Status" subtitle={readiness ?? 'Loading runtime state...'}>
             <dl className="space-y-2 text-sm">
               <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
               <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
               <Metric label="Model" value={settings?.model || 'Not configured'} />
+              <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
+              <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
+              <Metric label="Failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
+              <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
             </dl>
+            <div className="mt-3 space-y-2">
+              {overview.feature_health.map((row) => (
+                <div key={row.feature_key} className="flex items-center justify-between gap-3 rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
+                  <div>
+                    <p className="font-semibold">{formatFeatureKey(row.feature_key)}</p>
+                    <p className="text-xs text-slate dark:text-white/60">
+                      Last success {row.last_success_at ? formatTimestamp(row.last_success_at) : 'never'}
+                    </p>
+                  </div>
+                  <StatusPill tone={row.enabled ? 'success' : 'neutral'} label={row.enabled ? 'Enabled' : 'Disabled'} />
+                </div>
+              ))}
+            </div>
           </Panel>
 
-          <Panel title="Currently Running" subtitle="Worker snapshot from Celery inspect plus queued AI runs.">
+          <Panel title="Queue Snapshot" subtitle="Current worker activity and the live Celery view of queued work.">
             <dl className="space-y-2 text-sm">
               <Metric label="Workers" value={overview.live.worker_count} />
               <Metric label="Active" value={overview.live.active_count} />
@@ -771,14 +745,32 @@ function OverviewTab({
             </div>
           </Panel>
 
-          <Panel title="Endpoint Health">
-            <dl className="space-y-2 text-sm">
-              <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
-              <Metric label="Last error" value={overview.endpoint_health.last_error_at ? formatTimestamp(overview.endpoint_health.last_error_at) : 'None'} />
-              <Metric label="Rolling failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
-              <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
-              <Metric label="Timeouts" value={overview.endpoint_health.timeout_failures} />
-            </dl>
+          <Panel title="Recent Problems" subtitle="The most common failures across requests and task runs.">
+            <div className="space-y-2">
+              {overview.failures.slice(0, 4).map((failure) => (
+                <button
+                  key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
+                  type="button"
+                  className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
+                  onClick={onShowFailure}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {formatTaskTypeLabel(failure.task_type || failure.feature_type || 'request')}
+                        {failure.model ? ` · ${failure.model}` : ''}
+                      </p>
+                      <p className="mt-1 text-sm text-slate dark:text-white/70">{failure.error}</p>
+                    </div>
+                    <div className="text-right text-xs text-slate dark:text-white/60">
+                      <p>{failure.count} hits</p>
+                      <p>{failure.last_seen_at ? formatTimestamp(failure.last_seen_at) : 'unknown'}</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+              {!overview.failures.length && <EmptyInline>No recent AI failures.</EmptyInline>}
+            </div>
             {overview.endpoint_health.last_auth_error && (
               <p className="mt-3 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 Last auth/provider issue: {overview.endpoint_health.last_auth_error}
@@ -791,29 +783,11 @@ function OverviewTab({
             )}
           </Panel>
         </div>
-
-        <Panel title="Feature Health Matrix" subtitle="Whether each AI capability is enabled and when it last ran successfully.">
-          <div className="grid gap-3 lg:grid-cols-2">
-            {overview.feature_health.map((row) => (
-              <div key={row.feature_key} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{formatFeatureKey(row.feature_key)}</span>
-                  <StatusPill tone={row.enabled ? 'success' : 'neutral'} label={row.enabled ? 'Enabled' : 'Disabled'} />
-                </div>
-                <p className="mt-1 text-xs text-slate dark:text-white/60">
-                  Last run {row.last_run_at ? formatTimestamp(row.last_run_at) : 'never'} · Last success{' '}
-                  {row.last_success_at ? formatTimestamp(row.last_success_at) : 'never'} · Last failure{' '}
-                  {row.last_failure_at ? formatTimestamp(row.last_failure_at) : 'never'}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Panel>
       </OverviewSection>
 
       <OverviewSection
-        title="Usage & Trends"
-        description="High-level volume, cost, latency, and model performance over the selected time window."
+        title="Usage"
+        description="Volume, token cost, and model performance for the selected time window."
       >
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
@@ -838,73 +812,60 @@ function OverviewTab({
             />
           </Panel>
 
-          <Panel title="Token Usage Over Time" subtitle="Total tokens by day.">
-            <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
+          <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
+                  <tr>
+                    <th className="pb-2">Model</th>
+                    <th className="pb-2">Requests</th>
+                    <th className="pb-2">Success</th>
+                    <th className="pb-2">Avg Latency</th>
+                    <th className="pb-2">Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.per_model.map((row) => (
+                    <tr key={row.model} className="border-t border-slate/10 text-slate dark:border-cyan-900/30 dark:text-white/80">
+                      <td className="py-2 font-medium">{row.model}</td>
+                      <td className="py-2">{row.total_requests}</td>
+                      <td className="py-2">{row.success_rate_pct.toFixed(1)}%</td>
+                      <td className="py-2">{row.average_latency_ms.toFixed(1)} ms</td>
+                      <td className="py-2">{row.total_tokens.toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {!overview.per_model.length && <EmptyInline>No model usage has been recorded yet.</EmptyInline>}
           </Panel>
         </div>
 
-        <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
-                <tr>
-                  <th className="pb-2">Model</th>
-                  <th className="pb-2">Requests</th>
-                  <th className="pb-2">Success</th>
-                  <th className="pb-2">Avg Latency</th>
-                  <th className="pb-2">Tokens</th>
-                </tr>
-              </thead>
-              <tbody>
-                {perModel.map((row) => (
-                  <tr key={row.model} className="border-t border-slate/10 text-slate dark:border-cyan-900/30 dark:text-white/80">
-                    <td className="py-2 font-medium">{row.model}</td>
-                    <td className="py-2">{row.total_requests}</td>
-                    <td className="py-2">{row.success_rate_pct.toFixed(1)}%</td>
-                    <td className="py-2">{row.average_latency_ms.toFixed(1)} ms</td>
-                    <td className="py-2">{row.total_tokens.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!perModel.length && <EmptyInline>No model usage has been recorded yet.</EmptyInline>}
-        </Panel>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Panel title="Token Usage Over Time" subtitle="Total tokens by day.">
+            <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
+          </Panel>
+
+          <Panel title="Token Efficiency" subtitle="Average AI cost profile across successful requests.">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MiniStat label="Avg Prompt" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
+              <MiniStat label="Avg Completion" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />
+              <MiniStat label="Avg Total" value={overview.token_efficiency.average_total_tokens.toFixed(1)} />
+              <MiniStat label="Prompt/Completion" value={overview.token_efficiency.prompt_to_completion_ratio.toFixed(2)} />
+            </div>
+            <p className="mt-4 text-sm text-slate dark:text-white/70">
+              Top expensive feature: {formatTaskTypeLabel(overview.token_efficiency.top_expensive_feature || 'n/a')} (
+              {overview.token_efficiency.top_expensive_feature_avg_tokens.toFixed(1)} avg tokens)
+            </p>
+          </Panel>
+        </div>
       </OverviewSection>
 
       <OverviewSection
-        title="Quality, Coverage & Storage"
-        description="How well enrichment is working, where failures are happening, and how much data the AI subsystem is retaining."
+        title="Quality & Coverage"
+        description="How complete the enrichment pipeline is, what the relevance output looks like, and how much data the AI subsystem retains."
       >
         <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Recent Failures" subtitle="Grouped AI failures across provider calls and task runs.">
-            <div className="space-y-2">
-              {failures.slice(0, 8).map((failure) => (
-                <button
-                  key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
-                  type="button"
-                  className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
-                  onClick={onShowFailure}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {formatTaskTypeLabel(failure.task_type || failure.feature_type || 'request')}
-                        {failure.model ? ` · ${failure.model}` : ''}
-                      </p>
-                      <p className="mt-1 text-sm text-slate dark:text-white/70">{failure.error}</p>
-                    </div>
-                    <div className="text-right text-xs text-slate dark:text-white/60">
-                      <p>{failure.count} hits</p>
-                      <p>{failure.last_seen_at ? formatTimestamp(failure.last_seen_at) : 'unknown'}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {!failures.length && <EmptyInline>No recent AI failures.</EmptyInline>}
-            </div>
-          </Panel>
-
           <Panel title="Coverage & Freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
             <dl className="space-y-2 text-sm">
               <Metric label="Eligible items" value={overview.coverage.eligible_items} />
@@ -945,22 +906,9 @@ function OverviewTab({
               ))}
             </div>
           </Panel>
-
-          <Panel title="Token Efficiency" subtitle="Average AI cost profile across successful requests.">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MiniStat label="Avg Prompt" value={overview.token_efficiency.average_prompt_tokens.toFixed(1)} />
-              <MiniStat label="Avg Completion" value={overview.token_efficiency.average_completion_tokens.toFixed(1)} />
-              <MiniStat label="Avg Total" value={overview.token_efficiency.average_total_tokens.toFixed(1)} />
-              <MiniStat label="Prompt/Completion" value={overview.token_efficiency.prompt_to_completion_ratio.toFixed(2)} />
-            </div>
-            <p className="mt-4 text-sm text-slate dark:text-white/70">
-              Top expensive feature: {formatTaskTypeLabel(overview.token_efficiency.top_expensive_feature || 'n/a')} (
-              {overview.token_efficiency.top_expensive_feature_avg_tokens.toFixed(1)} avg tokens)
-            </p>
-          </Panel>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-4 xl:grid-cols-2">
           <Panel title="Cache / No-op">
             <dl className="space-y-2 text-sm">
               <Metric label="Reused" value={overview.cache.reused_count} />
@@ -978,37 +926,6 @@ function OverviewTab({
               <Metric label="Growth 7d" value={overview.storage.growth_last_7d} />
               <Metric label="Growth 30d" value={overview.storage.growth_last_30d} />
             </dl>
-          </Panel>
-
-          <Panel title="Latest Generated Brief" subtitle="Most recent manually generated brief from this session.">
-            {latestGeneratedBrief ? (
-              <>
-                <p className="text-sm font-semibold">{latestGeneratedBrief.title || 'Daily Brief'}</p>
-                <p className="mt-1 text-xs text-slate dark:text-white/60">
-                  Generated {formatTimestamp(latestGeneratedBrief.generated_at)} for {latestGeneratedBrief.item_count} items.
-                </p>
-                {latestGeneratedBrief.brief_text && (
-                  <p className="mt-2 text-sm text-slate dark:text-white/70">{latestGeneratedBrief.brief_text}</p>
-                )}
-              </>
-            ) : (
-              <EmptyInline>No manual daily brief has been generated in this session.</EmptyInline>
-            )}
-          </Panel>
-        </div>
-      </OverviewSection>
-
-      <OverviewSection
-        title="Audit Trail"
-        description="Recent human-triggered actions and prompt changes so admins can correlate changes with behavior."
-      >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Panel title="Prompt History" subtitle="Most recent prompt/config changes.">
-            <AuditPreviewList entries={promptHistory.slice(0, 4)} emptyLabel="No AI prompt changes yet." />
-          </Panel>
-
-          <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
-            <AuditPreviewList entries={manualActions.slice(0, 4)} emptyLabel="No manual AI actions yet." />
           </Panel>
         </div>
       </OverviewSection>
@@ -1568,9 +1485,42 @@ function ProviderExchangeModal({
   )
 }
 
-function RunsTab({
+function ActivityTab({
   days,
+  setDays,
   selectedModel,
+  setSelectedModel,
+  modelOptions,
+  onRefresh,
+  runs,
+  live,
+  activeTasksLoading,
+  onOpenRun,
+  dailyBriefEnabled,
+  generatePending,
+  onGenerateDailyBrief,
+  reprocessDays,
+  setReprocessDays,
+  reprocessLimit,
+  setReprocessLimit,
+  reprocessStartTime,
+  setReprocessStartTime,
+  reprocessEndTime,
+  setReprocessEndTime,
+  feeds,
+  selectedFeedIds,
+  setSelectedFeedIds,
+  itemSearch,
+  setItemSearch,
+  candidateItems,
+  selectedItems,
+  onAddItem,
+  onRemoveItem,
+  onClearScope,
+  reprocessPending,
+  onQueueReprocess,
+  itemSearchLoading,
+  itemSearchError,
   filters,
   setFilters,
   runPage,
@@ -1580,13 +1530,44 @@ function RunsTab({
   setSelectedRunId,
   runDetailQuery,
   briefSources,
-  manualActions,
-  promptHistory,
   onCancelRun,
   cancelingRunId,
 }: {
   days: number
+  setDays: Dispatch<SetStateAction<number>>
   selectedModel: string
+  setSelectedModel: Dispatch<SetStateAction<string>>
+  modelOptions: string[]
+  onRefresh: () => void
+  runs: AITaskRunResponse[]
+  live: AILiveStatusResponse | undefined
+  activeTasksLoading: boolean
+  onOpenRun: (runId: string) => void
+  dailyBriefEnabled: boolean
+  generatePending: boolean
+  onGenerateDailyBrief: () => void
+  reprocessDays: string
+  setReprocessDays: Dispatch<SetStateAction<string>>
+  reprocessLimit: string
+  setReprocessLimit: Dispatch<SetStateAction<string>>
+  reprocessStartTime: string
+  setReprocessStartTime: Dispatch<SetStateAction<string>>
+  reprocessEndTime: string
+  setReprocessEndTime: Dispatch<SetStateAction<string>>
+  feeds: Feed[]
+  selectedFeedIds: string[]
+  setSelectedFeedIds: Dispatch<SetStateAction<string[]>>
+  itemSearch: string
+  setItemSearch: Dispatch<SetStateAction<string>>
+  candidateItems: ItemListEntry[]
+  selectedItems: ItemListEntry[]
+  onAddItem: (item: ItemListEntry) => void
+  onRemoveItem: (itemId: string) => void
+  onClearScope: () => void
+  reprocessPending: boolean
+  onQueueReprocess: () => void
+  itemSearchLoading: boolean
+  itemSearchError: string
   filters: RunFilters
   setFilters: Dispatch<SetStateAction<RunFilters>>
   runPage: number
@@ -1596,8 +1577,6 @@ function RunsTab({
   setSelectedRunId: Dispatch<SetStateAction<string | null>>
   runDetailQuery: ReturnType<typeof useQuery<AITaskRunDetailResponse>>
   briefSources: AIDailyBriefSourceItemResponse[]
-  manualActions: AIAuditEntryResponse[]
-  promptHistory: AIAuditEntryResponse[]
   onCancelRun: (runId: string) => void
   cancelingRunId: string | null
 }) {
@@ -1634,9 +1613,97 @@ function RunsTab({
   })
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
-      <div className="space-y-4">
-        <Panel title="Task History" subtitle="Every AI run across enrichment, daily briefs, connection tests, and reprocess jobs.">
+    <div className="space-y-4">
+      <Panel title="Operations" subtitle="Queue AI work, monitor current jobs, and inspect the full run history in one place.">
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={days}
+            onChange={(event) => {
+              setDays(Number(event.target.value))
+              setRunPage(0)
+            }}
+            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+          >
+            <option value={1}>Last 24h</option>
+            <option value={7}>Last 7d</option>
+            <option value={30}>Last 30d</option>
+            <option value={90}>Last 90d</option>
+          </select>
+          <select
+            value={selectedModel}
+            onChange={(event) => {
+              setSelectedModel(event.target.value)
+              setRunPage(0)
+            }}
+            className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+          >
+            {modelOptions.map((model) => (
+              <option key={model} value={model}>
+                {model === 'all' ? 'All models' : model}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+            onClick={onRefresh}
+          >
+            Refresh
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-slate dark:text-white/60">
+          These filters apply to the operations and run-history views below.
+        </p>
+      </Panel>
+
+      <OverviewSection
+        title="Live Operations"
+        description="Use this section to see what is running right now and to queue new brief or reprocess work."
+      >
+        <div className="space-y-4">
+          <ActiveTasksPanel
+            runs={runs}
+            live={live}
+            isLoading={activeTasksLoading}
+            onOpenRun={onOpenRun}
+            onCancelRun={onCancelRun}
+            cancelingRunId={cancelingRunId}
+          />
+          <QueueWorkPanel
+            dailyBriefEnabled={dailyBriefEnabled}
+            generatePending={generatePending}
+            onGenerateDailyBrief={onGenerateDailyBrief}
+            reprocessDays={reprocessDays}
+            setReprocessDays={setReprocessDays}
+            reprocessLimit={reprocessLimit}
+            setReprocessLimit={setReprocessLimit}
+            reprocessStartTime={reprocessStartTime}
+            setReprocessStartTime={setReprocessStartTime}
+            reprocessEndTime={reprocessEndTime}
+            setReprocessEndTime={setReprocessEndTime}
+            feeds={feeds}
+            selectedFeedIds={selectedFeedIds}
+            setSelectedFeedIds={setSelectedFeedIds}
+            itemSearch={itemSearch}
+            setItemSearch={setItemSearch}
+            candidateItems={candidateItems}
+            selectedItems={selectedItems}
+            onAddItem={onAddItem}
+            onRemoveItem={onRemoveItem}
+            onClearScope={onClearScope}
+            reprocessPending={reprocessPending}
+            onQueueReprocess={onQueueReprocess}
+            itemSearchLoading={itemSearchLoading}
+            itemSearchError={itemSearchError}
+          />
+        </div>
+      </OverviewSection>
+
+      <OverviewSection
+        title="Run History"
+        description="Review every AI task across enrichment, daily briefs, connection tests, and reprocess jobs."
+      >
+        <Panel title="Task History" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <select
               value={filters.taskType}
@@ -1692,7 +1759,7 @@ function RunsTab({
               Failures only
             </label>
             <div className="rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm text-slate dark:border-cyan-900/40 dark:bg-white/[0.03] dark:text-white/65">
-              Window {days}d{selectedModel !== 'all' ? ` · ${selectedModel}` : ''}
+              Window {days}d{selectedModel !== 'all' ? ` · ${selectedModel}` : ' · all models'}
             </div>
           </div>
 
@@ -1808,18 +1875,12 @@ function RunsTab({
             </div>
           </div>
         </Panel>
+      </OverviewSection>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
-            <AuditPreviewList entries={manualActions} emptyLabel="No manual actions yet." />
-          </Panel>
-          <Panel title="Prompt History" subtitle="Recent AI configuration and prompt changes.">
-            <AuditPreviewList entries={promptHistory} emptyLabel="No AI prompt changes yet." />
-          </Panel>
-        </div>
-      </div>
-
-      <div className="space-y-4">
+      <OverviewSection
+        title="Selected Run"
+        description="Inspect the currently selected run, its event timeline, request metadata, and any related article or daily-brief context."
+      >
         <Panel title="Run Detail" subtitle="Selected run timeline, metadata, and related sources.">
           {runDetailQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading run detail...</p>}
           {runDetailQuery.isError && (
@@ -1975,14 +2036,14 @@ function RunsTab({
           )}
         </Panel>
 
-        <ProviderExchangeModal
-          run={inspectedRun}
-          event={inspectedProviderEvent}
-          isLoading={inspectedRunDetailQuery.isLoading}
-          errorMessage={(inspectedRunDetailQuery.error as Error | undefined)?.message ?? ''}
-          onClose={() => setInspectedRunId(null)}
-        />
-      </div>
+          <ProviderExchangeModal
+            run={inspectedRun}
+            event={inspectedProviderEvent}
+            isLoading={inspectedRunDetailQuery.isLoading}
+            errorMessage={(inspectedRunDetailQuery.error as Error | undefined)?.message ?? ''}
+            onClose={() => setInspectedRunId(null)}
+          />
+      </OverviewSection>
     </div>
   )
 }
@@ -1997,6 +2058,11 @@ function ConfigurationTab({
   errorMessage,
   savePending,
   onSave,
+  onTestConnection,
+  testPending,
+  testResult,
+  promptHistory,
+  manualActions,
 }: {
   draft: AISettingsDraft
   setDraft: Dispatch<SetStateAction<AISettingsDraft>>
@@ -2007,6 +2073,11 @@ function ConfigurationTab({
   errorMessage: string
   savePending: boolean
   onSave: () => void
+  onTestConnection: () => void
+  testPending: boolean
+  testResult: AITestConnectionResponse | null
+  promptHistory: AIAuditEntryResponse[]
+  manualActions: AIAuditEntryResponse[]
 }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
@@ -2023,6 +2094,19 @@ function ConfigurationTab({
         )}
 
         <Panel title="Provider" subtitle="ThreatLens currently speaks to one OpenAI-compatible chat endpoint. Secrets stay in the environment.">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate/15 bg-slate/5 px-3 py-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
+            <div className="text-sm text-slate dark:text-white/70">
+              Test the current provider configuration before saving broader AI changes.
+            </div>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+              onClick={onTestConnection}
+              disabled={testPending || !settings?.ai_configured}
+            >
+              {testPending ? 'Testing...' : 'Test Connection'}
+            </button>
+          </div>
           <div className="grid gap-3 md:grid-cols-2">
             <Field label="Base URL">
               <input
@@ -2076,9 +2160,19 @@ function ConfigurationTab({
               </span>
             </Field>
           </div>
+          {testResult && (
+            <div className="mt-4 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
+              <p className="font-semibold">{testResult.success ? 'Connection succeeded' : 'Connection failed'}</p>
+              <p className="mt-1 text-slate dark:text-white/70">
+                Model: {testResult.model || 'unknown'}
+                {typeof testResult.latency_ms === 'number' ? `, ${testResult.latency_ms} ms` : ''}
+              </p>
+              {testResult.error && <p className="mt-1 text-red-600">{testResult.error}</p>}
+            </div>
+          )}
         </Panel>
 
-        <Panel title="Feature Controls">
+        <Panel title="Feature Controls" subtitle="Enable the AI features that should run and tune the thresholds they rely on.">
           <div className="grid gap-3 md:grid-cols-2">
             <CheckboxRow label="AI article summaries" checked={draft.summary_enabled} onChange={(checked) => updateDraft(setDraft, 'summary_enabled', checked)} />
             <CheckboxRow label="AI relevance scoring" checked={draft.relevance_enabled} onChange={(checked) => updateDraft(setDraft, 'relevance_enabled', checked)} />
@@ -2172,22 +2266,33 @@ function ConfigurationTab({
             <PromptArea label="Daily Brief Instructions" value={draft.daily_brief_instructions} onChange={(value) => updateDraft(setDraft, 'daily_brief_instructions', value)} placeholder="Guide the tone and structure of the daily brief." />
           </div>
         </Panel>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Prompt History" subtitle="Recent AI configuration and prompt changes.">
+            <AuditPreviewList entries={promptHistory} emptyLabel="No AI prompt changes yet." />
+          </Panel>
+          <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
+            <AuditPreviewList entries={manualActions} emptyLabel="No manual actions yet." />
+          </Panel>
+        </div>
       </div>
 
       <div className="space-y-4">
-        <Panel title="Readiness" subtitle={readiness ?? 'Loading runtime state...'}>
+        <Panel title="Configuration Status" subtitle={readiness ?? 'Loading runtime state...'}>
           <dl className="space-y-2 text-sm">
             <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
             <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
+            <Metric label="Model" value={settings?.model || 'Not configured'} />
+            <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
             <Metric label="Created" value={settings?.created_at ? formatTimestamp(settings.created_at) : 'n/a'} />
             <Metric label="Updated" value={settings?.updated_at ? formatTimestamp(settings.updated_at) : 'n/a'} />
           </dl>
         </Panel>
 
         <div className="sticky top-4 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-          <h3 className="font-display text-lg">Save</h3>
+          <h3 className="font-display text-lg">Save Changes</h3>
           <p className="mt-1 text-sm text-slate dark:text-white/70">
-            Configuration changes affect future AI runs and are recorded in prompt history.
+            Provider, feature, company-context, and prompt changes affect future AI runs and are recorded in prompt history.
           </p>
           <button
             type="button"
@@ -2245,20 +2350,30 @@ function TabButton({
   active,
   onClick,
   children,
+  fullWidth = false,
 }: {
   active: boolean
   onClick: () => void
   children: React.ReactNode
+  fullWidth?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-3 py-2 text-sm font-semibold transition ${
-        active
-          ? 'bg-ink text-white dark:bg-cyan dark:text-slate-950'
-          : 'border border-slate/20 bg-white/70 text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/75'
-      }`}
+      className={
+        fullWidth
+          ? `block rounded px-3 py-2 text-center text-sm transition lg:text-left ${
+              active
+                ? 'bg-cyan/15 text-cyan dark:bg-cyan-900/35 dark:text-cyan-300'
+                : 'text-slate hover:bg-slate/10 dark:text-slate-200 dark:hover:bg-cyan-950/40'
+            }`
+          : `rounded-full px-3 py-2 text-sm font-semibold transition ${
+              active
+                ? 'bg-ink text-white dark:bg-cyan dark:text-slate-950'
+                : 'border border-slate/20 bg-white/70 text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/75'
+            }`
+      }
     >
       {children}
     </button>
