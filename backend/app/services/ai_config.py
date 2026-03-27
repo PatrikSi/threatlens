@@ -40,6 +40,8 @@ class ActiveAISettings:
     daily_brief_window_hours: int
     daily_brief_max_items: int
     daily_brief_history_limit: int
+    daily_brief_schedule_hour_utc: int
+    daily_brief_schedule_minute_utc: int
     relevance_medium_threshold: float
     relevance_high_threshold: float
     company_name: str | None
@@ -93,6 +95,8 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
         daily_brief_window_hours=24,
         daily_brief_max_items=20,
         daily_brief_history_limit=7,
+        daily_brief_schedule_hour_utc=9,
+        daily_brief_schedule_minute_utc=0,
         relevance_medium_threshold=0.55,
         relevance_high_threshold=0.8,
     )
@@ -116,6 +120,8 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.daily_brief_window_hours = payload.daily_brief_window_hours
     settings.daily_brief_max_items = payload.daily_brief_max_items
     settings.daily_brief_history_limit = payload.daily_brief_history_limit
+    settings.daily_brief_schedule_hour_utc = payload.daily_brief_schedule_hour_utc
+    settings.daily_brief_schedule_minute_utc = payload.daily_brief_schedule_minute_utc
     settings.relevance_medium_threshold = payload.relevance_medium_threshold
     settings.relevance_high_threshold = payload.relevance_high_threshold
     settings.company_name = _normalize_optional_text(payload.company_name)
@@ -156,6 +162,8 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
+        daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
+        daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
@@ -192,6 +200,8 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
+        daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
+        daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
@@ -261,6 +271,8 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
+        daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
+        daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
+from app.models.ai_daily_brief import AIDailyBrief
 from app.models.article import Article
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
@@ -237,6 +238,62 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
             )
         except redis.RedisError:
             pass
+
+
+@contextmanager
+def daily_ai_brief_lock(ttl_seconds: int = 900):
+    key = "threatlens:ai:daily_brief:lock"
+    token = secrets.token_hex(16)
+
+    acquired = False
+    try:
+        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+    except redis.RedisError:
+        acquired = True
+
+    if not acquired:
+        yield False
+        return
+
+    try:
+        yield True
+    finally:
+        try:
+            redis_client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                token,
+            )
+        except redis.RedisError:
+            pass
+
+
+def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, str | None]:
+    active = load_active_ai_settings(db)
+    if not active.ai_enabled:
+        return False, "ai_disabled"
+    if not active.ai_configured:
+        return False, "ai_not_configured"
+    if not active.daily_brief_enabled:
+        return False, "daily_brief_disabled"
+
+    scheduled_at = now.replace(
+        hour=active.daily_brief_schedule_hour_utc,
+        minute=active.daily_brief_schedule_minute_utc,
+        second=0,
+        microsecond=0,
+    )
+    if now < scheduled_at:
+        return False, "scheduled_time_not_reached"
+
+    existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == now.date()))
+    if existing is not None:
+        if existing.status == "ready":
+            return False, "already_generated"
+        return False, "already_attempted"
+
+    return True, None
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
@@ -659,9 +716,26 @@ def dispatch_daily_ai_brief_generation(
                 parsed_actor_user_id = uuid.UUID(actor_user_id)
             except ValueError:
                 parsed_actor_user_id = None
-        if parsed_run_id:
-            run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-            if run is None:
+        is_scheduled_dispatch = parsed_run_id is None and parsed_actor_user_id is None
+        if is_scheduled_dispatch and not force:
+            due, reason = _scheduled_daily_ai_brief_due(db, now=datetime.now(timezone.utc))
+            if not due:
+                return {"status": "skipped", "reason": reason}
+        with daily_ai_brief_lock() as acquired:
+            if not acquired:
+                return {"status": "skipped", "reason": "already_running"}
+            if parsed_run_id:
+                run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
+                if run is None:
+                    run = queue_ai_task_run(
+                        db,
+                        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+                        trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                        actor_user_id=parsed_actor_user_id,
+                        model=None,
+                        metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
+                    )
+            else:
                 run = queue_ai_task_run(
                     db,
                     task_type=AI_TASK_TYPE_DAILY_BRIEF,
@@ -670,79 +744,70 @@ def dispatch_daily_ai_brief_generation(
                     model=None,
                     metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
                 )
-        else:
-            run = queue_ai_task_run(
-                db,
-                task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                actor_user_id=parsed_actor_user_id,
-                model=None,
-                metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-            )
-        started_run = start_ai_task_run(
-            db,
-            run_id=run.id,
-            worker_name=getattr(self.request, "hostname", None),
-            celery_task_id=getattr(self.request, "id", None),
-            metadata_updates={"force": bool(force)},
-        )
-        db.commit()
-        if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
-            return {"status": "skipped", "reason": "canceled"}
-        active_ai_settings = load_active_ai_settings(db)
-        if not active_ai_settings.ai_enabled:
-            finish_ai_task_run(
+            started_run = start_ai_task_run(
                 db,
                 run_id=run.id,
-                status=AI_STATUS_SKIPPED,
-                reason="ai_disabled",
                 worker_name=getattr(self.request, "hostname", None),
+                celery_task_id=getattr(self.request, "id", None),
+                metadata_updates={"force": bool(force)},
             )
             db.commit()
-            return {"status": "skipped", "reason": "ai_disabled"}
-        if not active_ai_settings.ai_configured:
-            finish_ai_task_run(
-                db,
-                run_id=run.id,
-                status=AI_STATUS_SKIPPED,
-                reason="ai_not_configured",
-                worker_name=getattr(self.request, "hostname", None),
-            )
-            db.commit()
-            return {"status": "skipped", "reason": "ai_not_configured"}
-        if not active_ai_settings.daily_brief_enabled:
-            finish_ai_task_run(
-                db,
-                run_id=run.id,
-                status=AI_STATUS_SKIPPED,
-                reason="daily_brief_disabled",
-                worker_name=getattr(self.request, "hostname", None),
-            )
-            db.commit()
-            return {"status": "skipped", "reason": "daily_brief_disabled"}
+            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
+                return {"status": "skipped", "reason": "canceled"}
+            active_ai_settings = load_active_ai_settings(db)
+            if not active_ai_settings.ai_enabled:
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="ai_disabled",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+                return {"status": "skipped", "reason": "ai_disabled"}
+            if not active_ai_settings.ai_configured:
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="ai_not_configured",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+                return {"status": "skipped", "reason": "ai_not_configured"}
+            if not active_ai_settings.daily_brief_enabled:
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="daily_brief_disabled",
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+                return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-        result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
-        finish_ai_task_run(
-            db,
-            run_id=run.id,
-            status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
-            reason=result.reason,
-            error=result.brief.error if result.brief is not None and result.status == "error" else None,
-            worker_name=getattr(self.request, "hostname", None),
-            model=result.brief.model if result.brief is not None else active_ai_settings.model,
-            prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
-            completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
-            total_tokens=result.brief.total_tokens if result.brief is not None else None,
-            latency_ms=result.brief.latency_ms if result.brief is not None else None,
-            prompt_char_count=result.prompt_char_count,
-            response_char_count=result.response_char_count,
-            metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
-            daily_brief_id=result.brief.id if result.brief is not None else None,
-        )
-        db.commit()
-        if result.brief is None:
-            return {"status": result.status, "reason": result.reason}
-        return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
+            result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+                reason=result.reason,
+                error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                worker_name=getattr(self.request, "hostname", None),
+                model=result.brief.model if result.brief is not None else active_ai_settings.model,
+                prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
+                completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+                total_tokens=result.brief.total_tokens if result.brief is not None else None,
+                latency_ms=result.brief.latency_ms if result.brief is not None else None,
+                prompt_char_count=result.prompt_char_count,
+                response_char_count=result.response_char_count,
+                metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
+                daily_brief_id=result.brief.id if result.brief is not None else None,
+            )
+            db.commit()
+            if result.brief is None:
+                return {"status": result.status, "reason": result.reason}
+            return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")

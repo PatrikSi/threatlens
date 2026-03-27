@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
 from app.models.article import Article
 from app.models.feed import Feed
@@ -13,7 +14,13 @@ from app.services.ai_config import apply_ai_settings_update, get_or_create_ai_se
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPROCESS, AI_TRIGGER_MANUAL, queue_ai_task_run
 from app.schemas.ai import AISettingsUpdate
-from app.tasks.feed_tasks import classify_item, fetch_feed, generate_item_ai_enrichment_task, reprocess_recent_ai_items
+from app.tasks.feed_tasks import (
+    _scheduled_daily_ai_brief_due,
+    classify_item,
+    fetch_feed,
+    generate_item_ai_enrichment_task,
+    reprocess_recent_ai_items,
+)
 
 
 def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):
@@ -432,4 +439,79 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
     refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
     assert refreshed_parent is not None
     assert refreshed_parent.target_count == 2
+    get_settings.cache_clear()
+
+
+def test_scheduled_daily_ai_brief_due_respects_configured_time(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_schedule_hour_utc=12,
+            daily_brief_schedule_minute_utc=30,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    before_due, before_reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 12, 29, tzinfo=timezone.utc),
+    )
+    after_due, after_reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 12, 30, tzinfo=timezone.utc),
+    )
+
+    assert before_due is False
+    assert before_reason == "scheduled_time_not_reached"
+    assert after_due is True
+    assert after_reason is None
+    get_settings.cache_clear()
+
+
+def test_scheduled_daily_ai_brief_due_skips_after_today_ready_brief(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_schedule_hour_utc=9,
+            daily_brief_schedule_minute_utc=0,
+        ),
+    )
+    db_session.add(settings)
+    db_session.add(
+        AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=datetime(2026, 3, 27, 0, 0, tzinfo=timezone.utc).date(),
+            window_start=datetime(2026, 3, 26, 9, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+            status="ready",
+            item_count=4,
+            generated_at=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    due, reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert due is False
+    assert reason == "already_generated"
     get_settings.cache_clear()
