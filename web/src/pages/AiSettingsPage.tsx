@@ -307,7 +307,7 @@ export function AiSettingsPage() {
   const activeReprocessRun = useMemo(() => {
     return (
       reprocessRunsQuery.data?.items.find(
-        (run) => run.status === 'running' || run.status === 'queued' || (run.status === 'error' && !run.finished_at),
+        (run) => !run.finished_at && (run.status === 'running' || run.status === 'queued') && isFreshActiveRun(run),
       ) ?? null
     )
   }, [reprocessRunsQuery.data?.items])
@@ -1434,12 +1434,12 @@ function OverviewSection({
   children: React.ReactNode
 }) {
   return (
-    <section className="space-y-3">
-      <div>
+    <section className="rounded-2xl border border-slate/20 bg-white/70 p-5 dark:border-cyan-900/40 dark:bg-[#03130f]/80">
+      <div className="border-b border-slate/15 pb-3 dark:border-cyan-900/30">
         <h3 className="font-display text-xl">{title}</h3>
         <p className="mt-1 text-sm text-slate dark:text-white/70">{description}</p>
       </div>
-      <div className="space-y-4">{children}</div>
+      <div className="mt-4 space-y-4">{children}</div>
     </section>
   )
 }
@@ -1848,6 +1848,15 @@ function remainingCount(run: AITaskRunResponse) {
   return Math.max(0, run.target_count - run.processed_count)
 }
 
+function isFreshActiveRun(run: AITaskRunResponse) {
+  const reference = parseTimestamp(run.updated_at) ?? parseTimestamp(run.started_at) ?? parseTimestamp(run.queued_at)
+  if (!reference) {
+    return false
+  }
+  const ageMs = Date.now() - reference.getTime()
+  return ageMs <= 10 * 60 * 1000
+}
+
 function truncate(value: string, max: number) {
   if (!value) return ''
   if (value.length <= max) return value
@@ -1856,6 +1865,14 @@ function truncate(value: string, max: number) {
 
 function humanizeKey(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
+}
+
+function parseTimestamp(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function formatMetadataValue(value: unknown) {
