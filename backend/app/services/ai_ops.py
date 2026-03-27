@@ -312,6 +312,101 @@ def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetail
     return AITaskRunDetailResponse(run=run_response, events=event_responses)
 
 
+def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UUID | None = None) -> AITaskRun | None:
+    workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    _reconcile_stale_ai_runs(
+        db,
+        workers=workers,
+        active_tasks=active_tasks,
+        reserved_tasks=reserved_tasks,
+        scheduled_tasks=scheduled_tasks,
+    )
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    if run is None:
+        return None
+
+    unfinished_states = {AI_STATUS_QUEUED, AI_STATUS_RUNNING}
+    if run.finished_at is not None or run.status not in unfinished_states:
+        return run
+
+    active_task_ids = {task.celery_task_id for task in active_tasks if task.celery_task_id}
+    pending_task_ids = {
+        task.celery_task_id
+        for task in [*reserved_tasks, *scheduled_tasks]
+        if task.celery_task_id
+    }
+    runs_to_cancel = [run]
+    if run.task_type == AI_TASK_TYPE_REPROCESS:
+        child_runs = list(
+            db.scalars(
+                select(AITaskRun).where(
+                    AITaskRun.parent_run_id == run.id,
+                    AITaskRun.finished_at.is_(None),
+                    AITaskRun.status.in_(unfinished_states),
+                )
+            )
+        )
+        runs_to_cancel.extend(child_runs)
+
+    for target in runs_to_cancel:
+        if target.celery_task_id:
+            try:
+                celery_app.control.revoke(
+                    target.celery_task_id,
+                    terminate=target.celery_task_id in active_task_ids,
+                    signal="SIGTERM",
+                )
+            except Exception:
+                record_ai_task_event(
+                    db,
+                    run_id=target.id,
+                    event_type="cancel_revoke_failed",
+                    payload={"celery_task_id": target.celery_task_id},
+                )
+
+        finish_ai_task_run(
+            db,
+            run_id=target.id,
+            status=AI_STATUS_SKIPPED,
+            reason="canceled",
+            worker_name=target.worker_name,
+            model=target.model,
+            metadata_updates={
+                "canceled_by_user_id": str(actor_user_id) if actor_user_id else None,
+                "removed_from_queue": target.celery_task_id in pending_task_ids,
+                "terminated_running_task": target.celery_task_id in active_task_ids,
+            },
+        )
+
+    if run.task_type == AI_TASK_TYPE_REPROCESS:
+        parent = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+        if parent is not None:
+            parent.finished_at = parent.finished_at or datetime.now(timezone.utc)
+            if parent.started_at is None:
+                parent.started_at = parent.finished_at
+            parent.duration_ms = max(0, int((parent.finished_at - _coerce_utc(parent.started_at)).total_seconds() * 1000))
+            parent.status = AI_STATUS_SKIPPED
+            parent.reason = "canceled"
+            parent.metadata_json = _merge_metadata(
+                parent.metadata_json,
+                {
+                    "canceled_by_user_id": str(actor_user_id) if actor_user_id else None,
+                    "removed_from_queue": run.celery_task_id in pending_task_ids,
+                    "terminated_running_task": run.celery_task_id in active_task_ids,
+                },
+            )
+            db.add(parent)
+            record_ai_task_event(
+                db,
+                run_id=parent.id,
+                event_type="canceled",
+                payload={"actor_user_id": str(actor_user_id) if actor_user_id else None},
+            )
+
+    db.commit()
+    return db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+
+
 def get_ai_live_status(db: Session) -> AILiveStatusResponse:
     workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
     _reconcile_stale_ai_runs(
@@ -527,6 +622,8 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
             parent.skipped_unchanged_count = int(parent.skipped_unchanged_count or 0) + 1
         if child_reason in INELIGIBLE_REASONS:
             parent.skipped_ineligible_count = int(parent.skipped_ineligible_count or 0) + 1
+        if child_reason == "canceled":
+            parent.metadata_json = _merge_metadata(parent.metadata_json, {"was_canceled": True})
     if parent.started_at is None:
         parent.started_at = datetime.now(timezone.utc)
     target_count = int(parent.target_count or 0)
@@ -536,6 +633,12 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
         if parent.error_count:
             parent.status = AI_STATUS_ERROR
             parent.reason = "partial_failures"
+        elif bool((parent.metadata_json or {}).get("was_canceled")):
+            parent.status = AI_STATUS_SKIPPED
+            parent.reason = "canceled"
+        elif parent.skipped_count:
+            parent.status = AI_STATUS_SKIPPED
+            parent.reason = "partial_skips"
         else:
             parent.status = AI_STATUS_READY
             parent.reason = None

@@ -216,14 +216,36 @@ class AIDailyBriefResponse(BaseModel):
 
 
 class AIReprocessRequest(BaseModel):
-    days: int = Field(default=7, ge=1, le=365)
+    days: int | None = Field(default=7, ge=1, le=365)
     limit: int = Field(default=100, ge=1, le=1000)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
+    feed_ids: list[uuid.UUID] = Field(default_factory=list)
+    item_ids: list[uuid.UUID] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_reprocess_scope(self):
+        self.feed_ids = list(dict.fromkeys(self.feed_ids))
+        self.item_ids = list(dict.fromkeys(self.item_ids))
+        if self.start_time and self.end_time and self.start_time > self.end_time:
+            raise ValueError("start_time must be earlier than end_time")
+        if self.item_ids:
+            return self
+        if self.start_time or self.end_time:
+            return self
+        if self.days is None:
+            self.days = 7
+        return self
 
 
-class AIReprocessResponse(BaseModel):
+class AIQueuedTaskResponse(BaseModel):
     task_id: str
     queued: bool
     run_id: uuid.UUID | None = None
+
+
+class AIReprocessResponse(AIQueuedTaskResponse):
+    pass
 
 
 class AITaskRunResponse(BaseModel):
