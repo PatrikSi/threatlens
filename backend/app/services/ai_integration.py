@@ -844,7 +844,17 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
         ) from exc
 
     content = _extract_message_content(message.get("content"))
-    parsed = _parse_ai_json_content(content)
+    try:
+        parsed = _parse_ai_json_content(content)
+    except AIIntegrationError as exc:
+        raise AIIntegrationError(
+            str(exc),
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+        ) from exc
     usage = payload.get("usage") or {}
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
     return AICompletionResult(
@@ -887,18 +897,71 @@ def _extract_message_content(content: object) -> str:
 
 
 def _parse_ai_json_content(content: str) -> dict[str, object]:
-    candidate = content.strip()
-    if candidate.startswith("```"):
-        candidate = candidate.strip("`")
-        if candidate.lower().startswith("json"):
-            candidate = candidate[4:].strip()
+    candidate = _strip_code_fence_wrapper(content.strip())
     try:
         parsed = json.loads(candidate)
     except ValueError as exc:
-        raise AIIntegrationError("AI response did not contain valid JSON") from exc
+        recovered = _extract_first_json_object(candidate)
+        if recovered is None:
+            raise AIIntegrationError("AI response did not contain valid JSON") from exc
+        parsed = recovered
     if not isinstance(parsed, dict):
         raise AIIntegrationError("AI response JSON must be an object")
     return parsed
+
+
+def _strip_code_fence_wrapper(candidate: str) -> str:
+    if not candidate.startswith("```"):
+        return candidate
+
+    lines = candidate.splitlines()
+    if not lines:
+        return candidate
+    if lines[0].startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "```":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _extract_first_json_object(candidate: str) -> dict[str, object] | None:
+    start = candidate.find("{")
+    if start == -1:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(candidate)):
+        char = candidate[index]
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char != "}":
+            continue
+        depth -= 1
+        if depth != 0:
+            continue
+        try:
+            parsed = json.loads(candidate[start : index + 1])
+        except ValueError:
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
+    return None
 
 
 def _record_usage_event(
