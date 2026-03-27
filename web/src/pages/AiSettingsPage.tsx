@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { Dispatch, RefObject, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -36,6 +36,7 @@ type AISettingsDraft = {
   relevance_enabled: boolean
   daily_brief_enabled: boolean
   auto_enrich_new_items: boolean
+  daily_brief_run_time_utc: string
   daily_brief_window_hours: string
   daily_brief_max_items: string
   daily_brief_history_limit: string
@@ -75,6 +76,7 @@ const DEFAULT_DRAFT: AISettingsDraft = {
   relevance_enabled: true,
   daily_brief_enabled: true,
   auto_enrich_new_items: true,
+  daily_brief_run_time_utc: '09:00',
   daily_brief_window_hours: '24',
   daily_brief_max_items: '20',
   daily_brief_history_limit: '7',
@@ -126,6 +128,7 @@ export function AiSettingsPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
   const activityTabRef = useRef<HTMLDivElement | null>(null)
+  const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
@@ -427,9 +430,10 @@ export function AiSettingsPage() {
       return
     }
     const timer = window.setTimeout(() => {
-      activityTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      const target = selectedRunSectionRef.current ?? activityTabRef.current
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       setPendingRunNavigation(null)
-    }, 50)
+    }, 90)
     return () => window.clearTimeout(timer)
   }, [activeTab, pendingRunNavigation])
 
@@ -594,6 +598,7 @@ export function AiSettingsPage() {
                 setSelectedRunId={setSelectedRunId}
                 runDetailQuery={runDetailQuery}
                 briefSources={briefSourcesQuery.data ?? []}
+                selectedRunSectionRef={selectedRunSectionRef}
               />
             </div>
           )}
@@ -1530,6 +1535,7 @@ function ActivityTab({
   setSelectedRunId,
   runDetailQuery,
   briefSources,
+  selectedRunSectionRef,
   onCancelRun,
   cancelingRunId,
 }: {
@@ -1577,6 +1583,7 @@ function ActivityTab({
   setSelectedRunId: Dispatch<SetStateAction<string | null>>
   runDetailQuery: ReturnType<typeof useQuery<AITaskRunDetailResponse>>
   briefSources: AIDailyBriefSourceItemResponse[]
+  selectedRunSectionRef: RefObject<HTMLDivElement | null>
   onCancelRun: (runId: string) => void
   cancelingRunId: string | null
 }) {
@@ -1877,11 +1884,12 @@ function ActivityTab({
         </Panel>
       </OverviewSection>
 
-      <OverviewSection
-        title="Selected Run"
-        description="Inspect the currently selected run, its event timeline, request metadata, and any related article or daily-brief context."
-      >
-        <Panel title="Run Detail" subtitle="Selected run timeline, metadata, and related sources.">
+      <div ref={selectedRunSectionRef}>
+        <OverviewSection
+          title="Selected Run"
+          description="Inspect the currently selected run, its event timeline, request metadata, and any related article or daily-brief context."
+        >
+          <Panel title="Run Detail" subtitle="Selected run timeline, metadata, and related sources.">
           {runDetailQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading run detail...</p>}
           {runDetailQuery.isError && (
             <p className="text-sm text-red-600">
@@ -2034,7 +2042,7 @@ function ActivityTab({
               )}
             </div>
           )}
-        </Panel>
+          </Panel>
 
           <ProviderExchangeModal
             run={inspectedRun}
@@ -2043,7 +2051,8 @@ function ActivityTab({
             errorMessage={(inspectedRunDetailQuery.error as Error | undefined)?.message ?? ''}
             onClose={() => setInspectedRunId(null)}
           />
-      </OverviewSection>
+        </OverviewSection>
+      </div>
     </div>
   )
 }
@@ -2172,11 +2181,15 @@ function ConfigurationTab({
           )}
         </Panel>
 
-        <Panel title="Feature Controls" subtitle="Enable the AI features that should run and tune the thresholds they rely on.">
+        <Panel title="Feature Controls" subtitle="Enable the AI features that should run and tune the relevance thresholds they rely on.">
           <div className="grid gap-3 md:grid-cols-2">
             <CheckboxRow label="AI article summaries" checked={draft.summary_enabled} onChange={(checked) => updateDraft(setDraft, 'summary_enabled', checked)} />
             <CheckboxRow label="AI relevance scoring" checked={draft.relevance_enabled} onChange={(checked) => updateDraft(setDraft, 'relevance_enabled', checked)} />
-            <CheckboxRow label="Daily brief widget" checked={draft.daily_brief_enabled} onChange={(checked) => updateDraft(setDraft, 'daily_brief_enabled', checked)} />
+            <CheckboxRow
+              label="Daily brief generation and widget"
+              checked={draft.daily_brief_enabled}
+              onChange={(checked) => updateDraft(setDraft, 'daily_brief_enabled', checked)}
+            />
             <CheckboxRow label="Auto-enrich new items" checked={draft.auto_enrich_new_items} onChange={(checked) => updateDraft(setDraft, 'auto_enrich_new_items', checked)} />
             <Field label="Medium Relevance Threshold">
               <input
@@ -2194,6 +2207,22 @@ function ConfigurationTab({
                 inputMode="decimal"
               />
             </Field>
+          </div>
+        </Panel>
+
+        <Panel title="Daily Brief Settings" subtitle="Control when the scheduled daily brief runs, how much content it reviews, and how much history to keep.">
+          <div className="grid gap-3 md:grid-cols-2">
+            <Field label="Daily Brief Run Time (UTC)">
+              <input
+                type="time"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={draft.daily_brief_run_time_utc}
+                onChange={(event) => updateDraft(setDraft, 'daily_brief_run_time_utc', event.target.value || '09:00')}
+              />
+              <span className="mt-1 block text-xs text-slate dark:text-white/60">
+                Scheduled checks run every 5 minutes and fire after this UTC time. Manual queueing stays available in Operations.
+              </span>
+            </Field>
             <Field label="Daily Brief Window Hours">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -2201,14 +2230,20 @@ function ConfigurationTab({
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_window_hours', event.target.value)}
                 inputMode="numeric"
               />
+              <span className="mt-1 block text-xs text-slate dark:text-white/60">
+                How far back ThreatLens looks when building the scheduled brief.
+              </span>
             </Field>
-            <Field label="Daily Brief Max Items">
+            <Field label="Daily Brief Max Articles">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.daily_brief_max_items}
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_max_items', event.target.value)}
                 inputMode="numeric"
               />
+              <span className="mt-1 block text-xs text-slate dark:text-white/60">
+                Cap how many articles are handed to the model for a single brief.
+              </span>
             </Field>
             <Field label="Retained Daily Briefings">
               <input
@@ -2284,6 +2319,10 @@ function ConfigurationTab({
             <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
             <Metric label="Model" value={settings?.model || 'Not configured'} />
             <Metric label="Retry attempts" value={settings?.request_max_retries ?? 0} />
+            <Metric
+              label="Daily brief schedule"
+              value={settings ? formatUtcTime(settings.daily_brief_schedule_hour_utc, settings.daily_brief_schedule_minute_utc) : '09:00 UTC'}
+            />
             <Metric label="Created" value={settings?.created_at ? formatTimestamp(settings.created_at) : 'n/a'} />
             <Metric label="Updated" value={settings?.updated_at ? formatTimestamp(settings.updated_at) : 'n/a'} />
           </dl>
@@ -2617,6 +2656,7 @@ function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     relevance_enabled: settings.relevance_enabled,
     daily_brief_enabled: settings.daily_brief_enabled,
     auto_enrich_new_items: settings.auto_enrich_new_items,
+    daily_brief_run_time_utc: formatUtcTimeInput(settings.daily_brief_schedule_hour_utc, settings.daily_brief_schedule_minute_utc),
     daily_brief_window_hours: String(settings.daily_brief_window_hours),
     daily_brief_max_items: String(settings.daily_brief_max_items),
     daily_brief_history_limit: String(settings.daily_brief_history_limit),
@@ -2640,6 +2680,7 @@ function createDraftFromSettings(settings: AISettings): AISettingsDraft {
 }
 
 function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest {
+  const dailyBriefSchedule = parseUtcTimeInput(draft.daily_brief_run_time_utc)
   return {
     provider_type: 'openai_compatible',
     base_url: normalizeOptionalText(draft.base_url),
@@ -2652,6 +2693,8 @@ function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest
     relevance_enabled: draft.relevance_enabled,
     daily_brief_enabled: draft.daily_brief_enabled,
     auto_enrich_new_items: draft.auto_enrich_new_items,
+    daily_brief_schedule_hour_utc: dailyBriefSchedule.hour,
+    daily_brief_schedule_minute_utc: dailyBriefSchedule.minute,
     daily_brief_window_hours: Number(draft.daily_brief_window_hours) || 24,
     daily_brief_max_items: Number(draft.daily_brief_max_items) || 20,
     daily_brief_history_limit: Number(draft.daily_brief_history_limit) || 7,
@@ -2747,6 +2790,27 @@ function formatAgeSeconds(value: number) {
   if (value < 60) return `${value}s`
   if (value < 3600) return `${Math.round(value / 60)}m`
   return `${(value / 3600).toFixed(1)}h`
+}
+
+function formatUtcTime(hour: number, minute: number) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')} UTC`
+}
+
+function formatUtcTimeInput(hour: number, minute: number) {
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function parseUtcTimeInput(value: string) {
+  const matched = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!matched) {
+    return { hour: 9, minute: 0 }
+  }
+  const hour = Number(matched[1])
+  const minute = Number(matched[2])
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23 || !Number.isFinite(minute) || minute < 0 || minute > 59) {
+    return { hour: 9, minute: 0 }
+  }
+  return { hour, minute }
 }
 
 function formatDuration(value: number | null) {

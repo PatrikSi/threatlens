@@ -609,6 +609,8 @@ export interface AISettings {
   daily_brief_window_hours: number
   daily_brief_max_items: number
   daily_brief_history_limit: number
+  daily_brief_schedule_hour_utc: number
+  daily_brief_schedule_minute_utc: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null
@@ -645,6 +647,8 @@ export interface AISettingsUpdateRequest {
   daily_brief_window_hours: number
   daily_brief_max_items: number
   daily_brief_history_limit: number
+  daily_brief_schedule_hour_utc: number
+  daily_brief_schedule_minute_utc: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null
