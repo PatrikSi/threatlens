@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { Dispatch, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -124,6 +124,8 @@ export function AiSettingsPage() {
   const [runPage, setRunPage] = useState(0)
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
+  const runsTabRef = useRef<HTMLDivElement | null>(null)
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
@@ -407,13 +409,34 @@ export function AiSettingsPage() {
     return (candidateItemsQuery.data?.items ?? []).filter((item) => !selectedIds.has(item.id))
   }, [candidateItemsQuery.data?.items, selectedReprocessItems])
 
+  const activeTasksLoading =
+    (liveStatusQuery.isLoading && !liveStatusQuery.data) ||
+    (queuedRunsQuery.isLoading && !queuedRunsQuery.data) ||
+    (runningRunsQuery.isLoading && !runningRunsQuery.data)
+
   function openRunInHistory(runId: string) {
     setSelectedModel('all')
     setRunFilters(DEFAULT_RUN_FILTERS)
     setRunPage(0)
     setSelectedRunId(runId)
+    setPendingRunNavigation(runId)
     setActiveTab('runs')
+    void queryClient.prefetchQuery({
+      queryKey: ['ai', 'ops', 'run', runId],
+      queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${runId}`),
+    })
   }
+
+  useEffect(() => {
+    if (activeTab !== 'runs' || !pendingRunNavigation) {
+      return
+    }
+    const timer = window.setTimeout(() => {
+      runsTabRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setPendingRunNavigation(null)
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [activeTab, pendingRunNavigation])
 
   if (currentUserQuery.isLoading) {
     return (
@@ -524,6 +547,7 @@ export function AiSettingsPage() {
           <ActiveTasksPanel
             runs={activeTopLevelRuns}
             live={liveStatusQuery.data}
+            isLoading={activeTasksLoading}
             onOpenRun={openRunInHistory}
             onCancelRun={(runId) => {
               setNotice(null)
@@ -626,26 +650,28 @@ export function AiSettingsPage() {
       )}
 
       {activeTab === 'runs' && (
-        <RunsTab
-          days={days}
-          selectedModel={selectedModel}
-          filters={runFilters}
-          setFilters={setRunFilters}
-          runPage={runPage}
-          setRunPage={setRunPage}
-          runsQuery={runsQuery}
-          selectedRunId={selectedRunId}
-          setSelectedRunId={setSelectedRunId}
-          runDetailQuery={runDetailQuery}
-          briefSources={briefSourcesQuery.data ?? []}
-          manualActions={manualActionsQuery.data ?? []}
-          promptHistory={promptHistoryQuery.data ?? []}
-          onCancelRun={(runId) => {
-            setNotice(null)
-            cancelRunMutation.mutate(runId)
-          }}
-          cancelingRunId={cancelingRunId}
-        />
+        <div ref={runsTabRef}>
+          <RunsTab
+            days={days}
+            selectedModel={selectedModel}
+            filters={runFilters}
+            setFilters={setRunFilters}
+            runPage={runPage}
+            setRunPage={setRunPage}
+            runsQuery={runsQuery}
+            selectedRunId={selectedRunId}
+            setSelectedRunId={setSelectedRunId}
+            runDetailQuery={runDetailQuery}
+            briefSources={briefSourcesQuery.data ?? []}
+            manualActions={manualActionsQuery.data ?? []}
+            promptHistory={promptHistoryQuery.data ?? []}
+            onCancelRun={(runId) => {
+              setNotice(null)
+              cancelRunMutation.mutate(runId)
+            }}
+            cancelingRunId={cancelingRunId}
+          />
+        </div>
       )}
 
       {activeTab === 'configuration' && (
@@ -990,12 +1016,14 @@ function OverviewTab({
 function ActiveTasksPanel({
   runs,
   live,
+  isLoading,
   onOpenRun,
   onCancelRun,
   cancelingRunId,
 }: {
   runs: AITaskRunResponse[]
   live: AILiveStatusResponse | undefined
+  isLoading: boolean
   onOpenRun: (runId: string) => void
   onCancelRun: (runId: string) => void
   cancelingRunId: string | null
@@ -1014,6 +1042,11 @@ function ActiveTasksPanel({
       </div>
 
       <div className="mt-4 space-y-3">
+        {isLoading && !runs.length && (
+          <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
+            Loading queued and running AI tasks...
+          </div>
+        )}
         {runs.map((run) => (
           <div
             key={run.id}
@@ -1066,7 +1099,7 @@ function ActiveTasksPanel({
             )}
           </div>
         ))}
-        {!runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
+        {!isLoading && !runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
       </div>
     </Panel>
   )
