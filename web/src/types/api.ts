@@ -726,6 +726,12 @@ export interface AIReprocessResponse {
   run_id: string | null
 }
 
+export interface AIQueuedTaskResponse {
+  task_id: string
+  queued: boolean
+  run_id: string | null
+}
+
 export interface AITaskRunResponse {
   id: string
   task_type: 'item_enrichment' | 'daily_brief' | 'connection_test' | 'reprocess'
