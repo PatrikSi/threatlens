@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useMemo, useState } from 'react'
+import { Dispatch, SetStateAction, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
@@ -8,7 +8,9 @@ import {
   AIDailyBrief,
   AIDailyBriefSourceItemResponse,
   AIFailureGroupResponse,
+  AIQueuedTaskResponse,
   AILiveTaskResponse,
+  AILiveStatusResponse,
   AIOpsOverviewResponse,
   AIReprocessResponse,
   AISettings,
@@ -17,6 +19,9 @@ import {
   AITaskRunListResponse,
   AITaskRunResponse,
   AITestConnectionResponse,
+  Feed,
+  ItemListEntry,
+  ItemListResponse,
 } from '../types/api'
 
 type AiTab = 'overview' | 'runs' | 'configuration'
@@ -103,6 +108,12 @@ export function AiSettingsPage() {
   const [latestGeneratedBrief, setLatestGeneratedBrief] = useState<AIDailyBrief | null>(null)
   const [reprocessDays, setReprocessDays] = useState('7')
   const [reprocessLimit, setReprocessLimit] = useState('100')
+  const [reprocessStartTime, setReprocessStartTime] = useState('')
+  const [reprocessEndTime, setReprocessEndTime] = useState('')
+  const [reprocessFeedIds, setReprocessFeedIds] = useState<string[]>([])
+  const [reprocessItemSearch, setReprocessItemSearch] = useState('')
+  const [selectedReprocessItems, setSelectedReprocessItems] = useState<ItemListEntry[]>([])
+  const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState('all')
   const [runPage, setRunPage] = useState(0)
   const [runFilters, setRunFilters] = useState<RunFilters>({
@@ -114,6 +125,7 @@ export function AiSettingsPage() {
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
+  const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
 
   const settingsQuery = useQuery({
     queryKey: ['ai', 'settings'],
@@ -128,11 +140,59 @@ export function AiSettingsPage() {
     refetchInterval: activeTab === 'configuration' ? false : 10000,
   })
 
-  const reprocessRunsQuery = useQuery({
-    queryKey: ['ai', 'ops', 'runs', 'reprocess-banner', days],
-    queryFn: () => apiFetch<AITaskRunListResponse>(`/ai/ops/runs?task_type=reprocess&limit=5&days=${days}`),
+  const liveStatusQuery = useQuery({
+    queryKey: ['ai', 'ops', 'live'],
+    queryFn: () => apiFetch<AILiveStatusResponse>('/ai/ops/live'),
     enabled: aiEnabled,
     refetchInterval: 5000,
+  })
+
+  const queuedRunsQuery = useQuery({
+    queryKey: ['ai', 'ops', 'runs', 'queued-top'],
+    queryFn: () => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30'),
+    enabled: aiEnabled,
+    refetchInterval: 5000,
+  })
+
+  const runningRunsQuery = useQuery({
+    queryKey: ['ai', 'ops', 'runs', 'running-top'],
+    queryFn: () => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30'),
+    enabled: aiEnabled,
+    refetchInterval: 5000,
+  })
+
+  const feedsQuery = useQuery({
+    queryKey: ['feeds', 'ai-reprocess'],
+    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    enabled: aiEnabled,
+  })
+
+  const candidateItemsPath = useMemo(() => {
+    const params = new URLSearchParams()
+    params.set('page', '1')
+    params.set('page_size', '12')
+    params.set('sort', 'first_seen_desc')
+    if (deferredItemSearch) {
+      params.set('q', deferredItemSearch)
+    }
+    if (reprocessFeedIds.length) {
+      params.set('feed_ids', reprocessFeedIds.join(','))
+    }
+    const startTime = toApiDateTime(reprocessStartTime)
+    const endTime = toApiDateTime(reprocessEndTime)
+    if (startTime) {
+      params.set('since', startTime)
+    }
+    if (endTime) {
+      params.set('until', endTime)
+    }
+    return `/items?${params.toString()}`
+  }, [deferredItemSearch, reprocessEndTime, reprocessFeedIds, reprocessStartTime])
+
+  const candidateItemsQuery = useQuery({
+    queryKey: ['items', 'ai-reprocess-picker', deferredItemSearch, reprocessFeedIds, reprocessStartTime, reprocessEndTime],
+    queryFn: () => apiFetch<ItemListResponse>(candidateItemsPath),
+    enabled: aiEnabled,
   })
 
   const promptHistoryQuery = useQuery({
@@ -240,12 +300,12 @@ export function AiSettingsPage() {
 
   const generateBriefMutation = useMutation({
     mutationFn: () =>
-      apiFetch<AIDailyBrief>('/ai/daily-brief/generate', {
+      apiFetch<AIQueuedTaskResponse>('/ai/daily-brief/queue', {
         method: 'POST',
       }),
-    onSuccess: (brief) => {
-      setLatestGeneratedBrief(brief)
-      setNotice('Daily brief generated.')
+    onSuccess: (result) => {
+      setLatestGeneratedBrief(null)
+      setNotice(`Queued daily brief task ${result.task_id}.`)
       invalidateAiQueries(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
     },
@@ -256,13 +316,36 @@ export function AiSettingsPage() {
       apiFetch<AIReprocessResponse>('/ai/reprocess', {
         method: 'POST',
         body: JSON.stringify({
-          days: Number(reprocessDays) || 7,
+          days: shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedReprocessItems)
+            ? Number(reprocessDays) || 7
+            : null,
           limit: Number(reprocessLimit) || 100,
+          start_time: toApiDateTime(reprocessStartTime),
+          end_time: toApiDateTime(reprocessEndTime),
+          feed_ids: reprocessFeedIds,
+          item_ids: selectedReprocessItems.map((item) => item.id),
         }),
       }),
     onSuccess: (result) => {
       setNotice(`Queued AI reprocessing task ${result.task_id}.`)
       invalidateAiQueries(queryClient)
+    },
+  })
+
+  const cancelRunMutation = useMutation({
+    mutationFn: (runId: string) =>
+      apiFetch<AITaskRunResponse>(`/ai/ops/runs/${runId}/cancel`, {
+        method: 'POST',
+      }),
+    onMutate: (runId) => {
+      setCancelingRunId(runId)
+    },
+    onSuccess: (run) => {
+      setNotice(`${formatTaskTypeLabel(run.task_type)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`)
+      invalidateAiQueries(queryClient)
+    },
+    onSettled: () => {
+      setCancelingRunId(null)
     },
   })
 
@@ -304,13 +387,28 @@ export function AiSettingsPage() {
     return (overviewQuery.data?.per_model ?? []).filter((row) => row.model === selectedModel)
   }, [overviewQuery.data?.per_model, selectedModel])
 
-  const activeReprocessRun = useMemo(() => {
-    return (
-      reprocessRunsQuery.data?.items.find(
-        (run) => !run.finished_at && (run.status === 'running' || run.status === 'queued') && isFreshActiveRun(run),
-      ) ?? null
-    )
-  }, [reprocessRunsQuery.data?.items])
+  const activeTopLevelRuns = useMemo(() => {
+    const byId = new Map<string, AITaskRunResponse>()
+    for (const run of [...(runningRunsQuery.data?.items ?? []), ...(queuedRunsQuery.data?.items ?? [])]) {
+      if (run.parent_run_id || run.finished_at || (run.status !== 'queued' && run.status !== 'running')) {
+        continue
+      }
+      byId.set(run.id, run)
+    }
+    return Array.from(byId.values()).sort((left, right) => {
+      const leftRunning = left.status === 'running' ? 0 : 1
+      const rightRunning = right.status === 'running' ? 0 : 1
+      if (leftRunning !== rightRunning) {
+        return leftRunning - rightRunning
+      }
+      return (parseTimestamp(right.updated_at)?.getTime() ?? 0) - (parseTimestamp(left.updated_at)?.getTime() ?? 0)
+    })
+  }, [queuedRunsQuery.data?.items, runningRunsQuery.data?.items])
+
+  const candidateItems = useMemo(() => {
+    const selectedIds = new Set(selectedReprocessItems.map((item) => item.id))
+    return (candidateItemsQuery.data?.items ?? []).filter((item) => !selectedIds.has(item.id))
+  }, [candidateItemsQuery.data?.items, selectedReprocessItems])
 
   if (currentUserQuery.isLoading) {
     return (
@@ -408,28 +506,6 @@ export function AiSettingsPage() {
             >
               {testConnectionMutation.isPending ? 'Testing...' : 'Test Connection'}
             </button>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-              onClick={() => {
-                setNotice(null)
-                generateBriefMutation.mutate()
-              }}
-              disabled={generateBriefMutation.isPending || !draft.daily_brief_enabled}
-            >
-              {generateBriefMutation.isPending ? 'Generating...' : 'Generate Daily Brief'}
-            </button>
-            <button
-              type="button"
-              className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
-              onClick={() => {
-                setNotice(null)
-                reprocessMutation.mutate()
-              }}
-              disabled={reprocessMutation.isPending}
-            >
-              {reprocessMutation.isPending ? 'Queueing...' : 'Reprocess'}
-            </button>
           </div>
         </div>
 
@@ -439,31 +515,72 @@ export function AiSettingsPage() {
           </p>
         )}
 
-        {activeReprocessRun && (
-          <div className="mt-3 rounded-xl border border-cyan/20 bg-cyan/5 p-3 dark:border-cyan-900/40 dark:bg-cyan/10">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <p className="text-sm font-semibold">
-                  Reprocess {formatStatusLabel(activeReprocessRun.status)}: {activeReprocessRun.processed_count}/
-                  {activeReprocessRun.target_count ?? '?'} processed
-                </p>
-                <p className="text-xs text-slate dark:text-white/65">
-                  Success {activeReprocessRun.success_count}, errors {activeReprocessRun.error_count}, skipped{' '}
-                  {activeReprocessRun.skipped_count}, remaining {remainingCount(activeReprocessRun)}
-                </p>
-              </div>
-              <div className="text-xs text-slate dark:text-white/65">
-                Queued {formatTimestamp(activeReprocessRun.queued_at)}
-                {activeReprocessRun.worker_name ? `, ${activeReprocessRun.worker_name}` : ''}
-              </div>
-            </div>
-            <ProgressBar
-              value={activeReprocessRun.processed_count}
-              max={activeReprocessRun.target_count || Math.max(activeReprocessRun.processed_count, 1)}
-              className="mt-3"
-            />
-          </div>
-        )}
+        <div className="mt-4 space-y-4">
+          <ActiveTasksPanel
+            runs={activeTopLevelRuns}
+            live={liveStatusQuery.data}
+            onOpenRun={(runId) => {
+              setSelectedRunId(runId)
+              setActiveTab('runs')
+            }}
+            onCancelRun={(runId) => {
+              setNotice(null)
+              cancelRunMutation.mutate(runId)
+            }}
+            cancelingRunId={cancelingRunId}
+          />
+
+          <QueueWorkPanel
+            dailyBriefEnabled={draft.daily_brief_enabled}
+            generatePending={generateBriefMutation.isPending}
+            onGenerateDailyBrief={() => {
+              setNotice(null)
+              generateBriefMutation.mutate()
+            }}
+            reprocessDays={reprocessDays}
+            setReprocessDays={setReprocessDays}
+            reprocessLimit={reprocessLimit}
+            setReprocessLimit={setReprocessLimit}
+            reprocessStartTime={reprocessStartTime}
+            setReprocessStartTime={setReprocessStartTime}
+            reprocessEndTime={reprocessEndTime}
+            setReprocessEndTime={setReprocessEndTime}
+            feeds={feedsQuery.data ?? []}
+            selectedFeedIds={reprocessFeedIds}
+            setSelectedFeedIds={setReprocessFeedIds}
+            itemSearch={reprocessItemSearch}
+            setItemSearch={setReprocessItemSearch}
+            candidateItems={candidateItems}
+            selectedItems={selectedReprocessItems}
+            onAddItem={(item) => {
+              setSelectedReprocessItems((current) => {
+                if (current.some((entry) => entry.id === item.id)) {
+                  return current
+                }
+                return [...current, item]
+              })
+            }}
+            onRemoveItem={(itemId) => {
+              setSelectedReprocessItems((current) => current.filter((item) => item.id !== itemId))
+            }}
+            onClearScope={() => {
+              setReprocessDays('7')
+              setReprocessLimit('100')
+              setReprocessStartTime('')
+              setReprocessEndTime('')
+              setReprocessFeedIds([])
+              setReprocessItemSearch('')
+              setSelectedReprocessItems([])
+            }}
+            reprocessPending={reprocessMutation.isPending}
+            onQueueReprocess={() => {
+              setNotice(null)
+              reprocessMutation.mutate()
+            }}
+            itemSearchLoading={candidateItemsQuery.isLoading}
+            itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
+          />
+        </div>
 
         {testResult && (
           <div className="mt-3 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
@@ -521,6 +638,11 @@ export function AiSettingsPage() {
           briefSources={briefSourcesQuery.data ?? []}
           manualActions={manualActionsQuery.data ?? []}
           promptHistory={promptHistoryQuery.data ?? []}
+          onCancelRun={(runId) => {
+            setNotice(null)
+            cancelRunMutation.mutate(runId)
+          }}
+          cancelingRunId={cancelingRunId}
         />
       )}
 
@@ -538,10 +660,6 @@ export function AiSettingsPage() {
             setNotice(null)
             saveMutation.mutate(createRequestFromDraft(draft))
           }}
-          reprocessDays={reprocessDays}
-          reprocessLimit={reprocessLimit}
-          setReprocessDays={setReprocessDays}
-          setReprocessLimit={setReprocessLimit}
         />
       )}
     </div>
@@ -867,6 +985,334 @@ function OverviewTab({
   )
 }
 
+function ActiveTasksPanel({
+  runs,
+  live,
+  onOpenRun,
+  onCancelRun,
+  cancelingRunId,
+}: {
+  runs: AITaskRunResponse[]
+  live: AILiveStatusResponse | undefined
+  onOpenRun: (runId: string) => void
+  onCancelRun: (runId: string) => void
+  cancelingRunId: string | null
+}) {
+  return (
+    <Panel title="Active Tasks" subtitle="Queued and running top-level AI work plus the current Celery queue snapshot.">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <MiniStat label="Workers" value={live?.worker_count ?? 0} />
+        <MiniStat label="Active" value={live?.active_count ?? 0} />
+        <MiniStat label="Reserved" value={live?.reserved_count ?? 0} />
+        <MiniStat label="Scheduled" value={live?.scheduled_count ?? 0} />
+        <MiniStat
+          label="Oldest Queued"
+          value={live?.oldest_queued_age_seconds != null ? formatAgeSeconds(live.oldest_queued_age_seconds) : 'n/a'}
+        />
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {runs.map((run) => (
+          <div
+            key={run.id}
+            className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold">{formatTaskTypeLabel(run.task_type)}</p>
+                  <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
+                </div>
+                <p className="mt-1 text-xs text-slate dark:text-white/65">
+                  {formatTriggerLabel(run.trigger_source)} · queued {formatTimestamp(run.queued_at)}
+                  {run.worker_name ? ` · ${run.worker_name}` : ''}
+                  {run.model ? ` · ${run.model}` : ''}
+                </p>
+                <p className="mt-2 text-sm text-slate dark:text-white/70">{describeRunScope(run)}</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                  onClick={() => onOpenRun(run.id)}
+                >
+                  Open Run
+                </button>
+                {canCancelRun(run) && (
+                  <button
+                    type="button"
+                    className="rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
+                    onClick={() => onCancelRun(run.id)}
+                    disabled={cancelingRunId === run.id}
+                  >
+                    {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
+                  </button>
+                )}
+              </div>
+            </div>
+            {run.task_type === 'reprocess' && (
+              <div className="mt-3">
+                <ProgressBar
+                  value={run.processed_count}
+                  max={run.target_count || Math.max(run.processed_count, 1)}
+                />
+                <p className="mt-2 text-xs text-slate dark:text-white/60">
+                  Processed {run.processed_count}/{run.target_count ?? '?'} · Success {run.success_count} · Errors{' '}
+                  {run.error_count} · Skipped {run.skipped_count} · Remaining {remainingCount(run)}
+                </p>
+              </div>
+            )}
+          </div>
+        ))}
+        {!runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
+      </div>
+    </Panel>
+  )
+}
+
+function QueueWorkPanel({
+  dailyBriefEnabled,
+  generatePending,
+  onGenerateDailyBrief,
+  reprocessDays,
+  setReprocessDays,
+  reprocessLimit,
+  setReprocessLimit,
+  reprocessStartTime,
+  setReprocessStartTime,
+  reprocessEndTime,
+  setReprocessEndTime,
+  feeds,
+  selectedFeedIds,
+  setSelectedFeedIds,
+  itemSearch,
+  setItemSearch,
+  candidateItems,
+  selectedItems,
+  onAddItem,
+  onRemoveItem,
+  onClearScope,
+  reprocessPending,
+  onQueueReprocess,
+  itemSearchLoading,
+  itemSearchError,
+}: {
+  dailyBriefEnabled: boolean
+  generatePending: boolean
+  onGenerateDailyBrief: () => void
+  reprocessDays: string
+  setReprocessDays: Dispatch<SetStateAction<string>>
+  reprocessLimit: string
+  setReprocessLimit: Dispatch<SetStateAction<string>>
+  reprocessStartTime: string
+  setReprocessStartTime: Dispatch<SetStateAction<string>>
+  reprocessEndTime: string
+  setReprocessEndTime: Dispatch<SetStateAction<string>>
+  feeds: Feed[]
+  selectedFeedIds: string[]
+  setSelectedFeedIds: Dispatch<SetStateAction<string[]>>
+  itemSearch: string
+  setItemSearch: Dispatch<SetStateAction<string>>
+  candidateItems: ItemListEntry[]
+  selectedItems: ItemListEntry[]
+  onAddItem: (item: ItemListEntry) => void
+  onRemoveItem: (itemId: string) => void
+  onClearScope: () => void
+  reprocessPending: boolean
+  onQueueReprocess: () => void
+  itemSearchLoading: boolean
+  itemSearchError: string
+}) {
+  const usingExplicitScope = !shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedItems)
+
+  return (
+    <Panel title="Queue AI Work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
+      <div className="space-y-4">
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Daily Brief</p>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                Queue a manual daily brief run. It will appear in Active Tasks immediately and in the run history once started.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+              onClick={onGenerateDailyBrief}
+              disabled={generatePending || !dailyBriefEnabled}
+            >
+              {generatePending ? 'Queueing...' : 'Queue Daily Brief'}
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Reprocess Scope</p>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                Use a recent lookback, narrow it to feeds or a time range, or select exact articles to re-enrich.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                onClick={onClearScope}
+              >
+                Clear Scope
+              </button>
+              <button
+                type="button"
+                className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                onClick={onQueueReprocess}
+                disabled={reprocessPending}
+              >
+                {reprocessPending ? 'Queueing...' : 'Queue Reprocess'}
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Field label="Lookback Days">
+              <input
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={reprocessDays}
+                onChange={(event) => setReprocessDays(event.target.value)}
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Last X Articles">
+              <input
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={reprocessLimit}
+                onChange={(event) => setReprocessLimit(event.target.value)}
+                inputMode="numeric"
+              />
+            </Field>
+            <Field label="Start Time">
+              <input
+                type="datetime-local"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={reprocessStartTime}
+                onChange={(event) => setReprocessStartTime(event.target.value)}
+              />
+            </Field>
+            <Field label="End Time">
+              <input
+                type="datetime-local"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={reprocessEndTime}
+                onChange={(event) => setReprocessEndTime(event.target.value)}
+              />
+            </Field>
+          </div>
+
+          <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Feeds</p>
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-lg border border-slate/15 bg-slate/5 p-2 dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                {feeds.map((feed) => (
+                  <label
+                    key={feed.id}
+                    className="flex items-start gap-2 rounded border border-transparent px-2 py-2 text-sm transition hover:border-slate/15 dark:hover:border-cyan-900/30"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedFeedIds.includes(feed.id)}
+                      onChange={(event) =>
+                        setSelectedFeedIds((current) =>
+                          event.target.checked
+                            ? [...current, feed.id]
+                            : current.filter((candidateId) => candidateId !== feed.id),
+                        )
+                      }
+                    />
+                    <span>
+                      <span className="block font-medium">{feed.name}</span>
+                      <span className="block text-xs text-slate dark:text-white/60">{feed.url}</span>
+                    </span>
+                  </label>
+                ))}
+                {!feeds.length && <EmptyInline>No feeds available to scope.</EmptyInline>}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Specific Articles</p>
+                <span className="text-xs text-slate dark:text-white/60">
+                  {selectedItems.length
+                    ? `${selectedItems.length} selected article${selectedItems.length === 1 ? '' : 's'}`
+                    : usingExplicitScope
+                      ? 'Explicit scope active'
+                      : 'Using lookback window'}
+                </span>
+              </div>
+              <input
+                className="mt-2 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={itemSearch}
+                onChange={(event) => setItemSearch(event.target.value)}
+                placeholder="Search recent items by title, summary, or URL"
+              />
+
+              {selectedItems.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {selectedItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="rounded-full border border-cyan/20 bg-cyan/10 px-3 py-1 text-left text-xs text-cyan-900 dark:border-cyan/30 dark:text-cyan-100"
+                      onClick={() => onRemoveItem(item.id)}
+                    >
+                      {truncate(item.title, 56)} · remove
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
+                {itemSearchLoading && <EmptyInline>Loading matching items...</EmptyInline>}
+                {!itemSearchLoading &&
+                  candidateItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="w-full rounded-lg border border-slate/15 bg-white/80 px-3 py-3 text-left transition hover:border-cyan/30 dark:border-cyan-900/30 dark:bg-[#041612]/90"
+                      onClick={() => onAddItem(item)}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold">{item.title}</p>
+                          <p className="mt-1 text-xs text-slate dark:text-white/60">
+                            {item.feed_name} · first seen {formatTimestamp(item.first_seen_at)}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-slate/20 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate dark:border-cyan-900/40 dark:text-white/65">
+                          Add
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                {!itemSearchLoading && !candidateItems.length && !itemSearchError && (
+                  <EmptyInline>No recent items matched the current scope.</EmptyInline>
+                )}
+                {itemSearchError && <p className="text-sm text-red-600">Failed to load items. {itemSearchError}</p>}
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-4 text-xs text-slate dark:text-white/60">
+            Selected articles override the lookback window. Without selected articles, ThreatLens uses the time range and feed
+            filters against the last X articles.
+          </p>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
 function RunsTab({
   days,
   selectedModel,
@@ -881,6 +1327,8 @@ function RunsTab({
   briefSources,
   manualActions,
   promptHistory,
+  onCancelRun,
+  cancelingRunId,
 }: {
   days: number
   selectedModel: string
@@ -895,6 +1343,8 @@ function RunsTab({
   briefSources: AIDailyBriefSourceItemResponse[]
   manualActions: AIAuditEntryResponse[]
   promptHistory: AIAuditEntryResponse[]
+  onCancelRun: (runId: string) => void
+  cancelingRunId: string | null
 }) {
   const selectedRun = runDetailQuery.data?.run
   const totalPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
@@ -1000,7 +1450,7 @@ function RunsTab({
                     <td className="py-2">{run.finished_at ? formatTimestamp(run.finished_at) : 'In progress'}</td>
                     <td className="py-2">{formatDuration(run.duration_ms)}</td>
                     <td className="py-2">
-                      <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status)} />
+                      <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
                     </td>
                     <td className="py-2">{run.worker_name || 'api'}</td>
                     <td className="py-2">{run.model || 'n/a'}</td>
@@ -1071,7 +1521,22 @@ function RunsTab({
                       {formatTriggerLabel(selectedRun.trigger_source)} · {selectedRun.actor_email || selectedRun.worker_name || 'system'}
                     </p>
                   </div>
-                  <StatusPill tone={statusTone(selectedRun.status)} label={formatStatusLabel(selectedRun.status)} />
+                  <div className="flex items-center gap-2">
+                    {canCancelRun(selectedRun) && (
+                      <button
+                        type="button"
+                        className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+                        onClick={() => onCancelRun(selectedRun.id)}
+                        disabled={cancelingRunId === selectedRun.id}
+                      >
+                        {cancelingRunId === selectedRun.id ? 'Working...' : cancelActionLabel(selectedRun)}
+                      </button>
+                    )}
+                    <StatusPill
+                      tone={statusTone(selectedRun.status)}
+                      label={formatStatusLabel(selectedRun.status, selectedRun.reason)}
+                    />
+                  </div>
                 </div>
                 <dl className="mt-3 space-y-2 text-sm">
                   <Metric label="Queued" value={formatTimestamp(selectedRun.queued_at)} />
@@ -1182,10 +1647,6 @@ function ConfigurationTab({
   errorMessage,
   savePending,
   onSave,
-  reprocessDays,
-  reprocessLimit,
-  setReprocessDays,
-  setReprocessLimit,
 }: {
   draft: AISettingsDraft
   setDraft: Dispatch<SetStateAction<AISettingsDraft>>
@@ -1196,10 +1657,6 @@ function ConfigurationTab({
   errorMessage: string
   savePending: boolean
   onSave: () => void
-  reprocessDays: string
-  reprocessLimit: string
-  setReprocessDays: Dispatch<SetStateAction<string>>
-  setReprocessLimit: Dispatch<SetStateAction<string>>
 }) {
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
@@ -1364,27 +1821,6 @@ function ConfigurationTab({
             <Metric label="Created" value={settings?.created_at ? formatTimestamp(settings.created_at) : 'n/a'} />
             <Metric label="Updated" value={settings?.updated_at ? formatTimestamp(settings.updated_at) : 'n/a'} />
           </dl>
-        </Panel>
-
-        <Panel title="Reprocess Defaults" subtitle="Header actions use these values when you queue a reprocess job.">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Days">
-              <input
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={reprocessDays}
-                onChange={(event) => setReprocessDays(event.target.value)}
-                inputMode="numeric"
-              />
-            </Field>
-            <Field label="Limit">
-              <input
-                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                value={reprocessLimit}
-                onChange={(event) => setReprocessLimit(event.target.value)}
-                inputMode="numeric"
-              />
-            </Field>
-          </div>
         </Panel>
 
         <div className="sticky top-4 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -1806,7 +2242,8 @@ function formatTriggerLabel(value: string) {
   return value
 }
 
-function formatStatusLabel(value: string) {
+function formatStatusLabel(value: string, reason?: string | null) {
+  if (value === 'skipped' && reason === 'canceled') return 'Canceled'
   if (value === 'ready') return 'Ready'
   if (value === 'error') return 'Error'
   if (value === 'queued') return 'Queued'
@@ -1848,13 +2285,80 @@ function remainingCount(run: AITaskRunResponse) {
   return Math.max(0, run.target_count - run.processed_count)
 }
 
-function isFreshActiveRun(run: AITaskRunResponse) {
-  const reference = parseTimestamp(run.updated_at) ?? parseTimestamp(run.started_at) ?? parseTimestamp(run.queued_at)
-  if (!reference) {
-    return false
+function shouldUseLookbackWindow(
+  startTime: string,
+  endTime: string,
+  selectedItems: ItemListEntry[],
+) {
+  return !startTime && !endTime && selectedItems.length === 0
+}
+
+function toApiDateTime(value: string) {
+  if (!value) {
+    return null
   }
-  const ageMs = Date.now() - reference.getTime()
-  return ageMs <= 10 * 60 * 1000
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+  return parsed.toISOString()
+}
+
+function canCancelRun(run: AITaskRunResponse) {
+  return !run.finished_at && (run.status === 'queued' || run.status === 'running')
+}
+
+function cancelActionLabel(run: AITaskRunResponse) {
+  return run.status === 'queued' ? 'Remove From Queue' : 'Stop Task'
+}
+
+function describeRunScope(run: AITaskRunResponse) {
+  if (run.task_type === 'daily_brief') {
+    return run.status === 'queued' || run.status === 'running'
+      ? 'Manual daily brief run queued for generation.'
+      : 'Daily brief run.'
+  }
+  if (run.task_type !== 'reprocess') {
+    return run.reason || 'AI task in progress.'
+  }
+
+  const days = asNumber(run.metadata.days)
+  const limit = asNumber(run.metadata.limit)
+  const explicitItemCount = asNumber(run.metadata.explicit_item_count)
+  const feedIds = Array.isArray(run.metadata.feed_ids) ? (run.metadata.feed_ids as unknown[]) : []
+  const startTime = typeof run.metadata.start_time === 'string' ? run.metadata.start_time : null
+  const endTime = typeof run.metadata.end_time === 'string' ? run.metadata.end_time : null
+
+  if (explicitItemCount && explicitItemCount > 0) {
+    return `Reprocessing ${explicitItemCount} selected article${explicitItemCount === 1 ? '' : 's'}.`
+  }
+
+  const parts: string[] = []
+  if (days) {
+    parts.push(`last ${days} day${days === 1 ? '' : 's'}`)
+  }
+  if (limit) {
+    parts.push(`up to ${limit} articles`)
+  }
+  if (feedIds.length) {
+    parts.push(`${feedIds.length} feed${feedIds.length === 1 ? '' : 's'}`)
+  }
+  if (startTime || endTime) {
+    parts.push(`time range ${formatTimestamp(startTime)} to ${formatTimestamp(endTime)}`)
+  }
+
+  return parts.length ? `Reprocessing ${parts.join(' · ')}.` : 'Reprocessing recent eligible articles.'
+}
+
+function asNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }
 
 function truncate(value: string, max: number) {
