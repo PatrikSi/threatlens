@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from sqlalchemy import case, delete, func, select
+from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -187,13 +187,19 @@ def run_item_ai_enrichment(
             )
 
     now = datetime.now(timezone.utc)
-    enrichment.status = "pending"
-    enrichment.source_hash = source_hash
-    enrichment.error = None
-    enrichment.provider = active.provider_type
-    enrichment.model = active.model
-    db.add(enrichment)
+    db.execute(
+        update(ItemAIEnrichment)
+        .where(ItemAIEnrichment.item_id == item_id)
+        .values(
+            status="pending",
+            source_hash=source_hash,
+            error=None,
+            provider=active.provider_type,
+            model=active.model,
+        )
+    )
     db.flush()
+    db.refresh(enrichment)
 
     try:
         completion = _request_json_with_usage(
@@ -214,7 +220,6 @@ def run_item_ai_enrichment(
         enrichment.status = "error"
         enrichment.error = str(exc)
         enrichment.generated_at = now
-        db.add(enrichment)
         return AIItemEnrichmentResult(
             enrichment=enrichment,
             status="error",
@@ -240,7 +245,6 @@ def run_item_ai_enrichment(
     enrichment.latency_ms = completion.latency_ms
     enrichment.error = None
     enrichment.generated_at = now
-    db.add(enrichment)
     return AIItemEnrichmentResult(
         enrichment=enrichment,
         status="ready",

@@ -240,6 +240,106 @@ def test_run_item_ai_enrichment_skips_when_matching_enrichment_is_already_pendin
     assert usage_events[0].feature_type == "item_enrichment"
 
 
+def test_run_item_ai_enrichment_force_updates_existing_row_in_place(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-existing",
+        url="https://example.com/articles/unit42-existing",
+        canonical_url="https://example.com/articles/unit42-existing",
+        title="Fortinet edge exploitation observed",
+        summary="Researchers observed new edge exploitation activity.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-existing",
+        content_hash="d" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices and remote access services.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=["incident_breach"],
+        confidence=0.87,
+        scores_json={"vulnerability": 7.8},
+        matched_terms_json={"vulnerability": ["title:exploit"]},
+        source_hash="hash",
+        rules_version="v2",
+        classified_at=datetime.now(timezone.utc),
+    )
+    existing = ItemAIEnrichment(
+        item_id=item.id,
+        status="error",
+        source_hash="old-hash",
+        summary_text="Old summary",
+        relevance_score=0.3,
+        relevance_label="low",
+        relevance_reasons_json=["Old reason"],
+        provider="openai_compatible",
+        model="old-model",
+        error="Old failure",
+    )
+    db_session.add_all([feed, item, article, classification, existing])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            company_name="Example Corp",
+            company_stack=["Fortinet"],
+            company_keywords=["vpn"],
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json",
+        lambda active, *, messages: AICompletionResult(
+            payload={
+                "summary_text": "New AI summary.",
+                "relevance_score": 0.92,
+                "relevance_reasons": ["Mentions Fortinet"],
+            },
+            provider="openai_compatible",
+            model=active.model,
+            latency_ms=50,
+            prompt_tokens=60,
+            completion_tokens=15,
+            total_tokens=75,
+        ),
+    )
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True)
+    db_session.commit()
+
+    assert result.status == "ready"
+    rows = db_session.scalars(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)).all()
+    assert len(rows) == 1
+    assert rows[0].summary_text == "New AI summary."
+    assert rows[0].model == "local-threat-model"
+    assert rows[0].status == "ready"
+
+
 def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
     feed = Feed(
         id=uuid.uuid4(),
