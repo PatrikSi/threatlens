@@ -96,6 +96,12 @@ const DEFAULT_DRAFT: AISettingsDraft = {
 }
 
 const RUN_PAGE_SIZE = 20
+const DEFAULT_RUN_FILTERS: RunFilters = {
+  taskType: '',
+  status: '',
+  triggerSource: '',
+  onlyFailures: false,
+}
 
 export function AiSettingsPage() {
   const queryClient = useQueryClient()
@@ -116,12 +122,7 @@ export function AiSettingsPage() {
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
   const [selectedModel, setSelectedModel] = useState('all')
   const [runPage, setRunPage] = useState(0)
-  const [runFilters, setRunFilters] = useState<RunFilters>({
-    taskType: '',
-    status: '',
-    triggerSource: '',
-    onlyFailures: false,
-  })
+  const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
@@ -263,10 +264,6 @@ export function AiSettingsPage() {
   useEffect(() => {
     const firstRunId = runsQuery.data?.items[0]?.id ?? null
     if (!selectedRunId && firstRunId) {
-      setSelectedRunId(firstRunId)
-      return
-    }
-    if (selectedRunId && runsQuery.data && !runsQuery.data.items.some((run) => run.id === selectedRunId)) {
       setSelectedRunId(firstRunId)
     }
   }, [runsQuery.data, selectedRunId])
@@ -410,6 +407,14 @@ export function AiSettingsPage() {
     return (candidateItemsQuery.data?.items ?? []).filter((item) => !selectedIds.has(item.id))
   }, [candidateItemsQuery.data?.items, selectedReprocessItems])
 
+  function openRunInHistory(runId: string) {
+    setSelectedModel('all')
+    setRunFilters(DEFAULT_RUN_FILTERS)
+    setRunPage(0)
+    setSelectedRunId(runId)
+    setActiveTab('runs')
+  }
+
   if (currentUserQuery.isLoading) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -519,10 +524,7 @@ export function AiSettingsPage() {
           <ActiveTasksPanel
             runs={activeTopLevelRuns}
             live={liveStatusQuery.data}
-            onOpenRun={(runId) => {
-              setSelectedRunId(runId)
-              setActiveTab('runs')
-            }}
+            onOpenRun={openRunInHistory}
             onCancelRun={(runId) => {
               setNotice(null)
               cancelRunMutation.mutate(runId)
