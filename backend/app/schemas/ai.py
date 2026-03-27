@@ -259,6 +259,11 @@ class AITaskRunResponse(BaseModel):
     actor_user_id: uuid.UUID | None
     actor_email: str | None = None
     item_id: uuid.UUID | None
+    item_title: str | None = None
+    item_url: str | None = None
+    feed_name: str | None = None
+    item_first_seen_at: datetime | None = None
+    item_published_at: datetime | None = None
     daily_brief_id: uuid.UUID | None
     parent_run_id: uuid.UUID | None
     model: str | None

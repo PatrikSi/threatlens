@@ -13,6 +13,12 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
 from app.services.ai_integration import AICompletionResult
+from app.services.ai_ops import (
+    AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPROCESS,
+    AI_TRIGGER_MANUAL,
+    queue_ai_task_run,
+)
 
 
 @pytest.fixture()
@@ -321,6 +327,67 @@ def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
     assert cancel_payload["status"] == "skipped"
     assert cancel_payload["reason"] == "canceled"
     assert revoked == [("ai-brief-123", False, "SIGTERM")]
+
+
+def test_admin_can_list_reprocess_child_runs_with_article_context(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Blog",
+        url="https://example.com/threat-blog.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-blog-1",
+        url="https://example.com/articles/threat-blog-1",
+        canonical_url="https://example.com/articles/threat-blog-1",
+        title="Zero-day exploitation expands to edge appliances",
+        summary="Attackers are expanding campaigns against exposed edge appliances.",
+        published_at=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+        dedupe_key="threat-blog-1",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=uuid.uuid4(),
+        metadata={"days": 7, "limit": 10},
+    )
+    child_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        parent_run_id=parent_run.id,
+        item_id=item.id,
+        metadata={"parent_task": "reprocess"},
+    )
+    db_session.commit()
+
+    response = client.get(
+        f"/ai/ops/runs?parent_run_id={parent_run.id}&limit=10",
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["total"] == 1
+    assert payload["items"][0]["id"] == str(child_run.id)
+    assert payload["items"][0]["item_id"] == str(item.id)
+    assert payload["items"][0]["item_title"] == item.title
+    assert payload["items"][0]["feed_name"] == feed.name
+    assert payload["items"][0]["item_url"] == item.url
+    assert payload["items"][0]["item_first_seen_at"] is not None
 
 
 def test_viewer_cannot_access_ai_admin_routes(client: TestClient, auth_headers, ai_enabled_env):
