@@ -721,7 +721,7 @@ def dispatch_daily_ai_brief_generation(
             db.commit()
             return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-        result = run_daily_brief_generation(db, force=force)
+        result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
         finish_ai_task_run(
             db,
             run_id=run.id,
@@ -1341,7 +1341,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
         try:
-            result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force)
+            result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)
         except Exception as exc:
             db.rollback()
             if parsed_run_id:

@@ -6,6 +6,8 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_task_event import AITaskEvent
+from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
 from app.models.feed import Feed
@@ -23,11 +25,13 @@ from app.services.ai_config import (
 )
 from app.services.ai_integration import (
     AICompletionResult,
+    AIIntegrationError,
     generate_daily_brief,
     generate_item_ai_enrichment,
     get_latest_daily_brief,
     run_item_ai_enrichment,
 )
+from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
 from app.schemas.ai import AISettingsUpdate
 
 
@@ -418,6 +422,168 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1
     assert usage_events[0].feature_type == "daily_brief"
+
+
+def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-debug-success",
+        url="https://example.com/articles/unit42-debug-success",
+        canonical_url="https://example.com/articles/unit42-debug-success",
+        title="Threat activity targets edge access",
+        summary="Researchers observed new activity against exposed access systems.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-debug-success",
+        content_hash="e" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted exposed access systems and edge devices.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json",
+        lambda active, *, messages: AICompletionResult(
+            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            provider="openai_compatible",
+            model=active.model,
+            latency_ms=30,
+            prompt_tokens=40,
+            completion_tokens=10,
+            total_tokens=50,
+            request_url="http://localhost:11434/v1/chat/completions",
+            request_payload={"model": active.model, "messages": messages},
+            response_body='{"choices":[{"message":{"content":"{\\"summary_text\\":\\"summary\\"}"}}]}',
+            response_json={"choices": [{"message": {"content": '{"summary_text":"summary"}'}}]},
+            status_code=200,
+        ),
+    )
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    assert result.status == "ready"
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+    assert event is not None
+    assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
+    assert event.payload_json["status_code"] == 200
+    assert "request_payload" in event.payload_json
+    assert "response_body" in event.payload_json
+
+
+def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-debug-failure",
+        url="https://example.com/articles/unit42-debug-failure",
+        canonical_url="https://example.com/articles/unit42-debug-failure",
+        title="Threat activity targets edge access",
+        summary="Researchers observed new activity against exposed access systems.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-debug-failure",
+        content_hash="f" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted exposed access systems and edge devices.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    def _raise_failure(active, *, messages):
+        _ = (active, messages)
+        raise AIIntegrationError(
+            "AI request failed: provider 500",
+            request_url="http://localhost:11434/v1/chat/completions",
+            request_payload={"model": "local-threat-model", "messages": messages},
+            response_body='{"error":"provider failed"}',
+            response_json={"error": "provider failed"},
+            status_code=500,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _raise_failure)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    assert result.status == "error"
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_failed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+    assert event is not None
+    assert event.message == "AI request failed: provider 500"
+    assert event.payload_json["status_code"] == 500
+    assert event.payload_json["response_body"] == '{"error":"provider failed"}'
 
 
 def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
