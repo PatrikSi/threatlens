@@ -711,51 +711,72 @@ def _request_json_with_usage(
     daily_brief_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
 ) -> AICompletionResult:
-    try:
-        completion = _call_ai_json(active, messages=messages)
-    except AIIntegrationError as exc:
+    max_attempts = max(1, active.request_max_retries + 1)
+    last_error: AIIntegrationError | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            completion = _call_ai_json(active, messages=messages)
+        except AIIntegrationError as exc:
+            last_error = exc
+            payload = {
+                **exc.debug_payload(),
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+            }
+            if task_run_id is not None:
+                record_ai_task_event(
+                    db,
+                    run_id=task_run_id,
+                    event_type="provider_exchange_retry" if attempt < max_attempts else "provider_exchange_failed",
+                    message=str(exc),
+                    payload=payload,
+                )
+            _record_usage_event(
+                db,
+                feature_type=feature_type,
+                success=False,
+                provider=active.provider_type,
+                model=active.model,
+                item_id=item_id,
+                daily_brief_id=daily_brief_id,
+                error=str(exc),
+            )
+            if attempt < max_attempts:
+                continue
+            raise
+
         if task_run_id is not None:
+            provider_exchange_payload = {
+                **_build_provider_exchange_payload(completion),
+                "attempt": attempt,
+                "max_attempts": max_attempts,
+            }
             record_ai_task_event(
                 db,
                 run_id=task_run_id,
-                event_type="provider_exchange_failed",
-                message=str(exc),
-                payload=exc.debug_payload(),
+                event_type="provider_exchange",
+                payload=provider_exchange_payload,
             )
+
         _record_usage_event(
             db,
             feature_type=feature_type,
-            success=False,
-            provider=active.provider_type,
-            model=active.model,
+            success=True,
+            provider=completion.provider,
+            model=completion.model,
             item_id=item_id,
             daily_brief_id=daily_brief_id,
-            error=str(exc),
+            prompt_tokens=completion.prompt_tokens,
+            completion_tokens=completion.completion_tokens,
+            total_tokens=completion.total_tokens,
+            latency_ms=completion.latency_ms,
         )
-        raise
+        return completion
 
-    if task_run_id is not None:
-        record_ai_task_event(
-            db,
-            run_id=task_run_id,
-            event_type="provider_exchange",
-            payload=_build_provider_exchange_payload(completion),
-        )
-
-    _record_usage_event(
-        db,
-        feature_type=feature_type,
-        success=True,
-        provider=completion.provider,
-        model=completion.model,
-        item_id=item_id,
-        daily_brief_id=daily_brief_id,
-        prompt_tokens=completion.prompt_tokens,
-        completion_tokens=completion.completion_tokens,
-        total_tokens=completion.total_tokens,
-        latency_ms=completion.latency_ms,
-    )
-    return completion
+    if last_error is None:
+        raise AIIntegrationError("AI request failed unexpectedly")
+    raise last_error
 
 
 def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str, object]:
@@ -903,6 +924,8 @@ def _parse_ai_json_content(content: str) -> dict[str, object]:
     except ValueError as exc:
         recovered = _extract_first_json_object(candidate)
         if recovered is None:
+            recovered = _repair_unclosed_json_object(candidate)
+        if recovered is None:
             raise AIIntegrationError("AI response did not contain valid JSON") from exc
         parsed = recovered
     if not isinstance(parsed, dict):
@@ -962,6 +985,50 @@ def _extract_first_json_object(candidate: str) -> dict[str, object] | None:
             return None
         return parsed
     return None
+
+
+def _repair_unclosed_json_object(candidate: str) -> dict[str, object] | None:
+    start = candidate.find("{")
+    if start == -1:
+        return None
+
+    depth, in_string = _scan_json_object_balance(candidate, start=start)
+    if depth <= 0 or in_string:
+        return None
+
+    repaired = candidate + ("}" * depth)
+    try:
+        parsed = json.loads(repaired)
+    except ValueError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    return parsed
+
+
+def _scan_json_object_balance(candidate: str, *, start: int) -> tuple[int, bool]:
+    depth = 0
+    in_string = False
+    escape = False
+    for char in candidate[start:]:
+        if in_string:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+    return depth, in_string
 
 
 def _record_usage_event(

@@ -75,6 +75,7 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
             "provider_type": "openai_compatible",
             "base_url": "http://localhost:11434/v1",
             "model": "local-threat-model",
+            "request_max_retries": 2,
             "summary_enabled": True,
             "relevance_enabled": True,
             "daily_brief_enabled": True,
@@ -100,6 +101,7 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
     )
     assert update_response.status_code == 200
     assert update_response.json()["ai_configured"] is True
+    assert update_response.json()["request_max_retries"] == 2
     assert update_response.json()["item_enrichment_system_prompt"].startswith("You are ThreatLens")
     assert update_response.json()["daily_brief_system_prompt"].startswith("You are ThreatLens")
     assert "ThreatLens, producing structured security analysis" in update_response.json()["prompt_previews"]["item_enrichment"]["system_prompt"]

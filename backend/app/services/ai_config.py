@@ -32,6 +32,7 @@ class ActiveAISettings:
     temperature: float
     max_completion_tokens: int
     request_timeout_seconds: int
+    request_max_retries: int
     summary_enabled: bool
     relevance_enabled: bool
     daily_brief_enabled: bool
@@ -84,6 +85,7 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
         temperature=0.2,
         max_completion_tokens=700,
         request_timeout_seconds=60,
+        request_max_retries=0,
         summary_enabled=True,
         relevance_enabled=True,
         daily_brief_enabled=True,
@@ -106,6 +108,7 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.temperature = payload.temperature
     settings.max_completion_tokens = payload.max_completion_tokens
     settings.request_timeout_seconds = payload.request_timeout_seconds
+    settings.request_max_retries = payload.request_max_retries
     settings.summary_enabled = payload.summary_enabled
     settings.relevance_enabled = payload.relevance_enabled
     settings.daily_brief_enabled = payload.daily_brief_enabled
@@ -145,6 +148,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
+        request_max_retries=int(settings.request_max_retries),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
@@ -180,6 +184,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
+        request_max_retries=int(settings.request_max_retries),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
@@ -248,6 +253,7 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
+        request_max_retries=int(settings.request_max_retries),
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),

@@ -33,6 +33,7 @@ type AISettingsDraft = {
   temperature: string
   max_completion_tokens: string
   request_timeout_seconds: string
+  request_max_retries: string
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
@@ -71,6 +72,7 @@ const DEFAULT_DRAFT: AISettingsDraft = {
   temperature: '0.2',
   max_completion_tokens: '700',
   request_timeout_seconds: '60',
+  request_max_retries: '0',
   summary_enabled: true,
   relevance_enabled: true,
   daily_brief_enabled: true,
@@ -2062,6 +2064,17 @@ function ConfigurationTab({
                 inputMode="numeric"
               />
             </Field>
+            <Field label="Max Retry Attempts" className="md:col-span-2">
+              <input
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={draft.request_max_retries}
+                onChange={(event) => updateDraft(setDraft, 'request_max_retries', event.target.value)}
+                inputMode="numeric"
+              />
+              <span className="mt-1 block text-xs text-slate dark:text-white/60">
+                Retry malformed or failed AI responses up to X additional times before marking the run as failed.
+              </span>
+            </Field>
           </div>
         </Panel>
 
@@ -2484,6 +2497,7 @@ function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     temperature: String(settings.temperature),
     max_completion_tokens: String(settings.max_completion_tokens),
     request_timeout_seconds: String(settings.request_timeout_seconds),
+    request_max_retries: String(settings.request_max_retries),
     summary_enabled: settings.summary_enabled,
     relevance_enabled: settings.relevance_enabled,
     daily_brief_enabled: settings.daily_brief_enabled,
@@ -2518,6 +2532,7 @@ function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdateRequest
     temperature: Number(draft.temperature) || 0.2,
     max_completion_tokens: Number(draft.max_completion_tokens) || 700,
     request_timeout_seconds: Number(draft.request_timeout_seconds) || 60,
+    request_max_retries: Math.max(0, Number(draft.request_max_retries) || 0),
     summary_enabled: draft.summary_enabled,
     relevance_enabled: draft.relevance_enabled,
     daily_brief_enabled: draft.daily_brief_enabled,

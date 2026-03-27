@@ -78,6 +78,41 @@ def _fake_httpx_client_factory(response_payload: dict[str, object]):
     return _FakeClient
 
 
+def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object]]):
+    payloads = list(response_payloads)
+
+    class _FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def post(self, url, *, headers, json):
+            _ = (url, headers, json)
+            if not payloads:
+                raise AssertionError("No fake AI payloads remaining")
+            current = payloads.pop(0)
+
+            class _FakeResponse:
+                status_code = 200
+                text = json.dumps(current)
+
+                def raise_for_status(self) -> None:
+                    return None
+
+                def json(self) -> dict[str, object]:
+                    return current
+
+            return _FakeResponse()
+
+    return _FakeClient
+
+
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -712,6 +747,100 @@ def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
     assert stored.relevance_label == "high"
 
 
+def test_run_item_ai_enrichment_recovers_from_missing_closing_brace_in_model_json(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Post",
+        url="https://example.com/threat-post.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-post-json-balance",
+        url="https://example.com/articles/threat-post-json-balance",
+        canonical_url="https://example.com/articles/threat-post-json-balance",
+        title="Keylogger and backdoor target regional finance",
+        summary="Researchers identified a backdoor and keylogger aimed at a financial institution.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="threat-post-json-balance",
+        content_hash="6" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers identified custom malware targeting a financial institution with keylogging and USB propagation.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    payload = {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 1774613335,
+        "model": "local-threat-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        '{"summary_text":"AI summary of the malware.","relevance_score":0.82,'
+                        '"relevance_reasons":["Financial institution target","Custom malware components"]'
+                    ),
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+        },
+    }
+    monkeypatch.setattr(
+        "app.services.ai_integration.httpx.Client",
+        _fake_httpx_client_factory(payload),
+    )
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    assert result.status == "ready"
+    stored = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    assert stored is not None
+    assert stored.status == "ready"
+    assert stored.summary_text == "AI summary of the malware."
+    assert stored.relevance_label == "high"
+
+
 def test_run_item_ai_enrichment_records_parse_failure_context(
     db_session,
     ai_enabled_env,
@@ -772,14 +901,14 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
         "created": 1774613335,
         "model": "local-threat-model",
         "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": '{"summary_text":"missing closing brace"',
-                },
-                "finish_reason": "stop",
-            }
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "summary_text: malformed response",
+                    },
+                    "finish_reason": "stop",
+                }
         ],
         "usage": {
             "prompt_tokens": 100,
@@ -806,7 +935,133 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
     assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
     assert event.payload_json["request_payload"]["model"] == "local-threat-model"
     assert event.payload_json["status_code"] == 200
-    assert event.payload_json["response_json"]["choices"][0]["message"]["content"] == '{"summary_text":"missing closing brace"'
+    assert event.payload_json["response_json"]["choices"][0]["message"]["content"] == "summary_text: malformed response"
+
+
+def test_run_item_ai_enrichment_retries_after_malformed_model_output(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Post",
+        url="https://example.com/threat-post.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-post-retry",
+        url="https://example.com/articles/threat-post-retry",
+        canonical_url="https://example.com/articles/threat-post-retry",
+        title="Retry malformed model output",
+        summary="The first model response is malformed but a retry succeeds.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="threat-post-retry",
+        content_hash="7" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="The first AI response is malformed and the second one is valid JSON.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=1,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    invalid_payload = {
+        "id": "chatcmpl-invalid",
+        "object": "chat.completion",
+        "created": 1774613335,
+        "model": "local-threat-model",
+        "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "summary_text: malformed response",
+                    },
+                    "finish_reason": "stop",
+                }
+        ],
+        "usage": {
+            "prompt_tokens": 100,
+            "completion_tokens": 20,
+            "total_tokens": 120,
+        },
+    }
+    valid_payload = {
+        "id": "chatcmpl-valid",
+        "object": "chat.completion",
+        "created": 1774613336,
+        "model": "local-threat-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        '{"summary_text":"Retry succeeded.","relevance_score":0.7,'
+                        '"relevance_reasons":["Retry returned valid JSON"]}'
+                    ),
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 110,
+            "completion_tokens": 24,
+            "total_tokens": 134,
+        },
+    }
+    monkeypatch.setattr(
+        "app.services.ai_integration.httpx.Client",
+        _fake_httpx_client_sequence_factory([invalid_payload, valid_payload]),
+    )
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    assert result.status == "ready"
+    retry_event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .order_by(AITaskEvent.created_at.asc())
+    )
+    assert retry_event is not None
+    assert retry_event.payload_json["attempt"] == 1
+    assert retry_event.payload_json["max_attempts"] == 2
+
+    usage_events = db_session.scalars(
+        select(AIUsageEvent)
+        .where(AIUsageEvent.item_id == item.id)
+        .order_by(AIUsageEvent.created_at.asc())
+    ).all()
+    assert [event.success for event in usage_events] == [False, True]
 
 
 def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
