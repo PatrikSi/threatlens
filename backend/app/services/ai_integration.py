@@ -12,6 +12,7 @@ from sqlalchemy import case, delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
 from app.models.feed import Feed
@@ -55,6 +56,29 @@ class AICompletionResult:
     prompt_tokens: int | None
     completion_tokens: int | None
     total_tokens: int | None
+    prompt_char_count: int = 0
+    response_char_count: int = 0
+
+
+@dataclass(frozen=True)
+class AIItemEnrichmentResult:
+    enrichment: ItemAIEnrichment | None
+    status: str
+    reason: str | None
+    input_text_chars: int
+    prompt_char_count: int | None = None
+    response_char_count: int | None = None
+
+
+@dataclass(frozen=True)
+class AIDailyBriefGenerationResult:
+    brief: AIDailyBrief | None
+    status: str
+    reason: str | None
+    items_considered: int
+    items_selected: int
+    prompt_char_count: int | None = None
+    response_char_count: int | None = None
 
 
 def test_ai_connection(db: Session) -> AITestConnectionResponse:
@@ -104,19 +128,33 @@ def test_ai_connection(db: Session) -> AITestConnectionResponse:
 
 
 def generate_item_ai_enrichment(db: Session, *, item_id: uuid.UUID, force: bool = False) -> ItemAIEnrichment | None:
+    return run_item_ai_enrichment(db, item_id=item_id, force=force).enrichment
+
+
+def run_item_ai_enrichment(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    force: bool = False,
+) -> AIItemEnrichmentResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured:
-        return None
+        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="ai_not_configured" if active.ai_enabled else "ai_disabled", input_text_chars=0)
     if not active.summary_enabled and not active.relevance_enabled:
-        return None
+        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="feature_disabled", input_text_chars=0)
 
     item = db.scalar(select(Item).where(Item.id == item_id))
     if item is None:
-        return None
+        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="item_not_found", input_text_chars=0)
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
     if article is None or not (article.text or "").strip():
-        return None
+        return AIItemEnrichmentResult(
+            enrichment=None,
+            status="skipped",
+            reason="no_article" if article is None else "no_article_text",
+            input_text_chars=len((article.text or "")) if article is not None else 0,
+        )
 
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
     classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
@@ -132,7 +170,12 @@ def generate_item_ai_enrichment(db: Session, *, item_id: uuid.UUID, force: bool 
     )
 
     if enrichment is not None and enrichment.source_hash == source_hash and enrichment.status == "ready" and not force:
-        return enrichment
+        return AIItemEnrichmentResult(
+            enrichment=enrichment,
+            status="skipped",
+            reason="source_hash_unchanged",
+            input_text_chars=len(article.text or ""),
+        )
 
     now = datetime.now(timezone.utc)
     if enrichment is None:
@@ -165,7 +208,12 @@ def generate_item_ai_enrichment(db: Session, *, item_id: uuid.UUID, force: bool 
         enrichment.error = str(exc)
         enrichment.generated_at = now
         db.add(enrichment)
-        return enrichment
+        return AIItemEnrichmentResult(
+            enrichment=enrichment,
+            status="error",
+            reason="request_failed",
+            input_text_chars=len(article.text or ""),
+        )
 
     summary_text = _normalize_optional_text(completion.payload.get("summary_text")) if active.summary_enabled else None
     relevance_score = _coerce_score(completion.payload.get("relevance_score")) if active.relevance_enabled else None
@@ -186,7 +234,14 @@ def generate_item_ai_enrichment(db: Session, *, item_id: uuid.UUID, force: bool 
     enrichment.error = None
     enrichment.generated_at = now
     db.add(enrichment)
-    return enrichment
+    return AIItemEnrichmentResult(
+        enrichment=enrichment,
+        status="ready",
+        reason=None,
+        input_text_chars=len(article.text or ""),
+        prompt_char_count=completion.prompt_char_count,
+        response_char_count=completion.response_char_count,
+    )
 
 
 def generate_daily_brief(
@@ -195,9 +250,22 @@ def generate_daily_brief(
     force: bool = False,
     reference_time: datetime | None = None,
 ) -> AIDailyBrief | None:
+    return run_daily_brief_generation(db, force=force, reference_time=reference_time).brief
+
+
+def run_daily_brief_generation(
+    db: Session,
+    *,
+    force: bool = False,
+    reference_time: datetime | None = None,
+) -> AIDailyBriefGenerationResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured or not active.daily_brief_enabled:
-        return None
+        if not active.ai_enabled:
+            return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="ai_disabled", items_considered=0, items_selected=0)
+        if not active.ai_configured:
+            return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="ai_not_configured", items_considered=0, items_selected=0)
+        return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="feature_disabled", items_considered=0, items_selected=0)
 
     now = reference_time or datetime.now(timezone.utc)
     if now.tzinfo is None:
@@ -207,7 +275,13 @@ def generate_daily_brief(
     existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == brief_date))
     if existing is not None and existing.status == "ready" and not force:
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
-        return existing
+        return AIDailyBriefGenerationResult(
+            brief=existing,
+            status="skipped",
+            reason="already_generated",
+            items_considered=int(existing.item_count or 0),
+            items_selected=len(existing.top_item_ids_json or []),
+        )
 
     window_end = now
     window_start = now - timedelta(hours=active.daily_brief_window_hours)
@@ -217,7 +291,7 @@ def generate_daily_brief(
     if total_items <= 0:
         return existing if existing is not None and existing.status == "ready" else None
 
-    item_rows = db.execute(
+    item_rows_all = db.execute(
         select(
             Item.id,
             Item.title,
@@ -236,10 +310,16 @@ def generate_daily_brief(
         .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
         .where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
         .order_by(ItemAIEnrichment.relevance_score.desc().nullslast(), Item.first_seen_at.desc())
-        .limit(active.daily_brief_max_items)
     ).all()
+    item_rows = item_rows_all[: active.daily_brief_max_items]
     if not item_rows:
-        return existing if existing is not None and existing.status == "ready" else None
+        return AIDailyBriefGenerationResult(
+            brief=existing if existing is not None and existing.status == "ready" else None,
+            status="skipped",
+            reason="no_items",
+            items_considered=int(total_items),
+            items_selected=0,
+        )
 
     brief = existing or AIDailyBrief(brief_date=brief_date, window_start=window_start, window_end=window_end)
     brief.status = "pending"
@@ -265,8 +345,15 @@ def generate_daily_brief(
         brief.error = str(exc)
         brief.generated_at = now
         db.add(brief)
+        _replace_daily_brief_source_items(db, brief=brief, item_rows_all=item_rows_all, selected_item_ids={str(row.id) for row in item_rows})
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
-        return brief
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="error",
+            reason="request_failed",
+            items_considered=len(item_rows_all),
+            items_selected=len(item_rows),
+        )
 
     brief.status = "ready"
     brief.title = _normalize_optional_text(completion.payload.get("title")) or "Daily Brief"
@@ -283,8 +370,17 @@ def generate_daily_brief(
     brief.error = None
     brief.generated_at = now
     db.add(brief)
+    _replace_daily_brief_source_items(db, brief=brief, item_rows_all=item_rows_all, selected_item_ids={str(row.id) for row in item_rows})
     prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
-    return brief
+    return AIDailyBriefGenerationResult(
+        brief=brief,
+        status="ready",
+        reason=None,
+        items_considered=len(item_rows_all),
+        items_selected=len(item_rows),
+        prompt_char_count=completion.prompt_char_count,
+        response_char_count=completion.response_char_count,
+    )
 
 
 def get_latest_daily_brief(db: Session) -> AIDailyBrief | None:
@@ -617,6 +713,7 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
     content = _extract_message_content(message.get("content"))
     parsed = _parse_ai_json_content(content)
     usage = payload.get("usage") or {}
+    prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
     return AICompletionResult(
         payload=parsed,
         provider=active.provider_type,
@@ -625,6 +722,8 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
         prompt_tokens=_coerce_optional_int(usage.get("prompt_tokens")),
         completion_tokens=_coerce_optional_int(usage.get("completion_tokens")),
         total_tokens=_coerce_optional_int(usage.get("total_tokens")),
+        prompt_char_count=prompt_char_count,
+        response_char_count=len(content),
     )
 
 
@@ -694,6 +793,35 @@ def _record_usage_event(
             error=error,
         )
     )
+
+
+def _replace_daily_brief_source_items(
+    db: Session,
+    *,
+    brief: AIDailyBrief,
+    item_rows_all: list[object],
+    selected_item_ids: set[str],
+) -> None:
+    db.execute(delete(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == brief.id))
+    for index, row in enumerate(item_rows_all, start=1):
+        included = str(row.id) in selected_item_ids
+        db.add(
+            AIDailyBriefSourceItem(
+                daily_brief_id=brief.id,
+                item_id=row.id,
+                included=included,
+                rank=index,
+                exclusion_reason=None if included else "brief_item_cap",
+                title_snapshot=row.title,
+                feed_name_snapshot=row.feed_name,
+                url_snapshot=row.url,
+                classification_snapshot=row.primary_category,
+                relevance_score_snapshot=float(row.relevance_score) if row.relevance_score is not None else None,
+                relevance_label_snapshot=row.relevance_label,
+                published_at_snapshot=row.published_at,
+                first_seen_at_snapshot=row.first_seen_at,
+            )
+        )
 
 
 def _load_item_tag_names(db: Session, *, item_id: uuid.UUID) -> list[str]:

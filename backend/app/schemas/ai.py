@@ -7,6 +7,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 AIProviderType = Literal["openai_compatible"]
 AIRelevanceLabel = Literal["low", "medium", "high"]
 AIUsageFeatureType = Literal["item_enrichment", "daily_brief", "connection_test"]
+AITaskType = Literal["item_enrichment", "daily_brief", "connection_test", "reprocess"]
+AITriggerSource = Literal["auto", "manual", "scheduled"]
+AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
 
 
 def _normalize_string_list(values: object) -> list[str]:
@@ -220,3 +223,254 @@ class AIReprocessRequest(BaseModel):
 class AIReprocessResponse(BaseModel):
     task_id: str
     queued: bool
+    run_id: uuid.UUID | None = None
+
+
+class AITaskRunResponse(BaseModel):
+    id: uuid.UUID
+    task_type: AITaskType
+    trigger_source: AITriggerSource
+    status: AITaskStatus
+    reason: str | None
+    celery_task_id: str | None
+    worker_name: str | None
+    actor_user_id: uuid.UUID | None
+    actor_email: str | None = None
+    item_id: uuid.UUID | None
+    daily_brief_id: uuid.UUID | None
+    parent_run_id: uuid.UUID | None
+    model: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    latency_ms: int | None
+    duration_ms: int | None
+    prompt_char_count: int | None
+    response_char_count: int | None
+    input_text_chars: int | None
+    error: str | None
+    metadata: dict[str, object]
+    target_count: int | None
+    processed_count: int
+    success_count: int
+    error_count: int
+    skipped_count: int
+    skipped_unchanged_count: int
+    skipped_ineligible_count: int
+    queued_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AITaskRunListResponse(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[AITaskRunResponse]
+
+
+class AITaskEventResponse(BaseModel):
+    id: uuid.UUID
+    task_run_id: uuid.UUID
+    event_type: str
+    message: str | None
+    payload: dict[str, object]
+    created_at: datetime
+
+
+class AITaskRunDetailResponse(BaseModel):
+    run: AITaskRunResponse
+    events: list[AITaskEventResponse]
+
+
+class AILiveTaskResponse(BaseModel):
+    worker_name: str
+    celery_task_id: str | None
+    task_name: str
+    state: Literal["active", "reserved", "scheduled"]
+    run_id: uuid.UUID | None = None
+    item_id: uuid.UUID | None = None
+    parent_run_id: uuid.UUID | None = None
+    eta: str | None = None
+    received_at: str | None = None
+    raw_name: str | None = None
+
+
+class AILiveStatusResponse(BaseModel):
+    worker_count: int
+    workers: list[str]
+    active_tasks: list[AILiveTaskResponse]
+    reserved_tasks: list[AILiveTaskResponse]
+    scheduled_tasks: list[AILiveTaskResponse]
+    active_count: int
+    reserved_count: int
+    scheduled_count: int
+    queued_count: int
+    oldest_queued_age_seconds: int | None
+
+
+class AIOverviewKpiResponse(BaseModel):
+    total_requests: int
+    success_rate_pct: float
+    total_tokens: int
+    average_latency_ms: float
+    p95_latency_ms: float
+    active_runs: int
+    queued_runs: int
+    last_successful_run_at: datetime | None
+
+
+class AIOverviewPerModelResponse(BaseModel):
+    model: str
+    total_requests: int
+    successful_requests: int
+    failed_requests: int
+    success_rate_pct: float
+    total_tokens: int
+    average_latency_ms: float
+    last_request_at: datetime | None
+
+
+class AITimeSeriesPointResponse(BaseModel):
+    bucket: str
+    requests: int
+    failures: int
+    total_tokens: int
+    average_latency_ms: float
+    p95_latency_ms: float
+    daily_brief_successes: int
+    daily_brief_failures: int
+    daily_brief_skips: int
+
+
+class AITokenEfficiencyResponse(BaseModel):
+    average_prompt_tokens: float
+    average_completion_tokens: float
+    average_total_tokens: float
+    prompt_to_completion_ratio: float
+    top_expensive_feature: str | None
+    top_expensive_feature_avg_tokens: float
+
+
+class AIRelevanceFeedResponse(BaseModel):
+    feed_name: str
+    total_items: int
+    high_count: int
+    medium_count: int
+    low_count: int
+    average_score: float
+
+
+class AIRelevanceDistributionResponse(BaseModel):
+    high_count: int
+    medium_count: int
+    low_count: int
+    average_score: float
+    by_feed: list[AIRelevanceFeedResponse]
+
+
+class AICoverageStatsResponse(BaseModel):
+    eligible_items: int
+    enriched_items: int
+    pending_items: int
+    failed_items: int
+    skipped_no_article_count: int
+    skipped_ai_disabled_count: int
+    skipped_not_configured_count: int
+    skipped_auto_enrich_disabled_count: int
+    skipped_unchanged_count: int
+    oldest_pending_at: datetime | None
+    last_successful_enrichment_at: datetime | None
+    last_successful_daily_brief_at: datetime | None
+    last_ai_run_at: datetime | None
+
+
+class AIFailureGroupResponse(BaseModel):
+    task_type: str | None
+    feature_type: str | None
+    model: str | None
+    error: str
+    count: int
+    last_seen_at: datetime | None
+
+
+class AIEndpointHealthResponse(BaseModel):
+    last_success_at: datetime | None
+    last_error_at: datetime | None
+    rolling_failure_rate_pct: float
+    median_latency_ms: float
+    timeout_failures: int
+    last_auth_error: str | None
+    last_provider_error: str | None
+
+
+class AIFeatureHealthRowResponse(BaseModel):
+    feature_key: str
+    enabled: bool
+    last_run_at: datetime | None
+    last_success_at: datetime | None
+    last_failure_at: datetime | None
+    last_status: str | None
+
+
+class AIStorageStatsResponse(BaseModel):
+    retained_daily_briefs: int
+    daily_brief_history_limit: int
+    enrichment_rows: int
+    usage_event_rows: int
+    task_history_rows: int
+    growth_last_7d: int
+    growth_last_30d: int
+
+
+class AICacheStatsResponse(BaseModel):
+    reused_count: int
+    recomputed_count: int
+    no_op_rate_pct: float
+
+
+class AIOpsOverviewResponse(BaseModel):
+    kpis: AIOverviewKpiResponse
+    live: AILiveStatusResponse
+    per_model: list[AIOverviewPerModelResponse]
+    time_series: list[AITimeSeriesPointResponse]
+    token_efficiency: AITokenEfficiencyResponse
+    relevance_distribution: AIRelevanceDistributionResponse
+    coverage: AICoverageStatsResponse
+    failures: list[AIFailureGroupResponse]
+    endpoint_health: AIEndpointHealthResponse
+    feature_health: list[AIFeatureHealthRowResponse]
+    storage: AIStorageStatsResponse
+    cache: AICacheStatsResponse
+
+
+class AIDailyBriefSourceItemResponse(BaseModel):
+    id: uuid.UUID
+    daily_brief_id: uuid.UUID
+    item_id: uuid.UUID | None
+    included: bool
+    rank: int
+    exclusion_reason: str | None
+    title_snapshot: str
+    feed_name_snapshot: str | None
+    url_snapshot: str | None
+    classification_snapshot: str | None
+    relevance_score_snapshot: float | None
+    relevance_label_snapshot: str | None
+    published_at_snapshot: datetime | None
+    first_seen_at_snapshot: datetime | None
+    created_at: datetime
+
+
+class AIAuditEntryResponse(BaseModel):
+    id: uuid.UUID
+    actor_user_id: uuid.UUID | None
+    actor_email: str | None = None
+    action: str
+    resource_type: str
+    resource_id: str | None
+    success: bool
+    metadata: dict[str, object]
+    created_at: datetime

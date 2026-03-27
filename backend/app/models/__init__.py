@@ -1,5 +1,8 @@
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_settings import AISettings
+from app.models.ai_task_event import AITaskEvent
+from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.alert_interest import AlertInterest
 from app.models.api_token import ApiToken
@@ -21,7 +24,10 @@ from app.models.user import User
 
 __all__ = [
     "AIDailyBrief",
+    "AIDailyBriefSourceItem",
     "AISettings",
+    "AITaskEvent",
+    "AITaskRun",
     "AIUsageEvent",
     "ApiToken",
     "AlertInterest",
