@@ -67,6 +67,8 @@ AI_TASK_NAMES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": AI_TASK_TYPE_DAILY_BRIEF,
 }
 
+STALE_AI_RUN_GRACE_PERIOD = timedelta(minutes=10)
+
 INELIGIBLE_REASONS = {
     "ai_disabled",
     "ai_not_configured",
@@ -250,6 +252,7 @@ def list_ai_task_runs(
     parent_run_id: uuid.UUID | None = None,
     only_failures: bool = False,
 ) -> AITaskRunListResponse:
+    _reconcile_stale_ai_runs(db)
     base_query = select(AITaskRun)
     count_query = select(func.count(AITaskRun.id))
     if task_type:
@@ -285,6 +288,7 @@ def list_ai_task_runs(
 
 
 def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetailResponse | None:
+    _reconcile_stale_ai_runs(db)
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
@@ -309,26 +313,14 @@ def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetail
 
 
 def get_ai_live_status(db: Session) -> AILiveStatusResponse:
-    settings = get_settings()
-    workers: list[str] = []
-    active_tasks: list[AILiveTaskResponse] = []
-    reserved_tasks: list[AILiveTaskResponse] = []
-    scheduled_tasks: list[AILiveTaskResponse] = []
-    try:
-        inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
-        ping = inspector.ping() or {}
-        workers = sorted(ping.keys())
-        active_raw = inspector.active() or {}
-        reserved_raw = inspector.reserved() or {}
-        scheduled_raw = inspector.scheduled() or {}
-        active_tasks = _flatten_live_tasks(active_raw, state="active")
-        reserved_tasks = _flatten_live_tasks(reserved_raw, state="reserved")
-        scheduled_tasks = _flatten_live_tasks(scheduled_raw, state="scheduled")
-    except Exception:
-        workers = []
-        active_tasks = []
-        reserved_tasks = []
-        scheduled_tasks = []
+    workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    _reconcile_stale_ai_runs(
+        db,
+        workers=workers,
+        active_tasks=active_tasks,
+        reserved_tasks=reserved_tasks,
+        scheduled_tasks=scheduled_tasks,
+    )
 
     oldest_queued = db.scalar(
         select(AITaskRun.queued_at).where(AITaskRun.status == AI_STATUS_QUEUED).order_by(AITaskRun.queued_at.asc())
@@ -634,6 +626,131 @@ def _load_user_emails(db: Session, actor_ids: list[uuid.UUID | None]) -> dict[uu
     return {user_id: email for user_id, email in rows}
 
 
+def _load_live_task_snapshot() -> tuple[list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]:
+    settings = get_settings()
+    workers: list[str] = []
+    active_tasks: list[AILiveTaskResponse] = []
+    reserved_tasks: list[AILiveTaskResponse] = []
+    scheduled_tasks: list[AILiveTaskResponse] = []
+    try:
+        inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
+        ping = inspector.ping() or {}
+        workers = sorted(ping.keys())
+        active_raw = inspector.active() or {}
+        reserved_raw = inspector.reserved() or {}
+        scheduled_raw = inspector.scheduled() or {}
+        active_tasks = _flatten_live_tasks(active_raw, state="active")
+        reserved_tasks = _flatten_live_tasks(reserved_raw, state="reserved")
+        scheduled_tasks = _flatten_live_tasks(scheduled_raw, state="scheduled")
+    except Exception:
+        workers = []
+        active_tasks = []
+        reserved_tasks = []
+        scheduled_tasks = []
+    return workers, active_tasks, reserved_tasks, scheduled_tasks
+
+
+def _reconcile_stale_ai_runs(
+    db: Session,
+    *,
+    workers: list[str] | None = None,
+    active_tasks: list[AILiveTaskResponse] | None = None,
+    reserved_tasks: list[AILiveTaskResponse] | None = None,
+    scheduled_tasks: list[AILiveTaskResponse] | None = None,
+) -> None:
+    if workers is None or active_tasks is None or reserved_tasks is None or scheduled_tasks is None:
+        workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+
+    _ = workers
+    live_task_ids = {
+        task.celery_task_id
+        for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
+        if task.celery_task_id
+    }
+    stale_before = datetime.now(timezone.utc) - STALE_AI_RUN_GRACE_PERIOD
+    changed = False
+
+    stale_child_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+                AITaskRun.finished_at.is_(None),
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            )
+            .order_by(AITaskRun.created_at.asc())
+        )
+    )
+    for run in stale_child_runs:
+        if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+            continue
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_ERROR,
+            reason="stale_task_lost",
+            error="Task no longer appears in Celery and did not report completion",
+            worker_name=run.worker_name,
+            model=run.model,
+            metadata_updates={"stale_reconciled": True},
+        )
+        changed = True
+
+    stale_parent_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.task_type == AI_TASK_TYPE_REPROCESS,
+                AITaskRun.finished_at.is_(None),
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            )
+            .order_by(AITaskRun.created_at.asc())
+        )
+    )
+    for run in stale_parent_runs:
+        unfinished_child_count = int(
+            db.scalar(
+                select(func.count(AITaskRun.id)).where(
+                    AITaskRun.parent_run_id == run.id,
+                    AITaskRun.finished_at.is_(None),
+                    AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+                )
+            )
+            or 0
+        )
+        target_count = int(run.target_count or 0)
+        processed_count = int(run.processed_count or 0)
+        if target_count > 0 and processed_count >= target_count:
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=AI_STATUS_ERROR if int(run.error_count or 0) else AI_STATUS_READY,
+                reason="partial_failures" if int(run.error_count or 0) else None,
+                error=run.error,
+                worker_name=run.worker_name,
+                model=run.model,
+                metadata_updates={"stale_reconciled": True},
+            )
+            changed = True
+            continue
+        if unfinished_child_count > 0 or not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+            continue
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_ERROR,
+            reason="stale_reprocess_tracking",
+            error="Reprocess task stopped updating and is no longer active in Celery",
+            worker_name=run.worker_name,
+            model=run.model,
+            metadata_updates={"stale_reconciled": True},
+        )
+        changed = True
+
+    if changed:
+        db.commit()
+
+
 def _flatten_live_tasks(raw_tasks: dict[str, list[dict[str, Any]]], *, state: str) -> list[AILiveTaskResponse]:
     entries: list[AILiveTaskResponse] = []
     for worker_name, tasks in raw_tasks.items():
@@ -663,6 +780,13 @@ def _flatten_live_tasks(raw_tasks: dict[str, list[dict[str, Any]]], *, state: st
                 )
             )
     return entries
+
+
+def _is_stale_unfinished_run(run: AITaskRun, live_task_ids: set[str], stale_before: datetime) -> bool:
+    if run.celery_task_id and run.celery_task_id in live_task_ids:
+        return False
+    reference = run.updated_at or run.started_at or run.queued_at or run.created_at
+    return _coerce_utc(reference) < stale_before
 
 
 def _build_per_model_usage(events: list[AIUsageEvent]) -> list[AIOverviewPerModelResponse]:
