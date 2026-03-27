@@ -588,8 +588,84 @@ function OverviewTab({
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
-      <div className="space-y-4">
+    <div className="space-y-6">
+      <OverviewSection
+        title="Operational Health"
+        description="Start here for runtime readiness, current workload, and whether the AI endpoint and feature set are healthy."
+      >
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Panel title="Readiness" subtitle={readiness ?? 'Loading runtime state...'}>
+            <dl className="space-y-2 text-sm">
+              <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
+              <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
+              <Metric label="Model" value={settings?.model || 'Not configured'} />
+            </dl>
+          </Panel>
+
+          <Panel title="Currently Running" subtitle="Worker snapshot from Celery inspect plus queued AI runs.">
+            <dl className="space-y-2 text-sm">
+              <Metric label="Workers" value={overview.live.worker_count} />
+              <Metric label="Active" value={overview.live.active_count} />
+              <Metric label="Reserved" value={overview.live.reserved_count} />
+              <Metric label="Scheduled" value={overview.live.scheduled_count} />
+              <Metric label="Queued" value={overview.live.queued_count} />
+              <Metric
+                label="Oldest queued age"
+                value={overview.live.oldest_queued_age_seconds != null ? formatAgeSeconds(overview.live.oldest_queued_age_seconds) : 'n/a'}
+              />
+            </dl>
+            <div className="mt-3 space-y-2">
+              {overview.live.active_tasks.slice(0, 4).map((task) => (
+                <LiveTaskCard key={`${task.worker_name}:${task.celery_task_id}`} task={task} />
+              ))}
+              {!overview.live.active_tasks.length && <EmptyInline>No active AI tasks right now.</EmptyInline>}
+            </div>
+          </Panel>
+
+          <Panel title="Endpoint Health">
+            <dl className="space-y-2 text-sm">
+              <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
+              <Metric label="Last error" value={overview.endpoint_health.last_error_at ? formatTimestamp(overview.endpoint_health.last_error_at) : 'None'} />
+              <Metric label="Rolling failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
+              <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
+              <Metric label="Timeouts" value={overview.endpoint_health.timeout_failures} />
+            </dl>
+            {overview.endpoint_health.last_auth_error && (
+              <p className="mt-3 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                Last auth/provider issue: {overview.endpoint_health.last_auth_error}
+              </p>
+            )}
+            {overview.endpoint_health.last_provider_error && !overview.endpoint_health.last_auth_error && (
+              <p className="mt-3 rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
+                Last provider error: {overview.endpoint_health.last_provider_error}
+              </p>
+            )}
+          </Panel>
+        </div>
+
+        <Panel title="Feature Health Matrix" subtitle="Whether each AI capability is enabled and when it last ran successfully.">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {overview.feature_health.map((row) => (
+              <div key={row.feature_key} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold">{formatFeatureKey(row.feature_key)}</span>
+                  <StatusPill tone={row.enabled ? 'success' : 'neutral'} label={row.enabled ? 'Enabled' : 'Disabled'} />
+                </div>
+                <p className="mt-1 text-xs text-slate dark:text-white/60">
+                  Last run {row.last_run_at ? formatTimestamp(row.last_run_at) : 'never'} · Last success{' '}
+                  {row.last_success_at ? formatTimestamp(row.last_success_at) : 'never'} · Last failure{' '}
+                  {row.last_failure_at ? formatTimestamp(row.last_failure_at) : 'never'}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </OverviewSection>
+
+      <OverviewSection
+        title="Usage & Trends"
+        description="High-level volume, cost, latency, and model performance over the selected time window."
+      >
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           <StatCard label="Requests" value={overview.kpis.total_requests.toLocaleString()} />
           <StatCard label="Success Rate" value={`${overview.kpis.success_rate_pct.toFixed(1)}%`} />
@@ -602,19 +678,21 @@ function OverviewTab({
           />
         </section>
 
-        <Panel title="Requests & Failures Over Time" subtitle="Recent request volume and failure pressure across the selected window.">
-          <TimeSeriesBars
-            points={overview.time_series}
-            valueKey="requests"
-            accentClass="bg-cyan"
-            secondaryKey="failures"
-            secondaryClass="bg-red-400/80"
-          />
-        </Panel>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Panel title="Requests & Failures Over Time" subtitle="Recent request volume and failure pressure across the selected window.">
+            <TimeSeriesBars
+              points={overview.time_series}
+              valueKey="requests"
+              accentClass="bg-cyan"
+              secondaryKey="failures"
+              secondaryClass="bg-red-400/80"
+            />
+          </Panel>
 
-        <Panel title="Token Usage Over Time" subtitle="Total tokens by day.">
-          <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
-        </Panel>
+          <Panel title="Token Usage Over Time" subtitle="Total tokens by day.">
+            <TimeSeriesBars points={overview.time_series} valueKey="total_tokens" accentClass="bg-emerald-500" />
+          </Panel>
+        </div>
 
         <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
           <div className="overflow-x-auto">
@@ -643,36 +721,60 @@ function OverviewTab({
           </div>
           {!perModel.length && <EmptyInline>No model usage has been recorded yet.</EmptyInline>}
         </Panel>
+      </OverviewSection>
 
-        <Panel title="Failure Log" subtitle="Grouped AI failures across provider calls and task runs.">
-          <div className="space-y-2">
-            {failures.slice(0, 8).map((failure) => (
-              <button
-                key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
-                type="button"
-                className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
-                onClick={onShowFailure}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold">
-                      {formatTaskTypeLabel(failure.task_type || failure.feature_type || 'request')}
-                      {failure.model ? ` · ${failure.model}` : ''}
-                    </p>
-                    <p className="mt-1 text-sm text-slate dark:text-white/70">{failure.error}</p>
+      <OverviewSection
+        title="Quality, Coverage & Storage"
+        description="How well enrichment is working, where failures are happening, and how much data the AI subsystem is retaining."
+      >
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Panel title="Recent Failures" subtitle="Grouped AI failures across provider calls and task runs.">
+            <div className="space-y-2">
+              {failures.slice(0, 8).map((failure) => (
+                <button
+                  key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
+                  type="button"
+                  className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
+                  onClick={onShowFailure}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {formatTaskTypeLabel(failure.task_type || failure.feature_type || 'request')}
+                        {failure.model ? ` · ${failure.model}` : ''}
+                      </p>
+                      <p className="mt-1 text-sm text-slate dark:text-white/70">{failure.error}</p>
+                    </div>
+                    <div className="text-right text-xs text-slate dark:text-white/60">
+                      <p>{failure.count} hits</p>
+                      <p>{failure.last_seen_at ? formatTimestamp(failure.last_seen_at) : 'unknown'}</p>
+                    </div>
                   </div>
-                  <div className="text-right text-xs text-slate dark:text-white/60">
-                    <p>{failure.count} hits</p>
-                    <p>{failure.last_seen_at ? formatTimestamp(failure.last_seen_at) : 'unknown'}</p>
-                  </div>
-                </div>
-              </button>
-            ))}
-            {!failures.length && <EmptyInline>No recent AI failures.</EmptyInline>}
-          </div>
-        </Panel>
+                </button>
+              ))}
+              {!failures.length && <EmptyInline>No recent AI failures.</EmptyInline>}
+            </div>
+          </Panel>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+          <Panel title="Coverage & Freshness" subtitle="How much content is enriched and whether the pipeline is keeping up.">
+            <dl className="space-y-2 text-sm">
+              <Metric label="Eligible items" value={overview.coverage.eligible_items} />
+              <Metric label="Enriched" value={overview.coverage.enriched_items} />
+              <Metric label="Pending" value={overview.coverage.pending_items} />
+              <Metric label="Failed" value={overview.coverage.failed_items} />
+              <Metric label="No article" value={overview.coverage.skipped_no_article_count} />
+              <Metric label="AI disabled skips" value={overview.coverage.skipped_ai_disabled_count} />
+              <Metric label="Config skips" value={overview.coverage.skipped_not_configured_count} />
+              <Metric label="Auto-enrich off skips" value={overview.coverage.skipped_auto_enrich_disabled_count} />
+              <Metric label="Unchanged skips" value={overview.coverage.skipped_unchanged_count} />
+              <Metric label="Oldest pending" value={overview.coverage.oldest_pending_at ? formatTimestamp(overview.coverage.oldest_pending_at) : 'n/a'} />
+              <Metric label="Last enrichment" value={overview.coverage.last_successful_enrichment_at ? formatTimestamp(overview.coverage.last_successful_enrichment_at) : 'Never'} />
+              <Metric label="Last daily brief" value={overview.coverage.last_successful_daily_brief_at ? formatTimestamp(overview.coverage.last_successful_daily_brief_at) : 'Never'} />
+            </dl>
+          </Panel>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
           <Panel title="Relevance Distribution" subtitle="Current relevance labels and the feeds producing them.">
             <div className="grid gap-3 sm:grid-cols-4">
               <MiniStat label="High" value={overview.relevance_distribution.high_count} />
@@ -708,129 +810,59 @@ function OverviewTab({
             </p>
           </Panel>
         </div>
-      </div>
 
-      <div className="space-y-4">
-        <Panel title="Readiness" subtitle={readiness ?? 'Loading runtime state...'}>
-          <dl className="space-y-2 text-sm">
-            <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
-            <Metric label="API Key In Env" value={settings?.api_key_configured ? 'Yes' : 'No / Optional'} />
-            <Metric label="Model" value={settings?.model || 'Not configured'} />
-          </dl>
-        </Panel>
-
-        <Panel title="Currently Running" subtitle="Worker snapshot from Celery inspect plus queued AI runs.">
-          <dl className="space-y-2 text-sm">
-            <Metric label="Workers" value={overview.live.worker_count} />
-            <Metric label="Active" value={overview.live.active_count} />
-            <Metric label="Reserved" value={overview.live.reserved_count} />
-            <Metric label="Scheduled" value={overview.live.scheduled_count} />
-            <Metric label="Queued" value={overview.live.queued_count} />
-            <Metric
-              label="Oldest queued age"
-              value={overview.live.oldest_queued_age_seconds != null ? formatAgeSeconds(overview.live.oldest_queued_age_seconds) : 'n/a'}
-            />
-          </dl>
-          <div className="mt-3 space-y-2">
-            {overview.live.active_tasks.slice(0, 4).map((task) => (
-              <LiveTaskCard key={`${task.worker_name}:${task.celery_task_id}`} task={task} />
-            ))}
-            {!overview.live.active_tasks.length && <EmptyInline>No active AI tasks right now.</EmptyInline>}
-          </div>
-        </Panel>
-
-        <Panel title="Endpoint Health">
-          <dl className="space-y-2 text-sm">
-            <Metric label="Last success" value={overview.endpoint_health.last_success_at ? formatTimestamp(overview.endpoint_health.last_success_at) : 'Never'} />
-            <Metric label="Last error" value={overview.endpoint_health.last_error_at ? formatTimestamp(overview.endpoint_health.last_error_at) : 'None'} />
-            <Metric label="Rolling failure rate" value={`${overview.endpoint_health.rolling_failure_rate_pct.toFixed(1)}%`} />
-            <Metric label="Median latency" value={`${overview.endpoint_health.median_latency_ms.toFixed(1)} ms`} />
-            <Metric label="Timeouts" value={overview.endpoint_health.timeout_failures} />
-          </dl>
-          {overview.endpoint_health.last_auth_error && (
-            <p className="mt-3 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-              Last auth/provider issue: {overview.endpoint_health.last_auth_error}
-            </p>
-          )}
-          {overview.endpoint_health.last_provider_error && !overview.endpoint_health.last_auth_error && (
-            <p className="mt-3 rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
-              Last provider error: {overview.endpoint_health.last_provider_error}
-            </p>
-          )}
-        </Panel>
-
-        <Panel title="Feature Health Matrix">
-          <div className="space-y-2">
-            {overview.feature_health.map((row) => (
-              <div key={row.feature_key} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="font-semibold">{formatFeatureKey(row.feature_key)}</span>
-                  <StatusPill tone={row.enabled ? 'success' : 'neutral'} label={row.enabled ? 'Enabled' : 'Disabled'} />
-                </div>
-                <p className="mt-1 text-xs text-slate dark:text-white/60">
-                  Last run {row.last_run_at ? formatTimestamp(row.last_run_at) : 'never'} · Last success{' '}
-                  {row.last_success_at ? formatTimestamp(row.last_success_at) : 'never'} · Last failure{' '}
-                  {row.last_failure_at ? formatTimestamp(row.last_failure_at) : 'never'}
-                </p>
-              </div>
-            ))}
-          </div>
-        </Panel>
-
-        <Panel title="Coverage & Freshness">
-          <dl className="space-y-2 text-sm">
-            <Metric label="Eligible items" value={overview.coverage.eligible_items} />
-            <Metric label="Enriched" value={overview.coverage.enriched_items} />
-            <Metric label="Pending" value={overview.coverage.pending_items} />
-            <Metric label="Failed" value={overview.coverage.failed_items} />
-            <Metric label="No article" value={overview.coverage.skipped_no_article_count} />
-            <Metric label="AI disabled skips" value={overview.coverage.skipped_ai_disabled_count} />
-            <Metric label="Config skips" value={overview.coverage.skipped_not_configured_count} />
-            <Metric label="Auto-enrich off skips" value={overview.coverage.skipped_auto_enrich_disabled_count} />
-            <Metric label="Unchanged skips" value={overview.coverage.skipped_unchanged_count} />
-            <Metric label="Oldest pending" value={overview.coverage.oldest_pending_at ? formatTimestamp(overview.coverage.oldest_pending_at) : 'n/a'} />
-            <Metric label="Last enrichment" value={overview.coverage.last_successful_enrichment_at ? formatTimestamp(overview.coverage.last_successful_enrichment_at) : 'Never'} />
-            <Metric label="Last daily brief" value={overview.coverage.last_successful_daily_brief_at ? formatTimestamp(overview.coverage.last_successful_daily_brief_at) : 'Never'} />
-          </dl>
-        </Panel>
-
-        <Panel title="Cache / No-op">
-          <dl className="space-y-2 text-sm">
-            <Metric label="Reused" value={overview.cache.reused_count} />
-            <Metric label="Recomputed" value={overview.cache.recomputed_count} />
-            <Metric label="No-op rate" value={`${overview.cache.no_op_rate_pct.toFixed(1)}%`} />
-          </dl>
-        </Panel>
-
-        <Panel title="Storage / Retention">
-          <dl className="space-y-2 text-sm">
-            <Metric label="Retained briefs" value={`${overview.storage.retained_daily_briefs}/${overview.storage.daily_brief_history_limit}`} />
-            <Metric label="Enrichment rows" value={overview.storage.enrichment_rows} />
-            <Metric label="Usage rows" value={overview.storage.usage_event_rows} />
-            <Metric label="Task history rows" value={overview.storage.task_history_rows} />
-            <Metric label="Growth 7d" value={overview.storage.growth_last_7d} />
-            <Metric label="Growth 30d" value={overview.storage.growth_last_30d} />
-          </dl>
-        </Panel>
-
-        <Panel title="Prompt History" subtitle="Most recent prompt/config changes.">
-          <AuditPreviewList entries={promptHistory.slice(0, 4)} emptyLabel="No AI prompt changes yet." />
-        </Panel>
-
-        <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
-          <AuditPreviewList entries={manualActions.slice(0, 4)} emptyLabel="No manual AI actions yet." />
-        </Panel>
-
-        {latestGeneratedBrief && (
-          <Panel title="Latest Generated Brief">
-            <p className="text-sm font-semibold">{latestGeneratedBrief.title || 'Daily Brief'}</p>
-            <p className="mt-1 text-xs text-slate dark:text-white/60">
-              Generated {formatTimestamp(latestGeneratedBrief.generated_at)} for {latestGeneratedBrief.item_count} items.
-            </p>
-            {latestGeneratedBrief.brief_text && <p className="mt-2 text-sm text-slate dark:text-white/70">{latestGeneratedBrief.brief_text}</p>}
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Panel title="Cache / No-op">
+            <dl className="space-y-2 text-sm">
+              <Metric label="Reused" value={overview.cache.reused_count} />
+              <Metric label="Recomputed" value={overview.cache.recomputed_count} />
+              <Metric label="No-op rate" value={`${overview.cache.no_op_rate_pct.toFixed(1)}%`} />
+            </dl>
           </Panel>
-        )}
-      </div>
+
+          <Panel title="Storage / Retention">
+            <dl className="space-y-2 text-sm">
+              <Metric label="Retained briefs" value={`${overview.storage.retained_daily_briefs}/${overview.storage.daily_brief_history_limit}`} />
+              <Metric label="Enrichment rows" value={overview.storage.enrichment_rows} />
+              <Metric label="Usage rows" value={overview.storage.usage_event_rows} />
+              <Metric label="Task history rows" value={overview.storage.task_history_rows} />
+              <Metric label="Growth 7d" value={overview.storage.growth_last_7d} />
+              <Metric label="Growth 30d" value={overview.storage.growth_last_30d} />
+            </dl>
+          </Panel>
+
+          <Panel title="Latest Generated Brief" subtitle="Most recent manually generated brief from this session.">
+            {latestGeneratedBrief ? (
+              <>
+                <p className="text-sm font-semibold">{latestGeneratedBrief.title || 'Daily Brief'}</p>
+                <p className="mt-1 text-xs text-slate dark:text-white/60">
+                  Generated {formatTimestamp(latestGeneratedBrief.generated_at)} for {latestGeneratedBrief.item_count} items.
+                </p>
+                {latestGeneratedBrief.brief_text && (
+                  <p className="mt-2 text-sm text-slate dark:text-white/70">{latestGeneratedBrief.brief_text}</p>
+                )}
+              </>
+            ) : (
+              <EmptyInline>No manual daily brief has been generated in this session.</EmptyInline>
+            )}
+          </Panel>
+        </div>
+      </OverviewSection>
+
+      <OverviewSection
+        title="Audit Trail"
+        description="Recent human-triggered actions and prompt changes so admins can correlate changes with behavior."
+      >
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Panel title="Prompt History" subtitle="Most recent prompt/config changes.">
+            <AuditPreviewList entries={promptHistory.slice(0, 4)} emptyLabel="No AI prompt changes yet." />
+          </Panel>
+
+          <Panel title="Manual Actions" subtitle="Recent admin-triggered AI actions.">
+            <AuditPreviewList entries={manualActions.slice(0, 4)} emptyLabel="No manual AI actions yet." />
+          </Panel>
+        </div>
+      </OverviewSection>
     </div>
   )
 }
@@ -1388,6 +1420,26 @@ function Panel({
       <h3 className="font-display text-lg">{title}</h3>
       {subtitle && <p className="mt-1 text-sm text-slate dark:text-white/70">{subtitle}</p>}
       <div className="mt-3">{children}</div>
+    </section>
+  )
+}
+
+function OverviewSection({
+  title,
+  description,
+  children,
+}: {
+  title: string
+  description: string
+  children: React.ReactNode
+}) {
+  return (
+    <section className="space-y-3">
+      <div>
+        <h3 className="font-display text-xl">{title}</h3>
+        <p className="mt-1 text-sm text-slate dark:text-white/70">{description}</p>
+      </div>
+      <div className="space-y-4">{children}</div>
     </section>
   )
 }
