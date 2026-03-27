@@ -293,7 +293,7 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         "app.tasks.feed_tasks.run_item_ai_enrichment",
-        lambda db, *, item_id, force=False: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda db, *, item_id, force=False, task_run_id=None: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     parent_run = queue_ai_task_run(

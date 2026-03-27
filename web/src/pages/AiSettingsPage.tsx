@@ -15,6 +15,7 @@ import {
   AIReprocessResponse,
   AISettings,
   AISettingsUpdateRequest,
+  AITaskEventResponse,
   AITaskRunDetailResponse,
   AITaskRunListResponse,
   AITaskRunResponse,
@@ -1352,12 +1353,14 @@ function RunArticlesSection({
   parentRun,
   childRunsQuery,
   visibleCount,
+  onInspectRun,
   onShowMore,
   onShowLess,
 }: {
   parentRun: AITaskRunResponse
   childRunsQuery: ReturnType<typeof useQuery<AITaskRunListResponse>>
   visibleCount: number
+  onInspectRun: (runId: string) => void
   onShowMore: () => void
   onShowLess: () => void
 }) {
@@ -1428,6 +1431,17 @@ function RunArticlesSection({
               {(run.error || run.reason) && (
                 <p className="mt-2 text-xs text-slate dark:text-white/70">{run.error || run.reason}</p>
               )}
+              {canInspectProviderExchange(run) && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    onClick={() => onInspectRun(run.id)}
+                  >
+                    View Request / Response
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -1455,6 +1469,99 @@ function RunArticlesSection({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function ProviderExchangeModal({
+  run,
+  event,
+  isLoading,
+  errorMessage,
+  onClose,
+}: {
+  run: AITaskRunResponse | null
+  event: AITaskEventResponse | null
+  isLoading: boolean
+  errorMessage: string
+  onClose: () => void
+}) {
+  if (!run && !isLoading && !errorMessage) {
+    return null
+  }
+
+  const requestPayload = event?.payload?.request_payload
+  const requestUrl = typeof event?.payload?.request_url === 'string' ? event.payload.request_url : null
+  const responseBody = typeof event?.payload?.response_body === 'string' ? event.payload.response_body : null
+  const responseJson = event?.payload?.response_json
+  const statusCode = typeof event?.payload?.status_code === 'number' ? event.payload.status_code : null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-8">
+      <div className="max-h-[85vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate/20 bg-white p-5 shadow-2xl dark:border-cyan-900/40 dark:bg-[#041612]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-display text-xl">Provider Exchange</h3>
+            <p className="mt-1 text-sm text-slate dark:text-white/70">
+              {run ? `${formatTaskTypeLabel(run.task_type)}${run.item_title ? ` · ${run.item_title}` : ''}` : 'Loading run detail'}
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </div>
+
+        {isLoading && <p className="mt-4 text-sm text-slate dark:text-white/70">Loading request/response details...</p>}
+        {!isLoading && errorMessage && <p className="mt-4 text-sm text-red-600">Failed to load run detail. {errorMessage}</p>}
+        {!isLoading && !errorMessage && !event && (
+          <p className="mt-4 text-sm text-slate dark:text-white/70">No provider request/response was captured for this run.</p>
+        )}
+
+        {!isLoading && !errorMessage && event && (
+          <div className="mt-4 space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <MiniStat label="Event" value={event.event_type} />
+              <MiniStat label="Captured" value={formatTimestamp(event.created_at)} />
+              <MiniStat label="HTTP Status" value={statusCode ?? 'n/a'} />
+            </div>
+
+            {event.message && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+                {event.message}
+              </div>
+            )}
+
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Panel title="Request">
+                {requestUrl && <p className="mb-3 text-xs text-slate dark:text-white/60">{requestUrl}</p>}
+                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                  {requestPayload != null ? formatDebugPayload(requestPayload) : 'No request payload recorded.'}
+                </pre>
+              </Panel>
+
+              <Panel title="Response">
+                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                  {responseBody || 'No raw response body recorded.'}
+                </pre>
+                {responseJson != null && (
+                  <>
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">
+                      Parsed Response JSON
+                    </p>
+                    <pre className="mt-2 overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                      {formatDebugPayload(responseJson)}
+                    </pre>
+                  </>
+                )}
+              </Panel>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1495,10 +1602,23 @@ function RunsTab({
   const selectedRun = runDetailQuery.data?.run
   const totalPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
   const [articlePreviewLimit, setArticlePreviewLimit] = useState(8)
+  const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
 
   useEffect(() => {
     setArticlePreviewLimit(8)
   }, [selectedRunId])
+
+  const inspectedRunDetailQuery = useQuery({
+    queryKey: ['ai', 'ops', 'inspect-run', inspectedRunId],
+    queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`),
+    enabled: Boolean(inspectedRunId),
+  })
+
+  const inspectedRun = inspectedRunDetailQuery.data?.run ?? null
+  const inspectedProviderEvent = useMemo(
+    () => findLatestProviderExchangeEvent(inspectedRunDetailQuery.data?.events ?? []),
+    [inspectedRunDetailQuery.data?.events],
+  )
 
   const childRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'child-runs', selectedRunId, articlePreviewLimit],
@@ -1586,6 +1706,7 @@ function RunsTab({
               <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
                 <tr>
                   <th className="pb-2">Type</th>
+                  <th className="pb-2">Article</th>
                   <th className="pb-2">Trigger</th>
                   <th className="pb-2">Queued</th>
                   <th className="pb-2">Finished</th>
@@ -1595,6 +1716,7 @@ function RunsTab({
                   <th className="pb-2">Model</th>
                   <th className="pb-2">Tokens</th>
                   <th className="pb-2">Error</th>
+                  <th className="pb-2">Inspect</th>
                 </tr>
               </thead>
               <tbody>
@@ -1606,7 +1728,22 @@ function RunsTab({
                     }`}
                     onClick={() => setSelectedRunId(run.id)}
                   >
-                    <td className="py-2 font-medium">{formatTaskTypeLabel(run.task_type)}</td>
+                    <td className="py-2">
+                      <div className="font-medium">{formatTaskTypeLabel(run.task_type)}</div>
+                      {run.feed_name && <div className="text-xs text-slate dark:text-white/55">{run.feed_name}</div>}
+                    </td>
+                    <td className="py-2">
+                      {run.item_title ? (
+                        <div className="max-w-xs">
+                          <div className="font-medium">{truncate(run.item_title, 72)}</div>
+                          <div className="text-xs text-slate dark:text-white/55">
+                            {run.item_published_at ? `Published ${formatTimestamp(run.item_published_at)}` : 'Article-linked run'}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs text-slate dark:text-white/55">—</span>
+                      )}
+                    </td>
                     <td className="py-2">{formatTriggerLabel(run.trigger_source)}</td>
                     <td className="py-2">{formatTimestamp(run.queued_at)}</td>
                     <td className="py-2">{run.finished_at ? formatTimestamp(run.finished_at) : 'In progress'}</td>
@@ -1618,6 +1755,22 @@ function RunsTab({
                     <td className="py-2">{run.model || 'n/a'}</td>
                     <td className="py-2">{run.total_tokens?.toLocaleString() || 'n/a'}</td>
                     <td className="py-2 text-xs text-slate dark:text-white/60">{truncate(run.error || run.reason || '', 36) || '—'}</td>
+                    <td className="py-2">
+                      {canInspectProviderExchange(run) ? (
+                        <button
+                          type="button"
+                          className="rounded border border-slate/30 px-2 py-1 text-xs font-semibold dark:border-cyan-900/40"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            setInspectedRunId(run.id)
+                          }}
+                        >
+                          Request / Response
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate dark:text-white/55">—</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1684,6 +1837,15 @@ function RunsTab({
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {canInspectProviderExchange(selectedRun) && (
+                      <button
+                        type="button"
+                        className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                        onClick={() => setInspectedRunId(selectedRun.id)}
+                      >
+                        View Request / Response
+                      </button>
+                    )}
                     {canCancelRun(selectedRun) && (
                       <button
                         type="button"
@@ -1743,6 +1905,7 @@ function RunsTab({
                   parentRun={selectedRun}
                   childRunsQuery={childRunsQuery}
                   visibleCount={articlePreviewLimit}
+                  onInspectRun={(runId) => setInspectedRunId(runId)}
                   onShowMore={() =>
                     setArticlePreviewLimit((current) => {
                       const total = childRunsQuery.data?.total ?? current
@@ -1809,6 +1972,14 @@ function RunsTab({
             </div>
           )}
         </Panel>
+
+        <ProviderExchangeModal
+          run={inspectedRun}
+          event={inspectedProviderEvent}
+          isLoading={inspectedRunDetailQuery.isLoading}
+          errorMessage={(inspectedRunDetailQuery.error as Error | undefined)?.message ?? ''}
+          onClose={() => setInspectedRunId(null)}
+        />
       </div>
     </div>
   )
@@ -2489,6 +2660,10 @@ function cancelActionLabel(run: AITaskRunResponse) {
   return run.status === 'queued' ? 'Remove From Queue' : 'Stop Task'
 }
 
+function canInspectProviderExchange(run: AITaskRunResponse) {
+  return run.task_type === 'item_enrichment' || run.task_type === 'daily_brief' || run.task_type === 'connection_test'
+}
+
 function describeRunScope(run: AITaskRunResponse) {
   if (run.task_type === 'daily_brief') {
     return run.status === 'queued' || run.status === 'running'
@@ -2544,6 +2719,13 @@ function truncate(value: string, max: number) {
   return `${value.slice(0, max - 1)}…`
 }
 
+function findLatestProviderExchangeEvent(events: AITaskEventResponse[]) {
+  const exchanges = events.filter(
+    (event) => event.event_type === 'provider_exchange' || event.event_type === 'provider_exchange_failed',
+  )
+  return exchanges.length ? exchanges[exchanges.length - 1] : null
+}
+
 function humanizeKey(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
@@ -2570,4 +2752,15 @@ function formatMetadataValue(value: unknown) {
     return JSON.stringify(value)
   }
   return String(value)
+}
+
+function formatDebugPayload(value: unknown) {
+  if (typeof value === 'string') {
+    return value
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
 }

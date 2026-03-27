@@ -28,6 +28,7 @@ from app.schemas.ai import (
     AIUsageFeatureSummary,
     AIUsageSummaryResponse,
 )
+from app.services.ai_ops import record_ai_task_event
 from app.services.ai_config import (
     ActiveAISettings,
     build_daily_brief_system_prompt,
@@ -45,7 +46,36 @@ MAX_BRIEF_ITEM_SUMMARY_CHARS = 900
 
 
 class AIIntegrationError(ValueError):
-    pass
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_url: str | None = None,
+        request_payload: dict[str, object] | None = None,
+        response_body: str | None = None,
+        response_json: object | None = None,
+        status_code: int | None = None,
+    ):
+        super().__init__(message)
+        self.request_url = request_url
+        self.request_payload = request_payload
+        self.response_body = response_body
+        self.response_json = response_json
+        self.status_code = status_code
+
+    def debug_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        if self.request_url:
+            payload["request_url"] = self.request_url
+        if self.request_payload is not None:
+            payload["request_payload"] = self.request_payload
+        if self.status_code is not None:
+            payload["status_code"] = self.status_code
+        if self.response_body is not None:
+            payload["response_body"] = self.response_body
+        if self.response_json is not None:
+            payload["response_json"] = self.response_json
+        return payload
 
 
 @dataclass(frozen=True)
@@ -59,6 +89,11 @@ class AICompletionResult:
     total_tokens: int | None
     prompt_char_count: int = 0
     response_char_count: int = 0
+    request_url: str | None = None
+    request_payload: dict[str, object] | None = None
+    response_body: str | None = None
+    response_json: object | None = None
+    status_code: int | None = None
 
 
 @dataclass(frozen=True)
@@ -82,7 +117,7 @@ class AIDailyBriefGenerationResult:
     response_char_count: int | None = None
 
 
-def test_ai_connection(db: Session) -> AITestConnectionResponse:
+def test_ai_connection(db: Session, *, task_run_id: uuid.UUID | None = None) -> AITestConnectionResponse:
     active = load_active_ai_settings(db)
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
@@ -94,6 +129,7 @@ def test_ai_connection(db: Session) -> AITestConnectionResponse:
             db,
             active,
             feature_type=FEATURE_CONNECTION_TEST,
+            task_run_id=task_run_id,
             messages=[
                 {
                     "role": "system",
@@ -137,6 +173,7 @@ def run_item_ai_enrichment(
     *,
     item_id: uuid.UUID,
     force: bool = False,
+    task_run_id: uuid.UUID | None = None,
 ) -> AIItemEnrichmentResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured:
@@ -207,6 +244,7 @@ def run_item_ai_enrichment(
             active,
             feature_type=FEATURE_ITEM_ENRICHMENT,
             item_id=item_id,
+            task_run_id=task_run_id,
             messages=_build_item_enrichment_messages(
                 active,
                 item=item,
@@ -286,6 +324,7 @@ def run_daily_brief_generation(
     *,
     force: bool = False,
     reference_time: datetime | None = None,
+    task_run_id: uuid.UUID | None = None,
 ) -> AIDailyBriefGenerationResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured or not active.daily_brief_enabled:
@@ -366,6 +405,7 @@ def run_daily_brief_generation(
             active,
             feature_type=FEATURE_DAILY_BRIEF,
             daily_brief_id=brief.id,
+            task_run_id=task_run_id,
             messages=_build_daily_brief_messages(active, item_rows=item_rows, window_start=window_start, window_end=window_end),
         )
     except AIIntegrationError as exc:
@@ -669,10 +709,19 @@ def _request_json_with_usage(
     messages: list[dict[str, str]],
     item_id: uuid.UUID | None = None,
     daily_brief_id: uuid.UUID | None = None,
+    task_run_id: uuid.UUID | None = None,
 ) -> AICompletionResult:
     try:
         completion = _call_ai_json(active, messages=messages)
     except AIIntegrationError as exc:
+        if task_run_id is not None:
+            record_ai_task_event(
+                db,
+                run_id=task_run_id,
+                event_type="provider_exchange_failed",
+                message=str(exc),
+                payload=exc.debug_payload(),
+            )
         _record_usage_event(
             db,
             feature_type=feature_type,
@@ -684,6 +733,14 @@ def _request_json_with_usage(
             error=str(exc),
         )
         raise
+
+    if task_run_id is not None:
+        record_ai_task_event(
+            db,
+            run_id=task_run_id,
+            event_type="provider_exchange",
+            payload=_build_provider_exchange_payload(completion),
+        )
 
     _record_usage_event(
         db,
@@ -701,12 +758,28 @@ def _request_json_with_usage(
     return completion
 
 
+def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if completion.request_url:
+        payload["request_url"] = completion.request_url
+    if completion.request_payload is not None:
+        payload["request_payload"] = completion.request_payload
+    if completion.status_code is not None:
+        payload["status_code"] = completion.status_code
+    if completion.response_body is not None:
+        payload["response_body"] = completion.response_body
+    if completion.response_json is not None:
+        payload["response_json"] = completion.response_json
+    return payload
+
+
 def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -> AICompletionResult:
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
     if not active.ai_configured or not active.base_url or not active.model:
         raise AIIntegrationError("AI settings are incomplete")
 
+    request_url = _build_chat_completion_url(active.base_url)
     request_payload = {
         "model": active.model,
         "messages": messages,
@@ -721,22 +794,54 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
     started_at = time.perf_counter()
     try:
         with httpx.Client(timeout=active.request_timeout_seconds) as client:
-            response = client.post(_build_chat_completion_url(active.base_url), headers=headers, json=request_payload)
+            response = client.post(request_url, headers=headers, json=request_payload)
             response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        response_body = exc.response.text
+        try:
+            response_json: object | None = exc.response.json()
+        except ValueError:
+            response_json = None
+        raise AIIntegrationError(
+            f"AI request failed: {exc}",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=response_json,
+            status_code=exc.response.status_code,
+        ) from exc
     except httpx.HTTPError as exc:
-        raise AIIntegrationError(f"AI request failed: {exc}") from exc
+        raise AIIntegrationError(
+            f"AI request failed: {exc}",
+            request_url=request_url,
+            request_payload=request_payload,
+        ) from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
+    response_body = response.text
     try:
         payload = response.json()
     except ValueError as exc:
-        raise AIIntegrationError("AI endpoint returned non-JSON output") from exc
+        raise AIIntegrationError(
+            "AI endpoint returned non-JSON output",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            status_code=response.status_code,
+        ) from exc
 
     try:
         choice = payload["choices"][0]
         message = choice["message"]
     except (KeyError, IndexError, TypeError) as exc:
-        raise AIIntegrationError("AI endpoint returned an unexpected response shape") from exc
+        raise AIIntegrationError(
+            "AI endpoint returned an unexpected response shape",
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+        ) from exc
 
     content = _extract_message_content(message.get("content"))
     parsed = _parse_ai_json_content(content)
@@ -752,6 +857,11 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
         total_tokens=_coerce_optional_int(usage.get("total_tokens")),
         prompt_char_count=prompt_char_count,
         response_char_count=len(content),
+        request_url=request_url,
+        request_payload=request_payload,
+        response_body=response_body,
+        response_json=payload,
+        status_code=response.status_code,
     )
 
 

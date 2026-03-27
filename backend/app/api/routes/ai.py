@@ -194,7 +194,7 @@ def test_ai_connection_route(
     start_ai_task_run(db, run_id=run.id, worker_name="api")
     db.commit()
     try:
-        result = test_ai_connection(db)
+        result = test_ai_connection(db, task_run_id=run.id)
     except AIIntegrationError as exc:
         finish_ai_task_run(
             db,
@@ -290,7 +290,7 @@ def generate_daily_brief_route(
     start_ai_task_run(db, run_id=run.id, worker_name="api", metadata_updates={"force": True})
     db.commit()
 
-    result = run_daily_brief_generation(db, force=True)
+    result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
     finish_ai_task_run(
         db,
         run_id=run.id,

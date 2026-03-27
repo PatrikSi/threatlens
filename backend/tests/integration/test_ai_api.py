@@ -564,7 +564,12 @@ def test_ai_ops_endpoints_expose_runs_sources_and_audit_logs(
     assert detail_response.status_code == 200
     detail_payload = detail_response.json()
     assert detail_payload["run"]["metadata"]["items_selected"] == 1
-    assert [event["event_type"] for event in detail_payload["events"]] == ["queued", "started", "completed"]
+    assert [event["event_type"] for event in detail_payload["events"]] == [
+        "queued",
+        "started",
+        "provider_exchange",
+        "completed",
+    ]
 
     sources_response = client.get(f"/ai/daily-briefs/{brief_payload['id']}/sources", headers=auth_headers["admin"])
     assert sources_response.status_code == 200
