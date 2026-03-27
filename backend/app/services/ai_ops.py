@@ -666,6 +666,7 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
 def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResponse]:
     actor_ids = [run.actor_user_id for run in runs if run.actor_user_id]
     email_map = _load_user_emails(db, actor_ids)
+    item_context_map = _load_run_item_context(db, [run.item_id for run in runs if run.item_id])
     return [
         AITaskRunResponse(
             id=run.id,
@@ -678,6 +679,11 @@ def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResp
             actor_user_id=run.actor_user_id,
             actor_email=email_map.get(run.actor_user_id),
             item_id=run.item_id,
+            item_title=item_context_map.get(run.item_id, {}).get("title") if run.item_id else None,
+            item_url=item_context_map.get(run.item_id, {}).get("url") if run.item_id else None,
+            feed_name=item_context_map.get(run.item_id, {}).get("feed_name") if run.item_id else None,
+            item_first_seen_at=item_context_map.get(run.item_id, {}).get("first_seen_at") if run.item_id else None,
+            item_published_at=item_context_map.get(run.item_id, {}).get("published_at") if run.item_id else None,
             daily_brief_id=run.daily_brief_id,
             parent_run_id=run.parent_run_id,
             model=run.model,
@@ -706,6 +712,37 @@ def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResp
         )
         for run in runs
     ]
+
+
+def _load_run_item_context(
+    db: Session,
+    item_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, dict[str, Any]]:
+    unique_item_ids = list({item_id for item_id in item_ids if item_id})
+    if not unique_item_ids:
+        return {}
+    rows = db.execute(
+        select(
+            Item.id,
+            Item.title,
+            Item.url,
+            Item.first_seen_at,
+            Item.published_at,
+            Feed.name.label("feed_name"),
+        )
+        .join(Feed, Feed.id == Item.feed_id)
+        .where(Item.id.in_(unique_item_ids))
+    ).all()
+    return {
+        item_id: {
+            "title": title,
+            "url": url,
+            "first_seen_at": first_seen_at,
+            "published_at": published_at,
+            "feed_name": feed_name,
+        }
+        for item_id, title, url, first_seen_at, published_at, feed_name in rows
+    }
 
 
 def _map_audit_entries(db: Session, logs: list[AuditLog]) -> list[AIAuditEntryResponse]:

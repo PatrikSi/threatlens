@@ -1348,6 +1348,117 @@ function QueueWorkPanel({
   )
 }
 
+function RunArticlesSection({
+  parentRun,
+  childRunsQuery,
+  visibleCount,
+  onShowMore,
+  onShowLess,
+}: {
+  parentRun: AITaskRunResponse
+  childRunsQuery: ReturnType<typeof useQuery<AITaskRunListResponse>>
+  visibleCount: number
+  onShowMore: () => void
+  onShowLess: () => void
+}) {
+  const childRuns = childRunsQuery.data?.items ?? []
+  const totalChildRuns = childRunsQuery.data?.total ?? 0
+  const canShowMore = totalChildRuns > childRuns.length
+  const canShowLess = visibleCount > 8 && childRuns.length > 8
+
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Article Runs</p>
+          <p className="mt-1 text-xs text-slate dark:text-white/60">
+            {totalChildRuns
+              ? `Showing ${childRuns.length} of ${totalChildRuns} queued article runs${parentRun.target_count ? ` out of ${parentRun.target_count} target articles` : ''}.`
+              : parentRun.target_count
+                ? `No child article runs are visible yet. Target size: ${parentRun.target_count} article${parentRun.target_count === 1 ? '' : 's'}.`
+                : 'No child article runs are visible yet.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs">
+          <StatusPill tone="success" label={`Ready ${parentRun.success_count}`} />
+          <StatusPill tone="danger" label={`Errors ${parentRun.error_count}`} />
+          <StatusPill tone="neutral" label={`Skipped ${parentRun.skipped_count}`} />
+          <StatusPill tone="warning" label={`Remaining ${remainingCount(parentRun)}`} />
+        </div>
+      </div>
+
+      {childRunsQuery.isLoading && !childRuns.length && (
+        <p className="mt-3 text-sm text-slate dark:text-white/70">Loading article runs...</p>
+      )}
+      {childRunsQuery.isError && (
+        <p className="mt-3 text-sm text-red-600">
+          Failed to load article runs. {(childRunsQuery.error as Error | undefined)?.message ?? ''}
+        </p>
+      )}
+
+      {!childRunsQuery.isLoading && !childRuns.length && !childRunsQuery.isError && (
+        <EmptyInline>Child article runs have not been queued yet.</EmptyInline>
+      )}
+
+      {!!childRuns.length && (
+        <div className={`mt-3 space-y-2 ${visibleCount > 8 ? 'max-h-96 overflow-y-auto pr-1' : ''}`}>
+          {childRuns.map((run) => (
+            <div
+              key={run.id}
+              className="rounded-lg border border-slate/10 px-3 py-3 text-sm dark:border-cyan-900/30"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold">{run.item_title || run.item_id || 'Unknown article'}</p>
+                  <p className="mt-1 text-xs text-slate dark:text-white/60">
+                    {run.feed_name || 'Unknown feed'}
+                    {run.item_published_at ? ` · published ${formatTimestamp(run.item_published_at)}` : ''}
+                    {run.item_first_seen_at ? ` · first seen ${formatTimestamp(run.item_first_seen_at)}` : ''}
+                  </p>
+                </div>
+                <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
+              </div>
+              <p className="mt-2 text-xs text-slate dark:text-white/60">
+                Queued {formatTimestamp(run.queued_at)}
+                {run.started_at ? ` · started ${formatTimestamp(run.started_at)}` : ''}
+                {run.finished_at ? ` · finished ${formatTimestamp(run.finished_at)}` : ''}
+                {run.duration_ms != null ? ` · ${formatDuration(run.duration_ms)}` : ''}
+                {run.total_tokens != null ? ` · ${run.total_tokens.toLocaleString()} tokens` : ''}
+              </p>
+              {(run.error || run.reason) && (
+                <p className="mt-2 text-xs text-slate dark:text-white/70">{run.error || run.reason}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(canShowMore || canShowLess) && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {canShowMore && (
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+              onClick={onShowMore}
+            >
+              Show {Math.min(20, totalChildRuns - childRuns.length)} More
+            </button>
+          )}
+          {canShowLess && (
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+              onClick={onShowLess}
+            >
+              Show Less
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RunsTab({
   days,
   selectedModel,
@@ -1383,6 +1494,22 @@ function RunsTab({
 }) {
   const selectedRun = runDetailQuery.data?.run
   const totalPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
+  const [articlePreviewLimit, setArticlePreviewLimit] = useState(8)
+
+  useEffect(() => {
+    setArticlePreviewLimit(8)
+  }, [selectedRunId])
+
+  const childRunsQuery = useQuery({
+    queryKey: ['ai', 'ops', 'child-runs', selectedRunId, articlePreviewLimit],
+    queryFn: () =>
+      apiFetch<AITaskRunListResponse>(
+        `/ai/ops/runs?parent_run_id=${selectedRunId}&limit=${articlePreviewLimit}`,
+      ),
+    enabled: Boolean(selectedRunId && selectedRun?.task_type === 'reprocess'),
+    refetchInterval:
+      selectedRun && (selectedRun.status === 'queued' || selectedRun.status === 'running') ? 10000 : false,
+  })
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(340px,1fr)]">
@@ -1610,6 +1737,21 @@ function RunsTab({
                   </div>
                 )}
               </div>
+
+              {selectedRun.task_type === 'reprocess' && (
+                <RunArticlesSection
+                  parentRun={selectedRun}
+                  childRunsQuery={childRunsQuery}
+                  visibleCount={articlePreviewLimit}
+                  onShowMore={() =>
+                    setArticlePreviewLimit((current) => {
+                      const total = childRunsQuery.data?.total ?? current
+                      return Math.min(total, current + 20)
+                    })
+                  }
+                  onShowLess={() => setArticlePreviewLimit(8)}
+                />
+              )}
 
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Event Timeline</p>

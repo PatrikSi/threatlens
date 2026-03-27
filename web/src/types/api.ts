@@ -743,6 +743,11 @@ export interface AITaskRunResponse {
   actor_user_id: string | null
   actor_email: string | null
   item_id: string | null
+  item_title: string | null
+  item_url: string | null
+  feed_name: string | null
+  item_first_seen_at: string | null
+  item_published_at: string | null
   daily_brief_id: string | null
   parent_run_id: string | null
   model: string | null
