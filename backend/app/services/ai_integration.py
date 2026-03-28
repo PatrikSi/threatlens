@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import time
@@ -526,8 +527,8 @@ def daily_brief_response_from_model(db: Session, brief: AIDailyBrief) -> AIDaily
         window_end=brief.window_end,
         title=brief.title,
         brief_text=brief.brief_text,
-        key_points=list(brief.key_points_json or []),
-        recommended_actions=list(brief.recommended_actions_json or []),
+        key_points=_normalize_string_list(list(brief.key_points_json or [])),
+        recommended_actions=_normalize_string_list(list(brief.recommended_actions_json or [])),
         item_count=int(brief.item_count or 0),
         items=items,
         model=brief.model,
@@ -1198,12 +1199,46 @@ def _normalize_string_list(value: object) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for entry in source:
-        text = str(entry).strip()
+        text = _normalize_list_entry_text(entry)
         if not text or text in seen:
             continue
         seen.add(text)
         normalized.append(text)
     return normalized
+
+
+def _normalize_list_entry_text(value: object) -> str:
+    if isinstance(value, str):
+        text = value.strip()
+        extracted = _extract_text_from_structured_list_entry(text)
+        return extracted or text
+    if isinstance(value, dict):
+        for key in ("text", "content", "action", "summary", "message", "label", "title", "name"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        for candidate in value.values():
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+    return str(value).strip()
+
+
+def _extract_text_from_structured_list_entry(value: str) -> str | None:
+    if not value.startswith("{") or not value.endswith("}"):
+        return None
+
+    parsed: object | None = None
+    try:
+        parsed = json.loads(value)
+    except ValueError:
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return None
+
+    if isinstance(parsed, dict):
+        return _normalize_list_entry_text(parsed)
+    return None
 
 
 def _truncate_text(value: str | None, limit: int) -> str | None:
