@@ -30,9 +30,10 @@ from app.services.ai_integration import (
     generate_daily_brief,
     generate_item_ai_enrichment,
     get_latest_daily_brief,
+    run_daily_brief_generation,
     run_item_ai_enrichment,
 )
-from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
+from app.services.ai_ops import AI_TASK_TYPE_DAILY_BRIEF, AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
 from app.schemas.ai import AISettingsUpdate
 
 
@@ -1140,6 +1141,150 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
     usage_events = db_session.scalars(
         select(AIUsageEvent)
         .where(AIUsageEvent.item_id == item.id)
+        .order_by(AIUsageEvent.created_at.asc())
+    ).all()
+    assert [event.success for event in usage_events] == [False, True]
+
+
+def test_run_daily_brief_generation_retries_after_truncated_model_output(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="daily-brief-retry",
+        url="https://example.com/articles/daily-brief-retry",
+        canonical_url="https://example.com/articles/daily-brief-retry",
+        title="Critical edge infrastructure exposure",
+        summary="A critical edge exposure requires immediate review.",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="daily-brief-retry",
+        content_hash="8" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Citrix and F5 edge exposures require immediate patching and review.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=1,
+            max_completion_tokens=700,
+            daily_brief_enabled=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    db_session.commit()
+
+    invalid_payload = {
+        "id": "chatcmpl-invalid-daily-brief",
+        "object": "chat.completion",
+        "created": 1774739300,
+        "model": "local-threat-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        '{'
+                        '"title":"Daily Security Brief – March 28, 2026",'
+                        '"brief_text":"Critical vulnerabilities require immediate action.",'
+                        '"key_points":["Citrix NetScaler is under active recon.","F5 BIG-IP APM is in KEV.","TeamPCP pushed malicious telnyx versions (4'
+                    ),
+                },
+                "finish_reason": "length",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 2500,
+            "completion_tokens": 700,
+            "total_tokens": 3200,
+        },
+    }
+    valid_payload = {
+        "id": "chatcmpl-valid-daily-brief",
+        "object": "chat.completion",
+        "created": 1774739301,
+        "model": "local-threat-model",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": (
+                        '{"title":"Daily Security Brief – March 28, 2026",'
+                        '"brief_text":"Critical vulnerabilities require immediate action.",'
+                        '"key_points":["Citrix NetScaler is under active recon.","F5 BIG-IP APM is in KEV."],'
+                        '"recommended_actions":["Patch exposed edge systems immediately.","Review third-party packages for compromise."]}'
+                    ),
+                },
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 2500,
+            "completion_tokens": 320,
+            "total_tokens": 2820,
+        },
+    }
+    monkeypatch.setattr(
+        "app.services.ai_integration.httpx.Client",
+        _fake_httpx_client_sequence_factory([invalid_payload, valid_payload]),
+    )
+
+    result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    assert result.status == "ready"
+    assert result.brief is not None
+    assert result.brief.key_points_json == [
+        "Citrix NetScaler is under active recon.",
+        "F5 BIG-IP APM is in KEV.",
+    ]
+
+    retry_event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .order_by(AITaskEvent.created_at.asc())
+    )
+    assert retry_event is not None
+    assert retry_event.payload_json["attempt"] == 1
+    assert retry_event.payload_json["max_attempts"] == 2
+    assert retry_event.payload_json["retry_hint"] == "expand_completion_budget"
+    assert retry_event.payload_json["requested_max_tokens"] == 700
+    assert retry_event.payload_json["next_max_tokens"] > 700
+
+    usage_events = db_session.scalars(
+        select(AIUsageEvent)
+        .where(AIUsageEvent.daily_brief_id == result.brief.id)
         .order_by(AIUsageEvent.created_at.asc())
     ).all()
     assert [event.success for event in usage_events] == [False, True]
