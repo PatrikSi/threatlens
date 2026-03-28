@@ -87,9 +87,9 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
     settings = AISettings(
         provider_type="openai_compatible",
         temperature=0.2,
-        max_completion_tokens=700,
-        request_timeout_seconds=60,
-        request_max_retries=0,
+        max_completion_tokens=5000,
+        request_timeout_seconds=300,
+        request_max_retries=3,
         summary_enabled=True,
         relevance_enabled=True,
         daily_brief_enabled=True,

@@ -40,9 +40,9 @@ class AISettingsUpdate(BaseModel):
     base_url: str | None = Field(default=None, max_length=4000)
     model: str | None = Field(default=None, max_length=255)
     temperature: float = Field(default=0.2, ge=0.0, le=2.0)
-    max_completion_tokens: int = Field(default=700, ge=128, le=8192)
-    request_timeout_seconds: int = Field(default=60, ge=5, le=300)
-    request_max_retries: int = Field(default=0, ge=0, le=5)
+    max_completion_tokens: int = Field(default=5000, ge=128, le=8192)
+    request_timeout_seconds: int = Field(default=300, ge=5, le=300)
+    request_max_retries: int = Field(default=3, ge=0, le=5)
     summary_enabled: bool = True
     relevance_enabled: bool = True
     daily_brief_enabled: bool = True
