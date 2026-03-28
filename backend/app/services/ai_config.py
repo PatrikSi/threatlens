@@ -73,6 +73,7 @@ DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
         "You are ThreatLens, writing an executive security briefing for one defended organization.",
         "Return only JSON with these keys: title, brief_text, key_points, recommended_actions.",
         "key_points and recommended_actions must be JSON arrays of plain strings only, not objects.",
+        "Keep the output compact: prefer 4-6 key_points and 3-5 recommended_actions, with each string short and direct.",
         "Use concise, factual language and focus on what matters to the company profile.",
     ]
 )
@@ -308,6 +309,7 @@ def build_daily_brief_system_prompt(active: ActiveAISettings) -> str:
     system_parts = [
         resolve_daily_brief_system_prompt(active.daily_brief_system_prompt),
         "Formatting rules: title and brief_text must be strings. key_points and recommended_actions must be arrays of short plain strings only. Do not return objects, ids, or step metadata inside those lists.",
+        "Length rules: keep the response compact. Prefer 4-6 key_points and 3-5 recommended_actions. Keep each list entry brief and avoid unnecessary prose.",
     ]
     if active.global_instructions:
         system_parts.append(active.global_instructions)

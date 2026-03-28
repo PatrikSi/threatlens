@@ -56,6 +56,7 @@ class AIIntegrationError(ValueError):
         response_body: str | None = None,
         response_json: object | None = None,
         status_code: int | None = None,
+        retry_hint: str | None = None,
     ):
         super().__init__(message)
         self.request_url = request_url
@@ -63,6 +64,7 @@ class AIIntegrationError(ValueError):
         self.response_body = response_body
         self.response_json = response_json
         self.status_code = status_code
+        self.retry_hint = retry_hint
 
     def debug_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -76,6 +78,8 @@ class AIIntegrationError(ValueError):
             payload["response_body"] = self.response_body
         if self.response_json is not None:
             payload["response_json"] = self.response_json
+        if self.retry_hint:
+            payload["retry_hint"] = self.retry_hint
         return payload
 
 
@@ -95,6 +99,7 @@ class AICompletionResult:
     response_body: str | None = None
     response_json: object | None = None
     status_code: int | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -714,17 +719,29 @@ def _request_json_with_usage(
 ) -> AICompletionResult:
     max_attempts = max(1, active.request_max_retries + 1)
     last_error: AIIntegrationError | None = None
+    request_max_tokens = active.max_completion_tokens
 
     for attempt in range(1, max_attempts + 1):
         try:
-            completion = _call_ai_json(active, messages=messages)
+            call_kwargs: dict[str, object] = {"messages": messages}
+            if request_max_tokens != active.max_completion_tokens:
+                call_kwargs["max_completion_tokens"] = request_max_tokens
+            completion = _call_ai_json(active, **call_kwargs)
         except AIIntegrationError as exc:
             last_error = exc
+            next_request_max_tokens = _next_retry_max_completion_tokens(
+                feature_type=feature_type,
+                current=request_max_tokens,
+                error=exc,
+            )
             payload = {
                 **exc.debug_payload(),
                 "attempt": attempt,
                 "max_attempts": max_attempts,
+                "requested_max_tokens": request_max_tokens,
             }
+            if next_request_max_tokens != request_max_tokens:
+                payload["next_max_tokens"] = next_request_max_tokens
             if task_run_id is not None:
                 record_ai_task_event(
                     db,
@@ -744,6 +761,7 @@ def _request_json_with_usage(
                 error=str(exc),
             )
             if attempt < max_attempts:
+                request_max_tokens = next_request_max_tokens
                 continue
             raise
 
@@ -752,6 +770,7 @@ def _request_json_with_usage(
                 **_build_provider_exchange_payload(completion),
                 "attempt": attempt,
                 "max_attempts": max_attempts,
+                "requested_max_tokens": request_max_tokens,
             }
             record_ai_task_event(
                 db,
@@ -780,6 +799,19 @@ def _request_json_with_usage(
     raise last_error
 
 
+def _next_retry_max_completion_tokens(
+    *,
+    feature_type: str,
+    current: int,
+    error: AIIntegrationError,
+) -> int:
+    if error.retry_hint != "expand_completion_budget":
+        return current
+    if feature_type == FEATURE_DAILY_BRIEF:
+        return min(4096, max(current + 512, int(current * 1.5)))
+    return min(2048, max(current + 256, int(current * 1.5)))
+
+
 def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str, object]:
     payload: dict[str, object] = {}
     if completion.request_url:
@@ -788,6 +820,8 @@ def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str
         payload["request_payload"] = completion.request_payload
     if completion.status_code is not None:
         payload["status_code"] = completion.status_code
+    if completion.finish_reason:
+        payload["finish_reason"] = completion.finish_reason
     if completion.response_body is not None:
         payload["response_body"] = completion.response_body
     if completion.response_json is not None:
@@ -795,7 +829,12 @@ def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str
     return payload
 
 
-def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -> AICompletionResult:
+def _call_ai_json(
+    active: ActiveAISettings,
+    *,
+    messages: list[dict[str, str]],
+    max_completion_tokens: int | None = None,
+) -> AICompletionResult:
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
     if not active.ai_configured or not active.base_url or not active.model:
@@ -806,7 +845,7 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
         "model": active.model,
         "messages": messages,
         "temperature": active.temperature,
-        "max_tokens": active.max_completion_tokens,
+        "max_tokens": max_completion_tokens if max_completion_tokens is not None else active.max_completion_tokens,
         "stream": False,
     }
     headers = {"Content-Type": "application/json"}
@@ -865,17 +904,24 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
             status_code=response.status_code,
         ) from exc
 
+    finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
     content = _extract_message_content(message.get("content"))
     try:
         parsed = _parse_ai_json_content(content)
     except AIIntegrationError as exc:
+        message_text = str(exc)
+        retry_hint = None
+        if finish_reason == "length":
+            message_text = "AI response was truncated by max_tokens before returning valid JSON"
+            retry_hint = "expand_completion_budget"
         raise AIIntegrationError(
-            str(exc),
+            message_text,
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            retry_hint=retry_hint,
         ) from exc
     usage = payload.get("usage") or {}
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
@@ -894,6 +940,7 @@ def _call_ai_json(active: ActiveAISettings, *, messages: list[dict[str, str]]) -
         response_body=response_body,
         response_json=payload,
         status_code=response.status_code,
+        finish_reason=finish_reason if isinstance(finish_reason, str) else None,
     )
 
 
