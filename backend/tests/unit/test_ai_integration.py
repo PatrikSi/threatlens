@@ -491,6 +491,87 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     assert usage_events[0].feature_type == "daily_brief"
 
 
+def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="cisa-objects",
+        url="https://example.com/articles/cisa-objects",
+        canonical_url="https://example.com/articles/cisa-objects",
+        title="Edge devices under attack",
+        summary="New attacks against edge devices were reported.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="cisa-objects",
+        content_hash="z" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity affected exposed edge devices and remote access systems.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item, article])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    def _fake_call(active, *, messages):
+        _ = (active, messages)
+        return AICompletionResult(
+            payload={
+                "title": "ThreatLens Daily Brief",
+                "brief_text": "Edge-related activity stood out in the last day.",
+                "key_points": [
+                    {"id": 1, "text": "Patch exposed edge systems."},
+                    {"step": 2, "content": "Review remote access exposure."},
+                ],
+                "recommended_actions": [
+                    {"id": 1, "action": "Rotate exposed credentials."},
+                    '{"id": 2, "text": "Harden public-facing access flows."}',
+                    "{'id': 3, 'message': 'Review exposed third-party integrations.'}",
+                ],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=82,
+            prompt_tokens=70,
+            completion_tokens=30,
+            total_tokens=100,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fake_call)
+
+    brief = generate_daily_brief(db_session, force=True)
+    db_session.commit()
+
+    assert brief is not None
+    assert brief.key_points_json == ["Patch exposed edge systems.", "Review remote access exposure."]
+    assert brief.recommended_actions_json == [
+        "Rotate exposed credentials.",
+        "Harden public-facing access flows.",
+        "Review exposed third-party integrations.",
+    ]
+
+
 def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -1219,5 +1300,6 @@ def test_prompt_builders_allow_editable_base_prompts(db_session, ai_enabled_env)
 
     assert build_item_enrichment_system_prompt(active).startswith("You are a focused SOC analyst.")
     assert build_daily_brief_system_prompt(active).startswith("You are writing a crisp morning brief.")
+    assert "arrays of short plain strings only" in build_daily_brief_system_prompt(active)
     assert DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT != active.item_enrichment_system_prompt
     assert DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT != active.daily_brief_system_prompt
