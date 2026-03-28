@@ -114,6 +114,14 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
     return _FakeClient
 
 
+def test_get_or_create_ai_settings_uses_updated_runtime_defaults(db_session):
+    settings = get_or_create_ai_settings(db_session)
+
+    assert settings.max_completion_tokens == 5000
+    assert settings.request_timeout_seconds == 300
+    assert settings.request_max_retries == 3
+
+
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
     feed = Feed(
         id=uuid.uuid4(),
