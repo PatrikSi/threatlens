@@ -129,7 +129,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
 
     clear_login_failures(email, client_ip)
-    token = create_access_token(str(user.id))
+    token = create_access_token(str(user.id), token_version=int(user.auth_token_version or 0))
     csrf_token = generate_csrf_token()
     set_auth_cookies(response, token, csrf_token)
     record_audit(
@@ -168,6 +168,7 @@ def change_password(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
     user.password_hash = get_password_hash(payload.new_password)
+    user.auth_token_version = int(user.auth_token_version or 0) + 1
     db.add(user)
     record_audit(
         db,

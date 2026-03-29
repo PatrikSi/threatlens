@@ -24,10 +24,10 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, *, token_version: int = 0) -> str:
     settings = get_settings()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expires_minutes)
-    payload: dict[str, Any] = {"sub": subject, "exp": expire}
+    payload: dict[str, Any] = {"sub": subject, "exp": expire, "ver": int(token_version)}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
@@ -36,11 +36,20 @@ def access_token_ttl_seconds() -> int:
     return max(60, int(settings.jwt_expires_minutes) * 60)
 
 
-def decode_access_token(token: str) -> str | None:
+def decode_access_token_claims(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
     except JWTError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def decode_access_token(token: str) -> str | None:
+    payload = decode_access_token_claims(token)
+    if payload is None:
         return None
     subject = payload.get("sub")
     return str(subject) if subject else None
