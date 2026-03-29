@@ -97,6 +97,7 @@ def update_user(
 
     if payload.password is not None:
         user.password_hash = get_password_hash(payload.password)
+        user.auth_token_version = int(user.auth_token_version or 0) + 1
 
     db.add(user)
     record_audit(
@@ -105,7 +106,13 @@ def update_user(
         action="users.update",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"role": user.role, "is_active": user.is_active, "is_approved": user.is_approved},
+        metadata={
+            "role": user.role,
+            "is_active": user.is_active,
+            "is_approved": user.is_approved,
+            "password_updated": payload.password is not None,
+            "auth_token_version": user.auth_token_version,
+        },
     )
     db.commit()
     db.refresh(user)
