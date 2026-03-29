@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
@@ -173,7 +174,20 @@ def _get_or_create_state(db: Session, user_id: uuid.UUID, item_id: uuid.UUID) ->
     if state is None:
         state = ItemState(user_id=user_id, item_id=item_id)
         db.add(state)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            state = db.scalar(
+                select(ItemState).where(
+                    and_(
+                        ItemState.user_id == user_id,
+                        ItemState.item_id == item_id,
+                    )
+                )
+            )
+            if state is None:
+                raise
     return state
 
 
