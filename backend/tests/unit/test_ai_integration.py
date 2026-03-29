@@ -27,6 +27,8 @@ from app.services.ai_config import (
 from app.services.ai_integration import (
     AICompletionResult,
     AIIntegrationError,
+    FEATURE_DAILY_BRIEF,
+    _next_retry_max_completion_tokens,
     generate_daily_brief,
     generate_item_ai_enrichment,
     get_latest_daily_brief,
@@ -120,6 +122,40 @@ def test_get_or_create_ai_settings_uses_updated_runtime_defaults(db_session):
     assert settings.max_completion_tokens == 5000
     assert settings.request_timeout_seconds == 300
     assert settings.request_max_retries == 3
+
+
+def test_run_daily_brief_generation_returns_skipped_result_when_window_is_empty(db_session, ai_enabled_env):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    result = run_daily_brief_generation(db_session, force=True)
+
+    assert result.status == "skipped"
+    assert result.reason == "no_items"
+    assert result.brief is None
+    assert result.items_considered == 0
+    assert result.items_selected == 0
+
+
+def test_daily_brief_retry_budget_never_shrinks_after_truncation():
+    error = AIIntegrationError("truncated", retry_hint="expand_completion_budget")
+
+    next_budget = _next_retry_max_completion_tokens(
+        feature_type=FEATURE_DAILY_BRIEF,
+        current=5000,
+        error=error,
+    )
+
+    assert next_budget >= 5000
 
 
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):

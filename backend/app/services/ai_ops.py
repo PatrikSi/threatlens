@@ -614,7 +614,7 @@ def list_daily_brief_source_items(
 
 
 def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, child_status: str, child_reason: str | None) -> None:
-    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id).with_for_update())
     if parent is None:
         return
     parent.processed_count = int(parent.processed_count or 0) + 1

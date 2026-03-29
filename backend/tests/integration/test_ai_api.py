@@ -262,6 +262,41 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     assert captured["actor_user_id"]
 
 
+def test_generate_daily_brief_without_items_returns_clean_422(
+    client: TestClient,
+    auth_headers,
+    ai_enabled_env,
+):
+    settings_response = client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+            "company_regions": [],
+            "company_stack": [],
+            "company_priority_topics": [],
+            "company_keywords": [],
+            "company_exclusions": [],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert settings_response.status_code == 200
+
+    response = client.post("/ai/daily-brief/generate", headers=auth_headers["admin"])
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "No items are available for a daily brief"
+
+
 def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
     client: TestClient,
     auth_headers,
