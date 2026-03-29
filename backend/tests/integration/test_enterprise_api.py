@@ -143,6 +143,39 @@ def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient
     assert response.json()["detail"] == "Current password is incorrect"
 
 
+def test_change_password_invalidates_existing_jwt_sessions(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+
+    change_response = client.post(
+        "/auth/change-password",
+        json={"current_password": "AdminPass123!", "new_password": "AdminPass456!"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert change_response.status_code == 200
+
+    stale_session_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert stale_session_response.status_code == 401
+    assert stale_session_response.json()["detail"] == "Invalid credentials"
+
+    old_password_login = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass456!"},
+    )
+    assert new_password_login.status_code == 200
+
+
 def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
     _ = seed_users
     login_response = client.post(

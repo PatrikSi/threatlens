@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Uuid, func
+from sqlalchemy import Boolean, DateTime, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.rbac import ROLE_VIEWER
@@ -17,5 +17,6 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(32), nullable=False, default=ROLE_VIEWER, server_default=ROLE_VIEWER)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     is_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    auth_token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     default_api_token_expiry_days: int = 90
     ai_enabled: bool = False
     ai_api_key: str | None = None
+    expose_api_docs_in_production: bool = False
 
     auth_cookie_name: str = "threatlens_session"
     auth_cookie_domain: str | None = None

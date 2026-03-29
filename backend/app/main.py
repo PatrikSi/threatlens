@@ -6,14 +6,23 @@ from fastapi import FastAPI
 from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.api.routes import ai, alerts, audit, auth, feeds, health, items, notifications, stats, tagging, tags, tokens, users, views
 
-app = FastAPI(title="ThreatLens API", version="0.1.0")
 settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
 logger = logging.getLogger("threatlens.api")
 _REQUEST_ID_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+
+
+def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str | None]:
+    is_production = active_settings.app_env.lower() in {"production", "prod"}
+    if is_production and not active_settings.expose_api_docs_in_production:
+        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    return {}
+
+
+app = FastAPI(title="ThreatLens API", version="0.1.0", **_build_openapi_visibility_kwargs(settings))
 
 app.add_middleware(
     CORSMiddleware,

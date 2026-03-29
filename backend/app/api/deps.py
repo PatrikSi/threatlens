@@ -8,7 +8,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
-from app.core.security import decode_access_token, extract_api_token_prefix, hash_api_token
+from app.core.security import decode_access_token_claims, extract_api_token_prefix, hash_api_token
 from app.core.config import get_settings
 from app.core.token_scopes import has_required_scope, normalize_token_scopes
 from app.db.session import get_db
@@ -92,8 +92,11 @@ def require_token_scopes(*required_scopes: str):
 
 
 def _resolve_jwt_user(db: Session, token: str) -> User | None:
-    subject = decode_access_token(token)
-    if subject is None:
+    claims = decode_access_token_claims(token)
+    if claims is None:
+        return None
+    subject = claims.get("sub")
+    if not subject:
         return None
 
     try:
@@ -101,7 +104,17 @@ def _resolve_jwt_user(db: Session, token: str) -> User | None:
     except ValueError:
         return None
 
-    return db.scalar(select(User).where(User.id == user_id))
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        return None
+
+    try:
+        token_version = int(claims.get("ver", 0))
+    except (TypeError, ValueError):
+        return None
+    if token_version != int(user.auth_token_version or 0):
+        return None
+    return user
 
 
 
