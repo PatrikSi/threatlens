@@ -19,6 +19,10 @@ Admin-only:
 - Users
 - Audit Logs
 
+Related top-level admin section:
+
+- AI (`/ai`) when AI is enabled
+
 ## Overview
 
 Role capabilities reference cards:
@@ -37,7 +41,12 @@ Role capabilities reference cards:
 
 ## Notifications Page
 
-- Personal outbound webhook notifications for new RSS items
+- Personal outbound webhook notifications for:
+  - `rss_item_new`
+  - `alert_match`
+  - `feed_failing`
+  - `webhook_failed`
+  - `daily_digest`
 - Saved webhook list with create/edit/delete
 - Webhook configuration fields:
   - name
@@ -57,8 +66,10 @@ Role capabilities reference cards:
   - rendered request/response preview
   - recent delivery history per webhook
   - retry button for a stored delivery snapshot
+  - analytics cards for success rate, recent failures, event mix, and most-failing webhook
 - API calls:
   - `GET /notifications/template-variables`
+  - `GET /notifications/analytics`
   - `GET /notifications/webhooks`
   - `POST /notifications/webhooks`
   - `PATCH /notifications/webhooks/{id}`
@@ -131,3 +142,4 @@ Role capabilities reference cards:
 - Protected by authenticated route guard.
 - Notifications are available to all authenticated users for their own webhooks.
 - Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
+- AI is a separate admin-only top-nav section rather than a nested Settings page.

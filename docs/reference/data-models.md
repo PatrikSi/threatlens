@@ -186,7 +186,7 @@ Primary key on `item_id`:
 - `user_id: UUID` (FK users)
 - `name: string(255)`
 - `enabled: bool`
-- `event_type: string(64)` (`rss_item_new`)
+- `event_type: string(64)` (`rss_item_new|alert_match|feed_failing|webhook_failed|daily_digest`)
 - `url_template: text`
 - `method: string(16)`
 - `feed_scope: string(16)` (`all|selected`)
@@ -205,6 +205,7 @@ Primary key on `item_id`:
 - `id: UUID` (PK)
 - `webhook_id: UUID` (FK notification_webhooks)
 - `user_id: UUID` (FK users)
+- `event_type_snapshot: string(64)`
 - `item_id: UUID?` (FK items, `SET NULL`)
 - `feed_id: UUID?` (FK feeds, `SET NULL`)
 - `delivery_kind: string(16)` (`live|retry`)
@@ -222,6 +223,58 @@ Primary key on `item_id`:
 - `item_title_snapshot: text?`
 - `feed_name_snapshot: string(255)?`
 - `attempted_at: timestamptz`
+
+### `AISettings`
+
+- `id: UUID` (PK)
+- `provider_type: string(32)` (`openai_compatible`)
+- `base_url: text?`
+- `model: string(255)?`
+- `temperature: float`
+- `max_completion_tokens: int`
+- `request_timeout_seconds: int`
+- `request_max_retries: int`
+- `summary_enabled: bool`
+- `relevance_enabled: bool`
+- `daily_brief_enabled: bool`
+- `auto_enrich_new_items: bool`
+- `daily_brief_window_hours: int`
+- `daily_brief_max_items: int`
+- `daily_brief_history_limit: int`
+- `daily_brief_schedule_hour_utc: int`
+- `daily_brief_schedule_minute_utc: int`
+- company profile fields and prompt template/instruction fields
+
+### `AIDailyBrief`
+
+- `id: UUID` (PK)
+- `brief_date: date`
+- `status: string(32)`
+- `window_start: timestamptz`
+- `window_end: timestamptz`
+- `title: text?`
+- `brief_text: text?`
+- `key_points_json: JSON string[]`
+- `recommended_actions_json: JSON string[]`
+- `top_item_ids_json: JSON string[]`
+- provider/model/token/latency accounting fields
+- `generated_at: timestamptz?`
+- `error: text?`
+
+### `AITaskRun`
+
+- `id: UUID` (PK)
+- `task_type: string(32)` (`item_enrichment|daily_brief|connection_test|reprocess`)
+- `trigger_source: string(16)` (`auto|manual|scheduled`)
+- `status: string(16)` (`queued|running|ready|error|skipped`)
+- `reason: string(64)?`
+- `celery_task_id: string(255)?`
+- `worker_name: string(255)?`
+- `actor_user_id: UUID?`
+- `item_id: UUID?`
+- `daily_brief_id: UUID?`
+- `parent_run_id: UUID?`
+- progress counters, token accounting, prompt/response sizing, metadata, timestamps
 
 ### `TaggingSettings`
 

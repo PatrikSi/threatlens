@@ -107,10 +107,16 @@ The classifier uses weighted regex/token rules for each category and applies fee
 
 ## Notification Webhook Dispatch
 
+- Notification webhook fanout covers:
+  - `rss_item_new`
+  - `alert_match`
+  - `feed_failing`
+  - `webhook_failed`
+  - `daily_digest`
 - New-item webhook fanout is queued by `dispatch_new_item_notification_webhooks(item_id)` after feed ingestion.
 - Deliveries are matched against:
   - enabled webhooks
-  - `event_type == rss_item_new`
+  - matching `event_type`
   - all feeds or selected-feed scope
 - Delivery records store the fully rendered outbound request snapshot:
   - URL
@@ -121,6 +127,29 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - response preview
   - error/status metadata
 - Retries replay the stored rendered delivery snapshot instead of re-rendering from current item/feed data.
+
+## AI Enrichment and Daily Briefing
+
+- When AI is enabled/configured and `auto_enrich_new_items` is on, new items queue AI enrichment after ingestion/classification.
+- Item enrichment stores:
+  - AI summary text
+  - relevance score
+  - relevance label/reasons
+  - provider/model/token usage metadata
+- Daily brief generation can run:
+  - manually from `/ai`
+  - queued in the background
+  - on the configured daily schedule
+- Daily brief generation:
+  - selects items from the configured coverage window
+  - orders by AI relevance when available
+  - keeps only the configured maximum item count in the prompt
+  - stores retained recent briefs and per-brief source-item logs
+- AI task execution also records:
+  - task runs
+  - task events
+  - request/response inspection data
+  - usage and failure analytics
 
 ## IOC Extraction
 
