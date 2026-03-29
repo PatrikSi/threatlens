@@ -362,7 +362,13 @@ def run_daily_brief_generation(
         select(func.count(Item.id)).where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
     ) or 0
     if total_items <= 0:
-        return existing if existing is not None and existing.status == "ready" else None
+        return AIDailyBriefGenerationResult(
+            brief=existing if existing is not None and existing.status == "ready" else None,
+            status="skipped",
+            reason="no_items",
+            items_considered=0,
+            items_selected=0,
+        )
 
     item_rows_all = db.execute(
         select(
@@ -808,7 +814,7 @@ def _next_retry_max_completion_tokens(
     if error.retry_hint != "expand_completion_budget":
         return current
     if feature_type == FEATURE_DAILY_BRIEF:
-        return min(4096, max(current + 512, int(current * 1.5)))
+        return min(8192, max(current, current + 512, int(current * 1.5)))
     return min(2048, max(current + 256, int(current * 1.5)))
 
 
