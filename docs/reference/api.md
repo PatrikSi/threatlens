@@ -9,6 +9,7 @@ Base path is served at `/` on API service port `8000`. In the web app, requests 
 - Auth: none
 - Response (`RegistrationSettingsResponse`):
   - `allow_self_registration`
+  - `ai_enabled`
 
 ### `POST /auth/register`
 
@@ -52,6 +53,7 @@ curl -X POST http://localhost:8000/auth/login \
   - `id`, `email`, `role`
   - `is_active`, `is_approved`, `approved_at`
   - `created_at`
+  - `features` (`ai_enabled`, `ai_configured`, `ai_summary_enabled`, `ai_relevance_enabled`, `ai_daily_brief_enabled`)
 
 ### `POST /auth/logout`
 
@@ -302,6 +304,18 @@ curl -X POST http://localhost:8000/alerts/preview \
   - `description`
   - `example`
 
+### `GET /notifications/analytics`
+
+- Auth: `read:notifications`
+- Response (`NotificationAnalyticsResponse`):
+  - `total_deliveries`
+  - `successful_deliveries`
+  - `failed_deliveries`
+  - `success_rate_pct`
+  - `failures_last_24h`
+  - `event_types[]`
+  - `most_failing_webhooks[]`
+
 ### `GET /notifications/webhooks`
 
 - Auth: `read:notifications`
@@ -313,7 +327,7 @@ curl -X POST http://localhost:8000/alerts/preview \
 - Body (`NotificationWebhookWrite`):
   - `name` (`1..255`)
   - `enabled`
-  - `event_type`: currently `rss_item_new`
+  - `event_type`: `rss_item_new|alert_match|feed_failing|webhook_failed|daily_digest`
   - `url_template` (`5..4000`)
   - `method`: `GET|POST|PUT|PATCH|DELETE`
   - `feed_scope`: `all|selected`
@@ -402,6 +416,149 @@ curl -X POST http://localhost:8000/notifications/webhooks \
 - Behavior:
   - Replays the stored rendered request snapshot for a past delivery.
   - Returns the new retry delivery row, not the original delivery.
+
+## AI
+
+All AI routes are hidden with `404` when `AI_ENABLED=false`.
+
+### `GET /ai/settings`
+
+- Auth: role `admin`, scope `read:ai`
+- Response (`AISettingsResponse`):
+  - provider/model/runtime settings
+  - feature toggles
+  - company context
+  - prompt templates and instructions
+  - readiness flags
+
+### `PUT /ai/settings`
+
+- Auth: role `admin`, scope `write:ai`
+- Body (`AISettingsUpdate`):
+  - provider/model settings
+  - temperature, completion-token cap, timeout, retry count
+  - AI feature toggles
+  - daily brief scheduling/window/history settings
+  - company context fields
+  - prompt templates and instruction overlays
+- Response: `AISettingsResponse`
+
+### `POST /ai/test-connection`
+
+- Auth: role `admin`, scope `write:ai`
+- Response (`AITestConnectionResponse`):
+  - `success`
+  - `latency_ms`
+  - `provider`
+  - `model`
+  - `error`
+
+### `GET /ai/usage`
+
+- Auth: role `admin`, scope `read:ai`
+- Response (`AIUsageSummaryResponse`):
+  - overall request/token/latency totals
+  - per-feature summaries
+
+### `GET /ai/daily-brief/latest`
+
+- Auth: authenticated user
+- Response: latest retained `AIDailyBriefResponse`
+
+### `GET /ai/daily-briefs`
+
+- Auth: authenticated user
+- Query params:
+  - `limit?`: defaults to retained history limit
+- Response: `AIDailyBriefResponse[]`
+
+### `POST /ai/daily-brief/generate`
+
+- Auth: role `admin`, scope `write:ai`
+- Response: `AIDailyBriefResponse`
+- Behavior:
+  - Generates immediately in the API process.
+  - Returns `422` when no items are available in the configured window.
+
+### `POST /ai/daily-brief/queue`
+
+- Auth: role `admin`, scope `write:ai`
+- Response (`AIQueuedTaskResponse`): `task_id`, `queued`, `run_id`
+
+### `POST /ai/reprocess`
+
+- Auth: role `admin`, scope `write:ai`
+- Body (`AIReprocessRequest`):
+  - `days?`
+  - `limit`
+  - `start_time?`, `end_time?`
+  - `feed_ids[]`
+  - `item_ids[]`
+- Response (`AIReprocessResponse`): `task_id`, `queued`, `run_id`
+
+### `GET /ai/ops/overview`
+
+- Auth: role `admin`, scope `read:ai`
+- Query params:
+  - `days`
+- Response (`AIOpsOverviewResponse`):
+  - KPIs
+  - queue/live snapshots
+  - coverage/failure/freshness summaries
+  - per-model usage
+
+### `GET /ai/ops/live`
+
+- Auth: role `admin`, scope `read:ai`
+- Response (`AILiveStatusResponse`):
+  - active/running tasks
+  - queued/reserved/scheduled work
+  - worker and queue-health signals
+
+### `GET /ai/ops/runs`
+
+- Auth: role `admin`, scope `read:ai`
+- Query params include:
+  - `limit`, `offset`
+  - `days`
+  - `task_type?`
+  - `status?`
+  - `trigger_source?`
+  - `model?`
+  - `parent_run_id?`
+  - `only_failures?`
+- Response: `AITaskRunListResponse`
+
+### `GET /ai/ops/runs/{run_id}`
+
+- Auth: role `admin`, scope `read:ai`
+- Response: `AITaskRunDetailResponse`
+  - selected run
+  - task event log
+  - child runs where applicable
+
+### `POST /ai/ops/runs/{run_id}/cancel`
+
+- Auth: role `admin`, scope `write:ai`
+- Response: `AITaskRunResponse`
+
+### `GET /ai/ops/manual-actions`
+
+- Auth: role `admin`, scope `read:ai`
+- Response: `AIAuditEntryResponse[]`
+
+### `GET /ai/ops/prompt-history`
+
+- Auth: role `admin`, scope `read:ai`
+- Response: `AIAuditEntryResponse[]`
+
+### `GET /ai/daily-briefs/{brief_id}/sources`
+
+- Auth: role `admin`, scope `read:ai`
+- Query params:
+  - `included?`
+  - `limit`
+- Response: `AIDailyBriefSourceItemResponse[]`
 
 ## Tags
 

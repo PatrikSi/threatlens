@@ -10,6 +10,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
   - `RSS Feed Window`
   - `Alerts Window`
   - `Notes Window`
+  - `Daily Brief Window` (shown when AI daily briefing is enabled)
 - Save current dashboard view (name + full state)
 - Load saved view
 - Manage views modal:
@@ -25,6 +26,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - `rss`
 - `alerts`
 - `notes`
+- `daily_brief`
 
 ### Snap options
 
@@ -56,6 +58,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
   - RSS windows use the current user's last-open timestamp in that browser
   - alert windows use per-window seen timestamps
 - RSS and alert filters operate independently per window
+- Daily Brief selection is stored per Daily Brief window
 
 ## RSS Window
 
@@ -80,6 +83,10 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Star/unstar
 - Edit note
 - Rendered summary/article with sanitized rich text
+- Optional AI insight block:
+  - AI summary text
+  - relevance label / score
+  - relevance reasons or AI error when enrichment failed
 
 ## Alerts Window
 
@@ -106,6 +113,19 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Freeform scratch note textarea
 - Note text persists in dashboard local storage and saved views
 
+## Daily Brief Window
+
+- Lists retained AI-generated daily briefings
+- Per-window selector for recent retained brief records
+- Compact coverage header:
+  - generated timestamp
+  - item count
+  - covered window
+- Body content:
+  - brief text
+  - key points
+  - recommended actions
+
 ## Persistence and State
 
 - Local storage key: `threatlens.dashboard.windows.v2`
@@ -114,7 +134,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Saved view payload includes:
   - per-window RSS filter state
   - per-window alerts filter state
-  - Window list (type, title, rect, snap, collapse, scratch note)
+  - Window list (type, title, rect, snap, collapse, scratch note, selected daily brief)
   - UI state (`show_advanced_filters`)
 
 ## Dashboard API Calls
@@ -123,6 +143,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - `GET /views`
 - `GET /tags`
 - `GET /alerts?include_disabled=false`
+- `GET /ai/daily-briefs`
 - `POST /views`
 - `DELETE /views/{id}`
 - `GET /items?...`

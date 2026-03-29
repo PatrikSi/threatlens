@@ -15,8 +15,12 @@ If neither resolves, the request fails with `401`.
 Defined in `backend/app/core/security.py`:
 
 - Algorithm: `JWT_ALGORITHM` (default `HS256`)
-- Claims used: `sub` (user UUID), `exp` (expiry)
+- Claims used:
+  - `sub` (user UUID)
+  - `exp` (expiry)
+  - `ver` (user auth-token version)
 - Expiry: `JWT_EXPIRES_MINUTES` (default 1440)
+- Password changes increment the user's auth-token version, which invalidates previously issued JWTs and cookie-backed sessions.
 - Browser flow sets:
   - HttpOnly auth cookie (`AUTH_COOKIE_NAME`)
   - CSRF cookie (`AUTH_CSRF_COOKIE_NAME`)
@@ -61,6 +65,7 @@ Resource scopes:
 - `read:alerts`, `write:alerts`
 - `read:tokens`, `write:tokens`
 - `read:notifications`, `write:notifications`
+- `read:ai`, `write:ai`
 - `read:users`, `write:users`
 - `read:audit`
 - `read:stats`
@@ -101,6 +106,7 @@ Evaluation rules:
 | `/alerts/preview` | authenticated user | `read:alerts` and `read:items` |
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
 | `/notifications/*` | authenticated user | `read:notifications` / `write:notifications` |
+| `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
 | `/tagging/*` | `admin` | `read:tags` / `write:tags` |

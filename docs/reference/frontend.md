@@ -24,6 +24,7 @@ Route tree:
   - `/alerts` -> `AlertsPage`
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
+  - `/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
   - `/settings` -> `SettingsLayout`
     - index -> `SettingsOverviewPage`
     - `/settings/account` -> `AccountPage`
@@ -80,6 +81,7 @@ Top navigation links:
 - `Alerts`
 - `Feeds`
 - `Stats`
+- `AI` (admin-only, shown only when AI is enabled)
 - `Settings`
 
 Top-right controls:
@@ -110,6 +112,7 @@ Window types:
 - `rss`
 - `alerts`
 - `notes`
+- `daily_brief`
 
 Snap modes:
 
@@ -136,6 +139,7 @@ Window behaviors:
 - Per-window rename
 - Scratch note persistence for notes windows
 - RSS and alerts filter state is isolated per window and preserved in saved views
+- Daily Brief window selection is isolated per window and preserved in saved views
 
 RSS filter values:
 
@@ -170,6 +174,55 @@ API calls:
 - `GET /items?...`
 - `GET /alerts/matches?...`
 - `GET /items/{id}`
+- `GET /ai/daily-briefs`
+
+AI-enhanced dashboard behavior:
+
+- RSS item detail can render:
+  - AI summary text
+  - AI relevance label and score
+  - AI reasons or error state
+- Daily Brief windows show retained brief history and per-window brief selection
+
+### `AiSettingsPage`
+
+Tabs:
+
+- `Overview`
+- `Activity`
+- `Configuration`
+
+Key UI areas:
+
+- endpoint/model and feature toggles
+- company profile context
+- editable prompt templates and instruction overlays
+- daily brief scheduling and retention
+- scoped AI reprocess controls
+- live running/queued task panel
+- run history and drilldown
+- provider exchange inspection
+- prompt history and manual action history
+
+API calls:
+
+- `GET /ai/settings`
+- `PUT /ai/settings`
+- `POST /ai/test-connection`
+- `GET /ai/usage`
+- `GET /ai/daily-brief/latest`
+- `GET /ai/daily-briefs`
+- `POST /ai/daily-brief/generate`
+- `POST /ai/daily-brief/queue`
+- `POST /ai/reprocess`
+- `GET /ai/ops/overview`
+- `GET /ai/ops/live`
+- `GET /ai/ops/runs`
+- `GET /ai/ops/runs/{id}`
+- `POST /ai/ops/runs/{id}/cancel`
+- `GET /ai/ops/manual-actions`
+- `GET /ai/ops/prompt-history`
+- `GET /ai/daily-briefs/{id}/sources`
 
 ### `AlertsPage`
 

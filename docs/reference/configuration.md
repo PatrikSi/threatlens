@@ -25,6 +25,9 @@
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
 | `ALLOW_SELF_REGISTRATION` (`allow_self_registration`) | `false` | Enables/disables `/auth/register`. |
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
+| `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
+| `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
+| `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs`, `/redoc`, and `/openapi.json` disabled by default in production unless explicitly re-enabled. |
 | `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. |
 | `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
@@ -78,6 +81,7 @@ When `APP_ENV` is `production` or `prod`:
 - `JWT_SECRET` must not be `change-me` and must be at least 32 chars.
 - `ADMIN_PASSWORD` must not remain `admin123`.
 - `AUTH_COOKIE_SECURE` must be `true`.
+- `/docs`, `/redoc`, and `/openapi.json` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
 
 ## Compose Notes
 

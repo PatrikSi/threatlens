@@ -18,9 +18,11 @@ The project is split into a few core services:
 - JWT authentication, browser session cookies, and personal API tokens
 - Audit logging for security-relevant actions
 - Multi-window dashboard with RSS, alerts, and notes panes
+- Optional AI workspace for admin-managed endpoint configuration, task operations, usage stats, and prompt/profile tuning
+- AI item enrichment with per-article summary + relevance scoring, plus a dashboard Daily Brief widget
 - Per-user triage state (read, starred, notes, tags) and saved dashboard views
 - Alert interests with live preview before save
-- Personal webhook notifications with template variables, delivery history, retry, and test-send support
+- Personal webhook notifications with template variables, multi-event delivery history, analytics, retry, and test-send support
 - Admin tagging controls with custom rules, preview, and background reapply
 - Feed scheduling, metadata detection, import/export, and manual refresh controls
 - Article fetching, readable content extraction, classification, and IOC extraction
@@ -155,6 +157,28 @@ curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
   -H "Authorization: Bearer <jwt>"
 ```
 
+## Local Validation
+
+- Backend test suite:
+
+```bash
+./backend/.venv/bin/pytest backend/tests -q
+```
+
+- Frontend production build:
+
+```bash
+docker build -q -f web/Dockerfile web
+```
+
+- Runtime smoke:
+
+```bash
+docker compose up -d --build api worker web
+curl http://localhost:8000/health/ready
+curl http://localhost:3000/api/health/ready
+```
+
 ## API Examples
 
 Log in and capture a JWT:
@@ -201,6 +225,13 @@ curl -X POST http://localhost:8000/notifications/webhooks \
     "body_template": "{\"title\":\"ThreatLens Alert\",\"message\":\"{{ item.title }}\",\"priority\":5}",
     "timeout_seconds": 10
   }'
+```
+
+Queue a Daily Brief after AI is configured:
+
+```bash
+curl -X POST http://localhost:8000/ai/daily-brief/queue \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Preview a custom tagging rule before creating it:
