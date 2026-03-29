@@ -25,6 +25,7 @@ def seed_admin() -> None:
             changed = False
             if settings.seed_admin_reset_password_on_startup:
                 existing.password_hash = get_password_hash(settings.admin_password)
+                existing.auth_token_version = int(existing.auth_token_version or 0) + 1
                 changed = True
             if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
                 existing.role = ROLE_ADMIN

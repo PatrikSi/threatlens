@@ -85,3 +85,4 @@ def test_seed_admin_can_reset_existing_password(db_session, monkeypatch):
     db_session.refresh(existing)
 
     assert verify_password("AdminPass123!", existing.password_hash)
+    assert existing.auth_token_version == 1

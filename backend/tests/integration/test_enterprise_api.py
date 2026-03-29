@@ -639,6 +639,37 @@ def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
 
 
 
+def test_admin_password_reset_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+
+    reset_response = client.patch(
+        f"/users/{viewer.id}",
+        json={"password": "ViewerPass456!"},
+        headers=auth_headers["admin"],
+    )
+    assert reset_response.status_code == 200
+
+    db_session.refresh(viewer)
+    assert viewer.auth_token_version == 1
+
+    stale_session_response = client.get("/auth/me", headers=auth_headers["viewer"])
+    assert stale_session_response.status_code == 401
+    assert stale_session_response.json()["detail"] == "Invalid credentials"
+
+    old_password_login = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass456!"},
+    )
+    assert new_password_login.status_code == 200
+
+
 def test_api_token_flow(client: TestClient, auth_headers):
     create_feed = client.post(
         "/feeds",
