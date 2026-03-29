@@ -145,7 +145,7 @@ const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
-  { value: 'free', label: 'Free' },
+  { value: 'free', label: 'Floating (Advanced)' },
   { value: 'full', label: 'Full' },
   { value: 'left', label: 'Left Half' },
   { value: 'right', label: 'Right Half' },
@@ -154,6 +154,55 @@ const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> 
   { value: 'bottom_left', label: 'Bottom Left' },
   { value: 'bottom_right', label: 'Bottom Right' },
 ]
+
+const WINDOW_TYPE_META: Record<
+  DashboardWindowType,
+  {
+    label: string
+    description: string
+    badgeClassName: string
+    headerClassName: string
+    shellClassName: string
+    panelClassName: string
+  }
+> = {
+  rss: {
+    label: 'RSS Triage',
+    description: 'Track feeds, pivot by tags, and expand into article detail.',
+    badgeClassName:
+      'border-cyan/40 bg-cyan/15 text-cyan dark:border-cyan-800/50 dark:bg-cyan-950/55 dark:text-cyan-200',
+    headerClassName: 'bg-cyan-50/80 dark:bg-cyan-950/18',
+    shellClassName: 'border-cyan-200/60 dark:border-cyan-900/45',
+    panelClassName: 'bg-cyan-50/60 dark:bg-cyan-950/14',
+  },
+  alerts: {
+    label: 'Alert Matches',
+    description: 'Watch keyword-driven matches across your configured interests.',
+    badgeClassName:
+      'border-amber-300/60 bg-amber-100/70 text-amber-800 dark:border-amber-800/45 dark:bg-amber-950/35 dark:text-amber-200',
+    headerClassName: 'bg-amber-50/85 dark:bg-amber-950/14',
+    shellClassName: 'border-amber-200/60 dark:border-amber-900/35',
+    panelClassName: 'bg-amber-50/60 dark:bg-amber-950/14',
+  },
+  notes: {
+    label: 'Notes',
+    description: 'Keep scratch notes, pivots, and hypotheses attached to the workspace.',
+    badgeClassName:
+      'border-slate/30 bg-slate/10 text-slate-700 dark:border-slate-600/45 dark:bg-slate-800/40 dark:text-slate-200',
+    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/22',
+    shellClassName: 'border-slate/25 dark:border-slate-700/40',
+    panelClassName: 'bg-slate-50/65 dark:bg-slate-900/18',
+  },
+  daily_brief: {
+    label: 'Daily Brief',
+    description: 'Review retained AI briefings and the items that shaped them.',
+    badgeClassName:
+      'border-emerald-300/60 bg-emerald-100/70 text-emerald-800 dark:border-emerald-800/45 dark:bg-emerald-950/35 dark:text-emerald-200',
+    headerClassName: 'bg-emerald-50/85 dark:bg-emerald-950/14',
+    shellClassName: 'border-emerald-200/60 dark:border-emerald-900/35',
+    panelClassName: 'bg-emerald-50/60 dark:bg-emerald-950/14',
+  },
+}
 
 function createDefaultRssWindowFilters(showAdvancedFilters = false): DashboardRssWindowFilters {
   return {
@@ -288,6 +337,9 @@ export function DashboardPage() {
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
+  const [openWindowMenuId, setOpenWindowMenuId] = useState<string | null>(null)
+  const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null)
+  const [renameWindowDraft, setRenameWindowDraft] = useState('')
 
   const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
@@ -707,20 +759,31 @@ export function DashboardPage() {
     })
   }
 
-  const renameWindow = (windowId: string) => {
+  const openRenameWindow = (windowId: string) => {
     const target = windows.find((window) => window.id === windowId)
     if (!target) return
 
-    const nextTitle = window.prompt('Rename window', target.title)
-    if (nextTitle === null) return
+    setOpenWindowMenuId(null)
+    setRenamingWindowId(windowId)
+    setRenameWindowDraft(target.title)
+  }
 
-    const normalized = nextTitle.trim().slice(0, 80)
-    if (!normalized) return
+  const saveRenamedWindow = () => {
+    if (!renamingWindowId) {
+      return
+    }
+
+    const normalized = renameWindowDraft.trim().slice(0, 80)
+    if (!normalized) {
+      return
+    }
 
     setActiveSavedViewId(null)
     setWindows((current) =>
-      current.map((window) => (window.id === windowId ? { ...window, title: normalized } : window)),
+      current.map((window) => (window.id === renamingWindowId ? { ...window, title: normalized } : window)),
     )
+    setRenamingWindowId(null)
+    setRenameWindowDraft('')
   }
 
   const toggleWindowControls = (windowId: string) => {
@@ -1166,146 +1229,222 @@ export function DashboardPage() {
       ),
     [containerDimensions.height, containerDimensions.width, viewsQuery.data],
   )
+  const activeSavedView = viewsQuery.data?.find((view) => view.id === activeSavedViewId) ?? null
 
   return (
-    <div className="w-full">
-      <div className="border-b border-slate/20 bg-white/85 px-3 py-2 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
-        <div className="mb-2 flex items-center justify-between gap-2 sm:hidden">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Dashboard Views</p>
+    <div className="flex min-h-[calc(100vh-72px)] w-full flex-col bg-slate-50/60 dark:bg-[#02100c]">
+      <div className="border-b border-slate/20 bg-white/90 px-3 py-4 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/94 sm:px-4 lg:px-6">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate dark:text-white/55">Analyst Workspace</p>
+              <h1 className="font-display text-2xl leading-tight text-ink dark:text-white">Dashboard</h1>
+            </div>
+            <p className="max-w-3xl text-sm text-slate dark:text-white/70">
+              Shape the overall workspace here, then tune each widget locally. Dashboard time applies everywhere unless a widget
+              chooses its own time window.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <WorkspaceStat label="RSS" value={rssWindowCount} tone="cyan" />
+              <WorkspaceStat label="Alerts" value={alertWindowCount} tone="amber" />
+              <WorkspaceStat label="Notes" value={notesWindowCount} tone="slate" />
+              {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="emerald" />}
+              <WorkspaceStat label="View" value={activeSavedView?.name || 'Unsaved workspace'} tone="ink" />
+            </div>
+          </div>
           <button
             type="button"
-            className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+            className="rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40"
             onClick={() => setMobileDashboardViewsOpen((current) => !current)}
             aria-expanded={mobileDashboardViewsOpen}
-            aria-controls="dashboard-views-toolbar"
+            aria-controls="dashboard-workspace-controls"
           >
-            {mobileDashboardViewsOpen ? 'Hide' : 'Show'}
+            {mobileDashboardViewsOpen ? 'Hide Workspace Controls' : 'Show Workspace Controls'}
           </button>
         </div>
+
         <div
-          id="dashboard-views-toolbar"
-          className={`${mobileDashboardViewsOpen ? 'grid' : 'hidden'} gap-2 sm:grid xl:grid-cols-[160px_1fr_auto_auto_auto_auto_auto] xl:items-center`}
+          id="dashboard-workspace-controls"
+          className={`${mobileDashboardViewsOpen ? 'grid' : 'hidden'} mt-4 gap-4 sm:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]`}
         >
-          <p className="hidden text-xs font-semibold uppercase tracking-wide text-slate sm:block dark:text-slate-300">Dashboard Views</p>
-          <input
-            value={savedViewName}
-            onChange={(event) => setSavedViewName(event.target.value)}
-            placeholder="Save dashboard view as..."
-            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
-          />
-          <button
-            type="button"
-            className="w-full rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
-            onClick={saveCurrentView}
-            disabled={saveView.isPending || !savedViewName.trim()}
-          >
-            Save View
-          </button>
-          <button
-            type="button"
-            className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs sm:w-auto dark:border-cyan-900/40"
-            onClick={() => setShowManageViewsModal(true)}
-          >
-            Manage Views
-          </button>
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
-            <select
-              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-              value={dashboardTimeRange}
-              onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
-            >
-              <option value="all">All time</option>
-              <option value="24h">Last 24h</option>
-              <option value="7d">Last 7d</option>
-              <option value="30d">Last 30d</option>
-              <option value="custom">Custom</option>
-            </select>
-            <input
-              type="date"
-              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-              value={dashboardCustomSinceDate}
-              onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
-              disabled={dashboardTimeRange !== 'custom'}
-            />
-            <input
-              type="date"
-              className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-              value={dashboardCustomUntilDate}
-              onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
-              disabled={dashboardTimeRange !== 'custom'}
-            />
-          </div>
-          <div className="relative">
-            <button
-              type="button"
-              className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs sm:w-auto dark:border-cyan-900/40"
-              onClick={() => setShowAddWindowMenu((current) => !current)}
-            >
-              Add Window
-            </button>
-            {showAddWindowMenu && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('rss')}
-                >
-                  RSS Feed Window ({rssWindowCount})
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('alerts')}
-                >
-                  Alerts Window ({alertWindowCount})
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('notes')}
-                >
-                  Notes Window ({notesWindowCount})
-                </button>
-                {aiDailyBriefEnabled && (
+          <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Workspace Scope</p>
+                <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Dashboard time window</h2>
+                <p className="mt-1 text-sm text-slate dark:text-white/70">
+                  Use the global time window as the baseline. RSS and alert widgets can still override it per widget when needed.
+                </p>
+              </div>
+              <span className="rounded-full border border-slate/20 bg-slate/10 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+                {formatDashboardTimeRangeSummary(dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate)}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_1fr]">
+              <select
+                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={dashboardTimeRange}
+                onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
+              >
+                <option value="all">All time</option>
+                <option value="24h">Last 24h</option>
+                <option value="7d">Last 7d</option>
+                <option value="30d">Last 30d</option>
+                <option value="custom">Custom</option>
+              </select>
+              <input
+                type="date"
+                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={dashboardCustomSinceDate}
+                onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
+                disabled={dashboardTimeRange !== 'custom'}
+              />
+              <input
+                type="date"
+                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={dashboardCustomUntilDate}
+                onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+                disabled={dashboardTimeRange !== 'custom'}
+              />
+            </div>
+          </section>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Saved Views</p>
+              <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Manage workspace presets</h2>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                Save the full widget layout and local filters as a reusable dashboard view.
+              </p>
+
+              <div className="mt-4 space-y-3">
+                <input
+                  value={savedViewName}
+                  onChange={(event) => setSavedViewName(event.target.value)}
+                  placeholder="Save current workspace as..."
+                  className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                />
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                    onClick={() => addWindow('daily_brief')}
+                    className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                    onClick={saveCurrentView}
+                    disabled={saveView.isPending || !savedViewName.trim()}
                   >
-                    Daily Brief Window ({dailyBriefWindowCount})
+                    Save Current View
                   </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate/25 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    onClick={() => setShowManageViewsModal(true)}
+                  >
+                    Manage Saved Views
+                  </button>
+                </div>
+                <select
+                  className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={activeSavedViewId ?? ''}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    if (!value) {
+                      setActiveSavedViewId(null)
+                      return
+                    }
+                    const selected = viewsQuery.data?.find((view) => view.id === value)
+                    if (selected) {
+                      applySavedView(selected)
+                    }
+                  }}
+                >
+                  <option value="">Load dashboard view</option>
+                  {viewsQuery.data?.map((view) => (
+                    <option key={view.id} value={view.id}>
+                      {view.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Widgets & Layout</p>
+              <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Grow the workspace deliberately</h2>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                Structured layouts are the primary workspace model. Floating placement stays available per widget under Widget
+                Actions for advanced arrangements.
+              </p>
+
+              <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+                <WorkspacePill label={`RSS ${rssWindowCount}`} tone="cyan" />
+                <WorkspacePill label={`Alerts ${alertWindowCount}`} tone="amber" />
+                <WorkspacePill label={`Notes ${notesWindowCount}`} tone="slate" />
+                {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="emerald" />}
+              </div>
+
+              <div className="mt-4 relative">
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-slate/25 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                  onClick={() => setShowAddWindowMenu((current) => !current)}
+                >
+                  Add Widget
+                </button>
+                {showAddWindowMenu && (
+                  <div className="absolute left-0 top-[calc(100%+8px)] z-30 w-full rounded-xl border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-cyan/10"
+                      onClick={() => addWindow('rss')}
+                    >
+                      RSS Feed Widget
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-cyan/10"
+                      onClick={() => addWindow('alerts')}
+                    >
+                      Alerts Widget
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-cyan/10"
+                      onClick={() => addWindow('notes')}
+                    >
+                      Notes Widget
+                    </button>
+                    {aiDailyBriefEnabled && (
+                      <button
+                        type="button"
+                        className="w-full rounded-lg px-3 py-2 text-left text-sm hover:bg-cyan/10"
+                        onClick={() => addWindow('daily_brief')}
+                      >
+                        Daily Brief Widget
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
-            )}
+            </section>
           </div>
-          <select
-            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-            value={activeSavedViewId ?? ''}
-            onChange={(event) => {
-              const value = event.target.value
-              if (!value) {
-                setActiveSavedViewId(null)
-                return
-              }
-              const selected = viewsQuery.data?.find((view) => view.id === value)
-              if (selected) {
-                applySavedView(selected)
-              }
-            }}
-          >
-            <option value="">Load Dashboard View</option>
-            {viewsQuery.data?.map((view) => (
-              <option key={view.id} value={view.id}>
-                {view.name}
-              </option>
-            ))}
-          </select>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate/20 bg-white/70 px-3 py-3 dark:border-cyan-900/40 dark:bg-[#03140f]/88 sm:px-4 lg:px-6">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Workspace Canvas</p>
+          <p className="mt-1 text-sm text-slate dark:text-white/70">
+            Use widget headers for local actions and filters. Floating placement is tucked into Widget Actions so the canvas stays structured by default.
+          </p>
+        </div>
+        <span className="rounded-full border border-slate/20 bg-slate/10 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+          {isWideLayout ? 'Structured canvas' : 'Stacked mobile workspace'}
+        </span>
       </div>
 
       <div
         ref={rootRef}
-        className={`${isWideLayout ? 'relative h-[calc(100vh-138px)] min-h-[620px] w-full overflow-hidden' : 'space-y-3 p-3'}`}
+        className={`${isWideLayout ? 'relative min-h-[620px] flex-1 w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-3 px-3 py-3 sm:px-4 lg:px-6'}`}
       >
         {windows.map((windowLayout) => {
           const resolvedRect =
@@ -1336,9 +1475,12 @@ export function DashboardPage() {
             windowLayout.type === 'alerts'
               ? Math.max(1, Math.ceil((alertQuery?.data?.total ?? 0) / Math.max(1, alertFilters.page_size)))
               : 1
+          const windowMeta = WINDOW_TYPE_META[windowLayout.type]
+          const windowTimeSummary = formatWindowTimeSummary(windowLayout, dashboardTimeFilter)
+          const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters)
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
-          const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border border-slate/20 bg-white/85 text-[13px] dark:border-cyan-900/40 dark:bg-[#041612]/96 ${
+          const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border bg-white/90 text-[13px] dark:bg-[#041612]/96 ${windowMeta.shellClassName} ${
             snapped ? 'rounded-none shadow-none' : 'rounded-xl shadow-lg shadow-slate-400/15 dark:shadow-cyan-950/40'
           }`
 
@@ -1359,20 +1501,28 @@ export function DashboardPage() {
               onMouseDown={() => bringWindowToFront(windowLayout.id)}
             >
               <div
-                className="flex flex-col gap-2 border-b border-slate/20 px-3 py-2 sm:flex-row sm:items-center sm:justify-between dark:border-cyan-900/40"
+                className={`flex flex-col gap-3 border-b border-slate/20 px-3 py-3 dark:border-cyan-900/40 ${windowMeta.headerClassName}`}
                 onMouseDown={(event) => startWindowDrag(event, windowLayout.id)}
               >
-                <div>
-                  <h2 className="font-display text-lg leading-tight">{windowLayout.title}</h2>
-                  {windowLayout.type === 'rss' ? (
-                    <p className="text-xs text-slate dark:text-slate-300">RSS feed triage with saved filters and notes.</p>
-                  ) : windowLayout.type === 'alerts' ? (
-                    <p className="text-xs text-slate dark:text-slate-300">Keyword-driven matching against your configured alert interests.</p>
-                  ) : windowLayout.type === 'daily_brief' ? (
-                    <p className="text-xs text-slate dark:text-slate-300">AI-generated daily briefing for the current corpus and company profile.</p>
-                  ) : (
-                    <p className="text-xs text-slate dark:text-slate-300">Scratch notes persisted in dashboard layout and saved views.</p>
-                  )}
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${windowMeta.badgeClassName}`}>
+                      {windowMeta.label}
+                    </span>
+                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      {formatWindowSnapLabel(windowLayout.snap)}
+                    </span>
+                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      {windowTimeSummary}
+                    </span>
+                    {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && activeLocalFilterCount > 0 && (
+                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                        {activeLocalFilterCount} local filters
+                      </span>
+                    )}
+                  </div>
+                  <h2 className="mt-2 font-display text-lg leading-tight text-ink dark:text-white">{windowLayout.title}</h2>
+                  <p className="mt-1 text-xs text-slate dark:text-white/70">{windowMeta.description}</p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end" onMouseDown={(event) => event.stopPropagation()}>
                   {windowLayout.type === 'alerts' && (
@@ -1410,42 +1560,68 @@ export function DashboardPage() {
                       className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
                       onClick={() => toggleWindowControls(windowLayout.id)}
                     >
-                      {windowLayout.controls_collapsed ? 'Expand Filters' : 'Collapse Filters'}
+                      {windowLayout.controls_collapsed ? 'Show Filters' : 'Hide Filters'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
-                    onClick={() => renameWindow(windowLayout.id)}
-                  >
-                    Rename
-                  </button>
-                  <select
-                    className="hidden rounded border border-slate/25 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#041612]"
-                    value={windowLayout.snap}
-                    onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
-                  >
-                    {WINDOW_SNAP_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className="rounded border border-slate/25 px-2 py-1 text-xs text-red-600 disabled:opacity-40 dark:border-cyan-900/40"
-                    disabled={windows.length <= 1}
-                    onClick={() => removeWindow(windowLayout.id)}
-                  >
-                    Close
-                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      className="rounded border border-slate/25 px-2 py-1 text-xs font-semibold dark:border-cyan-900/40"
+                      onClick={() =>
+                        setOpenWindowMenuId((current) => (current === windowLayout.id ? null : windowLayout.id))
+                      }
+                    >
+                      Widget Actions
+                    </button>
+                    {openWindowMenuId === windowLayout.id && (
+                      <div
+                        className="absolute right-0 top-[calc(100%+8px)] z-30 w-64 rounded-xl border border-slate/20 bg-white p-3 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]"
+                        onMouseDown={(event) => event.stopPropagation()}
+                      >
+                        <div className="space-y-3">
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate dark:text-white/55">Placement</p>
+                            <select
+                              className="mt-1 w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                              value={windowLayout.snap}
+                              onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
+                            >
+                              {WINDOW_SNAP_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg border border-slate/25 px-3 py-2 text-left text-sm font-semibold dark:border-cyan-900/40"
+                            onClick={() => openRenameWindow(windowLayout.id)}
+                          >
+                            Rename widget
+                          </button>
+                          <button
+                            type="button"
+                            className="w-full rounded-lg border border-slate/25 px-3 py-2 text-left text-sm font-semibold text-red-600 disabled:opacity-40 dark:border-cyan-900/40"
+                            disabled={windows.length <= 1}
+                            onClick={() => {
+                              setOpenWindowMenuId(null)
+                              removeWindow(windowLayout.id)
+                            }}
+                          >
+                            Close widget
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
               {windowLayout.type === 'rss' ? (
                 <>
                   {!windowLayout.controls_collapsed && (
-                    <div className="border-b border-slate/20 px-3 py-1.5 dark:border-cyan-900/40">
+                    <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
                       <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                       <button
                         type="button"
@@ -1902,7 +2078,7 @@ export function DashboardPage() {
               ) : windowLayout.type === 'alerts' ? (
                 <>
                   {!windowLayout.controls_collapsed && (
-                    <div className="border-b border-slate/20 px-3 py-1.5 dark:border-cyan-900/40">
+                    <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
                       <button
                         type="button"
@@ -2142,7 +2318,7 @@ export function DashboardPage() {
                   </div>
                 </>
               ) : windowLayout.type === 'daily_brief' ? (
-                <div className="flex min-h-0 flex-1 flex-col p-3">
+                <div className={`flex min-h-0 flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
                   {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
                   {dailyBriefHistoryQuery.isError && (
                     <p className="text-sm text-red-600">
@@ -2247,7 +2423,7 @@ export function DashboardPage() {
                   })()}
                 </div>
               ) : (
-                <div className="flex flex-1 flex-col p-3">
+                <div className={`flex flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
                   <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Scratch Notes</label>
                   <textarea
                     className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -2271,6 +2447,74 @@ export function DashboardPage() {
           )
         })}
       </div>
+
+      {renamingWindowId && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3">
+          <div className="w-full max-w-md rounded-2xl border border-slate/20 bg-white p-4 shadow-xl dark:border-cyan-900/40 dark:bg-[#041612]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Widget Settings</p>
+                <h3 className="mt-1 font-display text-xl text-ink dark:text-white">Rename widget</h3>
+                <p className="mt-1 text-sm text-slate dark:text-white/70">
+                  Give this widget a clearer label without leaving the workspace context.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                onClick={() => {
+                  setRenamingWindowId(null)
+                  setRenameWindowDraft('')
+                }}
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <input
+                autoFocus
+                value={renameWindowDraft}
+                onChange={(event) => setRenameWindowDraft(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault()
+                    saveRenamedWindow()
+                  }
+                  if (event.key === 'Escape') {
+                    setRenamingWindowId(null)
+                    setRenameWindowDraft('')
+                  }
+                }}
+                maxLength={80}
+                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-slate dark:text-white/60">Up to 80 characters. Saved with the dashboard view.</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-slate/25 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    onClick={() => {
+                      setRenamingWindowId(null)
+                      setRenameWindowDraft('')
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
+                    onClick={saveRenamedWindow}
+                  >
+                    Save Title
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showManageViewsModal && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3">
@@ -2619,6 +2863,96 @@ function thumbnailWindowTone(type: DashboardWindowType): string {
   if (type === 'alerts') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
   if (type === 'daily_brief') return 'border-emerald-500/40 bg-emerald-400/30 dark:bg-emerald-500/35'
   return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
+}
+
+function WorkspaceStat({ label, value, tone }: { label: string; value: number | string; tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink' }) {
+  return (
+    <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${workspaceToneClassName(tone)}`}>
+      <span className="mr-1 uppercase tracking-wide opacity-75">{label}</span>
+      <span>{value}</span>
+    </span>
+  )
+}
+
+function WorkspacePill({ label, tone }: { label: string; tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink' }) {
+  return <span className={`rounded-full border px-2.5 py-1 font-semibold ${workspaceToneClassName(tone)}`}>{label}</span>
+}
+
+function workspaceToneClassName(tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink') {
+  if (tone === 'cyan') {
+    return 'border-cyan/30 bg-cyan/10 text-cyan dark:border-cyan-800/40 dark:bg-cyan-950/35 dark:text-cyan-200'
+  }
+  if (tone === 'amber') {
+    return 'border-amber-300/40 bg-amber-100/60 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/35 dark:text-amber-200'
+  }
+  if (tone === 'emerald') {
+    return 'border-emerald-300/40 bg-emerald-100/60 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/35 dark:text-emerald-200'
+  }
+  if (tone === 'ink') {
+    return 'border-slate/25 bg-slate/10 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70'
+  }
+  return 'border-slate/25 bg-slate/10 text-slate-700 dark:border-slate-700/40 dark:bg-slate-900/25 dark:text-slate-200'
+}
+
+function formatDashboardTimeRangeSummary(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string) {
+  if (timeRange === 'all') return 'All time'
+  if (timeRange === '24h') return 'Last 24h'
+  if (timeRange === '7d') return 'Last 7d'
+  if (timeRange === '30d') return 'Last 30d'
+  if (customSinceDate && customUntilDate) return `Custom ${customSinceDate} to ${customUntilDate}`
+  if (customSinceDate) return `Custom from ${customSinceDate}`
+  if (customUntilDate) return `Custom until ${customUntilDate}`
+  return 'Custom window'
+}
+
+function countActiveWindowFilters(
+  windowLayout: DashboardWindow,
+  rssFilters: DashboardRssWindowFilters,
+  alertFilters: DashboardAlertWindowFilters,
+) {
+  if (windowLayout.type === 'rss') {
+    return (
+      rssFilters.selected_feed_ids.length +
+      rssFilters.selected_tags.length +
+      (rssFilters.q.trim() ? 1 : 0) +
+      (rssFilters.read_status !== 'all' ? 1 : 0) +
+      (rssFilters.star_status !== 'all' ? 1 : 0)
+    )
+  }
+
+  if (windowLayout.type === 'alerts') {
+    return alertFilters.selected_alert_ids.length + alertFilters.selected_categories.length + (alertFilters.q.trim() ? 1 : 0)
+  }
+
+  return 0
+}
+
+function formatWindowSnapLabel(snap: DashboardWindowSnap) {
+  return WINDOW_SNAP_OPTIONS.find((option) => option.value === snap)?.label ?? 'Placement'
+}
+
+function formatWindowTimeSummary(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter) {
+  if (windowLayout.type === 'notes') {
+    return 'Saved with view'
+  }
+
+  if (windowLayout.type === 'daily_brief') {
+    return 'Brief snapshots'
+  }
+
+  if (!windowLayout.time_override) {
+    return `Scope: ${formatDashboardTimeRangeSummary(
+      dashboardTimeFilter.time_range,
+      dashboardTimeFilter.custom_since_date,
+      dashboardTimeFilter.custom_until_date,
+    )}`
+  }
+
+  return `Scope: ${formatDashboardTimeRangeSummary(
+    windowLayout.time_override.time_range,
+    windowLayout.time_override.custom_since_date,
+    windowLayout.time_override.custom_until_date,
+  )}`
 }
 
 function loadWindowSeenState(): Record<string, string> {

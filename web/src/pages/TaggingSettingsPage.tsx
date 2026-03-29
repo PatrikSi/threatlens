@@ -207,7 +207,8 @@ export function TaggingSettingsPage() {
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h2 className="font-display text-xl">Custom Tagging</h2>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
+        <h2 className="mt-1 font-display text-xl">Custom Tagging</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">
           Tune the built-in auto-tagging behavior and add custom rules that create new tags from article content.
         </p>
