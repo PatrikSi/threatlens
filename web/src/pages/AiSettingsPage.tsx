@@ -448,7 +448,8 @@ export function AiSettingsPage() {
   if (!aiEnabled) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h2 className="font-display text-xl">AI</h2>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
+        <h2 className="mt-1 font-display text-xl">AI & Briefing</h2>
         <p className="mt-2 text-sm text-slate dark:text-white/75">
           AI features are disabled by the deployment configuration. Enable `AI_ENABLED=true` and restart ThreatLens to use
           this section.
@@ -462,8 +463,9 @@ export function AiSettingsPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-start gap-3">
           <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-display text-2xl">AI</h2>
+              <h2 className="font-display text-2xl">AI & Briefing</h2>
               <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
                 {settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'}
               </span>
@@ -491,16 +493,16 @@ export function AiSettingsPage() {
 
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-          <h3 className="font-display text-xl">AI Workspace</h3>
+          <h3 className="font-display text-xl">Automation Console</h3>
           <p className="mt-1 text-sm text-slate dark:text-white/70">
-            Use the sections below to review health, work with queued jobs, and manage provider settings.
+            Review status, work with queued jobs, and manage provider settings without leaving the settings area.
           </p>
           <nav className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
             <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} fullWidth>
-              Overview
+              Status
             </TabButton>
             <TabButton active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} fullWidth>
-              Operations
+              Jobs
             </TabButton>
             <TabButton active={activeTab === 'configuration'} onClick={() => setActiveTab('configuration')} fullWidth>
               Configuration
