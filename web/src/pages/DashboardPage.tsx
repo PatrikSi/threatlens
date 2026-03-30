@@ -202,10 +202,10 @@ const WINDOW_TYPE_META: Record<
     label: 'Daily Brief',
     description: 'Review retained AI briefings and the items that shaped them.',
     badgeClassName:
-      'border-violet-300/60 bg-violet-100/70 text-violet-800 dark:border-violet-800/45 dark:bg-violet-950/35 dark:text-violet-200',
-    headerClassName: 'bg-violet-50/85 dark:bg-violet-950/14',
-    shellClassName: 'border-violet-200/60 dark:border-violet-900/35',
-    panelClassName: 'bg-violet-50/60 dark:bg-violet-950/14',
+      'border-slate/25 bg-white/80 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70',
+    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/18',
+    shellClassName: 'border-slate/25 dark:border-cyan-900/40',
+    panelClassName: 'bg-slate-50/65 dark:bg-slate-900/14',
   },
 }
 
@@ -1316,7 +1316,7 @@ export function DashboardPage() {
                 <WorkspaceStat label="RSS" value={rssWindowCount} tone="cyan" />
                 <WorkspaceStat label="Alerts" value={alertWindowCount} tone="amber" />
                 <WorkspaceStat label="Notes" value={notesWindowCount} tone="slate" />
-                {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="violet" />}
+                {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="ink" />}
                 <WorkspaceStat label="View" value={activeSavedView?.name || 'Unsaved'} tone="ink" />
               </div>
             </div>
@@ -1452,7 +1452,7 @@ export function DashboardPage() {
                   <WorkspacePill label={`RSS ${rssWindowCount}`} tone="cyan" />
                   <WorkspacePill label={`Alerts ${alertWindowCount}`} tone="amber" />
                   <WorkspacePill label={`Notes ${notesWindowCount}`} tone="slate" />
-                  {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="violet" />}
+                  {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="ink" />}
                 </div>
               </div>
 
@@ -2433,7 +2433,7 @@ export function DashboardPage() {
 
                     return (
                     <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-                      <div className="rounded border border-violet-200/70 bg-violet-50/70 p-3 dark:border-violet-900/30 dark:bg-violet-950/18">
+                      <div className="rounded border border-cyan/15 bg-cyan/5 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
                             <span className="text-xs font-medium text-slate dark:text-white/55">Briefing</span>
@@ -2460,7 +2460,7 @@ export function DashboardPage() {
                       </div>
 
                       {selectedBrief.key_points.length > 0 && (
-                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-medium text-slate dark:text-slate-300">Key points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.key_points.map((point, index) => (
@@ -2471,7 +2471,7 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.recommended_actions.length > 0 && (
-                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-medium text-slate dark:text-slate-300">Recommended actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.recommended_actions.map((action, index) => (
@@ -2482,17 +2482,17 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.items.length > 0 && (
-                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-medium text-slate dark:text-slate-300">Referenced items</p>
                           <div className="mt-2 space-y-2">
                             {selectedBrief.items.map((item) => (
-                              <article key={item.id} className="rounded border border-violet-200/60 p-2 dark:border-violet-900/30">
+                              <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
                                 <div className="flex items-start justify-between gap-2">
                                   <a
                                     href={item.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="text-sm font-semibold hover:text-violet-700 hover:underline dark:hover:text-violet-200"
+                                    className="text-sm font-semibold hover:text-cyan hover:underline dark:hover:text-cyan-200"
                                   >
                                     {item.title}
                                   </a>
@@ -2956,7 +2956,7 @@ function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
 function thumbnailWindowTone(type: DashboardWindowType): string {
   if (type === 'rss') return 'border-cyan-500/40 bg-cyan-400/30 dark:bg-cyan-500/35'
   if (type === 'alerts') return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
-  if (type === 'daily_brief') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
+  if (type === 'daily_brief') return 'border-slate-400/45 bg-slate-200/70 dark:border-cyan-900/40 dark:bg-cyan-500/20'
   return 'border-slate-400/40 bg-slate-300/45 dark:border-slate-600/45 dark:bg-slate-500/30'
 }
 
