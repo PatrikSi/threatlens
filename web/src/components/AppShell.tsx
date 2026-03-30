@@ -12,7 +12,6 @@ const NAV_LINKS = [
   { to: '/alerts', label: 'Alerts' },
   { to: '/feeds', label: 'Feeds' },
   { to: '/stats', label: 'Stats' },
-  { to: '/ai', label: 'AI', adminOnly: true, requiresAi: true },
   { to: '/settings', label: 'Settings' },
 ]
 
@@ -25,15 +24,7 @@ export function AppShell() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   const isDashboardRoute = location.pathname === '/'
-  const navLinks = NAV_LINKS.filter((link) => {
-    if (link.adminOnly && meQuery.data?.role !== 'admin') {
-      return false
-    }
-    if (link.requiresAi && !meQuery.data?.features.ai_enabled) {
-      return false
-    }
-    return true
-  })
+  const navLinks = NAV_LINKS
 
   const logout = useMutation({
     mutationFn: () => apiFetch('/auth/logout', { method: 'POST' }),

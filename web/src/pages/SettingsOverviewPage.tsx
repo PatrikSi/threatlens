@@ -41,7 +41,7 @@ export function SettingsOverviewPage() {
           availability={role === 'admin' ? 'Notifications for everyone, AI and tagging for admins' : 'Notifications available to you'}
           links={[
             { to: '/settings/notifications', label: 'Open Notifications' },
-            ...(role === 'admin' && aiEnabled ? [{ to: '/ai', label: 'Open AI & Briefing' }] : []),
+            ...(role === 'admin' && aiEnabled ? [{ to: '/settings/ai', label: 'Open AI Settings' }] : []),
             ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Open Tagging' }] : []),
           ]}
           items={[
