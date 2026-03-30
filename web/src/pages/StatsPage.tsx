@@ -535,8 +535,8 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
       </div>
       {dates.length > 0 && (
         <div className="mt-1 flex items-center justify-between text-[11px] text-slate dark:text-slate-300">
-          <span>{dates[0]}</span>
-          <span>{dates[dates.length - 1]}</span>
+          <span>{displayDates[0]}</span>
+          <span>{displayDates[displayDates.length - 1]}</span>
         </div>
       )}
     </div>
@@ -669,7 +669,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                             const bounds = panelRef.current?.getBoundingClientRect()
                             if (!bounds) return
                             setHovered({
-                              label: cell.day,
+                              label: formatDateOnly(cell.day),
                               count: cell.count,
                               intensityPct: (cell.count / maxCount) * 100,
                               x: event.clientX - bounds.left,
@@ -897,7 +897,7 @@ function buildDailyCalendar(rows: StatsActivityHeatmapResponse['rows']): DailyCa
     const candidateDate = parseIsoDay(candidate.day)
     const monthKey = `${candidateDate.getUTCFullYear()}-${candidateDate.getUTCMonth()}`
     if (monthKey === lastMonthKey) continue
-    monthLabels.set(weekIndex, candidateDate.toLocaleDateString(undefined, { month: 'short' }))
+    monthLabels.set(weekIndex, new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' }).format(candidateDate))
     lastMonthKey = monthKey
   }
 
