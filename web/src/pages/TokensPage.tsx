@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { ApiToken, ApiTokenCreateResponse } from '../types/api'
+import { formatDateTime } from '../utils/datetime'
 
 export function TokensPage() {
   const queryClient = useQueryClient()
@@ -144,10 +145,10 @@ export function TokensPage() {
               </div>
               <p className="mt-1 text-xs text-slate dark:text-slate-300">Scopes: {token.scopes.join(', ') || 'none'}</p>
               <p className="mt-1 text-xs text-slate dark:text-slate-300">
-                Expires: {token.expires_at ? new Date(token.expires_at).toLocaleString() : 'Never'}
+                Expires: {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
               </p>
               <p className="mt-1 text-xs text-slate dark:text-slate-300">
-                Last used: {token.last_used_at ? new Date(token.last_used_at).toLocaleString() : 'Never'}
+                Last used: {token.last_used_at ? formatDateTime(token.last_used_at) : 'Never'}
               </p>
             </div>
           ))}

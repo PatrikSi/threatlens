@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
   AIAuditEntryResponse,
   AIDailyBriefSourceItemResponse,
@@ -2500,8 +2501,8 @@ function TimeSeriesBars({
         })}
       </div>
       <div className="flex justify-between gap-2 text-[11px] text-slate dark:text-white/55">
-        <span>{String(points[0]?.bucket || '')}</span>
-        <span>{String(points[points.length - 1]?.bucket || '')}</span>
+        <span>{points[0]?.bucket ? formatDateOnly(String(points[0].bucket)) : ''}</span>
+        <span>{points[points.length - 1]?.bucket ? formatDateOnly(String(points[points.length - 1].bucket)) : ''}</span>
       </div>
     </div>
   )
@@ -2740,14 +2741,7 @@ function updateDraft<K extends keyof AISettingsDraft>(
 }
 
 function formatTimestamp(value: string | null | undefined) {
-  if (!value) {
-    return 'unknown'
-  }
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-  return parsed.toLocaleString()
+  return value ? formatDateTime(value) : 'unknown'
 }
 
 function formatTaskTypeLabel(value: string) {

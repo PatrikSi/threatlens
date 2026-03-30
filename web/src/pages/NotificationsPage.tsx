@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { formatDateTime } from '../utils/datetime'
 import {
   Feed,
   NotificationAnalyticsResponse,
@@ -1212,11 +1213,7 @@ function describeDeliveryStatus(delivery: NotificationWebhookDelivery): string {
 }
 
 function formatTimestamp(value: string): string {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-  return parsed.toLocaleString()
+  return formatDateTime(value)
 }
 
 function formatFailureRate(failedDeliveries: number, totalDeliveries: number): string {

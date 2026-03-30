@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { AuditLogExportResponse, AuditLogListResponse } from '../types/api'
+import { formatDateTime } from '../utils/datetime'
 
 export function AuditLogsPage() {
   const [action, setAction] = useState('')
@@ -109,7 +110,7 @@ export function AuditLogsPage() {
           <tbody>
             {auditQuery.data?.logs.map((log) => (
               <tr key={log.id} className="border-b border-slate/10 dark:border-cyan-950/40">
-                <td className="px-2 py-2 whitespace-nowrap">{new Date(log.created_at).toLocaleString()}</td>
+                <td className="px-2 py-2 whitespace-nowrap">{formatDateTime(log.created_at)}</td>
                 <td className="px-2 py-2 font-mono text-xs">{log.action}</td>
                 <td className="px-2 py-2">
                   {log.resource_type}

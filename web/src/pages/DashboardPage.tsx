@@ -4,6 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
+import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
   AIDailyBrief,
   AlertInterest,
@@ -16,7 +17,7 @@ import {
   Tag,
 } from '../types/api'
 
-type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'custom'
+type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'days' | 'custom'
 type ReadStatusFilter = 'all' | 'read' | 'unread'
 type StarStatusFilter = 'all' | 'starred' | 'unstarred'
 type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
@@ -28,6 +29,7 @@ type WindowTimeFilter = {
   time_range: TimeRangeFilter
   custom_since_date: string
   custom_until_date: string
+  rolling_days: string
 }
 
 type PanelRect = {
@@ -85,6 +87,7 @@ interface DashboardSavedViewQuery {
   time_range: TimeRangeFilter
   custom_since_date: string
   custom_until_date: string
+  rolling_days: string
   sort: TimeSort
 }
 
@@ -97,6 +100,7 @@ interface DashboardAlertViewQuery {
   time_range: TimeRangeFilter
   custom_since_date: string
   custom_until_date: string
+  rolling_days: string
   sort: TimeSort
 }
 
@@ -137,6 +141,7 @@ const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
 const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
+const DEFAULT_ROLLING_DAYS = '7'
 const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
@@ -197,10 +202,10 @@ const WINDOW_TYPE_META: Record<
     label: 'Daily Brief',
     description: 'Review retained AI briefings and the items that shaped them.',
     badgeClassName:
-      'border-emerald-300/60 bg-emerald-100/70 text-emerald-800 dark:border-emerald-800/45 dark:bg-emerald-950/35 dark:text-emerald-200',
-    headerClassName: 'bg-emerald-50/85 dark:bg-emerald-950/14',
-    shellClassName: 'border-emerald-200/60 dark:border-emerald-900/35',
-    panelClassName: 'bg-emerald-50/60 dark:bg-emerald-950/14',
+      'border-violet-300/60 bg-violet-100/70 text-violet-800 dark:border-violet-800/45 dark:bg-violet-950/35 dark:text-violet-200',
+    headerClassName: 'bg-violet-50/85 dark:bg-violet-950/14',
+    shellClassName: 'border-violet-200/60 dark:border-violet-900/35',
+    panelClassName: 'bg-violet-50/60 dark:bg-violet-950/14',
   },
 }
 
@@ -327,6 +332,7 @@ export function DashboardPage() {
   const [dashboardTimeRange, setDashboardTimeRange] = useState<TimeRangeFilter>('all')
   const [dashboardCustomSinceDate, setDashboardCustomSinceDate] = useState('')
   const [dashboardCustomUntilDate, setDashboardCustomUntilDate] = useState('')
+  const [dashboardRollingDays, setDashboardRollingDays] = useState(DEFAULT_ROLLING_DAYS)
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
@@ -457,8 +463,9 @@ export function DashboardPage() {
       time_range: dashboardTimeRange,
       custom_since_date: dashboardCustomSinceDate,
       custom_until_date: dashboardCustomUntilDate,
+      rolling_days: dashboardRollingDays,
     }),
-    [dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate],
+    [dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays],
   )
 
   const rssWindows = useMemo(
@@ -558,6 +565,7 @@ export function DashboardPage() {
         effectiveWindowTimeFilter.time_range,
         effectiveWindowTimeFilter.custom_since_date,
         effectiveWindowTimeFilter.custom_until_date,
+        effectiveWindowTimeFilter.rolling_days,
       )
 
       return {
@@ -608,6 +616,7 @@ export function DashboardPage() {
         effectiveWindowTimeFilter.time_range,
         effectiveWindowTimeFilter.custom_since_date,
         effectiveWindowTimeFilter.custom_until_date,
+        effectiveWindowTimeFilter.rolling_days,
       )
 
       return {
@@ -940,6 +949,7 @@ export function DashboardPage() {
         time_range: dashboardTimeRange,
         custom_since_date: dashboardCustomSinceDate,
         custom_until_date: dashboardCustomUntilDate,
+        rolling_days: dashboardRollingDays,
       }),
     })
   }
@@ -948,17 +958,25 @@ export function DashboardPage() {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
     const nextDashboardTimeRange =
-      parsed.rss_filters.time_range !== 'all' || parsed.rss_filters.custom_since_date || parsed.rss_filters.custom_until_date
+      parsed.rss_filters.time_range !== 'all' ||
+      parsed.rss_filters.custom_since_date ||
+      parsed.rss_filters.custom_until_date ||
+      parsed.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
         ? parsed.rss_filters.time_range
         : parsed.alert_filters.time_range
     const nextDashboardCustomSinceDate =
       parsed.rss_filters.custom_since_date || parsed.alert_filters.custom_since_date || ''
     const nextDashboardCustomUntilDate =
       parsed.rss_filters.custom_until_date || parsed.alert_filters.custom_until_date || ''
+    const nextDashboardRollingDays =
+      parsed.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
+        ? parsed.rss_filters.rolling_days
+        : parsed.alert_filters.rolling_days || DEFAULT_ROLLING_DAYS
 
     setDashboardTimeRange(nextDashboardTimeRange)
     setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
     setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
+    setDashboardRollingDays(nextDashboardRollingDays)
     setWindows(parsed.windows)
     setActiveSavedViewId(view.id)
   }
@@ -1139,6 +1157,13 @@ export function DashboardPage() {
     setDashboardCustomUntilDate(nextDate)
   }
 
+  const updateDashboardRollingDaysValue = (nextValue: string) => {
+    setActiveSavedViewId(null)
+    resetAllWindowPages()
+    setDashboardTimeRange('days')
+    setDashboardRollingDays(normalizeRollingDaysInput(nextValue))
+  }
+
   const updateWindowTimeRange = (windowId: string, nextValue: string) => {
     setActiveSavedViewId(null)
     setWindows((current) =>
@@ -1217,6 +1242,41 @@ export function DashboardPage() {
     )
   }
 
+  const updateWindowRollingDays = (windowId: string, value: string) => {
+    const normalized = normalizeRollingDaysInput(value)
+    setActiveSavedViewId(null)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
+          return window
+        }
+
+        const base = window.time_override ?? dashboardTimeFilter
+        return {
+          ...window,
+          ...(window.type === 'rss'
+            ? {
+                rss_filters: {
+                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+                  page: 1,
+                },
+              }
+            : {
+                alert_filters: {
+                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+                  page: 1,
+                },
+              }),
+          time_override: {
+            ...base,
+            time_range: 'days',
+            rolling_days: normalized,
+          },
+        }
+      }),
+    )
+  }
+
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
@@ -1237,7 +1297,7 @@ export function DashboardPage() {
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-2">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate dark:text-white/55">Analyst Workspace</p>
+              <p className="text-xs font-medium text-slate dark:text-white/55">Analyst workspace</p>
               <h1 className="font-display text-2xl leading-tight text-ink dark:text-white">Dashboard</h1>
             </div>
             <p className="max-w-3xl text-sm text-slate dark:text-white/70">
@@ -1248,7 +1308,7 @@ export function DashboardPage() {
               <WorkspaceStat label="RSS" value={rssWindowCount} tone="cyan" />
               <WorkspaceStat label="Alerts" value={alertWindowCount} tone="amber" />
               <WorkspaceStat label="Notes" value={notesWindowCount} tone="slate" />
-              {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="emerald" />}
+              {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="violet" />}
               <WorkspaceStat label="View" value={activeSavedView?.name || 'Unsaved workspace'} tone="ink" />
             </div>
           </div>
@@ -1270,20 +1330,20 @@ export function DashboardPage() {
           <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Workspace Scope</p>
+                <p className="text-xs font-medium text-slate dark:text-white/55">Workspace scope</p>
                 <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Dashboard time window</h2>
                 <p className="mt-1 text-sm text-slate dark:text-white/70">
                   Use the global time window as the baseline. RSS and alert widgets can still override it per widget when needed.
                 </p>
               </div>
               <span className="rounded-full border border-slate/20 bg-slate/10 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
-                {formatDashboardTimeRangeSummary(dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate)}
+                {formatDashboardTimeRangeSummary(dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays)}
               </span>
             </div>
 
             <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_1fr]">
               <select
-                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 value={dashboardTimeRange}
                 onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
               >
@@ -1291,28 +1351,50 @@ export function DashboardPage() {
                 <option value="24h">Last 24h</option>
                 <option value="7d">Last 7d</option>
                 <option value="30d">Last 30d</option>
+                <option value="days">Last X days</option>
                 <option value="custom">Custom</option>
               </select>
-              <input
-                type="date"
-                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
-                value={dashboardCustomSinceDate}
-                onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
-                disabled={dashboardTimeRange !== 'custom'}
-              />
-              <input
-                type="date"
-                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
-                value={dashboardCustomUntilDate}
-                onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
-                disabled={dashboardTimeRange !== 'custom'}
-              />
+              {dashboardTimeRange === 'days' ? (
+                <label className="flex h-10 items-center rounded-lg border border-slate/25 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]">
+                  <span className="mr-2 text-slate dark:text-white/60">Last</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={dashboardRollingDays}
+                    onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
+                    className="w-full bg-transparent outline-none"
+                  />
+                  <span className="ml-2 whitespace-nowrap text-slate dark:text-white/60">days</span>
+                </label>
+              ) : (
+                <input
+                  type="date"
+                  className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={dashboardCustomSinceDate}
+                  onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
+                  disabled={dashboardTimeRange !== 'custom'}
+                />
+              )}
+              {dashboardTimeRange === 'days' ? (
+                <div className="flex h-10 items-center rounded-lg border border-slate/20 bg-slate/10 px-3 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+                  {formatRollingWindowHint(dashboardRollingDays)}
+                </div>
+              ) : (
+                <input
+                  type="date"
+                  className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={dashboardCustomUntilDate}
+                  onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+                  disabled={dashboardTimeRange !== 'custom'}
+                />
+              )}
             </div>
           </section>
 
           <div className="grid gap-4 lg:grid-cols-2">
             <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Saved Views</p>
+              <p className="text-xs font-medium text-slate dark:text-white/55">Saved views</p>
               <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Manage workspace presets</h2>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
                 Save the full widget layout and local filters as a reusable dashboard view.
@@ -1323,12 +1405,12 @@ export function DashboardPage() {
                   value={savedViewName}
                   onChange={(event) => setSavedViewName(event.target.value)}
                   placeholder="Save current workspace as..."
-                  className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                  className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 />
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                    className="h-10 rounded-lg bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
                     onClick={saveCurrentView}
                     disabled={saveView.isPending || !savedViewName.trim()}
                   >
@@ -1336,14 +1418,14 @@ export function DashboardPage() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg border border-slate/25 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    className="h-10 rounded-lg border border-slate/25 px-3 text-xs font-semibold dark:border-cyan-900/40"
                     onClick={() => setShowManageViewsModal(true)}
                   >
                     Manage Saved Views
                   </button>
                 </div>
                 <select
-                  className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                  className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={activeSavedViewId ?? ''}
                   onChange={(event) => {
                     const value = event.target.value
@@ -1368,7 +1450,7 @@ export function DashboardPage() {
             </section>
 
             <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Widgets & Layout</p>
+              <p className="text-xs font-medium text-slate dark:text-white/55">Widgets and layout</p>
               <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Grow the workspace deliberately</h2>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
                 Structured layouts are the primary workspace model. Floating placement stays available per widget under Widget
@@ -1379,13 +1461,13 @@ export function DashboardPage() {
                 <WorkspacePill label={`RSS ${rssWindowCount}`} tone="cyan" />
                 <WorkspacePill label={`Alerts ${alertWindowCount}`} tone="amber" />
                 <WorkspacePill label={`Notes ${notesWindowCount}`} tone="slate" />
-                {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="emerald" />}
+                {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="violet" />}
               </div>
 
               <div className="mt-4 relative">
                 <button
                   type="button"
-                  className="w-full rounded-lg border border-slate/25 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                  className="h-10 w-full rounded-lg border border-slate/25 px-3 text-sm font-semibold dark:border-cyan-900/40"
                   onClick={() => setShowAddWindowMenu((current) => !current)}
                 >
                   Add Widget
@@ -1432,7 +1514,7 @@ export function DashboardPage() {
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate/20 bg-white/70 px-3 py-3 dark:border-cyan-900/40 dark:bg-[#03140f]/88 sm:px-4 lg:px-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Workspace Canvas</p>
+          <p className="text-xs font-medium text-slate dark:text-white/55">Workspace canvas</p>
           <p className="mt-1 text-sm text-slate dark:text-white/70">
             Use widget headers for local actions and filters. Floating placement is tucked into Widget Actions so the canvas stays structured by default.
           </p>
@@ -1506,17 +1588,17 @@ export function DashboardPage() {
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${windowMeta.badgeClassName}`}>
+                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
                       {windowMeta.label}
                     </span>
-                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                       {formatWindowSnapLabel(windowLayout.snap)}
                     </span>
-                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                       {windowTimeSummary}
                     </span>
                     {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && activeLocalFilterCount > 0 && (
-                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {activeLocalFilterCount} local filters
                       </span>
                     )}
@@ -1580,7 +1662,7 @@ export function DashboardPage() {
                       >
                         <div className="space-y-3">
                           <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-slate dark:text-white/55">Placement</p>
+                            <p className="text-[10px] font-medium text-slate dark:text-white/55">Placement</p>
                             <select
                               className="mt-1 w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                               value={windowLayout.snap}
@@ -1718,8 +1800,23 @@ export function DashboardPage() {
                         <option value="24h">24h</option>
                         <option value="7d">7d</option>
                         <option value="30d">30d</option>
+                        <option value="days">Last X days</option>
                         <option value="custom">Custom</option>
                       </select>
+                      {effectiveWindowTimeFilter.time_range === 'days' && (
+                        <label className="flex w-full items-center rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                          <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={365}
+                            value={effectiveWindowTimeFilter.rolling_days}
+                            onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
+                            className="w-full bg-transparent outline-none"
+                          />
+                          <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
+                        </label>
+                      )}
                       <select
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={rssFilters.sort}
@@ -1764,7 +1861,7 @@ export function DashboardPage() {
                       </div>
 
                       {rssFilters.show_advanced_filters && (
-                        <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-sand/40 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
+                        <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-slate-50/80 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
                         <select
                           className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                           value={rssFilters.read_status}
@@ -1925,8 +2022,8 @@ export function DashboardPage() {
                                       {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
                                     </div>
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">RSS Summary</p>
+                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                      <p className="text-xs font-medium text-slate dark:text-slate-300">RSS summary</p>
                                       {detail.classification && (
                                         <p className="mt-1 text-xs text-slate dark:text-slate-300">
                                           Classification:{' '}
@@ -1943,7 +2040,7 @@ export function DashboardPage() {
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
                                       <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                        <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">AI Insight</p>
+                                        <p className="text-xs font-medium text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
                                             <span className={`rounded px-2 py-1 text-xs font-semibold ${aiRelevanceTone(detail.ai_insight.relevance_label)}`}>
@@ -1980,7 +2077,7 @@ export function DashboardPage() {
                                     )}
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Full Article</p>
+                                      <p className="text-xs font-medium text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text ? (
                                         <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
@@ -1994,7 +2091,7 @@ export function DashboardPage() {
                                     </div>
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Notes</label>
+                                      <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                                         value={noteDraft}
@@ -2170,8 +2267,23 @@ export function DashboardPage() {
                         <option value="24h">24h</option>
                         <option value="7d">7d</option>
                         <option value="30d">30d</option>
+                        <option value="days">Last X days</option>
                         <option value="custom">Custom</option>
                       </select>
+                      {effectiveWindowTimeFilter.time_range === 'days' && (
+                        <label className="flex w-full items-center rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                          <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={365}
+                            value={effectiveWindowTimeFilter.rolling_days}
+                            onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
+                            className="w-full bg-transparent outline-none"
+                          />
+                          <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
+                        </label>
+                      )}
                       <select
                         className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={alertFilters.sort}
@@ -2341,10 +2453,10 @@ export function DashboardPage() {
 
                     return (
                     <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-                      <div className="rounded border border-slate/20 bg-sand/50 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                      <div className="rounded border border-violet-200/70 bg-violet-50/70 p-3 dark:border-violet-900/30 dark:bg-violet-950/18">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Briefing</span>
+                            <span className="text-xs font-medium text-slate dark:text-white/55">Briefing</span>
                             <select
                               className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                               value={selectedBrief.id}
@@ -2368,8 +2480,8 @@ export function DashboardPage() {
                       </div>
 
                       {selectedBrief.key_points.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Key Points</p>
+                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                          <p className="text-xs font-medium text-slate dark:text-slate-300">Key points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.key_points.map((point, index) => (
                               <li key={`${windowLayout.id}-brief-point-${index}`}>{point}</li>
@@ -2379,8 +2491,8 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.recommended_actions.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Recommended Actions</p>
+                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                          <p className="text-xs font-medium text-slate dark:text-slate-300">Recommended actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.recommended_actions.map((action, index) => (
                               <li key={`${windowLayout.id}-brief-action-${index}`}>{action}</li>
@@ -2390,17 +2502,17 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.items.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                          <p className="text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Referenced Items</p>
+                        <div className="rounded border border-violet-200/60 bg-white/90 p-3 dark:border-violet-900/30 dark:bg-violet-950/16">
+                          <p className="text-xs font-medium text-slate dark:text-slate-300">Referenced items</p>
                           <div className="mt-2 space-y-2">
                             {selectedBrief.items.map((item) => (
-                              <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
+                              <article key={item.id} className="rounded border border-violet-200/60 p-2 dark:border-violet-900/30">
                                 <div className="flex items-start justify-between gap-2">
                                   <a
                                     href={item.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="text-sm font-semibold hover:text-cyan hover:underline"
+                                    className="text-sm font-semibold hover:text-violet-700 hover:underline dark:hover:text-violet-200"
                                   >
                                     {item.title}
                                   </a>
@@ -2424,7 +2536,7 @@ export function DashboardPage() {
                 </div>
               ) : (
                 <div className={`flex flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
-                  <label className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">Scratch Notes</label>
+                  <label className="text-xs font-medium text-slate dark:text-slate-300">Scratch notes</label>
                   <textarea
                     className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
@@ -2453,7 +2565,7 @@ export function DashboardPage() {
           <div className="w-full max-w-md rounded-2xl border border-slate/20 bg-white p-4 shadow-xl dark:border-cyan-900/40 dark:bg-[#041612]">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Widget Settings</p>
+                <p className="text-xs font-medium text-slate dark:text-white/55">Widget settings</p>
                 <h3 className="mt-1 font-display text-xl text-ink dark:text-white">Rename widget</h3>
                 <p className="mt-1 text-sm text-slate dark:text-white/70">
                   Give this widget a clearer label without leaving the workspace context.
@@ -2565,7 +2677,7 @@ export function DashboardPage() {
                     <SavedViewThumbnail windows={view.windows} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{view.name}</p>
-                      <p className="text-xs text-slate dark:text-slate-300">{new Date(view.created_at).toLocaleString()}</p>
+                      <p className="text-xs text-slate dark:text-slate-300">{formatDateTime(view.created_at)}</p>
                       <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
                         <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
                           RSS {view.window_type_counts.rss}
@@ -2620,9 +2732,17 @@ export function DashboardPage() {
   )
 }
 
-function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string) {
+function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string, rollingDays = DEFAULT_ROLLING_DAYS) {
   if (timeRange === 'all') {
     return { sinceIso: '', untilIso: '' }
+  }
+
+  if (timeRange === 'days') {
+    const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
+    const now = new Date()
+    const since = new Date(now)
+    since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
+    return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
   }
 
   if (timeRange === 'custom') {
@@ -2670,7 +2790,7 @@ function parseEndOfDay(date: string): Date | null {
 }
 
 function isTimeRangeFilter(value: unknown): value is TimeRangeFilter {
-  return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'custom'
+  return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'days' || value === 'custom'
 }
 
 function isTimeSort(value: unknown): value is TimeSort {
@@ -2689,6 +2809,8 @@ function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter | null
     time_range: value.time_range,
     custom_since_date: typeof value.custom_since_date === 'string' ? value.custom_since_date : '',
     custom_until_date: typeof value.custom_until_date === 'string' ? value.custom_until_date : '',
+    rolling_days:
+      typeof value.rolling_days === 'string' ? normalizeRollingDaysInput(value.rolling_days) : DEFAULT_ROLLING_DAYS,
   }
 }
 
@@ -2705,7 +2827,7 @@ function combineTimeWindows(filters: WindowTimeFilter[]): { sinceIso: string; un
   }
 
   const windows = filters.map((filter) =>
-    deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date),
+    deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date, filter.rolling_days),
   )
 
   if (windows.some((entry) => !entry.sinceIso && !entry.untilIso)) {
@@ -2735,13 +2857,13 @@ function filterEntriesByTimeWindow<T extends { published_at: string | null; firs
   entries: T[],
   filter: WindowTimeFilter,
 ): T[] {
-  const { sinceIso, untilIso } = deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date)
-  if (!sinceIso && !untilIso) {
+  const effective = deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date, filter.rolling_days)
+  if (!effective.sinceIso && !effective.untilIso) {
     return entries
   }
 
-  const since = sinceIso ? new Date(sinceIso) : null
-  const until = untilIso ? new Date(untilIso) : null
+  const since = effective.sinceIso ? new Date(effective.sinceIso) : null
+  const until = effective.untilIso ? new Date(effective.untilIso) : null
 
   return entries.filter((entry) => {
     const reference = entry.published_at || entry.first_seen_at
@@ -2762,18 +2884,11 @@ function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId:
 }
 
 function formatPublishedAt(value: string | null) {
-  if (!value) return 'Unknown'
-  const dt = new Date(value)
-  if (Number.isNaN(dt.getTime())) return value
-  return dt.toLocaleString()
+  return formatDateTime(value)
 }
 
 function formatDailyBriefOptionLabel(brief: AIDailyBrief) {
-  const briefDate = new Date(brief.brief_date)
-  if (Number.isNaN(briefDate.getTime())) {
-    return `${brief.brief_date} · ${brief.item_count} items`
-  }
-  return `${briefDate.toLocaleDateString()} · ${brief.item_count} items`
+  return `${formatDateOnly(brief.brief_date)} · ${brief.item_count} items`
 }
 
 function formatClassificationLabel(value: string): string {
@@ -2860,33 +2975,33 @@ function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
 
 function thumbnailWindowTone(type: DashboardWindowType): string {
   if (type === 'rss') return 'border-cyan-500/40 bg-cyan-400/30 dark:bg-cyan-500/35'
-  if (type === 'alerts') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
-  if (type === 'daily_brief') return 'border-emerald-500/40 bg-emerald-400/30 dark:bg-emerald-500/35'
-  return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
+  if (type === 'alerts') return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
+  if (type === 'daily_brief') return 'border-violet-500/40 bg-violet-400/30 dark:bg-violet-500/35'
+  return 'border-slate-400/40 bg-slate-300/45 dark:border-slate-600/45 dark:bg-slate-500/30'
 }
 
-function WorkspaceStat({ label, value, tone }: { label: string; value: number | string; tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink' }) {
+function WorkspaceStat({ label, value, tone }: { label: string; value: number | string; tone: 'cyan' | 'amber' | 'violet' | 'slate' | 'ink' }) {
   return (
     <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${workspaceToneClassName(tone)}`}>
-      <span className="mr-1 uppercase tracking-wide opacity-75">{label}</span>
+      <span className="mr-1 opacity-75">{label}</span>
       <span>{value}</span>
     </span>
   )
 }
 
-function WorkspacePill({ label, tone }: { label: string; tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink' }) {
+function WorkspacePill({ label, tone }: { label: string; tone: 'cyan' | 'amber' | 'violet' | 'slate' | 'ink' }) {
   return <span className={`rounded-full border px-2.5 py-1 font-semibold ${workspaceToneClassName(tone)}`}>{label}</span>
 }
 
-function workspaceToneClassName(tone: 'cyan' | 'amber' | 'emerald' | 'slate' | 'ink') {
+function workspaceToneClassName(tone: 'cyan' | 'amber' | 'violet' | 'slate' | 'ink') {
   if (tone === 'cyan') {
     return 'border-cyan/30 bg-cyan/10 text-cyan dark:border-cyan-800/40 dark:bg-cyan-950/35 dark:text-cyan-200'
   }
   if (tone === 'amber') {
     return 'border-amber-300/40 bg-amber-100/60 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/35 dark:text-amber-200'
   }
-  if (tone === 'emerald') {
-    return 'border-emerald-300/40 bg-emerald-100/60 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/35 dark:text-emerald-200'
+  if (tone === 'violet') {
+    return 'border-violet-300/40 bg-violet-100/60 text-violet-800 dark:border-violet-800/40 dark:bg-violet-950/35 dark:text-violet-200'
   }
   if (tone === 'ink') {
     return 'border-slate/25 bg-slate/10 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70'
@@ -2894,14 +3009,31 @@ function workspaceToneClassName(tone: 'cyan' | 'amber' | 'emerald' | 'slate' | '
   return 'border-slate/25 bg-slate/10 text-slate-700 dark:border-slate-700/40 dark:bg-slate-900/25 dark:text-slate-200'
 }
 
-function formatDashboardTimeRangeSummary(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string) {
+function normalizeRollingDaysInput(value: string) {
+  const numeric = value.replace(/[^\d]/g, '')
+  if (!numeric) {
+    return DEFAULT_ROLLING_DAYS
+  }
+  return String(clamp(Number(numeric), 1, 365))
+}
+
+function formatRollingWindowHint(rollingDays: string) {
+  const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
+  const now = new Date()
+  const since = new Date(now)
+  since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
+  return `Since ${formatDateOnly(since)}`
+}
+
+function formatDashboardTimeRangeSummary(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string, rollingDays = DEFAULT_ROLLING_DAYS) {
   if (timeRange === 'all') return 'All time'
   if (timeRange === '24h') return 'Last 24h'
-  if (timeRange === '7d') return 'Last 7d'
-  if (timeRange === '30d') return 'Last 30d'
-  if (customSinceDate && customUntilDate) return `Custom ${customSinceDate} to ${customUntilDate}`
-  if (customSinceDate) return `Custom from ${customSinceDate}`
-  if (customUntilDate) return `Custom until ${customUntilDate}`
+  if (timeRange === '7d') return 'Last 7 days'
+  if (timeRange === '30d') return 'Last 30 days'
+  if (timeRange === 'days') return `Last ${clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)} days`
+  if (customSinceDate && customUntilDate) return `Custom ${formatDateOnly(customSinceDate)} to ${formatDateOnly(customUntilDate)}`
+  if (customSinceDate) return `Custom from ${formatDateOnly(customSinceDate)}`
+  if (customUntilDate) return `Custom until ${formatDateOnly(customUntilDate)}`
   return 'Custom window'
 }
 
@@ -2945,6 +3077,7 @@ function formatWindowTimeSummary(windowLayout: DashboardWindow, dashboardTimeFil
       dashboardTimeFilter.time_range,
       dashboardTimeFilter.custom_since_date,
       dashboardTimeFilter.custom_until_date,
+      dashboardTimeFilter.rolling_days,
     )}`
   }
 
@@ -2952,6 +3085,7 @@ function formatWindowTimeSummary(windowLayout: DashboardWindow, dashboardTimeFil
     windowLayout.time_override.time_range,
     windowLayout.time_override.custom_since_date,
     windowLayout.time_override.custom_until_date,
+    windowLayout.time_override.rolling_days,
   )}`
 }
 
@@ -3201,6 +3335,7 @@ function parseSavedViewRssFilters(raw: Record<string, unknown>): DashboardSavedV
     time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
     custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
     custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
+    rolling_days: typeof raw.rolling_days === 'string' && raw.rolling_days.trim() ? raw.rolling_days.trim() : DEFAULT_ROLLING_DAYS,
     sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
   }
 }
@@ -3222,6 +3357,7 @@ function parseSavedViewAlertFilters(raw: Record<string, unknown>): DashboardAler
     time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
     custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
     custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
+    rolling_days: typeof raw.rolling_days === 'string' && raw.rolling_days.trim() ? raw.rolling_days.trim() : DEFAULT_ROLLING_DAYS,
     sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
   }
 }
@@ -3238,6 +3374,7 @@ function buildSavedViewRssFilters(rssFilters: DashboardRssWindowFilters, dashboa
     time_range: dashboardTimeFilter.time_range,
     custom_since_date: dashboardTimeFilter.custom_since_date,
     custom_until_date: dashboardTimeFilter.custom_until_date,
+    rolling_days: dashboardTimeFilter.rolling_days,
     sort: rssFilters.sort,
   }
 }
@@ -3255,6 +3392,7 @@ function buildSavedViewAlertFilters(
     time_range: dashboardTimeFilter.time_range,
     custom_since_date: dashboardTimeFilter.custom_since_date,
     custom_until_date: dashboardTimeFilter.custom_until_date,
+    rolling_days: dashboardTimeFilter.rolling_days,
     sort: alertFilters.sort,
   }
 }

@@ -78,15 +78,23 @@ export function AppShell() {
           {mobileNavOpen && (
             <div className="mt-3 space-y-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
               <nav className="grid grid-cols-2 gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
-                {navLinks.map((link) => (
-                  <Link
-                    key={link.to}
-                    to={link.to}
-                    className="rounded border border-slate/20 px-3 py-2 text-center hover:bg-cyan/10 hover:text-cyan dark:border-cyan-900/40"
-                  >
-                    {link.label}
-                  </Link>
-                ))}
+                {navLinks.map((link) => {
+                  const active = isNavLinkActive(location.pathname, link.to)
+                  return (
+                    <Link
+                      key={link.to}
+                      to={link.to}
+                      aria-current={active ? 'page' : undefined}
+                      className={`rounded border px-3 py-2 text-center transition ${
+                        active
+                          ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
+                          : 'border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:border-cyan-900/40'
+                      }`}
+                    >
+                      {link.label}
+                    </Link>
+                  )
+                })}
               </nav>
 
               {meQuery.data && (
@@ -129,11 +137,23 @@ export function AppShell() {
           <div className="flex items-center gap-6">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <nav className="flex flex-wrap gap-2 text-sm font-semibold text-slate dark:text-cyan-100">
-              {navLinks.map((link) => (
-                <Link key={link.to} to={link.to} className="rounded px-3 py-1 hover:bg-cyan/10 hover:text-cyan">
-                  {link.label}
-                </Link>
-              ))}
+              {navLinks.map((link) => {
+                const active = isNavLinkActive(location.pathname, link.to)
+                return (
+                  <Link
+                    key={link.to}
+                    to={link.to}
+                    aria-current={active ? 'page' : undefined}
+                    className={`rounded-lg border px-3 py-1.5 transition ${
+                      active
+                        ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
+                        : 'border-transparent hover:border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:hover:border-cyan-900/40'
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                )
+              })}
             </nav>
           </div>
 
@@ -175,4 +195,11 @@ export function AppShell() {
       </main>
     </div>
   )
+}
+
+function isNavLinkActive(pathname: string, targetPath: string) {
+  if (targetPath === '/') {
+    return pathname === '/'
+  }
+  return pathname === targetPath || pathname.startsWith(`${targetPath}/`)
 }

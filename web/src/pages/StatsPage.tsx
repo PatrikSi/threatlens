@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
   Feed,
   StatsActivityHeatmapResponse,
@@ -233,7 +234,7 @@ export function StatsPage() {
                 {dailyVolumeNewestFirst.map((point) => (
                   <BarRow
                     key={point.date}
-                    label={point.date}
+                    label={formatDateOnly(point.date)}
                     value={point.count}
                     widthPct={(point.count / maxDaily) * 100}
                     monoLabel
@@ -297,7 +298,7 @@ export function StatsPage() {
                       <td className="px-2 py-2">{feed.items_in_window}</td>
                       <td className="px-2 py-2">{feed.content_fetched_items}</td>
                       <td className="px-2 py-2">{feed.error_items}</td>
-                      <td className="px-2 py-2">{feed.last_seen_at ? new Date(feed.last_seen_at).toLocaleString() : 'Never'}</td>
+                      <td className="px-2 py-2">{feed.last_seen_at ? formatDateTime(feed.last_seen_at) : 'Never'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -342,6 +343,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
   )
 
   const dates = data.series[0]?.points.map((point) => point.date) ?? []
+  const displayDates = dates.map((date) => formatDateOnly(date))
   const yMax = Math.max(1, ...visibleSeries.flatMap((series) => series.points.map((point) => point.count)))
 
   const chartHeight = 320
@@ -373,7 +375,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
       .map((count, index) => `${index === 0 ? 'M' : 'L'} ${xForIndex(index)} ${yForCount(count)}`)
       .join(' ')
 
-  const hoverDate = hoverIndex !== null ? dates[hoverIndex] : null
+  const hoverDate = hoverIndex !== null ? displayDates[hoverIndex] : null
   const hoverLegend =
     hoverIndex === null
       ? []
@@ -605,7 +607,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
               <div className="max-h-[520px] space-y-1 overflow-auto pr-1">
                 {data.rows.map((row) => (
                   <div key={row.day} className="grid items-center gap-2" style={{ gridTemplateColumns: '82px minmax(0, 1fr)' }}>
-                    <span className="font-mono text-[11px] text-slate dark:text-slate-300">{row.day.slice(5)}</span>
+                    <span className="font-mono text-[11px] text-slate dark:text-slate-300">{formatDateOnly(row.day).slice(0, 5)}</span>
                     <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}>
                       {row.counts.slice(0, columnCount).map((count, bucketIndex) => (
                         <div
@@ -617,7 +619,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
                             if (!bounds) return
                             const bucketLabel = bucketLabels[bucketIndex] ?? `Bucket ${bucketIndex + 1}`
                             setHovered({
-                              label: `${row.day} ${bucketLabel}`,
+                              label: `${formatDateOnly(row.day)} ${bucketLabel}`,
                               count,
                               intensityPct: (count / maxCount) * 100,
                               x: event.clientX - bounds.left,

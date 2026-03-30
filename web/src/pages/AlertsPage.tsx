@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { AlertInterest, AlertMatchListResponse } from '../types/api'
+import { formatDateTime } from '../utils/datetime'
 
 const ALERT_CATEGORIES = [
   { value: 'software', label: 'Software' },
@@ -408,14 +409,5 @@ function describeAlertCategory(category: string): string {
 }
 
 function formatTimestamp(value: string | null): string {
-  if (!value) {
-    return 'Unknown time'
-  }
-
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return value
-  }
-
-  return parsed.toLocaleString()
+  return value ? formatDateTime(value) : 'Unknown time'
 }
