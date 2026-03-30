@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { formatDateTime } from '../utils/datetime'
 
 export function AccountPage() {
   const meQuery = useCurrentUser()
@@ -45,7 +46,7 @@ export function AccountPage() {
               <span className="font-semibold">Status:</span> {meQuery.data.is_active ? 'active' : 'inactive'}
             </p>
             <p>
-              <span className="font-semibold">Created:</span> {new Date(meQuery.data.created_at).toLocaleString()}
+              <span className="font-semibold">Created:</span> {formatDateTime(meQuery.data.created_at)}
             </p>
           </div>
         )}

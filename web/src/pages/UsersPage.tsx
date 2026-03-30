@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
+import { formatDateTime } from '../utils/datetime'
 
 export function UsersPage() {
   const queryClient = useQueryClient()
@@ -156,8 +157,8 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
         <div>
           <p className="font-semibold">{user.email}</p>
           <p className="text-xs text-slate dark:text-slate-300">
-            Created {new Date(user.created_at).toLocaleString()}
-            {user.approved_at ? ` · Approved ${new Date(user.approved_at).toLocaleString()}` : ''}
+            Created {formatDateTime(user.created_at)}
+            {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}
           </p>
           {!user.is_approved && (
             <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">

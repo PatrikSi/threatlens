@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
+import { formatDateTime } from '../utils/datetime'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
@@ -833,10 +834,7 @@ function timestamp(value: string | null): number {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return 'Never'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return value
-  return parsed.toLocaleString()
+  return value ? formatDateTime(value) : 'Never'
 }
 
 function parseImportEntries(payload: unknown): FeedImportEntry[] {
