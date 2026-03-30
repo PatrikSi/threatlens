@@ -27,7 +27,7 @@ export function SettingsLayout() {
       description: 'Signals and automation',
       items: [
         { to: '/settings/notifications', label: 'Notifications' },
-        ...(role === 'admin' && aiEnabled ? [{ to: '/ai', label: 'AI & Briefing' }] : []),
+        ...(role === 'admin' && aiEnabled ? [{ to: '/settings/ai', label: 'AI' }] : []),
         ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Tagging' }] : []),
       ],
     },
@@ -56,15 +56,16 @@ export function SettingsLayout() {
               </div>
               <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
                 {section.items.map((item) => {
-                  const active = location.pathname === item.to
+                  const active = isSettingsLinkActive(location.pathname, item.to)
                   return (
                     <Link
                       key={item.to}
                       to={item.to}
-                      className={`block rounded px-3 py-2 text-center text-sm lg:text-left ${
+                      aria-current={active ? 'page' : undefined}
+                      className={`block rounded-lg border px-3 py-2 text-center text-sm transition lg:text-left ${
                         active
-                          ? 'bg-cyan/15 text-cyan dark:bg-cyan-900/35 dark:text-cyan-300'
-                          : 'text-slate hover:bg-slate/10 dark:text-slate-200 dark:hover:bg-cyan-950/40'
+                          ? 'border-cyan/40 bg-cyan/10 font-semibold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
+                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-900/40 dark:hover:bg-cyan-950/40'
                       }`}
                     >
                       {item.label}
@@ -87,4 +88,11 @@ export function SettingsLayout() {
       </section>
     </div>
   )
+}
+
+function isSettingsLinkActive(pathname: string, targetPath: string) {
+  if (targetPath === '/settings') {
+    return pathname === '/settings'
+  }
+  return pathname === targetPath || pathname.startsWith(`${targetPath}/`)
 }

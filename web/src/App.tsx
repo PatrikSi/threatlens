@@ -50,18 +50,19 @@ export default function App() {
               <Route path="alerts" element={<AlertsPage />} />
               <Route path="feeds" element={<FeedsPage />} />
               <Route path="stats" element={<StatsPage />} />
-              <Route
-                path="ai"
-                element={
-                  <RoleRoute roles={['admin']}>
-                    <AiSettingsPage />
-                  </RoleRoute>
-                }
-              />
+              <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
               <Route path="settings" element={<SettingsLayout />}>
                 <Route index element={<SettingsOverviewPage />} />
                 <Route path="account" element={<AccountPage />} />
                 <Route path="notifications" element={<NotificationsPage />} />
+                <Route
+                  path="ai"
+                  element={
+                    <RoleRoute roles={['admin']}>
+                      <AiSettingsPage />
+                    </RoleRoute>
+                  }
+                />
                 <Route
                   path="tagging"
                   element={

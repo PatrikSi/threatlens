@@ -450,7 +450,7 @@ export function AiSettingsPage() {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
-        <h2 className="mt-1 font-display text-xl">AI & Briefing</h2>
+        <h2 className="mt-1 font-display text-xl">AI Settings</h2>
         <p className="mt-2 text-sm text-slate dark:text-white/75">
           AI features are disabled by the deployment configuration. Enable `AI_ENABLED=true` and restart ThreatLens to use
           this section.
@@ -466,7 +466,7 @@ export function AiSettingsPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="font-display text-2xl">AI & Briefing</h2>
+              <h2 className="font-display text-2xl">AI Settings</h2>
               <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
                 {settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'}
               </span>
@@ -2189,7 +2189,7 @@ function ConfigurationTab({
             <CheckboxRow label="AI article summaries" checked={draft.summary_enabled} onChange={(checked) => updateDraft(setDraft, 'summary_enabled', checked)} />
             <CheckboxRow label="AI relevance scoring" checked={draft.relevance_enabled} onChange={(checked) => updateDraft(setDraft, 'relevance_enabled', checked)} />
             <CheckboxRow
-              label="Daily brief generation and widget"
+              label="Daily brief generation and panel"
               checked={draft.daily_brief_enabled}
               onChange={(checked) => updateDraft(setDraft, 'daily_brief_enabled', checked)}
             />
