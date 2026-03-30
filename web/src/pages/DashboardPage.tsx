@@ -177,7 +177,7 @@ const WINDOW_TYPE_META: Record<
     badgeClassName:
       'border-cyan/40 bg-cyan/15 text-cyan dark:border-cyan-800/50 dark:bg-cyan-950/55 dark:text-cyan-200',
     headerClassName: 'bg-cyan-50/80 dark:bg-cyan-950/18',
-    shellClassName: 'border-cyan-200/60 dark:border-cyan-900/45',
+    shellClassName: 'border-cyan-200/60 bg-cyan-50/35 dark:border-cyan-900/45 dark:bg-cyan-950/10',
     panelClassName: 'bg-cyan-50/60 dark:bg-cyan-950/14',
   },
   alerts: {
