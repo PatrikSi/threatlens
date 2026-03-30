@@ -209,6 +209,14 @@ const WINDOW_TYPE_META: Record<
   },
 }
 
+function getRelativeTimeAnchorMs() {
+  return Math.floor(Date.now() / 60_000) * 60_000
+}
+
+function isRelativeTimeRange(value: TimeRangeFilter) {
+  return value === '24h' || value === '7d' || value === '30d' || value === 'days'
+}
+
 function createDefaultRssWindowFilters(showAdvancedFilters = false): DashboardRssWindowFilters {
   return {
     selected_feed_ids: [],
@@ -346,6 +354,7 @@ export function DashboardPage() {
   const [openWindowMenuId, setOpenWindowMenuId] = useState<string | null>(null)
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null)
   const [renameWindowDraft, setRenameWindowDraft] = useState('')
+  const [relativeTimeAnchorMs, setRelativeTimeAnchorMs] = useState(() => getRelativeTimeAnchorMs())
 
   const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
@@ -467,6 +476,17 @@ export function DashboardPage() {
     }),
     [dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays],
   )
+  const hasRelativeTimeScope = useMemo(
+    () =>
+      isRelativeTimeRange(dashboardTimeFilter.time_range) ||
+      windows.some(
+        (windowLayout) =>
+          (windowLayout.type === 'rss' || windowLayout.type === 'alerts') &&
+          windowLayout.time_override !== null &&
+          isRelativeTimeRange(windowLayout.time_override.time_range),
+      ),
+    [dashboardTimeFilter.time_range, windows],
+  )
 
   const rssWindows = useMemo(
     () => deferredWindows.filter((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss'),
@@ -476,25 +496,59 @@ export function DashboardPage() {
     () => deferredWindows.filter((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts'),
     [deferredWindows],
   )
+  const rssDeferredSearchTermsByWindowId = useDeferredValue(
+    useMemo(
+      () =>
+        Object.fromEntries(
+          rssWindows.map((windowLayout) => [windowLayout.id, (windowLayout.rss_filters ?? createDefaultRssWindowFilters()).q]),
+        ) as Record<string, string>,
+      [rssWindows],
+    ),
+  )
+  const alertDeferredSearchTermsByWindowId = useDeferredValue(
+    useMemo(
+      () =>
+        Object.fromEntries(
+          alertWindows.map((windowLayout) => [windowLayout.id, (windowLayout.alert_filters ?? createDefaultAlertWindowFilters()).q]),
+        ) as Record<string, string>,
+      [alertWindows],
+    ),
+  )
+
+  useEffect(() => {
+    if (!hasRelativeTimeScope) {
+      return
+    }
+
+    const syncAnchor = () => setRelativeTimeAnchorMs(getRelativeTimeAnchorMs())
+    syncAnchor()
+    const intervalId = window.setInterval(syncAnchor, 60_000)
+
+    return () => window.clearInterval(intervalId)
+  }, [hasRelativeTimeScope])
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
+    staleTime: 300_000,
   })
 
   const viewsQuery = useQuery({
     queryKey: ['views'],
     queryFn: () => apiFetch<SavedView[]>('/views'),
+    staleTime: 300_000,
   })
 
   const tagsQuery = useQuery({
     queryKey: ['tags'],
     queryFn: () => apiFetch<Tag[]>('/tags'),
+    staleTime: 300_000,
   })
 
   const alertInterestsQuery = useQuery({
     queryKey: ['alerts', 'enabled'],
     queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=false'),
+    staleTime: 300_000,
   })
 
   const saveView = useMutation({
@@ -554,6 +608,7 @@ export function DashboardPage() {
   const rssWindowQueries = useQueries({
     queries: rssWindows.map((windowLayout) => {
       const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
+      const deferredSearchQuery = rssDeferredSearchTermsByWindowId[windowLayout.id] ?? rssFilters.q
       const selectedFeedIdsParam = rssFilters.selected_feed_ids.slice().sort().join(',')
       const selectedTagsParam = rssFilters.selected_tags
         .filter((tagName) => !HIDDEN_TAGS.has(tagName))
@@ -566,6 +621,7 @@ export function DashboardPage() {
         effectiveWindowTimeFilter.custom_since_date,
         effectiveWindowTimeFilter.custom_until_date,
         effectiveWindowTimeFilter.rolling_days,
+        relativeTimeAnchorMs,
       )
 
       return {
@@ -573,7 +629,7 @@ export function DashboardPage() {
           'items',
           selectedFeedIdsParam,
           selectedTagsParam,
-          rssFilters.q,
+          deferredSearchQuery,
           rssFilters.read_status,
           rssFilters.star_status,
           timeWindow.sinceIso,
@@ -583,6 +639,7 @@ export function DashboardPage() {
           rssFilters.page_size,
         ],
         retry: 1,
+        staleTime: 60_000,
         placeholderData: (previousData: ItemListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
@@ -592,7 +649,7 @@ export function DashboardPage() {
 
           if (selectedFeedIdsParam) params.set('feed_ids', selectedFeedIdsParam)
           if (selectedTagsParam) params.set('tags', selectedTagsParam)
-          if (rssFilters.q) params.set('q', rssFilters.q)
+          if (deferredSearchQuery) params.set('q', deferredSearchQuery)
           if (timeWindow.sinceIso) params.set('since', timeWindow.sinceIso)
           if (timeWindow.untilIso) params.set('until', timeWindow.untilIso)
 
@@ -610,6 +667,7 @@ export function DashboardPage() {
   const alertWindowQueries = useQueries({
     queries: alertWindows.map((windowLayout) => {
       const alertFilters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
+      const deferredSearchQuery = alertDeferredSearchTermsByWindowId[windowLayout.id] ?? alertFilters.q
       const selectedAlertIdsParam = alertFilters.selected_alert_ids.slice().sort().join(',')
       const selectedAlertCategoriesParam = alertFilters.selected_categories.slice().sort().join(',')
       const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
@@ -618,6 +676,7 @@ export function DashboardPage() {
         effectiveWindowTimeFilter.custom_since_date,
         effectiveWindowTimeFilter.custom_until_date,
         effectiveWindowTimeFilter.rolling_days,
+        relativeTimeAnchorMs,
       )
 
       return {
@@ -625,13 +684,14 @@ export function DashboardPage() {
           'alert-matches',
           selectedAlertIdsParam,
           selectedAlertCategoriesParam,
-          alertFilters.q,
+          deferredSearchQuery,
           timeWindow.sinceIso,
           timeWindow.untilIso,
           alertFilters.sort,
           alertFilters.page,
           alertFilters.page_size,
         ],
+        staleTime: 60_000,
         placeholderData: (previousData: AlertMatchListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
@@ -641,7 +701,7 @@ export function DashboardPage() {
 
           if (selectedAlertIdsParam) params.set('alert_ids', selectedAlertIdsParam)
           if (selectedAlertCategoriesParam) params.set('categories', selectedAlertCategoriesParam)
-          if (alertFilters.q) params.set('q', alertFilters.q)
+          if (deferredSearchQuery) params.set('q', deferredSearchQuery)
           if (timeWindow.sinceIso) params.set('since', timeWindow.sinceIso)
           if (timeWindow.untilIso) params.set('until', timeWindow.untilIso)
 
@@ -2667,18 +2727,20 @@ export function DashboardPage() {
   )
 }
 
-function getRelativeTimeAnchor(): Date {
-  return new Date(Math.floor(Date.now() / 60_000) * 60_000)
-}
-
-function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string, rollingDays = DEFAULT_ROLLING_DAYS) {
+function deriveTimeWindow(
+  timeRange: TimeRangeFilter,
+  customSinceDate: string,
+  customUntilDate: string,
+  rollingDays = DEFAULT_ROLLING_DAYS,
+  relativeTimeAnchorMs = getRelativeTimeAnchorMs(),
+) {
   if (timeRange === 'all') {
     return { sinceIso: '', untilIso: '' }
   }
 
   if (timeRange === 'days') {
     const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
-    const now = getRelativeTimeAnchor()
+    const now = new Date(relativeTimeAnchorMs)
     const since = new Date(now)
     since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
     return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
@@ -2698,7 +2760,7 @@ function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, c
     }
   }
 
-  const now = getRelativeTimeAnchor()
+  const now = new Date(relativeTimeAnchorMs)
   const since = new Date(now)
 
   if (timeRange === '24h') {
