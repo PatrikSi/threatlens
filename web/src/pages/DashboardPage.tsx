@@ -1923,7 +1923,7 @@ export function DashboardPage() {
                         return (
                           <article
                             key={item.id}
-                            className={`rounded border ${compact ? 'p-2' : 'p-3'} transition ${
+                            className={`rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-3'} transition ${
                               expanded ? 'border-cyan bg-cyan/5 dark:border-cyan-700/50 dark:bg-cyan-950/25' : 'border-slate/20 dark:border-cyan-900/40'
                             } ${item.is_read ? 'opacity-85' : ''}`}
                           >
@@ -1946,7 +1946,7 @@ export function DashboardPage() {
                               </div>
                               <button
                                 type="button"
-                                className="mt-1 w-full text-left"
+                                className="mt-1 w-full text-left text-slate-900 dark:text-slate-100"
                                 onClick={() => handleToggleItem(item.id, item.is_read)}
                               >
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
@@ -2035,13 +2035,13 @@ export function DashboardPage() {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                                      <div className="rss-reader mt-2 rounded bg-slate-50/80 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
                                         {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
                                       </div>
                                     </div>
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
-                                      <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                      <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                         <p className="text-xs font-medium text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2063,7 +2063,7 @@ export function DashboardPage() {
                                           </ul>
                                         )}
                                         {aiSummaryEnabled && detail.ai_insight.summary_text && (
-                                          <div className="mt-3 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                                          <div className="mt-3 rounded bg-slate-50/80 p-3 dark:bg-[#041612]/80">
                                             {renderArticleBlocks(detail.ai_insight.summary_text, `${detail.id}-ai-summary`)}
                                           </div>
                                         )}
@@ -2078,10 +2078,10 @@ export function DashboardPage() {
                                       </div>
                                     )}
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <p className="text-xs font-medium text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text ? (
-                                        <div className="rss-reader mt-2 rounded bg-white/70 p-3 dark:bg-[#041612]/80">
+                                        <div className="rss-reader mt-2 rounded bg-slate-50/80 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
                                         </div>
                                       ) : (
@@ -2092,7 +2092,7 @@ export function DashboardPage() {
                                       )}
                                     </div>
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-white p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
