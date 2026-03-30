@@ -1293,23 +1293,32 @@ export function DashboardPage() {
 
   return (
     <div className="flex min-h-[calc(100vh-72px)] w-full flex-col bg-slate-50/60 dark:bg-[#02100c]">
-      <div className="border-b border-slate/20 bg-white/90 px-3 py-4 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/94 sm:px-4 lg:px-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div>
-              <p className="text-xs font-medium text-slate dark:text-white/55">Analyst workspace</p>
-              <h1 className="font-display text-2xl leading-tight text-ink dark:text-white">Dashboard</h1>
+      <div className="border-b border-slate/20 bg-white/90 px-3 py-3 text-[13px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/94 sm:px-4 lg:px-6">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs font-medium text-slate dark:text-white/55">Dashboard workspace</p>
+              <span className="rounded-full border border-slate/20 bg-slate/10 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+                {formatDashboardTimeRangeSummary(dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays)}
+              </span>
+              <span className="rounded-full border border-slate/20 bg-slate/10 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+                {isWideLayout ? 'Structured canvas' : 'Stacked mobile'}
+              </span>
             </div>
-            <p className="max-w-3xl text-sm text-slate dark:text-white/70">
-              Shape the overall workspace here, then tune each widget locally. Dashboard time applies everywhere unless a widget
-              chooses its own time window.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <WorkspaceStat label="RSS" value={rssWindowCount} tone="cyan" />
-              <WorkspaceStat label="Alerts" value={alertWindowCount} tone="amber" />
-              <WorkspaceStat label="Notes" value={notesWindowCount} tone="slate" />
-              {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="violet" />}
-              <WorkspaceStat label="View" value={activeSavedView?.name || 'Unsaved workspace'} tone="ink" />
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="font-display text-2xl leading-tight text-ink dark:text-white">Dashboard</h1>
+                <p className="mt-1 text-sm text-slate dark:text-white/70">
+                  Global scope lives here. Filters and actions inside widgets stay independent.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <WorkspaceStat label="RSS" value={rssWindowCount} tone="cyan" />
+                <WorkspaceStat label="Alerts" value={alertWindowCount} tone="amber" />
+                <WorkspaceStat label="Notes" value={notesWindowCount} tone="slate" />
+                {aiDailyBriefEnabled && <WorkspaceStat label="Briefs" value={dailyBriefWindowCount} tone="violet" />}
+                <WorkspaceStat label="View" value={activeSavedView?.name || 'Unsaved'} tone="ink" />
+              </div>
             </div>
           </div>
           <button
@@ -1325,23 +1334,15 @@ export function DashboardPage() {
 
         <div
           id="dashboard-workspace-controls"
-          className={`${mobileDashboardViewsOpen ? 'grid' : 'hidden'} mt-4 gap-4 sm:grid xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]`}
+          className={`${mobileDashboardViewsOpen ? 'grid' : 'hidden'} mt-3 gap-3 sm:grid xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]`}
         >
-          <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium text-slate dark:text-white/55">Workspace scope</p>
-                <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Dashboard time window</h2>
-                <p className="mt-1 text-sm text-slate dark:text-white/70">
-                  Use the global time window as the baseline. RSS and alert widgets can still override it per widget when needed.
-                </p>
-              </div>
-              <span className="rounded-full border border-slate/20 bg-slate/10 px-2.5 py-1 text-[11px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
-                {formatDashboardTimeRangeSummary(dashboardTimeRange, dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays)}
-              </span>
+          <section className="rounded-xl border border-slate/20 bg-white/85 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-medium text-slate dark:text-white/55">Time window</p>
+              <span className="text-xs text-slate dark:text-white/60">Widgets can still override locally.</span>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-[180px_1fr_1fr]">
+            <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr_1fr]">
               <select
                 className="h-10 w-full rounded-lg border border-slate/25 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                 value={dashboardTimeRange}
@@ -1392,15 +1393,10 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+          <div className="grid gap-3 lg:grid-cols-2">
+            <section className="rounded-xl border border-slate/20 bg-white/85 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
               <p className="text-xs font-medium text-slate dark:text-white/55">Saved views</p>
-              <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Manage workspace presets</h2>
-              <p className="mt-1 text-sm text-slate dark:text-white/70">
-                Save the full widget layout and local filters as a reusable dashboard view.
-              </p>
-
-              <div className="mt-4 space-y-3">
+              <div className="mt-3 space-y-2">
                 <input
                   value={savedViewName}
                   onChange={(event) => setSavedViewName(event.target.value)}
@@ -1421,7 +1417,7 @@ export function DashboardPage() {
                     className="h-10 rounded-lg border border-slate/25 px-3 text-xs font-semibold dark:border-cyan-900/40"
                     onClick={() => setShowManageViewsModal(true)}
                   >
-                    Manage Saved Views
+                    Manage Views
                   </button>
                 </div>
                 <select
@@ -1449,22 +1445,18 @@ export function DashboardPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-slate/20 bg-white/85 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-              <p className="text-xs font-medium text-slate dark:text-white/55">Widgets and layout</p>
-              <h2 className="mt-1 font-display text-lg text-ink dark:text-white">Grow the workspace deliberately</h2>
-              <p className="mt-1 text-sm text-slate dark:text-white/70">
-                Structured layouts are the primary workspace model. Floating placement stays available per widget under Widget
-                Actions for advanced arrangements.
-              </p>
-
-              <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
-                <WorkspacePill label={`RSS ${rssWindowCount}`} tone="cyan" />
-                <WorkspacePill label={`Alerts ${alertWindowCount}`} tone="amber" />
-                <WorkspacePill label={`Notes ${notesWindowCount}`} tone="slate" />
-                {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="violet" />}
+            <section className="rounded-xl border border-slate/20 bg-white/85 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-medium text-slate dark:text-white/55">Widgets</p>
+                <div className="flex flex-wrap gap-2 text-[11px]">
+                  <WorkspacePill label={`RSS ${rssWindowCount}`} tone="cyan" />
+                  <WorkspacePill label={`Alerts ${alertWindowCount}`} tone="amber" />
+                  <WorkspacePill label={`Notes ${notesWindowCount}`} tone="slate" />
+                  {aiDailyBriefEnabled && <WorkspacePill label={`Briefs ${dailyBriefWindowCount}`} tone="violet" />}
+                </div>
               </div>
 
-              <div className="mt-4 relative">
+              <div className="mt-3 relative">
                 <button
                   type="button"
                   className="h-10 w-full rounded-lg border border-slate/25 px-3 text-sm font-semibold dark:border-cyan-900/40"
@@ -1510,18 +1502,6 @@ export function DashboardPage() {
             </section>
           </div>
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate/20 bg-white/70 px-3 py-3 dark:border-cyan-900/40 dark:bg-[#03140f]/88 sm:px-4 lg:px-6">
-        <div>
-          <p className="text-xs font-medium text-slate dark:text-white/55">Workspace canvas</p>
-          <p className="mt-1 text-sm text-slate dark:text-white/70">
-            Use widget headers for local actions and filters. Floating placement is tucked into Widget Actions so the canvas stays structured by default.
-          </p>
-        </div>
-        <span className="rounded-full border border-slate/20 bg-slate/10 px-3 py-1 text-xs font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
-          {isWideLayout ? 'Structured canvas' : 'Stacked mobile workspace'}
-        </span>
       </div>
 
       <div
