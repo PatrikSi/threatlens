@@ -184,10 +184,10 @@ const WINDOW_TYPE_META: Record<
     label: 'Alert Matches',
     description: 'Watch keyword-driven matches across your configured interests.',
     badgeClassName:
-      'border-amber-300/60 bg-amber-100/70 text-amber-800 dark:border-amber-800/45 dark:bg-amber-950/35 dark:text-amber-200',
-    headerClassName: 'bg-amber-50/85 dark:bg-amber-950/14',
-    shellClassName: 'border-amber-200/60 dark:border-amber-900/35',
-    panelClassName: 'bg-amber-50/60 dark:bg-amber-950/14',
+      'border-amber-300/55 bg-amber-50/90 text-amber-800 dark:border-amber-800/45 dark:bg-amber-950/25 dark:text-amber-200',
+    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/18',
+    shellClassName: 'border-amber-200/50 bg-white/90 dark:border-amber-900/30 dark:bg-[#041612]/96',
+    panelClassName: 'bg-slate-50/55 dark:bg-slate-900/14',
   },
   notes: {
     label: 'Notes',
@@ -1545,9 +1545,17 @@ export function DashboardPage() {
           const windowMeta = WINDOW_TYPE_META[windowLayout.type]
           const windowTimeSummary = formatWindowTimeSummary(windowLayout, dashboardTimeFilter)
           const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters)
+          const isPanelRefreshing =
+            windowLayout.type === 'rss'
+              ? Boolean(rssQuery?.isFetching && !rssQuery.isLoading)
+              : windowLayout.type === 'alerts'
+                ? Boolean(alertQuery?.isFetching && !alertQuery.isLoading)
+                : windowLayout.type === 'daily_brief'
+                  ? Boolean(dailyBriefHistoryQuery.isFetching && !dailyBriefHistoryQuery.isLoading)
+                  : false
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
-          const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border bg-white/90 text-[13px] dark:bg-[#041612]/96 ${windowMeta.shellClassName} ${
+          const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border text-[13px] ${windowMeta.shellClassName} ${
             snapped ? 'rounded-none shadow-none' : 'rounded-xl shadow-lg shadow-slate-400/15 dark:shadow-cyan-950/40'
           }`
 
@@ -1608,6 +1616,11 @@ export function DashboardPage() {
                     {windowLayout.type === 'alerts' && alertChangedCount > 0 && (
                       <span className="rounded border border-cyan/40 bg-cyan/20 px-2 py-0.5 text-[10px] font-semibold text-cyan">
                         +{alertChangedCount} new
+                      </span>
+                    )}
+                    {isPanelRefreshing && (
+                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                        Updating...
                       </span>
                     )}
                   </div>
