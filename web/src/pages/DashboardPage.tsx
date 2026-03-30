@@ -583,6 +583,7 @@ export function DashboardPage() {
           rssFilters.page_size,
         ],
         retry: 1,
+        placeholderData: (previousData: ItemListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
           params.set('page', String(rssFilters.page))
@@ -631,6 +632,7 @@ export function DashboardPage() {
           alertFilters.page,
           alertFilters.page_size,
         ],
+        placeholderData: (previousData: AlertMatchListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
           params.set('page', String(alertFilters.page))
@@ -2045,6 +2047,9 @@ export function DashboardPage() {
                       })}
 
                       {rssQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading items...</p>}
+                      {rssQuery?.isFetching && !rssQuery.isLoading && (
+                        <p className="text-xs text-slate dark:text-white/60">Refreshing items...</p>
+                      )}
                       {rssQuery?.isError && (
                         <p className="text-sm text-red-600">
                           Failed to load items. {(rssQuery.error as Error | undefined)?.message ?? ''}
@@ -2302,6 +2307,9 @@ export function DashboardPage() {
                       )})}
 
                       {alertQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert matches...</p>}
+                      {alertQuery?.isFetching && !alertQuery.isLoading && (
+                        <p className="text-xs text-slate dark:text-white/60">Refreshing matches...</p>
+                      )}
                       {alertQuery?.isError && (
                         <p className="text-sm text-red-600">
                           Failed to load alert matches. {(alertQuery.error as Error | undefined)?.message ?? ''}
@@ -2659,6 +2667,10 @@ export function DashboardPage() {
   )
 }
 
+function getRelativeTimeAnchor(): Date {
+  return new Date(Math.floor(Date.now() / 60_000) * 60_000)
+}
+
 function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string, rollingDays = DEFAULT_ROLLING_DAYS) {
   if (timeRange === 'all') {
     return { sinceIso: '', untilIso: '' }
@@ -2666,7 +2678,7 @@ function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, c
 
   if (timeRange === 'days') {
     const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
-    const now = new Date()
+    const now = getRelativeTimeAnchor()
     const since = new Date(now)
     since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
     return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
@@ -2686,7 +2698,7 @@ function deriveTimeWindow(timeRange: TimeRangeFilter, customSinceDate: string, c
     }
   }
 
-  const now = new Date()
+  const now = getRelativeTimeAnchor()
   const since = new Date(now)
 
   if (timeRange === '24h') {
