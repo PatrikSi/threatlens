@@ -176,36 +176,36 @@ const WINDOW_TYPE_META: Record<
     description: 'Track feeds, pivot by tags, and expand into article detail.',
     badgeClassName:
       'border-cyan/40 bg-cyan/15 text-cyan dark:border-cyan-800/50 dark:bg-cyan-950/55 dark:text-cyan-200',
-    headerClassName: 'bg-cyan-50/80 dark:bg-cyan-950/18',
-    shellClassName: 'border-cyan-200/60 bg-cyan-50/35 dark:border-cyan-900/45 dark:bg-cyan-950/10',
-    panelClassName: 'bg-cyan-50/60 dark:bg-cyan-950/14',
+    headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
+    shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
+    panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
   },
   alerts: {
     label: 'Alert Matches',
     description: 'Watch keyword-driven matches across your configured interests.',
     badgeClassName:
       'border-amber-300/55 bg-amber-50/90 text-amber-800 dark:border-amber-800/45 dark:bg-amber-950/25 dark:text-amber-200',
-    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/18',
-    shellClassName: 'border-amber-200/50 bg-white/90 dark:border-amber-900/30 dark:bg-[#041612]/96',
-    panelClassName: 'bg-slate-50/55 dark:bg-slate-900/14',
+    headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
+    shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
+    panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
   },
   notes: {
     label: 'Notes',
     description: 'Keep scratch notes, pivots, and hypotheses attached to this view.',
     badgeClassName:
       'border-slate/30 bg-slate/10 text-slate-700 dark:border-slate-600/45 dark:bg-slate-800/40 dark:text-slate-200',
-    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/22',
-    shellClassName: 'border-slate/25 dark:border-slate-700/40',
-    panelClassName: 'bg-slate-50/65 dark:bg-slate-900/18',
+    headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
+    shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
+    panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
   },
   daily_brief: {
     label: 'Daily Brief',
     description: 'Review retained AI briefings and the items that shaped them.',
     badgeClassName:
       'border-slate/25 bg-white/80 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70',
-    headerClassName: 'bg-slate-50/85 dark:bg-slate-900/18',
-    shellClassName: 'border-slate/25 dark:border-cyan-900/40',
-    panelClassName: 'bg-slate-50/65 dark:bg-slate-900/14',
+    headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
+    shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
+    panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
   },
 }
 
@@ -1863,7 +1863,7 @@ export function DashboardPage() {
                       </div>
 
                       {rssFilters.show_advanced_filters && (
-                        <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-slate-50/80 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
+                        <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-white/90 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
                         <select
                           className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                           value={rssFilters.read_status}
@@ -2024,7 +2024,7 @@ export function DashboardPage() {
                                       {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
                                     </div>
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <p className="text-xs font-medium text-slate dark:text-slate-300">RSS summary</p>
                                       {detail.classification && (
                                         <p className="mt-1 text-xs text-slate dark:text-slate-300">
@@ -2035,13 +2035,13 @@ export function DashboardPage() {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="rss-reader mt-2 rounded bg-slate-50/80 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
+                                      <div className="rss-reader mt-2 rounded bg-white/95 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
                                         {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
                                       </div>
                                     </div>
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
-                                      <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                      <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                         <p className="text-xs font-medium text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -2063,7 +2063,7 @@ export function DashboardPage() {
                                           </ul>
                                         )}
                                         {aiSummaryEnabled && detail.ai_insight.summary_text && (
-                                          <div className="mt-3 rounded bg-slate-50/80 p-3 dark:bg-[#041612]/80">
+                                          <div className="mt-3 rounded bg-white/95 p-3 dark:bg-[#041612]/80">
                                             {renderArticleBlocks(detail.ai_insight.summary_text, `${detail.id}-ai-summary`)}
                                           </div>
                                         )}
@@ -2078,10 +2078,10 @@ export function DashboardPage() {
                                       </div>
                                     )}
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <p className="text-xs font-medium text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text ? (
-                                        <div className="rss-reader mt-2 rounded bg-slate-50/80 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
+                                        <div className="rss-reader mt-2 rounded bg-white/95 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
                                         </div>
                                       ) : (
@@ -2092,7 +2092,7 @@ export function DashboardPage() {
                                       )}
                                     </div>
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -2461,7 +2461,7 @@ export function DashboardPage() {
 
                     return (
                     <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-                      <div className="rounded border border-cyan/15 bg-cyan/5 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                      <div className="rounded border border-slate/20 bg-white/92 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
                             <span className="text-xs font-medium text-slate dark:text-white/55">Briefing</span>
@@ -2959,7 +2959,7 @@ function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
 
   return (
     <div
-      className="relative shrink-0 overflow-hidden rounded border border-slate/25 bg-gradient-to-br from-slate-100 to-slate-200 dark:border-cyan-900/40 dark:from-[#06221c] dark:to-[#041612]"
+      className="relative shrink-0 overflow-hidden rounded border border-slate/25 bg-white/90 dark:border-cyan-900/40 dark:bg-[#041612]"
       style={{ width: SAVED_VIEW_THUMBNAIL_WIDTH, height: SAVED_VIEW_THUMBNAIL_HEIGHT }}
     >
       {windows.slice(0, 14).map((windowLayout) => {

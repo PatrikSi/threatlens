@@ -159,7 +159,7 @@ export function AlertsPage() {
 
   return (
     <div className="grid gap-4 xl:grid-cols-[480px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-slate-50/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-display text-xl">{editingAlertId ? 'Edit Alert Interest' : 'Alert Interests'}</h2>
@@ -237,7 +237,7 @@ export function AlertsPage() {
           {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
         </form>
 
-        <section className="mt-5 rounded-xl border border-slate/20 bg-slate-50/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+        <section className="mt-5 rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="font-display text-lg">Current Match Preview</h3>
@@ -272,7 +272,7 @@ export function AlertsPage() {
                 previewQuery.data.items.map((item) => {
                   const previewMatch = item.matches[0]
                   return (
-                    <article key={item.id} className="rounded-lg border border-slate/20 bg-slate-50/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                    <article key={item.id} className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="font-semibold">{item.title}</p>
@@ -314,7 +314,7 @@ export function AlertsPage() {
         </section>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-slate-50/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">Configured Alerts</h2>
           <label className="flex items-center gap-2 text-sm">
@@ -335,14 +335,14 @@ export function AlertsPage() {
               return null
             }
             return (
-              <div key={categoryOption.value} className="rounded border border-slate/20 bg-slate-50/60 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+              <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
                 <h3 className="text-sm font-semibold uppercase tracking-wide text-slate dark:text-slate-300">{categoryOption.label}</h3>
                 <div className="mt-2 space-y-2">
                   {entries.map((alert) => (
                     <article
                       key={alert.id}
                       className={`rounded border p-2 dark:border-cyan-900/40 ${
-                        editingAlertId === alert.id ? 'border-cyan bg-cyan/10 dark:bg-cyan-950/30' : 'border-slate/20 bg-white/55 dark:bg-transparent'
+                        editingAlertId === alert.id ? 'border-cyan bg-cyan/10 dark:bg-cyan-950/30' : 'border-slate/20 bg-white/75 dark:bg-[#072019]/45'
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">

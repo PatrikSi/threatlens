@@ -293,6 +293,9 @@ textarea {
 .dark .bg-white\/85,
 .dark .bg-white\/90,
 .dark .bg-white\/70,
+.dark .bg-white\/95,
+.dark .bg-white\/60,
+.dark .bg-white\/55,
 .dark .bg-white {
   background-color: var(--tl-panel-bg) !important;
   color: var(--tl-text-main);
@@ -328,6 +331,14 @@ textarea {
   color: var(--tl-text-soft) !important;
 }
 
+.dark .text-slate-700,
+.dark .text-slate-800,
+.dark .text-slate-900,
+.dark .text-slate-950,
+.dark .text-ink {
+  color: var(--tl-text-main) !important;
+}
+
 .dark .text-slate {
   color: var(--tl-text-muted) !important;
 }
@@ -359,7 +370,7 @@ textarea {
   max-height: 56vh;
   overflow: auto;
   line-height: 1.78;
-  color: #182742;
+  color: inherit;
 }
 
 .rss-reader p {
@@ -478,7 +489,10 @@ textarea {
 .dark .rss-reader h6,
 .dark .rss-reader p,
 .dark .rss-reader li,
-.dark .rss-reader blockquote {
+.dark .rss-reader blockquote,
+.dark .rss-reader strong,
+.dark .rss-reader em,
+.dark .rss-reader code {
   color: var(--tl-text-main);
 }
 
