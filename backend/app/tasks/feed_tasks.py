@@ -828,7 +828,12 @@ def backfill_feed_metadata(feed_id: str):
             return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
         with db_session() as db:
-            feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
+            try:
+                parsed_feed_id = uuid.UUID(feed_id)
+            except ValueError:
+                return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
+
+            feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
             if feed is None or not feed.enabled:
                 return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
 
@@ -957,7 +962,12 @@ def fetch_feed(self, feed_id: str, force: bool = False):
             return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
         with db_session() as db:
-            feed = db.scalar(select(Feed).where(Feed.id == uuid.UUID(feed_id)))
+            try:
+                parsed_feed_id = uuid.UUID(feed_id)
+            except ValueError:
+                return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
+
+            feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
             if feed is None or not feed.enabled:
                 return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
             if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
@@ -1075,7 +1085,12 @@ def fetch_feed(self, feed_id: str, force: bool = False):
 @celery_app.task(name="app.tasks.feed_tasks.fetch_article", bind=True)
 def fetch_article(self, item_id: str):
     with db_session() as db:
-        item = db.scalar(select(Item).where(Item.id == uuid.UUID(item_id)))
+        try:
+            parsed_item_id = uuid.UUID(item_id)
+        except ValueError:
+            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
         if item is None:
             return {"status": "skipped", "reason": "not_found", "item_id": item_id}
 

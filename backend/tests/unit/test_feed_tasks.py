@@ -16,7 +16,9 @@ from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPRO
 from app.schemas.ai import AISettingsUpdate
 from app.tasks.feed_tasks import (
     _scheduled_daily_ai_brief_due,
+    backfill_feed_metadata,
     classify_item,
+    fetch_article,
     fetch_feed,
     generate_item_ai_enrichment_task,
     reprocess_recent_ai_items,
@@ -104,6 +106,54 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
     result = fetch_feed.run(str(feed.id), force=True)
 
     assert result == {"status": "not_modified", "feed_id": str(feed.id)}
+
+
+def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+
+    result = fetch_feed.run("not-a-uuid")
+
+    assert result == {"status": "skipped", "reason": "invalid_feed_id", "feed_id": "not-a-uuid"}
+
+
+def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+
+    result = backfill_feed_metadata.run("not-a-uuid")
+
+    assert result == {"status": "skipped", "reason": "invalid_feed_id", "feed_id": "not-a-uuid"}
+
+
+def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    result = fetch_article.run("not-a-uuid")
+
+    assert result == {"status": "skipped", "reason": "invalid_item_id", "item_id": "not-a-uuid"}
 
 
 def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch):
