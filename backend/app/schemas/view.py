@@ -9,6 +9,11 @@ class SavedViewCreate(BaseModel):
     query_json: dict
 
 
+class SavedViewUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    query_json: dict | None = None
+
+
 class SavedViewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -9,7 +9,7 @@ from app.core.token_scopes import SCOPE_READ_VIEWS, SCOPE_WRITE_VIEWS
 from app.db.session import get_db
 from app.models.saved_view import SavedView
 from app.models.user import User
-from app.schemas.view import SavedViewCreate, SavedViewResponse
+from app.schemas.view import SavedViewCreate, SavedViewResponse, SavedViewUpdate
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/views", tags=["views"])
@@ -41,6 +41,35 @@ def create_view(
         db,
         actor_user_id=user.id,
         action="views.create",
+        resource_type="saved_view",
+        resource_id=str(view.id),
+        metadata={"name": view.name},
+    )
+    db.commit()
+    db.refresh(view)
+    return view
+
+
+@router.patch("/{view_id}", response_model=SavedViewResponse)
+def update_view(
+    view_id: uuid.UUID,
+    payload: SavedViewUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
+):
+    view = db.scalar(select(SavedView).where(SavedView.id == view_id, SavedView.user_id == user.id))
+    if view is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="View not found")
+
+    if payload.name is not None:
+        view.name = payload.name
+    if payload.query_json is not None:
+        view.query_json = payload.query_json
+
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="views.update",
         resource_type="saved_view",
         resource_id=str(view.id),
         metadata={"name": view.name},
