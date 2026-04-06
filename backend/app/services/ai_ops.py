@@ -232,6 +232,14 @@ def finish_ai_task_run(
         run.duration_ms = max(0, int((now - _coerce_utc(run.started_at)).total_seconds() * 1000))
     if metadata_updates:
         run.metadata_json = _merge_metadata(run.metadata_json, metadata_updates)
+    _settle_pending_item_enrichment(
+        db,
+        run=run,
+        status=status,
+        reason=reason,
+        error=error,
+        settled_at=now,
+    )
     db.add(run)
     event_type = "completed" if status == AI_STATUS_READY else "failed" if status == AI_STATUS_ERROR else "skipped"
     payload: dict[str, Any] = {"status": status}
@@ -319,9 +327,10 @@ def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetail
 
 
 def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UUID | None = None) -> AITaskRun | None:
-    workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
     _reconcile_stale_ai_runs(
         db,
+        snapshot_available=snapshot_available,
         workers=workers,
         active_tasks=active_tasks,
         reserved_tasks=reserved_tasks,
@@ -414,9 +423,10 @@ def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UU
 
 
 def get_ai_live_status(db: Session) -> AILiveStatusResponse:
-    workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
     _reconcile_stale_ai_runs(
         db,
+        snapshot_available=snapshot_available,
         workers=workers,
         active_tasks=active_tasks,
         reserved_tasks=reserved_tasks,
@@ -636,18 +646,7 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
     if target_count > 0 and parent.processed_count >= target_count and parent.finished_at is None:
         parent.finished_at = datetime.now(timezone.utc)
         parent.duration_ms = max(0, int((parent.finished_at - _coerce_utc(parent.started_at)).total_seconds() * 1000))
-        if parent.error_count:
-            parent.status = AI_STATUS_ERROR
-            parent.reason = "partial_failures"
-        elif bool((parent.metadata_json or {}).get("was_canceled")):
-            parent.status = AI_STATUS_SKIPPED
-            parent.reason = "canceled"
-        elif parent.skipped_count:
-            parent.status = AI_STATUS_SKIPPED
-            parent.reason = "partial_skips"
-        else:
-            parent.status = AI_STATUS_READY
-            parent.reason = None
+        parent.status, parent.reason = _resolve_parent_terminal_state(parent)
         record_ai_task_event(
             db,
             run_id=parent.id,
@@ -661,6 +660,40 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
             },
         )
     db.add(parent)
+
+
+def _resolve_parent_terminal_state(run: AITaskRun) -> tuple[str, str | None]:
+    if int(run.error_count or 0):
+        return AI_STATUS_ERROR, "partial_failures"
+    if bool((run.metadata_json or {}).get("was_canceled")):
+        return AI_STATUS_SKIPPED, "canceled"
+    if int(run.skipped_count or 0):
+        return AI_STATUS_SKIPPED, "partial_skips"
+    return AI_STATUS_READY, None
+
+
+def _settle_pending_item_enrichment(
+    db: Session,
+    *,
+    run: AITaskRun,
+    status: str,
+    reason: str | None,
+    error: str | None,
+    settled_at: datetime,
+) -> None:
+    if run.task_type != AI_TASK_TYPE_ITEM_ENRICHMENT or run.item_id is None:
+        return
+    if status != AI_STATUS_ERROR and reason != "canceled":
+        return
+
+    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == run.item_id))
+    if enrichment is None or enrichment.status != "pending":
+        return
+
+    enrichment.status = AI_STATUS_ERROR
+    enrichment.error = error or reason or "task_failed"
+    enrichment.generated_at = settled_at
+    db.add(enrichment)
 
 
 def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResponse]:
@@ -772,8 +805,9 @@ def _load_user_emails(db: Session, actor_ids: list[uuid.UUID | None]) -> dict[uu
     return {user_id: email for user_id, email in rows}
 
 
-def _load_live_task_snapshot() -> tuple[list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]:
+def _load_live_task_snapshot() -> tuple[bool, list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]:
     settings = get_settings()
+    snapshot_available = False
     workers: list[str] = []
     active_tasks: list[AILiveTaskResponse] = []
     reserved_tasks: list[AILiveTaskResponse] = []
@@ -788,24 +822,31 @@ def _load_live_task_snapshot() -> tuple[list[str], list[AILiveTaskResponse], lis
         active_tasks = _flatten_live_tasks(active_raw, state="active")
         reserved_tasks = _flatten_live_tasks(reserved_raw, state="reserved")
         scheduled_tasks = _flatten_live_tasks(scheduled_raw, state="scheduled")
+        snapshot_available = True
     except Exception:
         workers = []
         active_tasks = []
         reserved_tasks = []
         scheduled_tasks = []
-    return workers, active_tasks, reserved_tasks, scheduled_tasks
+    return snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks
 
 
 def _reconcile_stale_ai_runs(
     db: Session,
     *,
+    snapshot_available: bool | None = None,
     workers: list[str] | None = None,
     active_tasks: list[AILiveTaskResponse] | None = None,
     reserved_tasks: list[AILiveTaskResponse] | None = None,
     scheduled_tasks: list[AILiveTaskResponse] | None = None,
 ) -> None:
     if workers is None or active_tasks is None or reserved_tasks is None or scheduled_tasks is None:
-        workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+        snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    elif snapshot_available is None:
+        snapshot_available = True
+
+    if not snapshot_available:
+        return
 
     _ = workers
     live_task_ids = {
@@ -867,11 +908,12 @@ def _reconcile_stale_ai_runs(
         target_count = int(run.target_count or 0)
         processed_count = int(run.processed_count or 0)
         if target_count > 0 and processed_count >= target_count:
+            terminal_status, terminal_reason = _resolve_parent_terminal_state(run)
             finish_ai_task_run(
                 db,
                 run_id=run.id,
-                status=AI_STATUS_ERROR if int(run.error_count or 0) else AI_STATUS_READY,
-                reason="partial_failures" if int(run.error_count or 0) else None,
+                status=terminal_status,
+                reason=terminal_reason,
                 error=run.error,
                 worker_name=run.worker_name,
                 model=run.model,

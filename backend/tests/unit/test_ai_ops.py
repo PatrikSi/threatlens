@@ -4,10 +4,13 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.models.ai_task_run import AITaskRun
+from app.models.feed import Feed
+from app.models.item import Item
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
-    AI_STATUS_SKIPPED,
     AI_STATUS_RUNNING,
+    AI_STATUS_SKIPPED,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
@@ -58,7 +61,7 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
     db_session.add_all([parent_run, child_run])
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: ([], [], [], []))
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
 
     response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
 
@@ -111,6 +114,140 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
     assert refreshed.reason == "canceled"
     assert refreshed.worker_name == "api"
     assert refreshed.celery_task_id is None
+
+
+def test_list_ai_task_runs_skips_stale_reconciliation_when_live_snapshot_unavailable(db_session, monkeypatch):
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=uuid.uuid4(),
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_RUNNING
+    assert refreshed.finished_at is None
+
+    assert response.items[0].status == AI_STATUS_RUNNING
+
+
+def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="stale-item",
+        url="https://example.com/articles/stale-item",
+        title="Stale AI task",
+        dedupe_key="stale-item",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
+    enrichment = ItemAIEnrichment(
+        item_id=item.id,
+        status="pending",
+        source_hash="hash",
+        relevance_reasons_json=[],
+    )
+    db_session.add_all([feed, item, enrichment])
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="stale-task")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    refreshed_enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
+
+    assert refreshed_run is not None
+    assert refreshed_run.status == AI_STATUS_ERROR
+    assert refreshed_run.reason == "stale_task_lost"
+
+    assert refreshed_enrichment is not None
+    assert refreshed_enrichment.status == AI_STATUS_ERROR
+    assert refreshed_enrichment.error == "Task no longer appears in Celery and did not report completion"
+    assert refreshed_enrichment.generated_at is not None
+
+
+def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(db_session, monkeypatch):
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 1},
+        target_count=1,
+    )
+    parent_run.status = AI_STATUS_RUNNING
+    parent_run.processed_count = 1
+    parent_run.skipped_count = 1
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    parent_run.queued_at = stale_time
+    parent_run.started_at = stale_time
+    parent_run.created_at = stale_time
+    parent_run.updated_at = stale_time
+    db_session.add(parent_run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert refreshed_parent is not None
+    assert refreshed_parent.status == AI_STATUS_SKIPPED
+    assert refreshed_parent.reason == "partial_skips"
+    assert refreshed_parent.finished_at is not None
+
+    assert response.items[0].status == AI_STATUS_SKIPPED
+    assert response.items[0].reason == "partial_skips"
 
 
 def test_flatten_live_tasks_extracts_run_ids_from_positional_args():
