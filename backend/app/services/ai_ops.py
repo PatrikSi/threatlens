@@ -327,7 +327,9 @@ def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetail
 
 
 def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UUID | None = None) -> AITaskRun | None:
-    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _normalize_live_task_snapshot(
+        _load_live_task_snapshot()
+    )
     _reconcile_stale_ai_runs(
         db,
         snapshot_available=snapshot_available,
@@ -423,7 +425,9 @@ def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UU
 
 
 def get_ai_live_status(db: Session) -> AILiveStatusResponse:
-    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _normalize_live_task_snapshot(
+        _load_live_task_snapshot()
+    )
     _reconcile_stale_ai_runs(
         db,
         snapshot_available=snapshot_available,
@@ -831,6 +835,16 @@ def _load_live_task_snapshot() -> tuple[bool, list[str], list[AILiveTaskResponse
     return snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks
 
 
+def _normalize_live_task_snapshot(
+    snapshot: tuple[bool, list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]
+    | tuple[list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]
+) -> tuple[bool, list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]:
+    if len(snapshot) == 4:
+        workers, active_tasks, reserved_tasks, scheduled_tasks = snapshot
+        return True, workers, active_tasks, reserved_tasks, scheduled_tasks
+    return snapshot
+
+
 def _reconcile_stale_ai_runs(
     db: Session,
     *,
@@ -841,7 +855,9 @@ def _reconcile_stale_ai_runs(
     scheduled_tasks: list[AILiveTaskResponse] | None = None,
 ) -> None:
     if workers is None or active_tasks is None or reserved_tasks is None or scheduled_tasks is None:
-        snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+        snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _normalize_live_task_snapshot(
+            _load_live_task_snapshot()
+        )
     elif snapshot_available is None:
         snapshot_available = True
 
