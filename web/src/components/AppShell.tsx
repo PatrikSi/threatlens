@@ -57,7 +57,7 @@ export function AppShell() {
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <button
               type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
+              className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={() => setMobileNavOpen((current) => !current)}
               aria-expanded={mobileNavOpen}
               aria-label="Toggle navigation menu"
@@ -76,7 +76,7 @@ export function AppShell() {
                       key={link.to}
                       to={link.to}
                       aria-current={active ? 'page' : undefined}
-                      className={`rounded border px-3 py-2 text-center transition ${
+                      className={`rounded border px-3 py-1.5 text-center transition ${
                         active
                           ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
                           : 'border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:border-cyan-900/40'
@@ -89,13 +89,13 @@ export function AppShell() {
               </nav>
 
               {meQuery.data && (
-                <div className="rounded border border-slate/20 px-2 py-1.5 text-xs text-slate dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200">
+                <div className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200">
                   {meQuery.data.email} ({meQuery.data.role})
                 </div>
               )}
 
               <div className="flex items-center gap-2">
-                <label className="flex-1 rounded border border-slate/30 px-2 py-1.5 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100">
+                <label className="flex-1 rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100">
                   <span className="sr-only">Theme</span>
                   <select
                     value={mode}
@@ -111,7 +111,7 @@ export function AppShell() {
                   </select>
                 </label>
                 <button
-                  className="rounded border border-slate/30 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
+                  className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
                   onClick={() => {
                     logout.mutate()
                   }}
@@ -135,7 +135,7 @@ export function AppShell() {
                     key={link.to}
                     to={link.to}
                     aria-current={active ? 'page' : undefined}
-                    className={`rounded-lg border px-3 py-1.5 transition ${
+                    className={`rounded border px-3 py-1.5 transition ${
                       active
                         ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
                         : 'border-transparent hover:border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:hover:border-cyan-900/40'
@@ -150,11 +150,11 @@ export function AppShell() {
 
           <div className="flex items-center gap-2">
             {meQuery.data && (
-              <div className="rounded border border-slate/20 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200">
+              <div className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate dark:border-cyan-900/40 dark:bg-cyan-950/30 dark:text-cyan-200">
                 {meQuery.data.email} ({meQuery.data.role})
               </div>
             )}
-            <label className="rounded border border-slate/30 px-2 py-1 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100">
+            <label className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate-700 dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100">
               <span className="sr-only">Theme</span>
               <select
                 value={mode}
@@ -170,7 +170,7 @@ export function AppShell() {
               </select>
             </label>
             <button
-              className="rounded border border-slate/30 px-3 py-1 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
+              className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-cyan-900/40 dark:bg-[#08211b] dark:text-cyan-100"
               onClick={() => {
                 logout.mutate()
               }}

@@ -193,7 +193,7 @@ const WINDOW_TYPE_META: Record<
     label: 'Notes',
     description: 'Keep scratch notes, pivots, and hypotheses attached to this view.',
     badgeClassName:
-      'border-slate/30 bg-slate/10 text-slate-700 dark:border-slate-600/45 dark:bg-slate-800/40 dark:text-slate-200',
+      'border-slate/20 bg-slate/10 text-slate-700 dark:border-slate-600/45 dark:bg-slate-800/40 dark:text-slate-200',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -202,7 +202,7 @@ const WINDOW_TYPE_META: Record<
     label: 'Daily Brief',
     description: 'Review retained AI briefings and the items that shaped them.',
     badgeClassName:
-      'border-slate/25 bg-white/80 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70',
+      'border-slate/20 bg-white/80 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -349,8 +349,11 @@ export function DashboardPage() {
   const [importViewsError, setImportViewsError] = useState('')
   const [importViewsResult, setImportViewsResult] = useState('')
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [isEditMode, setIsEditMode] = useState(false)
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
+  const [showSaveAsNew, setShowSaveAsNew] = useState(false)
   const [openWindowMenuId, setOpenWindowMenuId] = useState<string | null>(null)
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null)
   const [renameWindowDraft, setRenameWindowDraft] = useState('')
@@ -574,6 +577,21 @@ export function DashboardPage() {
       }),
     onSuccess: () => {
       setActiveSavedViewId(null)
+      queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+  })
+
+  const updateExistingView = useMutation({
+    mutationFn: (payload: { viewId: string; name?: string; query?: DashboardSavedViewState }) =>
+      apiFetch<SavedView>(`/views/${payload.viewId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          ...(payload.name !== undefined ? { name: payload.name } : {}),
+          ...(payload.query !== undefined ? { query_json: payload.query } : {}),
+        }),
+      }),
+    onSuccess: (view) => {
+      setActiveSavedViewId(view.id)
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
@@ -1016,6 +1034,20 @@ export function DashboardPage() {
     })
   }
 
+  const updateActiveView = () => {
+    if (!activeSavedViewId) return
+
+    updateExistingView.mutate({
+      viewId: activeSavedViewId,
+      query: buildDashboardSavedViewState(windows, {
+        time_range: dashboardTimeRange,
+        custom_since_date: dashboardCustomSinceDate,
+        custom_until_date: dashboardCustomUntilDate,
+        rolling_days: dashboardRollingDays,
+      }),
+    })
+  }
+
   const applySavedView = (view: SavedView) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
@@ -1339,6 +1371,35 @@ export function DashboardPage() {
     )
   }
 
+  const applyGlobalSearch = (query: string) => {
+    setGlobalSearchQuery(query)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.type === 'rss') {
+          return {
+            ...window,
+            rss_filters: {
+              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+              q: query,
+              page: 1,
+            },
+          }
+        }
+        if (window.type === 'alerts') {
+          return {
+            ...window,
+            alert_filters: {
+              ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+              q: query,
+              page: 1,
+            },
+          }
+        }
+        return window
+      }),
+    )
+  }
+
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
@@ -1353,12 +1414,12 @@ export function DashboardPage() {
   )
   return (
     <div className="w-full">
-      <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 text-[12px] shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
+      <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
         <div className="mb-1.5 flex items-center justify-between gap-2 sm:hidden">
-          <p className="text-xs font-medium text-slate dark:text-slate-300">Views</p>
+          <p className="text-xs font-medium text-slate dark:text-slate-300">Dashboard</p>
           <button
             type="button"
-            className="h-8 rounded border border-slate/25 px-2 text-xs dark:border-cyan-900/40"
+            className="h-8 rounded border border-slate/20 px-2 text-xs dark:border-cyan-900/40"
             onClick={() => setMobileDashboardViewsOpen((current) => !current)}
             aria-expanded={mobileDashboardViewsOpen}
             aria-controls="dashboard-view-toolbar"
@@ -1370,31 +1431,15 @@ export function DashboardPage() {
           id="dashboard-view-toolbar"
           className={`${mobileDashboardViewsOpen ? 'flex' : 'hidden'} flex-col gap-1.5 sm:flex sm:flex-row sm:flex-wrap sm:items-center lg:flex-nowrap`}
         >
-          <p className="hidden text-xs font-medium text-slate sm:block dark:text-slate-300">Views</p>
           <input
-            value={savedViewName}
-            onChange={(event) => setSavedViewName(event.target.value)}
-            placeholder="Save view as..."
-            className="h-8 w-full min-w-[180px] rounded border border-slate/25 bg-white px-2 text-sm sm:flex-1 dark:border-cyan-900/40 dark:bg-[#041612]"
+            value={globalSearchQuery}
+            onChange={(event) => applyGlobalSearch(event.target.value)}
+            placeholder="Search across all panels..."
+            className="h-8 w-full min-w-[180px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:flex-1 dark:border-cyan-900/40 dark:bg-[#041612]"
           />
-          <button
-            type="button"
-            className="h-8 w-full rounded bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
-            onClick={saveCurrentView}
-            disabled={saveView.isPending || !savedViewName.trim()}
-          >
-            Save View
-          </button>
-          <button
-            type="button"
-            className="h-8 w-full rounded border border-slate/25 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
-            onClick={() => setShowManageViewsModal(true)}
-          >
-            Manage Views
-          </button>
           <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
             <select
-              className="h-8 w-full rounded border border-slate/25 bg-white px-2 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
+              className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardTimeRange}
               onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
             >
@@ -1405,87 +1450,44 @@ export function DashboardPage() {
               <option value="days">Last X days</option>
               <option value="custom">Custom</option>
             </select>
-            {dashboardTimeRange === 'days' ? (
-              <label className="flex h-8 w-full items-center rounded border border-slate/25 bg-white px-2 text-sm sm:w-[138px] dark:border-cyan-900/40 dark:bg-[#041612]">
-                <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
+            {dashboardTimeRange === 'days' && (
+              <>
+                <label className="flex h-8 w-full items-center rounded border border-slate/20 bg-white px-2 text-xs sm:w-[138px] dark:border-cyan-900/40 dark:bg-[#041612]">
+                  <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={dashboardRollingDays}
+                    onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
+                    className="w-full bg-transparent text-xs outline-none"
+                  />
+                  <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
+                </label>
+                <div className="flex h-8 w-full items-center rounded border border-slate/20 bg-slate/10 px-2 text-xs text-slate sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
+                  {formatRollingWindowHint(dashboardRollingDays)}
+                </div>
+              </>
+            )}
+            {dashboardTimeRange === 'custom' && (
+              <>
                 <input
-                  type="number"
-                  min={1}
-                  max={365}
-                  value={dashboardRollingDays}
-                  onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
-                  className="w-full bg-transparent outline-none"
+                  type="date"
+                  className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={dashboardCustomSinceDate}
+                  onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
                 />
-                <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
-              </label>
-            ) : (
-              <input
-                type="date"
-                className="h-8 w-full rounded border border-slate/25 bg-white px-2 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-                value={dashboardCustomSinceDate}
-                onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
-                disabled={dashboardTimeRange !== 'custom'}
-              />
-            )}
-            {dashboardTimeRange === 'days' ? (
-              <div className="flex h-8 w-full items-center rounded border border-slate/20 bg-slate/10 px-2 text-xs text-slate sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/65">
-                {formatRollingWindowHint(dashboardRollingDays)}
-              </div>
-            ) : (
-              <input
-                type="date"
-                className="h-8 w-full rounded border border-slate/25 bg-white px-2 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
-                value={dashboardCustomUntilDate}
-                onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
-                disabled={dashboardTimeRange !== 'custom'}
-              />
-            )}
-          </div>
-          <div className="relative">
-            <button
-              type="button"
-              className="h-8 w-full rounded border border-slate/25 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
-              onClick={() => setShowAddWindowMenu((current) => !current)}
-            >
-              Add Panel
-            </button>
-            {showAddWindowMenu && (
-              <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('rss')}
-                >
-                  RSS Panel ({rssWindowCount})
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('alerts')}
-                >
-                  Alerts Panel ({alertWindowCount})
-                </button>
-                <button
-                  type="button"
-                  className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                  onClick={() => addWindow('notes')}
-                >
-                  Notes Panel ({notesWindowCount})
-                </button>
-                {aiDailyBriefEnabled && (
-                  <button
-                    type="button"
-                    className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
-                    onClick={() => addWindow('daily_brief')}
-                  >
-                    Daily Brief Panel ({dailyBriefWindowCount})
-                  </button>
-                )}
-              </div>
+                <input
+                  type="date"
+                  className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
+                  value={dashboardCustomUntilDate}
+                  onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+                />
+              </>
             )}
           </div>
           <select
-            className="h-8 w-full rounded border border-slate/25 bg-white px-2 text-sm xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
+            className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
             value={activeSavedViewId ?? ''}
             onChange={(event) => {
               const value = event.target.value
@@ -1506,6 +1508,160 @@ export function DashboardPage() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+            onClick={() => setShowManageViewsModal(true)}
+          >
+            Views
+          </button>
+          {!isEditMode ? (
+            <button
+              type="button"
+              className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
+              onClick={() => {
+                setIsEditMode(true)
+                setShowSaveAsNew(false)
+                setSavedViewName('')
+              }}
+            >
+              Edit Layout
+            </button>
+          ) : (
+            <>
+              <div className="relative">
+                <button
+                  type="button"
+                  className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                  onClick={() => setShowAddWindowMenu((current) => !current)}
+                >
+                  Add Panel
+                </button>
+                {showAddWindowMenu && (
+                  <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      onClick={() => addWindow('rss')}
+                    >
+                      RSS Panel ({rssWindowCount})
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      onClick={() => addWindow('alerts')}
+                    >
+                      Alerts Panel ({alertWindowCount})
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      onClick={() => addWindow('notes')}
+                    >
+                      Notes Panel ({notesWindowCount})
+                    </button>
+                    {aiDailyBriefEnabled && (
+                      <button
+                        type="button"
+                        className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                        onClick={() => addWindow('daily_brief')}
+                      >
+                        Daily Brief Panel ({dailyBriefWindowCount})
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+              {activeSavedViewId ? (
+                <>
+                  <span className="hidden items-center rounded border border-cyan/30 bg-cyan/8 px-2.5 text-xs font-medium text-cyan sm:flex dark:border-cyan-800/40 dark:bg-cyan-950/40 dark:text-cyan-200">
+                    Editing &ldquo;{viewsQuery.data?.find((v) => v.id === activeSavedViewId)?.name}&rdquo;
+                  </span>
+                  <button
+                    type="button"
+                    className="h-8 w-full rounded bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
+                    onClick={() => {
+                      updateActiveView()
+                      setIsEditMode(false)
+                      setShowAddWindowMenu(false)
+                      setOpenWindowMenuId(null)
+                      setShowSaveAsNew(false)
+                    }}
+                    disabled={updateExistingView.isPending}
+                  >
+                    Save
+                  </button>
+                  {!showSaveAsNew ? (
+                    <button
+                      type="button"
+                      className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                      onClick={() => setShowSaveAsNew(true)}
+                    >
+                      Save as New...
+                    </button>
+                  ) : (
+                    <>
+                      <input
+                        autoFocus
+                        value={savedViewName}
+                        onChange={(event) => setSavedViewName(event.target.value)}
+                        placeholder="New view name..."
+                        className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
+                      />
+                      <button
+                        type="button"
+                        className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold disabled:opacity-50 sm:w-auto dark:border-cyan-900/40"
+                        onClick={() => {
+                          saveCurrentView()
+                          setIsEditMode(false)
+                          setShowAddWindowMenu(false)
+                          setOpenWindowMenuId(null)
+                          setShowSaveAsNew(false)
+                        }}
+                        disabled={saveView.isPending || !savedViewName.trim()}
+                      >
+                        Create
+                      </button>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <input
+                    value={savedViewName}
+                    onChange={(event) => setSavedViewName(event.target.value)}
+                    placeholder="View name..."
+                    className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
+                  />
+                  <button
+                    type="button"
+                    className="h-8 w-full rounded bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
+                    onClick={() => {
+                      saveCurrentView()
+                      setIsEditMode(false)
+                      setShowAddWindowMenu(false)
+                      setOpenWindowMenuId(null)
+                    }}
+                    disabled={saveView.isPending || !savedViewName.trim()}
+                  >
+                    Save New View
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                onClick={() => {
+                  setIsEditMode(false)
+                  setShowAddWindowMenu(false)
+                  setOpenWindowMenuId(null)
+                  setShowSaveAsNew(false)
+                }}
+              >
+                Cancel
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1577,34 +1733,37 @@ export function DashboardPage() {
             >
               <div
                 className={`flex flex-col gap-3 border-b border-slate/20 px-3 py-2.5 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between`}
-                onMouseDown={(event) => startWindowDrag(event, windowLayout.id)}
+                onMouseDown={isEditMode ? (event) => startWindowDrag(event, windowLayout.id) : undefined}
+                style={isEditMode ? { cursor: 'grab' } : undefined}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
+                    <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
                       {windowMeta.label}
                     </span>
                     <h2 className="font-display text-lg leading-tight text-ink dark:text-white">{windowLayout.title}</h2>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
-                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
-                      {formatWindowSnapLabel(windowLayout.snap)}
-                    </span>
-                    <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                    {isEditMode && (
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                        {formatWindowSnapLabel(windowLayout.snap)}
+                      </span>
+                    )}
+                    <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                       {windowTimeSummary}
                     </span>
                     {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && activeLocalFilterCount > 0 && (
-                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {activeLocalFilterCount} local filters
                       </span>
                     )}
                     {windowLayout.type === 'alerts' && (
-                      <span className="rounded border border-slate/25 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         {alertWindowItems.length} shown
                       </span>
                     )}
                     {windowLayout.type === 'notes' && (
-                      <span className="rounded border border-slate/25 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         Scratch pad
                       </span>
                     )}
@@ -1619,7 +1778,7 @@ export function DashboardPage() {
                       </span>
                     )}
                     {isPanelRefreshing && (
-                      <span className="rounded-full border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         Updating...
                       </span>
                     )}
@@ -1632,7 +1791,7 @@ export function DashboardPage() {
                     {windowLayout.type === 'alerts' && (
                       <button
                         type="button"
-                        className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                        className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                         onClick={() => markWindowSeen(windowLayout.id)}
                       >
                         Mark Seen
@@ -1641,64 +1800,43 @@ export function DashboardPage() {
                     {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && (
                       <button
                         type="button"
-                        className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                        className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                         onClick={() => toggleWindowControls(windowLayout.id)}
                       >
                         {windowLayout.controls_collapsed ? 'Show Filters' : 'Hide Filters'}
                       </button>
                     )}
-                    <div className="relative">
-                      <button
-                        type="button"
-                        className="rounded border border-slate/25 px-2 py-1 text-xs font-semibold dark:border-cyan-900/40"
-                        onClick={() =>
-                          setOpenWindowMenuId((current) => (current === windowLayout.id ? null : windowLayout.id))
-                        }
-                      >
-                        Panel Actions
-                      </button>
-                      {openWindowMenuId === windowLayout.id && (
-                        <div
-                          className="absolute right-0 top-[calc(100%+8px)] z-30 w-64 rounded-xl border border-slate/20 bg-white p-3 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]"
+                    {isEditMode && (
+                      <>
+                        <select
+                          className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                          value={windowLayout.snap}
+                          onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
                           onMouseDown={(event) => event.stopPropagation()}
                         >
-                          <div className="space-y-3">
-                            <div>
-                              <p className="text-[10px] font-medium text-slate dark:text-white/55">Placement</p>
-                              <select
-                                className="mt-1 w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                                value={windowLayout.snap}
-                                onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
-                              >
-                                {WINDOW_SNAP_OPTIONS.map((option) => (
-                                  <option key={option.value} value={option.value}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <button
-                              type="button"
-                              className="w-full rounded-lg border border-slate/25 px-3 py-2 text-left text-sm font-semibold dark:border-cyan-900/40"
-                              onClick={() => openRenameWindow(windowLayout.id)}
-                            >
-                              Rename panel
-                            </button>
-                            <button
-                              type="button"
-                              className="w-full rounded-lg border border-slate/25 px-3 py-2 text-left text-sm font-semibold text-red-600 disabled:opacity-40 dark:border-cyan-900/40"
-                              disabled={windows.length <= 1}
-                              onClick={() => {
-                                setOpenWindowMenuId(null)
-                                removeWindow(windowLayout.id)
-                              }}
-                            >
-                              Close panel
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
+                          {WINDOW_SNAP_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+                          onClick={() => openRenameWindow(windowLayout.id)}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 disabled:opacity-40 dark:border-cyan-900/40"
+                          disabled={windows.length <= 1}
+                          onClick={() => removeWindow(windowLayout.id)}
+                        >
+                          Close
+                        </button>
+                      </>
+                    )}
                 </div>
               </div>
 
@@ -1709,10 +1847,10 @@ export function DashboardPage() {
                       <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
                       <button
                         type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_feed_ids.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
-                            : 'border-slate/25 dark:border-cyan-900/40'
+                            : 'border-slate/20 dark:border-cyan-900/40'
                         }`}
                         onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_feed_ids: [] }))}
                       >
@@ -1725,8 +1863,8 @@ export function DashboardPage() {
                           <button
                             key={feed.id}
                             type="button"
-                            className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
-                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/25 dark:border-cyan-900/40'
+                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
+                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
                             }`}
                             onClick={() =>
                               updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -1747,10 +1885,10 @@ export function DashboardPage() {
                       <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-0.5">
                       <button
                         type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_tags.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                            : 'border-slate/25 dark:border-cyan-900/40'
+                            : 'border-slate/20 dark:border-cyan-900/40'
                         }`}
                         onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_tags: [] }))}
                       >
@@ -1764,10 +1902,10 @@ export function DashboardPage() {
                             <button
                               key={tag.id}
                               type="button"
-                              className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
+                              className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                                 active
                                   ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                                  : 'border-slate/25 dark:border-cyan-900/40'
+                                  : 'border-slate/20 dark:border-cyan-900/40'
                               }`}
                               onClick={() =>
                                 updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -1790,10 +1928,10 @@ export function DashboardPage() {
                         value={rssFilters.q}
                         onChange={(event) => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         placeholder="Search title, summary, URL"
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
@@ -1806,7 +1944,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       {effectiveWindowTimeFilter.time_range === 'days' && (
-                        <label className="flex w-full items-center rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                        <label className="flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
                           <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
                           <input
                             type="number"
@@ -1820,7 +1958,7 @@ export function DashboardPage() {
                         </label>
                       )}
                       <select
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={rssFilters.sort}
                         onChange={(event) =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
@@ -1831,7 +1969,7 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
+                      <div className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${rssFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
@@ -1849,7 +1987,7 @@ export function DashboardPage() {
                       </div>
                       <button
                         type="button"
-                        className="w-full rounded border border-slate/25 px-3 py-1.5 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
+                        className="w-full rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
                         onClick={() =>
                           updateWindowRssFilters(
                             windowLayout.id,
@@ -1865,7 +2003,7 @@ export function DashboardPage() {
                       {rssFilters.show_advanced_filters && (
                         <div className="mt-1 grid gap-2 rounded border border-slate/20 bg-white/90 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70 md:grid-cols-2 lg:grid-cols-3">
                         <select
-                          className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                          className="rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                           value={rssFilters.read_status}
                           onChange={(event) =>
                             updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -1879,7 +2017,7 @@ export function DashboardPage() {
                           <option value="read">Read: Read</option>
                         </select>
                         <select
-                          className="rounded border border-slate/25 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                          className="rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                           value={rssFilters.star_status}
                           onChange={(event) =>
                             updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -1895,14 +2033,14 @@ export function DashboardPage() {
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <input
                             type="date"
-                            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                            className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                             value={effectiveWindowTimeFilter.custom_since_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                           />
                           <input
                             type="date"
-                            className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                            className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                             value={effectiveWindowTimeFilter.custom_until_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -1990,7 +2128,7 @@ export function DashboardPage() {
                                   <>
                                     <div className="flex flex-wrap items-center gap-2">
                                       <a
-                                        className="rounded border border-slate/30 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                                        className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
                                         href={detail.article?.final_url || detail.url}
                                         target="_blank"
                                         rel="noreferrer"
@@ -1998,7 +2136,7 @@ export function DashboardPage() {
                                         Open Source Link
                                       </a>
                                       <button
-                                        className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                                        className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                                         disabled={!canManage}
                                         onClick={() =>
                                           updateRead.mutate({
@@ -2010,7 +2148,7 @@ export function DashboardPage() {
                                         {detail.state.is_read ? 'Mark Unread' : 'Mark Read'}
                                       </button>
                                       <button
-                                        className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                                        className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                                         disabled={!canManage}
                                         onClick={() =>
                                           updateStar.mutate({
@@ -2095,7 +2233,7 @@ export function DashboardPage() {
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
-                                        className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                                        className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                                         value={noteDraft}
                                         onChange={(event) => setNoteDraft(event.target.value)}
                                         disabled={!canManage}
@@ -2136,7 +2274,7 @@ export function DashboardPage() {
 
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
-                      className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                      className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                       disabled={rssFilters.page <= 1}
                       onClick={() =>
                         updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
@@ -2150,7 +2288,7 @@ export function DashboardPage() {
                     <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
-                        className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={rssFilters.page_size}
                         onChange={(event) =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -2166,7 +2304,7 @@ export function DashboardPage() {
                         ))}
                       </select>
                       <button
-                        className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                        className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                         disabled={rssFilters.page >= rssTotalPages}
                         onClick={() =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
@@ -2184,10 +2322,10 @@ export function DashboardPage() {
                     <div className="flex items-center gap-2 overflow-x-auto pb-1">
                       <button
                         type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_categories.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
-                            : 'border-slate/25 dark:border-cyan-900/40'
+                            : 'border-slate/20 dark:border-cyan-900/40'
                         }`}
                         onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_categories: [] }))}
                       >
@@ -2199,8 +2337,8 @@ export function DashboardPage() {
                           <button
                             key={category}
                             type="button"
-                            className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
-                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/25 dark:border-cyan-900/40'
+                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
+                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
                             }`}
                             onClick={() =>
                               updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -2220,10 +2358,10 @@ export function DashboardPage() {
                     <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
                       <button
                         type="button"
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_alert_ids.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                            : 'border-slate/25 dark:border-cyan-900/40'
+                            : 'border-slate/20 dark:border-cyan-900/40'
                         }`}
                         onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_alert_ids: [] }))}
                       >
@@ -2235,10 +2373,10 @@ export function DashboardPage() {
                           <button
                             key={interest.id}
                             type="button"
-                            className={`whitespace-nowrap rounded-full border px-3 py-1 text-xs font-semibold ${
+                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active
                                 ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                                : 'border-slate/25 dark:border-cyan-900/40'
+                                : 'border-slate/20 dark:border-cyan-900/40'
                             }`}
                             onClick={() =>
                               updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -2260,10 +2398,10 @@ export function DashboardPage() {
                         value={alertFilters.q}
                         onChange={(event) => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         placeholder="Search matched alert items"
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
                       >
@@ -2276,7 +2414,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       {effectiveWindowTimeFilter.time_range === 'days' && (
-                        <label className="flex w-full items-center rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                        <label className="flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
                           <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
                           <input
                             type="number"
@@ -2290,7 +2428,7 @@ export function DashboardPage() {
                         </label>
                       )}
                       <select
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={alertFilters.sort}
                         onChange={(event) =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
@@ -2301,7 +2439,7 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex w-full rounded border border-slate/25 p-0.5 sm:w-auto dark:border-cyan-900/40">
+                      <div className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40">
                         <button
                           type="button"
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
@@ -2319,14 +2457,14 @@ export function DashboardPage() {
                       </div>
                       <input
                         type="date"
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_since_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
                       />
                       <input
                         type="date"
-                        className="w-full rounded border border-slate/25 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_until_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -2357,7 +2495,7 @@ export function DashboardPage() {
                                 {item.feed_name} • Published {formatPublishedAt(item.published_at)}
                               </p>
                             </div>
-                            <span className="rounded border border-slate/25 px-2 py-0.5 text-[11px] dark:border-cyan-900/40">
+                            <span className="rounded border border-slate/20 px-2 py-0.5 text-[11px] dark:border-cyan-900/40">
                               {item.matches.length} alerts
                             </span>
                           </div>
@@ -2365,7 +2503,7 @@ export function DashboardPage() {
                             {item.matches.map((match) => (
                               <span
                                 key={`${item.id}-${match.alert_id}`}
-                                className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                                className="rounded border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
                               >
                                 {match.alert_name} ({formatClassificationLabel(match.category)})
                               </span>
@@ -2396,7 +2534,7 @@ export function DashboardPage() {
 
                   <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
                     <button
-                      className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                      className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                       disabled={alertFilters.page <= 1}
                       onClick={() =>
                         updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
@@ -2410,7 +2548,7 @@ export function DashboardPage() {
                     <div className="ml-auto flex items-center gap-2">
                       <label className="text-xs text-slate dark:text-slate-300">Per page</label>
                       <select
-                        className="rounded border border-slate/30 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={alertFilters.page_size}
                         onChange={(event) =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -2426,7 +2564,7 @@ export function DashboardPage() {
                         ))}
                       </select>
                       <button
-                        className="rounded border border-slate/30 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                        className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
                         disabled={alertFilters.page >= alertTotalPages}
                         onClick={() =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
@@ -2466,7 +2604,7 @@ export function DashboardPage() {
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
                             <span className="text-xs font-medium text-slate dark:text-white/55">Briefing</span>
                             <select
-                              className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                              className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                               value={selectedBrief.id}
                               onChange={(event) => updateWindowDailyBriefSelection(windowLayout.id, event.target.value)}
                             >
@@ -2477,9 +2615,6 @@ export function DashboardPage() {
                               ))}
                             </select>
                           </label>
-                          <span className="rounded border border-slate/20 bg-white/70 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/60">
-                            {availableBriefs.length} retained
-                          </span>
                         </div>
                         <p className="mt-3 text-xs text-slate dark:text-white/60">
                           Generated {formatPublishedAt(selectedBrief.generated_at)} for {selectedBrief.item_count} items covering{' '}
@@ -2546,7 +2681,7 @@ export function DashboardPage() {
                 <div className={`flex flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
                   <label className="text-xs font-medium text-slate dark:text-slate-300">Scratch notes</label>
                   <textarea
-                    className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/25 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
+                    className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
                     value={windowLayout.scratch_note}
                     onChange={(event) => updateWindowScratchNote(windowLayout.id, event.target.value)}
@@ -2555,10 +2690,10 @@ export function DashboardPage() {
                 </div>
               )}
 
-              {isWideLayout && windowLayout.snap === 'free' && (
+              {isEditMode && isWideLayout && windowLayout.snap === 'free' && (
                 <button
                   type="button"
-                  className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/30 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b2a23]"
+                  className="absolute bottom-1 right-1 h-4 w-4 cursor-se-resize rounded border border-slate/20 bg-white/85 dark:border-cyan-900/40 dark:bg-[#0b2a23]"
                   aria-label="Resize panel"
                   onMouseDown={(event) => startWindowResize(event, windowLayout.id)}
                 />
@@ -2581,7 +2716,7 @@ export function DashboardPage() {
               </div>
               <button
                 type="button"
-                className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                 onClick={() => {
                   setRenamingWindowId(null)
                   setRenameWindowDraft('')
@@ -2607,14 +2742,14 @@ export function DashboardPage() {
                   }
                 }}
                 maxLength={80}
-                className="w-full rounded-lg border border-slate/25 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               />
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs text-slate dark:text-white/60">Up to 80 characters. Saved with this view.</p>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-lg border border-slate/25 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    className="rounded border border-slate/20 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
                     onClick={() => {
                       setRenamingWindowId(null)
                       setRenameWindowDraft('')
@@ -2624,7 +2759,7 @@ export function DashboardPage() {
                   </button>
                   <button
                     type="button"
-                    className="rounded-lg bg-ink px-3 py-2 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
+                    className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
                     onClick={saveRenamedWindow}
                   >
                     Save Panel Title
@@ -2643,7 +2778,7 @@ export function DashboardPage() {
               <h3 className="font-display text-xl">Manage Saved Views</h3>
               <button
                 type="button"
-                className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                 onClick={() => setShowManageViewsModal(false)}
               >
                 Close
@@ -2653,12 +2788,12 @@ export function DashboardPage() {
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                className="rounded border border-slate/25 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+                className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40"
                 onClick={exportAllViews}
               >
                 Export JSON
               </button>
-              <label className="rounded border border-slate/25 px-3 py-1.5 text-xs dark:border-cyan-900/40">
+              <label className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40">
                 Import JSON
                 <input
                   type="file"
@@ -2687,16 +2822,16 @@ export function DashboardPage() {
                       <p className="truncate font-semibold">{view.name}</p>
                       <p className="text-xs text-slate dark:text-slate-300">{formatDateTime(view.created_at)}</p>
                       <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
                           RSS {view.window_type_counts.rss}
                         </span>
-                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
                           Alerts {view.window_type_counts.alerts}
                         </span>
-                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
                           Notes {view.window_type_counts.notes}
                         </span>
-                        <span className="rounded border border-slate/25 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
                           Daily Brief {view.window_type_counts.daily_brief}
                         </span>
                       </div>
@@ -2705,7 +2840,7 @@ export function DashboardPage() {
                   <div className="mt-2 flex items-center gap-2">
                     <button
                       type="button"
-                      className="rounded border border-slate/25 px-2 py-1 text-xs dark:border-cyan-900/40"
+                      className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                       onClick={() => {
                         const selected = viewsQuery.data?.find((entry) => entry.id === view.id)
                         if (selected) {
@@ -2717,7 +2852,7 @@ export function DashboardPage() {
                     </button>
                     <button
                       type="button"
-                      className="rounded border border-slate/25 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
+                      className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
                       onClick={() => deleteView.mutate(view.id)}
                       disabled={deleteView.isPending}
                     >
@@ -2959,7 +3094,7 @@ function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
 
   return (
     <div
-      className="relative shrink-0 overflow-hidden rounded border border-slate/25 bg-white/90 dark:border-cyan-900/40 dark:bg-[#041612]"
+      className="relative shrink-0 overflow-hidden rounded border border-slate/20 bg-white/90 dark:border-cyan-900/40 dark:bg-[#041612]"
       style={{ width: SAVED_VIEW_THUMBNAIL_WIDTH, height: SAVED_VIEW_THUMBNAIL_HEIGHT }}
     >
       {windows.slice(0, 14).map((windowLayout) => {
