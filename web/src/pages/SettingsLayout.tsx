@@ -43,7 +43,7 @@ export function SettingsLayout() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-white/10 dark:bg-slate-950/65">
         <h2 className="font-display text-xl">Settings</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/70">Manage personal access, automation, and administration tools from one place.</p>
 
@@ -64,8 +64,8 @@ export function SettingsLayout() {
                       aria-current={active ? 'page' : undefined}
                       className={`block rounded-lg border px-3 py-2 text-center text-sm transition lg:text-left ${
                         active
-                          ? 'border-cyan/40 bg-cyan/10 font-semibold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-700/45 dark:bg-cyan-950/45 dark:text-cyan-200 dark:ring-cyan-900/30'
-                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-900/40 dark:hover:bg-cyan-950/40'
+                          ? 'border-cyan/40 bg-cyan/10 font-semibold text-cyan shadow-[inset_0_0_0_1px_rgba(8,145,178,0.12)] ring-1 ring-cyan/10 dark:border-cyan-500/40 dark:bg-cyan-500/15 dark:text-cyan-100'
+                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
                       }`}
                     >
                       {item.label}
@@ -77,7 +77,7 @@ export function SettingsLayout() {
           ))}
         </nav>
 
-        <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-800/40 dark:bg-cyan-950/40">
+        <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-500/30 dark:bg-cyan-500/12">
           <p className="font-semibold">Current role</p>
           <p className="mt-1 text-cyan-800 dark:text-cyan-200">{role || 'loading...'}</p>
         </div>

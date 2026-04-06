@@ -1,71 +1,24 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
-export type DarkThemeId =
-  | 'dark-emerald'
-  | 'dark-cobalt'
-  | 'dark-slate'
-  | 'dark-carbon'
-  | 'dark-amber'
-  | 'dark-crimson'
-  | 'dark-violet'
-  | 'dark-ice'
-  | 'dark-forest'
-  | 'dark-solarized'
-
-export type ThemeMode = 'light' | DarkThemeId
-
-interface DarkThemeOption {
-  id: DarkThemeId
-  label: string
-}
-
-const DARK_THEME_OPTIONS: DarkThemeOption[] = [
-  { id: 'dark-emerald', label: 'Dark Emerald' },
-  { id: 'dark-cobalt', label: 'Dark Cobalt' },
-  { id: 'dark-slate', label: 'Dark Slate' },
-  { id: 'dark-carbon', label: 'Dark Carbon' },
-  { id: 'dark-amber', label: 'Dark Amber' },
-  { id: 'dark-crimson', label: 'Dark Crimson' },
-  { id: 'dark-violet', label: 'Dark Violet' },
-  { id: 'dark-ice', label: 'Dark Ice' },
-  { id: 'dark-forest', label: 'Dark Forest' },
-  { id: 'dark-solarized', label: 'Dark Solarized' },
-]
-
-const VALID_THEME_IDS = new Set<ThemeMode>(['light', ...DARK_THEME_OPTIONS.map((entry) => entry.id)])
-const THEME_CLASS_NAMES = DARK_THEME_OPTIONS.map((entry) => `theme-${entry.id}`)
+export type ThemeMode = 'light' | 'dark'
 
 interface ThemeContextValue {
   mode: ThemeMode
   setMode: (mode: ThemeMode) => void
   isDark: boolean
-  darkThemes: DarkThemeOption[]
 }
 
 const themeStorageKey = 'threatlens.theme'
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>(() => {
-    const stored = readStoredTheme()
-    if (stored === 'dark') return 'dark-emerald'
-    if (stored && VALID_THEME_IDS.has(stored as ThemeMode)) {
-      return stored as ThemeMode
-    }
-    return 'light'
-  })
+  const [mode, setMode] = useState<ThemeMode>(() => normalizeThemeMode(readStoredTheme()))
 
   useEffect(() => {
     const root = document.documentElement
 
-    root.classList.remove('theme-light', ...THEME_CLASS_NAMES)
-    root.classList.toggle('dark', mode !== 'light')
-    if (mode === 'light') {
-      root.classList.add('theme-light')
-    } else {
-      root.classList.add(`theme-${mode}`)
-    }
-
+    root.classList.toggle('dark', mode === 'dark')
+    root.dataset.colorMode = mode
     persistTheme(mode)
   }, [mode])
 
@@ -73,8 +26,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     () => ({
       mode,
       setMode,
-      isDark: mode !== 'light',
-      darkThemes: DARK_THEME_OPTIONS,
+      isDark: mode === 'dark',
     }),
     [mode],
   )
@@ -110,4 +62,11 @@ function persistTheme(mode: ThemeMode) {
   } catch {
     // No-op when browser storage is unavailable (private mode / policy restrictions).
   }
+}
+
+function normalizeThemeMode(stored: string | null): ThemeMode {
+  if (stored === 'dark' || stored?.startsWith('dark-')) {
+    return 'dark'
+  }
+  return 'light'
 }
