@@ -50,7 +50,7 @@ def create_token(
     token_value, token_prefix, token_hash = generate_api_token()
     expires_days = payload.expires_in_days or settings.default_api_token_expiry_days
     expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
-    scopes = payload.scopes or list(DEFAULT_API_TOKEN_SCOPES)
+    scopes = payload.scopes if "scopes" in payload.model_fields_set else list(DEFAULT_API_TOKEN_SCOPES)
 
     token = ApiToken(
         user_id=user.id,

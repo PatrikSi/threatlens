@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -193,6 +194,32 @@ def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_use
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 403
     assert response.json()["detail"] == "Account is inactive"
+
+
+def test_admin_unapproval_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+
+    update_response = client.patch(
+        f"/users/{viewer.id}",
+        json={"is_approved": False},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+
+    db_session.refresh(viewer)
+    assert viewer.auth_token_version == 1
+
+    stale_session_response = client.get("/auth/me", headers=auth_headers["viewer"])
+    assert stale_session_response.status_code == 401
+    assert stale_session_response.json()["detail"] == "Invalid credentials"
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert login_response.status_code == 403
+    assert login_response.json()["detail"] == "Your account is pending admin approval."
 
 
 def test_login_ignores_untrusted_x_forwarded_for(client: TestClient, monkeypatch, seed_users):
@@ -638,6 +665,58 @@ def test_admin_user_management_and_rbac(client: TestClient, auth_headers):
     assert non_admin_list.status_code == 403
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"role": "viewer"},
+        {"is_active": False},
+        {"is_approved": False},
+    ],
+)
+def test_last_active_approved_admin_cannot_remove_own_admin_access(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    payload,
+):
+    admin = db_session.scalar(select(User).where(User.email == "admin@example.com"))
+    assert admin is not None
+
+    response = client.patch(
+        f"/users/{admin.id}",
+        json=payload,
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 400
+    assert response.json()["detail"] == "At least one active approved admin user is required"
+
+
+def test_admin_can_remove_own_admin_role_when_another_active_approved_admin_exists(client: TestClient, auth_headers, db_session):
+    create_response = client.post(
+        "/users",
+        json={
+            "email": "second.admin@example.com",
+            "password": "AdminPass987!",
+            "role": "admin",
+            "is_active": True,
+            "is_approved": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+
+    admin = db_session.scalar(select(User).where(User.email == "admin@example.com"))
+    assert admin is not None
+
+    update_response = client.patch(
+        f"/users/{admin.id}",
+        json={"role": "viewer"},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["role"] == "viewer"
+
+
 
 def test_admin_password_reset_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):
     viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
@@ -719,6 +798,56 @@ def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
     assert denied_response.json()["detail"] == "Insufficient token scope"
 
 
+def test_api_token_auth_rejects_unapproved_user(client: TestClient, auth_headers, db_session):
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+
+    token_response = client.post(
+        "/tokens",
+        json={"name": "viewer-token", "expires_in_days": 30, "scopes": ["read:feeds"]},
+        headers=auth_headers["viewer"],
+    )
+    assert token_response.status_code == 201
+    token_payload = token_response.json()
+
+    allowed_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token_payload['token']}"})
+    assert allowed_response.status_code == 200
+
+    update_response = client.patch(
+        f"/users/{viewer.id}",
+        json={"is_approved": False},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+
+    denied_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token_payload['token']}"})
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == "Your account is pending admin approval."
+
+
+def test_api_token_creation_only_uses_default_scopes_when_scope_field_is_omitted(client: TestClient, auth_headers):
+    default_response = client.post(
+        "/tokens",
+        json={"name": "default-scope-token", "expires_in_days": 30},
+        headers=auth_headers["admin"],
+    )
+    assert default_response.status_code == 201
+
+    empty_scope_response = client.post(
+        "/tokens",
+        json={"name": "empty-scope-token", "expires_in_days": 30, "scopes": []},
+        headers=auth_headers["admin"],
+    )
+    assert empty_scope_response.status_code == 201
+
+    tokens_response = client.get("/tokens", headers=auth_headers["admin"])
+    assert tokens_response.status_code == 200
+    tokens_by_name = {entry["name"]: entry for entry in tokens_response.json()}
+
+    assert tokens_by_name["default-scope-token"]["scopes"] == list(DEFAULT_API_TOKEN_SCOPES)
+    assert tokens_by_name["empty-scope-token"]["scopes"] == []
+
+
 def test_api_token_write_scope_allows_feed_mutation(client: TestClient, auth_headers):
     token_response = client.post(
         "/tokens",
@@ -767,6 +896,25 @@ def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_header
     assert list_response.status_code == 200
     created = next(token for token in list_response.json() if token["name"] == "default-scope-token")
     assert created["scopes"] == ["read:feeds", "read:items", "read:stats", "read:alerts"]
+
+
+def test_token_preserves_explicit_empty_scope_list(client: TestClient, auth_headers):
+    create_response = client.post(
+        "/tokens",
+        json={"name": "no-scope-token", "expires_in_days": 30, "scopes": []},
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+    token_payload = create_response.json()
+
+    list_response = client.get("/tokens", headers=auth_headers["admin"])
+    assert list_response.status_code == 200
+    created = next(token for token in list_response.json() if token["name"] == "no-scope-token")
+    assert created["scopes"] == []
+
+    denied_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == "Insufficient token scope"
 
 
 def test_audit_log_endpoint(client: TestClient, auth_headers):

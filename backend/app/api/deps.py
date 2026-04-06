@@ -39,8 +39,7 @@ def get_current_user(
 
     user = _resolve_jwt_user(db, token)
     if user is not None:
-        if not user.is_active:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
+        _ensure_user_can_authenticate(user)
         return user
 
     token_result = _resolve_api_token_user(db, token)
@@ -48,9 +47,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
     user, scopes = token_result
-    if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
-
+    _ensure_user_can_authenticate(user)
     request.state.token_scopes = scopes
     return user
 
@@ -63,6 +60,16 @@ def require_roles(*roles: str):
         return user
 
     return _checker
+
+
+def _ensure_user_can_authenticate(user: User) -> None:
+    if not user.is_approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is pending admin approval.",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
 
 
 get_operator_user = require_roles(ROLE_ADMIN, ROLE_ANALYST)
