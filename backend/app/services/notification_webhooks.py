@@ -1203,7 +1203,14 @@ def _origin_tuple(url: str) -> tuple[str, str, int | None]:
     except ValueError as exc:
         raise RedirectError("Redirect target URL is invalid") from exc
 
-    return split.scheme.lower(), (split.hostname or "").lower(), port
+    scheme = split.scheme.lower()
+    if port is None:
+        if scheme == "http":
+            port = 80
+        elif scheme == "https":
+            port = 443
+
+    return scheme, (split.hostname or "").lower(), port
 
 
 def _record_notification_webhook_delivery(

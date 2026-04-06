@@ -249,6 +249,30 @@ def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
             )
 
 
+def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_default_port(monkeypatch):
+    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/start":
+            return httpx.Response(302, headers={"Location": "https://hooks.example.com:443/final"})
+        return httpx.Response(204, request=request)
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as client:
+        response = _send_request_with_redirects(
+            client,
+            method="POST",
+            url="https://hooks.example.com/start",
+            headers={"Content-Type": "application/json"},
+            params=[],
+            json_body={"title": "ThreatLens"},
+            form_body=None,
+            raw_body=None,
+        )
+
+    assert response.status_code == 204
+
+
 def test_read_response_preview_caps_body_size():
     response = httpx.Response(200, content=b"a" * 5000)
 
