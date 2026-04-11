@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.core.rbac import ROLE_ADMIN
 from app.core.config import get_settings
@@ -21,20 +22,28 @@ def seed_admin() -> None:
                 is_active=True,
             )
             db.add(admin)
-        else:
-            changed = False
-            if settings.seed_admin_reset_password_on_startup:
-                existing.password_hash = get_password_hash(settings.admin_password)
-                existing.auth_token_version = int(existing.auth_token_version or 0) + 1
-                changed = True
-            if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
-                existing.role = ROLE_ADMIN
-                changed = True
-            if settings.seed_admin_reactivate_existing and not existing.is_active:
-                existing.is_active = True
-                changed = True
-            if changed:
-                db.add(existing)
+            try:
+                db.commit()
+                return
+            except IntegrityError:
+                db.rollback()
+                existing = db.scalar(select(User).where(User.email == email))
+                if existing is None:
+                    raise
+
+        changed = False
+        if settings.seed_admin_reset_password_on_startup:
+            existing.password_hash = get_password_hash(settings.admin_password)
+            existing.auth_token_version = int(existing.auth_token_version or 0) + 1
+            changed = True
+        if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
+            existing.role = ROLE_ADMIN
+            changed = True
+        if settings.seed_admin_reactivate_existing and not existing.is_active:
+            existing.is_active = True
+            changed = True
+        if changed:
+            db.add(existing)
         db.commit()
     finally:
         db.close()

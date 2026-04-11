@@ -33,7 +33,7 @@ from app.schemas.notification import (
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
 )
-from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError
+from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
 from app.services.url_utils import ensure_runtime_fetchable_url
 
 logger = logging.getLogger(__name__)
@@ -1063,7 +1063,11 @@ def _send_rendered_notification_request(rendered: RenderedNotificationRequest) -
     started_at = time.perf_counter()
 
     try:
-        with httpx.Client(timeout=timeout, headers={"User-Agent": settings.fetch_user_agent}) as client:
+        with build_safe_http_client(
+            timeout=timeout,
+            headers={"User-Agent": settings.fetch_user_agent},
+            allow_private_network=settings.allow_private_network_webhooks,
+        ) as client:
             response = _send_request_with_redirects(
                 client,
                 method=rendered.method,
@@ -1148,7 +1152,7 @@ def _send_request_with_redirects(
     current_params = list(params)
 
     while True:
-        ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_fetch)
+        ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_webhooks)
         request_url = _merge_request_url(current_url, current_params)
         request = client.build_request(
             current_method,

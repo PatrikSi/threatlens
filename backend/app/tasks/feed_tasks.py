@@ -29,8 +29,10 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
+from app.services.ai_integration import is_stale_daily_brief_pending
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
+    AI_STATUS_QUEUED,
     AI_STATUS_READY,
     AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
@@ -65,7 +67,7 @@ from app.services.notification_webhooks import (
     send_notification_webhook,
 )
 from app.services.tag_feedback import load_feedback_adjustments
-from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
+from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
 
@@ -80,6 +82,13 @@ class ResponseTooLargeError(Exception):
 
 class FeedResponseTooLargeError(Exception):
     pass
+
+
+class CoordinationUnavailableError(RuntimeError):
+    pass
+
+
+DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
 
 
 @contextmanager
@@ -101,29 +110,24 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
     deadline = time.monotonic() + max_wait_seconds
 
     acquired = False
-    degraded_mode = False
     while time.monotonic() < deadline:
         try:
             current = redis_client.incr(key)
             redis_client.expire(key, 30)
         except redis.RedisError as exc:
             logger.warning("domain_slot_unavailable domain=%s error=%s", domain, exc)
-            degraded_mode = True
-            break
+            yield
+            return
         if current <= settings.per_domain_concurrency:
             acquired = True
             break
         try:
             redis_client.decr(key)
         except redis.RedisError as exc:
-            logger.warning("domain_slot_counter_revert_failed domain=%s error=%s", domain, exc)
-            degraded_mode = True
-            break
+            logger.warning("domain_slot_counter_unavailable domain=%s error=%s", domain, exc)
+            yield
+            return
         time.sleep(0.2)
-
-    if degraded_mode:
-        yield
-        return
 
     if not acquired:
         raise TimeoutError(f"domain slot timeout for {domain}")
@@ -170,7 +174,21 @@ def _queue_item_ai_enrichment_run(
         )
         db.commit()
         run_id = run.id
-    task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
+    try:
+        task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
+    except Exception as exc:
+        with db_session() as db:
+            finish_ai_task_run(
+                db,
+                run_id=run_id,
+                status=AI_STATUS_ERROR,
+                reason="enqueue_failed",
+                error=str(exc),
+                worker_name="api",
+                metadata_updates={"force": bool(force)},
+            )
+            db.commit()
+        raise
     task_id = getattr(task, "id", None)
     if task_id:
         _update_task_run_celery_id(run_id, task_id)
@@ -218,9 +236,10 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
     acquired = False
     try:
         acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-    except redis.RedisError:
-        # Best-effort locking: continue if Redis is unavailable.
-        acquired = True
+    except redis.RedisError as exc:
+        logger.warning("feed_lock_unavailable feed_id=%s error=%s", feed_id, exc)
+        yield True
+        return
 
     if not acquired:
         yield False
@@ -248,8 +267,8 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
     acquired = False
     try:
         acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-    except redis.RedisError:
-        acquired = True
+    except redis.RedisError as exc:
+        raise CoordinationUnavailableError("daily brief lock unavailable") from exc
 
     if not acquired:
         yield False
@@ -291,9 +310,35 @@ def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, 
     if existing is not None:
         if existing.status == "ready":
             return False, "already_generated"
-        return False, "already_attempted"
+        if existing.status == "pending" and not is_stale_daily_brief_pending(existing, now=now):
+            return False, "already_running"
+
+    in_flight_run = db.scalar(
+        select(AITaskRun.id)
+        .where(
+            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            AITaskRun.queued_at >= scheduled_at,
+            AITaskRun.queued_at < scheduled_at + timedelta(days=1),
+        )
+        .order_by(AITaskRun.queued_at.desc())
+        .limit(1)
+    )
+    if in_flight_run is not None:
+        task_run = db.scalar(select(AITaskRun).where(AITaskRun.id == in_flight_run))
+        if task_run is not None and not _is_stale_daily_brief_task_run(task_run, now=now):
+            return False, "already_running"
 
     return True, None
+
+
+def _is_stale_daily_brief_task_run(run: AITaskRun, *, now: datetime) -> bool:
+    reference = run.updated_at or run.started_at or run.queued_at or run.created_at
+    if reference is None:
+        return True
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return now - reference >= DAILY_BRIEF_STALE_RETRY_WINDOW
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
@@ -721,12 +766,23 @@ def dispatch_daily_ai_brief_generation(
             due, reason = _scheduled_daily_ai_brief_due(db, now=datetime.now(timezone.utc))
             if not due:
                 return {"status": "skipped", "reason": reason}
-        with daily_ai_brief_lock() as acquired:
-            if not acquired:
-                return {"status": "skipped", "reason": "already_running"}
-            if parsed_run_id:
-                run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-                if run is None:
+        run: AITaskRun | None = None
+        try:
+            with daily_ai_brief_lock() as acquired:
+                if not acquired:
+                    return {"status": "skipped", "reason": "already_running"}
+                if parsed_run_id:
+                    run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
+                    if run is None:
+                        run = queue_ai_task_run(
+                            db,
+                            task_type=AI_TASK_TYPE_DAILY_BRIEF,
+                            trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                            actor_user_id=parsed_actor_user_id,
+                            model=None,
+                            metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
+                        )
+                else:
                     run = queue_ai_task_run(
                         db,
                         task_type=AI_TASK_TYPE_DAILY_BRIEF,
@@ -735,79 +791,83 @@ def dispatch_daily_ai_brief_generation(
                         model=None,
                         metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
                     )
-            else:
-                run = queue_ai_task_run(
-                    db,
-                    task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                    trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                    actor_user_id=parsed_actor_user_id,
-                    model=None,
-                    metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-                )
-            started_run = start_ai_task_run(
-                db,
-                run_id=run.id,
-                worker_name=getattr(self.request, "hostname", None),
-                celery_task_id=getattr(self.request, "id", None),
-                metadata_updates={"force": bool(force)},
-            )
-            db.commit()
-            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
-                return {"status": "skipped", "reason": "canceled"}
-            active_ai_settings = load_active_ai_settings(db)
-            if not active_ai_settings.ai_enabled:
-                finish_ai_task_run(
+                started_run = start_ai_task_run(
                     db,
                     run_id=run.id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="ai_disabled",
                     worker_name=getattr(self.request, "hostname", None),
+                    celery_task_id=getattr(self.request, "id", None),
+                    metadata_updates={"force": bool(force)},
                 )
                 db.commit()
-                return {"status": "skipped", "reason": "ai_disabled"}
-            if not active_ai_settings.ai_configured:
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="ai_not_configured",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-                return {"status": "skipped", "reason": "ai_not_configured"}
-            if not active_ai_settings.daily_brief_enabled:
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="daily_brief_disabled",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-                return {"status": "skipped", "reason": "daily_brief_disabled"}
+                if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
+                    return {"status": "skipped", "reason": "canceled"}
+                active_ai_settings = load_active_ai_settings(db)
+                if not active_ai_settings.ai_enabled:
+                    finish_ai_task_run(
+                        db,
+                        run_id=run.id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="ai_disabled",
+                        worker_name=getattr(self.request, "hostname", None),
+                    )
+                    db.commit()
+                    return {"status": "skipped", "reason": "ai_disabled"}
+                if not active_ai_settings.ai_configured:
+                    finish_ai_task_run(
+                        db,
+                        run_id=run.id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="ai_not_configured",
+                        worker_name=getattr(self.request, "hostname", None),
+                    )
+                    db.commit()
+                    return {"status": "skipped", "reason": "ai_not_configured"}
+                if not active_ai_settings.daily_brief_enabled:
+                    finish_ai_task_run(
+                        db,
+                        run_id=run.id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="daily_brief_disabled",
+                        worker_name=getattr(self.request, "hostname", None),
+                    )
+                    db.commit()
+                    return {"status": "skipped", "reason": "daily_brief_disabled"}
 
-            result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
-            finish_ai_task_run(
-                db,
-                run_id=run.id,
-                status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
-                reason=result.reason,
-                error=result.brief.error if result.brief is not None and result.status == "error" else None,
-                worker_name=getattr(self.request, "hostname", None),
-                model=result.brief.model if result.brief is not None else active_ai_settings.model,
-                prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
-                completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
-                total_tokens=result.brief.total_tokens if result.brief is not None else None,
-                latency_ms=result.brief.latency_ms if result.brief is not None else None,
-                prompt_char_count=result.prompt_char_count,
-                response_char_count=result.response_char_count,
-                metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
-                daily_brief_id=result.brief.id if result.brief is not None else None,
-            )
-            db.commit()
-            if result.brief is None:
-                return {"status": result.status, "reason": result.reason}
-            return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
+                result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+                    reason=result.reason,
+                    error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                    worker_name=getattr(self.request, "hostname", None),
+                    model=result.brief.model if result.brief is not None else active_ai_settings.model,
+                    prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
+                    completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+                    total_tokens=result.brief.total_tokens if result.brief is not None else None,
+                    latency_ms=result.brief.latency_ms if result.brief is not None else None,
+                    prompt_char_count=result.prompt_char_count,
+                    response_char_count=result.response_char_count,
+                    metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
+                    daily_brief_id=result.brief.id if result.brief is not None else None,
+                )
+                db.commit()
+                if result.brief is None:
+                    return {"status": result.status, "reason": result.reason}
+                return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
+        except CoordinationUnavailableError as exc:
+            logger.warning("daily_brief_coordination_unavailable error=%s", exc)
+            if run is not None:
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_ERROR,
+                    reason="coordination_unavailable",
+                    error=str(exc),
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+            return {"status": "error", "reason": "coordination_unavailable"}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -823,33 +883,37 @@ def record_beat_heartbeat():
 
 @celery_app.task(name="app.tasks.feed_tasks.backfill_feed_metadata")
 def backfill_feed_metadata(feed_id: str):
-    with feed_lock(feed_id) as acquired:
-        if not acquired:
-            return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
+    try:
+        with feed_lock(feed_id) as acquired:
+            if not acquired:
+                return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
-        with db_session() as db:
-            try:
-                parsed_feed_id = uuid.UUID(feed_id)
-            except ValueError:
-                return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
+            with db_session() as db:
+                try:
+                    parsed_feed_id = uuid.UUID(feed_id)
+                except ValueError:
+                    return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
 
-            feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-            if feed is None or not feed.enabled:
-                return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
+                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
+                if feed is None or not feed.enabled:
+                    return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
 
-            if not _needs_metadata_backfill(feed):
-                return {"status": "skipped", "reason": "metadata_present", "feed_id": feed_id}
+                if not _needs_metadata_backfill(feed):
+                    return {"status": "skipped", "reason": "metadata_present", "feed_id": feed_id}
 
-            try:
-                metadata = probe_feed_metadata(feed.url)
-            except FeedProbeError as exc:
-                return {"status": "error", "feed_id": feed_id, "reason": str(exc)}
+                try:
+                    metadata = probe_feed_metadata(feed.url)
+                except FeedProbeError as exc:
+                    return {"status": "error", "feed_id": feed_id, "reason": str(exc)}
 
-            changed = _apply_probe_metadata(feed, metadata)
-            if changed:
-                db.add(feed)
-                db.commit()
-            return {"status": "ok", "feed_id": feed_id, "updated": changed}
+                changed = _apply_probe_metadata(feed, metadata)
+                if changed:
+                    db.add(feed)
+                    db.commit()
+                return {"status": "ok", "feed_id": feed_id, "updated": changed}
+    except CoordinationUnavailableError as exc:
+        logger.warning("backfill_feed_metadata_coordination_unavailable feed_id=%s error=%s", feed_id, exc)
+        return {"status": "error", "reason": "coordination_unavailable", "feed_id": feed_id}
 
 
 def _is_feed_due(feed: Feed, now: datetime) -> bool:
@@ -957,129 +1021,150 @@ def _clean_text(value: object) -> str | None:
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
 def fetch_feed(self, feed_id: str, force: bool = False):
-    with feed_lock(feed_id) as acquired:
-        if not acquired:
-            return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
+    try:
+        with feed_lock(feed_id) as acquired:
+            if not acquired:
+                return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
-        with db_session() as db:
-            try:
-                parsed_feed_id = uuid.UUID(feed_id)
-            except ValueError:
-                return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
-
-            feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-            if feed is None or not feed.enabled:
-                return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
-            if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
-                return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
-
-            headers: dict[str, str] = {}
-            if feed.etag:
-                headers["If-None-Match"] = feed.etag
-            if feed.last_modified:
-                headers["If-Modified-Since"] = feed.last_modified
-
-            if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
-                if _mark_feed_failure(db, feed, "unsafe_feed_url") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
-                return {"status": "error", "feed_id": feed_id}
-
-            try:
-                timeout = httpx.Timeout(
-                    connect=settings.feed_connect_timeout_seconds,
-                    read=settings.feed_read_timeout_seconds,
-                    write=settings.feed_read_timeout_seconds,
-                    pool=settings.feed_connect_timeout_seconds,
-                )
-                with httpx.Client(timeout=timeout, headers={"User-Agent": settings.fetch_user_agent}) as client:
-                    response = safe_stream_with_redirects(
-                        client,
-                        "GET",
-                        feed.url,
-                        headers=headers,
-                        allow_private_network=settings.allow_private_network_fetch,
-                        max_redirects=settings.outbound_max_redirects,
-                    )
-                    try:
-                        status_code = response.status_code
-                        final_url = str(response.url)
-
-                        if status_code == 304:
-                            now = datetime.now(timezone.utc)
-                            feed.last_fetch_at = now
-                            feed.last_success_at = now
-                            feed.error_count = 0
-                            feed.last_error = None
-                            db.add(feed)
-                            db.commit()
-                            return {"status": "not_modified", "feed_id": feed_id}
-
-                        if status_code != 200:
-                            if _mark_feed_failure(db, feed, f"http_status:{status_code}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                                dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
-                            return {"status": "error", "feed_id": feed_id}
-
-                        body_chunks: list[bytes] = []
-                        body_size = 0
-                        for chunk in response.iter_bytes():
-                            body_size += len(chunk)
-                            if body_size > settings.feed_max_bytes:
-                                raise FeedResponseTooLargeError("feed response exceeds configured cap")
-                            body_chunks.append(chunk)
-                        body_bytes = b"".join(body_chunks)
-                    finally:
-                        response.close()
-            except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
+            with db_session() as db:
                 try:
-                    logger.warning("feed_fetch_retrying feed_id=%s retries=%s error=%s", feed_id, self.request.retries, exc)
-                    raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-                except MaxRetriesExceededError:
-                    logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
-                    if _mark_feed_failure(db, feed, f"network_error:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                    parsed_feed_id = uuid.UUID(feed_id)
+                except ValueError:
+                    return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
+
+                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
+                if feed is None or not feed.enabled:
+                    return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
+                if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
+                    return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
+
+                headers: dict[str, str] = {}
+                if feed.etag:
+                    headers["If-None-Match"] = feed.etag
+                if feed.last_modified:
+                    headers["If-Modified-Since"] = feed.last_modified
+
+                if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
+                    if _mark_feed_failure(db, feed, "unsafe_feed_url") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
                         dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
                     return {"status": "error", "feed_id": feed_id}
-            except FeedResponseTooLargeError as exc:
-                logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
-                if _mark_feed_failure(db, feed, str(exc)) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+
+                try:
+                    timeout = httpx.Timeout(
+                        connect=settings.feed_connect_timeout_seconds,
+                        read=settings.feed_read_timeout_seconds,
+                        write=settings.feed_read_timeout_seconds,
+                        pool=settings.feed_connect_timeout_seconds,
+                    )
+                    with build_safe_http_client(
+                        timeout=timeout,
+                        headers={"User-Agent": settings.fetch_user_agent},
+                        allow_private_network=settings.allow_private_network_fetch,
+                    ) as client:
+                        response = safe_stream_with_redirects(
+                            client,
+                            "GET",
+                            feed.url,
+                            headers=headers,
+                            allow_private_network=settings.allow_private_network_fetch,
+                            max_redirects=settings.outbound_max_redirects,
+                        )
+                        try:
+                            status_code = response.status_code
+                            final_url = str(response.url)
+
+                            if status_code == 304:
+                                now = datetime.now(timezone.utc)
+                                feed.last_fetch_at = now
+                                feed.last_success_at = now
+                                feed.error_count = 0
+                                feed.last_error = None
+                                db.add(feed)
+                                db.commit()
+                                return {"status": "not_modified", "feed_id": feed_id}
+
+                            if status_code != 200:
+                                if _mark_feed_failure(db, feed, f"http_status:{status_code}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                                return {"status": "error", "feed_id": feed_id}
+
+                            body_chunks: list[bytes] = []
+                            body_size = 0
+                            for chunk in response.iter_bytes():
+                                body_size += len(chunk)
+                                if body_size > settings.feed_max_bytes:
+                                    raise FeedResponseTooLargeError("feed response exceeds configured cap")
+                                body_chunks.append(chunk)
+                            body_bytes = b"".join(body_chunks)
+                            response_etag = response.headers.get("etag")
+                            response_last_modified = response.headers.get("last-modified")
+                        finally:
+                            response.close()
+                except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError, CoordinationUnavailableError) as exc:
+                    try:
+                        logger.warning("feed_fetch_retrying feed_id=%s retries=%s error=%s", feed_id, self.request.retries, exc)
+                        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
+                    except MaxRetriesExceededError:
+                        logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
+                        if _mark_feed_failure(db, feed, f"network_error:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                            dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                        return {"status": "error", "feed_id": feed_id}
+                except FeedResponseTooLargeError as exc:
+                    logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
+                    if _mark_feed_failure(db, feed, str(exc)) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+                        dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                    return {"status": "error", "feed_id": feed_id}
+
+                connector = RSSConnector()
+                parsed_items, _ = connector.poll({"body": body_bytes}, None)
+                _backfill_feed_metadata_from_body(feed, body_bytes)
+
+                changed_item_ids: list[uuid.UUID] = []
+                new_item_ids: list[uuid.UUID] = []
+                for parsed in parsed_items:
+                    item, changed, is_new = _upsert_item_from_parsed(db, feed, parsed)
+                    if changed:
+                        changed_item_ids.append(item.id)
+                    if is_new:
+                        new_item_ids.append(item.id)
+
+                now = datetime.now(timezone.utc)
+                feed.etag = response_etag or feed.etag
+                feed.last_modified = response_last_modified or feed.last_modified
+                feed.last_success_at = now
+                feed.last_fetch_at = now
+                feed.error_count = 0
+                feed.last_error = None
+
+                db.add(feed)
+                db.commit()
+
+            for item_id in changed_item_ids:
+                fetch_article.delay(str(item_id))
+            for item_id in new_item_ids:
+                dispatch_new_item_notification_webhooks.delay(str(item_id))
+
+            return {
+                "status": "ok",
+                "feed_id": feed_id,
+                "new_or_updated_items": len(changed_item_ids),
+                "new_items": len(new_item_ids),
+                "final_url": final_url,
+            }
+    except CoordinationUnavailableError as exc:
+        logger.warning("feed_fetch_coordination_unavailable feed_id=%s error=%s", feed_id, exc)
+        try:
+            raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
+        except MaxRetriesExceededError:
+            with db_session() as db:
+                try:
+                    parsed_feed_id = uuid.UUID(feed_id)
+                except ValueError:
+                    return {"status": "error", "feed_id": feed_id}
+                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
+                if feed is not None and _mark_feed_failure(db, feed, f"coordination_unavailable:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
                     dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
-                return {"status": "error", "feed_id": feed_id}
-
-            connector = RSSConnector()
-            parsed_items, _ = connector.poll({"body": body_bytes}, None)
-            _backfill_feed_metadata_from_body(feed, body_bytes)
-
-            changed_item_ids: list[uuid.UUID] = []
-            new_item_ids: list[uuid.UUID] = []
-            for parsed in parsed_items:
-                item, changed, is_new = _upsert_item_from_parsed(db, feed, parsed)
-                if changed:
-                    changed_item_ids.append(item.id)
-                if is_new:
-                    new_item_ids.append(item.id)
-
-            now = datetime.now(timezone.utc)
-            feed.etag = response.headers.get("etag") or feed.etag
-            feed.last_modified = response.headers.get("last-modified") or feed.last_modified
-            feed.last_success_at = now
-            feed.last_fetch_at = now
-            feed.error_count = 0
-            feed.last_error = None
-
-            db.add(feed)
-            db.commit()
-
-        for item_id in changed_item_ids:
-            fetch_article.delay(str(item_id))
-        for item_id in new_item_ids:
-            dispatch_new_item_notification_webhooks.delay(str(item_id))
-
-        return {
-            "status": "ok",
-            "feed_id": feed_id,
-            "new_or_updated_items": len(changed_item_ids),
-            "new_items": len(new_item_ids),
-            "final_url": final_url,
-        }
+            return {"status": "error", "feed_id": feed_id}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.fetch_article", bind=True)
@@ -1099,64 +1184,121 @@ def fetch_article(self, item_id: str):
             classify_item.delay(item_id)
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
-        target_url = item.canonical_url or item.url
-        if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
+        candidate_urls: list[str] = []
+        for candidate in (item.canonical_url, item.url):
+            if not candidate:
+                continue
+            normalized_candidate = normalize_url(candidate) or candidate.strip()
+            if normalized_candidate and normalized_candidate not in candidate_urls:
+                candidate_urls.append(normalized_candidate)
+
+        if not candidate_urls:
             _store_article_error(
                 db,
                 item,
-                final_url=target_url or "",
+                final_url="",
                 http_status=0,
                 content_type=None,
                 fetch_ms=0,
-                error="unsafe_article_url",
+                error="missing_article_url",
             )
             classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 
-        domain = urlsplit(target_url).hostname or "unknown"
         start = time.perf_counter()
 
-        try:
-            with domain_slot(domain):
-                timeout = httpx.Timeout(
-                    connect=settings.article_connect_timeout_seconds,
-                    read=settings.article_read_timeout_seconds,
-                    write=settings.article_read_timeout_seconds,
-                    pool=settings.article_connect_timeout_seconds,
-                )
-                with httpx.Client(
-                    timeout=timeout,
-                    headers={"User-Agent": settings.fetch_user_agent},
-                ) as client:
-                    response = safe_stream_with_redirects(
-                        client,
-                        "GET",
-                        target_url,
-                        allow_private_network=settings.allow_private_network_fetch,
-                        max_redirects=settings.outbound_max_redirects,
-                    )
-                    try:
-                        status_code = response.status_code
-                        content_type = response.headers.get("content-type")
-                        final_url = str(response.url)
+        last_attempt_url = candidate_urls[0]
+        last_response_error: tuple[str, int, str | None, str] | None = None
+        last_retryable_error: Exception | None = None
+        status_code = 0
+        content_type: str | None = None
+        final_url = candidate_urls[0]
+        body_bytes = b""
+        selected_url: str | None = None
 
-                        body_chunks = []
-                        body_size = 0
-                        for chunk in response.iter_bytes():
-                            body_size += len(chunk)
-                            if body_size > settings.article_max_bytes:
-                                raise ResponseTooLargeError("response body exceeds configured cap")
-                            body_chunks.append(chunk)
+        for index, target_url in enumerate(candidate_urls):
+            last_attempt_url = target_url
+            if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
+                last_response_error = (target_url, 0, None, "unsafe_article_url")
+                continue
 
-                        body_bytes = b"".join(body_chunks)
-                    finally:
-                        response.close()
-        except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError) as exc:
+            domain = urlsplit(target_url).hostname or "unknown"
             try:
-                logger.warning("article_fetch_retrying item_id=%s retries=%s error=%s", item_id, self.request.retries, exc)
-                raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-            except MaxRetriesExceededError:
-                logger.error("article_fetch_failed item_id=%s error=%s", item_id, exc)
+                with domain_slot(domain):
+                    timeout = httpx.Timeout(
+                        connect=settings.article_connect_timeout_seconds,
+                        read=settings.article_read_timeout_seconds,
+                        write=settings.article_read_timeout_seconds,
+                        pool=settings.article_connect_timeout_seconds,
+                    )
+                    with build_safe_http_client(
+                        timeout=timeout,
+                        headers={"User-Agent": settings.fetch_user_agent},
+                        allow_private_network=settings.allow_private_network_fetch,
+                    ) as client:
+                        response = safe_stream_with_redirects(
+                            client,
+                            "GET",
+                            target_url,
+                            allow_private_network=settings.allow_private_network_fetch,
+                            max_redirects=settings.outbound_max_redirects,
+                        )
+                        try:
+                            status_code = response.status_code
+                            content_type = response.headers.get("content-type")
+                            final_url = str(response.url)
+
+                            body_chunks = []
+                            body_size = 0
+                            for chunk in response.iter_bytes():
+                                body_size += len(chunk)
+                                if body_size > settings.article_max_bytes:
+                                    raise ResponseTooLargeError("response body exceeds configured cap")
+                                body_chunks.append(chunk)
+
+                            body_bytes = b"".join(body_chunks)
+                        finally:
+                            response.close()
+            except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError, CoordinationUnavailableError) as exc:
+                last_retryable_error = exc
+                if index + 1 < len(candidate_urls):
+                    logger.info(
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=%s",
+                        item_id,
+                        target_url,
+                        candidate_urls[index + 1],
+                        exc,
+                    )
+                    continue
+                try:
+                    logger.warning("article_fetch_retrying item_id=%s retries=%s error=%s", item_id, self.request.retries, exc)
+                    raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
+                except MaxRetriesExceededError:
+                    logger.error("article_fetch_failed item_id=%s error=%s", item_id, exc)
+                    fetch_ms = int((time.perf_counter() - start) * 1000)
+                    _store_article_error(
+                        db,
+                        item,
+                        final_url=last_attempt_url,
+                        http_status=0,
+                        content_type=None,
+                        fetch_ms=fetch_ms,
+                        error=f"network_or_rate_limit_error:{exc}",
+                    )
+                    classify_item.delay(item_id)
+                    return {"status": "error", "item_id": item_id}
+            except ResponseTooLargeError as exc:
+                logger.error("article_fetch_too_large item_id=%s target_url=%s error=%s", item_id, target_url, exc)
+                last_response_error = (target_url, 0, None, str(exc))
+                if index + 1 < len(candidate_urls):
+                    logger.info(
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=%s",
+                        item_id,
+                        target_url,
+                        candidate_urls[index + 1],
+                        exc,
+                    )
+                    continue
                 fetch_ms = int((time.perf_counter() - start) * 1000)
                 _store_article_error(
                     db,
@@ -1165,22 +1307,71 @@ def fetch_article(self, item_id: str):
                     http_status=0,
                     content_type=None,
                     fetch_ms=fetch_ms,
-                    error=f"network_or_rate_limit_error:{exc}",
+                    error=str(exc),
                 )
                 classify_item.delay(item_id)
                 return {"status": "error", "item_id": item_id}
-        except ResponseTooLargeError as exc:
-            logger.error("article_fetch_too_large item_id=%s error=%s", item_id, exc)
+
+            if status_code != 200:
+                last_response_error = (final_url, status_code, content_type, f"http_status:{status_code}")
+                if index + 1 < len(candidate_urls):
+                    logger.info(
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=http_status:%s",
+                        item_id,
+                        target_url,
+                        candidate_urls[index + 1],
+                        status_code,
+                    )
+                    continue
+                break
+
+            if "text/html" not in (content_type or "").lower():
+                last_response_error = (final_url, status_code, content_type, "non_html_response")
+                if index + 1 < len(candidate_urls):
+                    logger.info(
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=non_html_response",
+                        item_id,
+                        target_url,
+                        candidate_urls[index + 1],
+                    )
+                    continue
+                break
+
+            selected_url = target_url
+            break
+
+        if selected_url is None:
             fetch_ms = int((time.perf_counter() - start) * 1000)
-            _store_article_error(
-                db,
-                item,
-                final_url=target_url,
-                http_status=0,
-                content_type=None,
-                fetch_ms=fetch_ms,
-                error=str(exc),
-            )
+            if last_response_error is not None:
+                _store_article_error(
+                    db,
+                    item,
+                    final_url=last_response_error[0],
+                    http_status=last_response_error[1],
+                    content_type=last_response_error[2],
+                    fetch_ms=fetch_ms,
+                    error=last_response_error[3],
+                )
+            elif last_retryable_error is not None:
+                _store_article_error(
+                    db,
+                    item,
+                    final_url=last_attempt_url,
+                    http_status=0,
+                    content_type=None,
+                    fetch_ms=fetch_ms,
+                    error=f"network_or_rate_limit_error:{last_retryable_error}",
+                )
+            else:
+                _store_article_error(
+                    db,
+                    item,
+                    final_url=last_attempt_url,
+                    http_status=0,
+                    content_type=None,
+                    fetch_ms=fetch_ms,
+                    error="article_fetch_failed",
+                )
             classify_item.delay(item_id)
             return {"status": "error", "item_id": item_id}
 

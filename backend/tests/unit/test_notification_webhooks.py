@@ -1,6 +1,6 @@
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from app.models.user import User
 from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse, NotificationWebhookWrite
 from app.services.notification_webhooks import (
     _read_response_preview,
+    _send_rendered_notification_request,
     _send_request_with_redirects,
     RedirectError,
     build_alert_match_context_for_item,
@@ -29,6 +30,11 @@ from app.tasks.feed_tasks import (
     dispatch_feed_failing_notification_webhooks,
     dispatch_new_item_notification_webhooks,
 )
+
+
+def _persist_rows(db_session, *rows):
+    db_session.add_all(rows)
+    db_session.flush()
 
 
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
@@ -273,6 +279,82 @@ def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_d
     assert response.status_code == 204
 
 
+def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch):
+    captured: dict[str, object] = {}
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_fetch", True)
+    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.build_safe_http_client",
+        lambda *args, **kwargs: captured.setdefault("allow_private_network", kwargs["allow_private_network"]) or _Client(),
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhooks._send_request_with_redirects",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(httpx.ConnectError("stop after client setup")),
+    )
+
+    result = _send_rendered_notification_request(
+        type(
+            "Rendered",
+            (),
+            {
+                "timeout_seconds": 10,
+                "url": "https://hooks.example.com/notify",
+                "method": "POST",
+                "headers": [],
+                "query_params": [],
+                "body": None,
+                "headers_dict": {},
+                "query_param_pairs": [],
+                "json_body": None,
+                "form_body": None,
+                "raw_body": None,
+            },
+        )()
+    )
+
+    assert result.success is False
+    assert captured["allow_private_network"] is False
+
+
+def test_webhook_redirect_validation_uses_dedicated_private_network_setting(monkeypatch):
+    observed: list[bool] = []
+
+    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_fetch", True)
+    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.ensure_runtime_fetchable_url",
+        lambda _url, *, allow_private_network=False: observed.append(allow_private_network),
+    )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(204, request=request)
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as client:
+        response = _send_request_with_redirects(
+            client,
+            method="POST",
+            url="https://hooks.example.com/start",
+            headers={},
+            params=[],
+            json_body=None,
+            form_body=None,
+            raw_body=None,
+        )
+
+    assert response.status_code == 204
+    assert observed == [False]
+
+
 def test_read_response_preview_caps_body_size():
     response = httpx.Response(200, content=b"a" * 5000)
 
@@ -320,7 +402,8 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
         body_fields_json=[],
         timeout_seconds=10,
     )
-    db_session.add_all([feed, user, item, webhook])
+    _persist_rows(db_session, feed, user)
+    _persist_rows(db_session, item, webhook)
     db_session.commit()
 
     def _fake_send(rendered):
@@ -355,9 +438,34 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
 
 
 def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="notify@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Retry Feed",
+        url="https://example.com/retry.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="retry-item",
+        url="https://example.com/articles/retry-item",
+        canonical_url="https://example.com/articles/retry-item",
+        title="Threat report",
+        dedupe_key="retry-item",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
-        user_id=uuid.uuid4(),
+        user_id=user.id,
         name="Retry webhook",
         url_template="https://example.com/hook",
         method="POST",
@@ -374,8 +482,8 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
         webhook_id=webhook.id,
         user_id=webhook.user_id,
         event_type_snapshot="rss_item_new",
-        item_id=uuid.uuid4(),
-        feed_id=uuid.uuid4(),
+        item_id=item.id,
+        feed_id=feed.id,
         delivery_kind="live",
         success=False,
         status_code=500,
@@ -391,7 +499,9 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
         item_title_snapshot="Threat report",
         feed_name_snapshot="Unit42",
     )
-    db_session.add_all([webhook, original_delivery])
+    _persist_rows(db_session, user, feed)
+    _persist_rows(db_session, item, webhook)
+    _persist_rows(db_session, original_delivery)
     db_session.commit()
 
     captured: dict[str, object] = {}
@@ -529,7 +639,8 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
         timeout_seconds=10,
     )
 
-    db_session.add_all([feed, other_feed, user, inactive_user, item, deliver_all, deliver_selected, skip_other_feed, skip_inactive])
+    _persist_rows(db_session, feed, other_feed, user, inactive_user)
+    _persist_rows(db_session, item, deliver_all, deliver_selected, skip_other_feed, skip_inactive)
     db_session.commit()
 
     delivered_ids: list[uuid.UUID] = []
@@ -576,9 +687,16 @@ def test_build_alert_match_context_for_item_collects_matching_alerts(db_session)
         is_active=True,
         is_approved=True,
     )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Alert Context Feed",
+        url="https://example.com/alert-context.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
     item = Item(
         id=uuid.uuid4(),
-        feed_id=uuid.uuid4(),
+        feed_id=feed.id,
         url="https://example.com/items/1",
         title="LockBit phishing wave hits finance sector",
         summary="Credential theft activity observed against finance teams.",
@@ -587,27 +705,31 @@ def test_build_alert_match_context_for_item_collects_matching_alerts(db_session)
         content_hash="c" * 64,
         status="new",
     )
-    db_session.add_all(
-        [
-            user,
-            item,
-            AlertInterest(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                name="Ransomware Watch",
-                category="malware",
-                keywords=["lockbit", "ransomware"],
-                enabled=True,
-            ),
-            AlertInterest(
-                id=uuid.uuid4(),
-                user_id=user.id,
-                name="Credential Theft",
-                category="identity",
-                keywords=["credential theft", "mfa fatigue"],
-                enabled=True,
-            ),
-        ]
+    _persist_rows(db_session, user, feed)
+    _persist_rows(
+        db_session,
+        item,
+        AlertInterest(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            name="Ransomware Watch",
+            category="malware",
+            keywords=["lockbit", "ransomware"],
+            enabled=True,
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=2),
+        ),
+    )
+    _persist_rows(
+        db_session,
+        AlertInterest(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            name="Credential Theft",
+            category="identity",
+            keywords=["credential theft", "mfa fatigue"],
+            enabled=True,
+            created_at=datetime.now(timezone.utc),
+        ),
     )
     db_session.commit()
 
@@ -686,31 +808,28 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
         body_fields_json=[],
         timeout_seconds=10,
     )
-    db_session.add_all(
-        [
-            feed,
-            matching_user,
-            non_matching_user,
-            item,
-            matching_webhook,
-            ignored_webhook,
-            AlertInterest(
-                id=uuid.uuid4(),
-                user_id=matching_user.id,
-                name="Ransomware Watch",
-                category="malware",
-                keywords=["lockbit"],
-                enabled=True,
-            ),
-            AlertInterest(
-                id=uuid.uuid4(),
-                user_id=non_matching_user.id,
-                name="Cloud Watch",
-                category="cloud",
-                keywords=["aws"],
-                enabled=True,
-            ),
-        ]
+    _persist_rows(db_session, feed, matching_user, non_matching_user)
+    _persist_rows(
+        db_session,
+        item,
+        matching_webhook,
+        ignored_webhook,
+        AlertInterest(
+            id=uuid.uuid4(),
+            user_id=matching_user.id,
+            name="Ransomware Watch",
+            category="malware",
+            keywords=["lockbit"],
+            enabled=True,
+        ),
+        AlertInterest(
+            id=uuid.uuid4(),
+            user_id=non_matching_user.id,
+            name="Cloud Watch",
+            category="cloud",
+            keywords=["aws"],
+            enabled=True,
+        ),
     )
     db_session.commit()
 
@@ -804,7 +923,9 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(db
         feed_name_snapshot=feed.name,
         attempted_at=datetime.now(timezone.utc),
     )
-    db_session.add_all([feed, user, webhook, recent_delivery])
+    _persist_rows(db_session, feed, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, recent_delivery)
     db_session.commit()
 
     @contextmanager
@@ -843,49 +964,48 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
         body_fields_json=[],
         timeout_seconds=10,
     )
-    db_session.add_all(
-        [
-            user,
-            webhook,
-            NotificationWebhookDelivery(
-                id=uuid.uuid4(),
-                webhook_id=webhook.id,
-                user_id=user.id,
-                event_type_snapshot="rss_item_new",
-                delivery_kind="live",
-                success=True,
-                status_code=204,
-                duration_ms=10,
-                timeout_seconds=10,
-                rendered_url="https://example.com/analytics",
-                rendered_method="POST",
-                rendered_headers_json=[],
-                rendered_query_params_json=[],
-                rendered_body=None,
-                response_body_preview="ok",
-                error=None,
-                attempted_at=datetime.now(timezone.utc),
-            ),
-            NotificationWebhookDelivery(
-                id=uuid.uuid4(),
-                webhook_id=webhook.id,
-                user_id=user.id,
-                event_type_snapshot="alert_match",
-                delivery_kind="live",
-                success=False,
-                status_code=500,
-                duration_ms=18,
-                timeout_seconds=10,
-                rendered_url="https://example.com/analytics",
-                rendered_method="POST",
-                rendered_headers_json=[],
-                rendered_query_params_json=[],
-                rendered_body=None,
-                response_body_preview="HTTP 500",
-                error="HTTP 500",
-                attempted_at=datetime.now(timezone.utc),
-            ),
-        ]
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(
+        db_session,
+        NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=user.id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            success=True,
+            status_code=204,
+            duration_ms=10,
+            timeout_seconds=10,
+            rendered_url="https://example.com/analytics",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            response_body_preview="ok",
+            error=None,
+            attempted_at=datetime.now(timezone.utc),
+        ),
+        NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=user.id,
+            event_type_snapshot="alert_match",
+            delivery_kind="live",
+            success=False,
+            status_code=500,
+            duration_ms=18,
+            timeout_seconds=10,
+            rendered_url="https://example.com/analytics",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            response_body_preview="HTTP 500",
+            error="HTTP 500",
+            attempted_at=datetime.now(timezone.utc),
+        ),
     )
     db_session.commit()
 

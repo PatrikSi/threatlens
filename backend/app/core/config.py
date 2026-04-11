@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
     allow_private_network_fetch: bool = False
+    allow_private_network_webhooks: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
@@ -109,6 +110,8 @@ class Settings(BaseSettings):
                 raise ValueError("admin_password default is not allowed in production")
             if not self.auth_cookie_secure:
                 raise ValueError("auth_cookie_secure must be true in production")
+            if not self.auth_require_csrf:
+                raise ValueError("auth_require_csrf must be true in production")
         return self
 
 
