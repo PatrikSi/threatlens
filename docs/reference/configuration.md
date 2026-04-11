@@ -7,7 +7,8 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (`8000`)
-- `worker`: Celery worker with embedded beat scheduler
+- `worker`: Celery worker
+- `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`)
 
 ## Backend Settings (`backend/app/core/config.py`)
@@ -37,7 +38,8 @@
 | `ARTICLE_CONNECT_TIMEOUT_SECONDS` (`article_connect_timeout_seconds`) | `5` | Article HTTP connect timeout. |
 | `ARTICLE_READ_TIMEOUT_SECONDS` (`article_read_timeout_seconds`) | `20` | Article HTTP read timeout. |
 | `ARTICLE_MAX_BYTES` (`article_max_bytes`) | `4000000` | Max article response size before rejection. |
-| `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed, article, and webhook fetches to private-network or internal-only hosts when explicitly enabled. |
+| `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
+| `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
@@ -62,8 +64,8 @@
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
-| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `true` | Controls automatic migration execution in `start-api.sh`. |
-| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `true` | Controls automatic admin seeding in `start-api.sh`. |
+| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `true` | Controls automatic migration execution in `start-api.sh`; recommended only for bootstrap jobs or single-replica deployments. |
+| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `true` | Controls automatic admin seeding in `start-api.sh`; recommended only for bootstrap jobs or single-replica deployments. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. |
@@ -87,6 +89,7 @@ When `APP_ENV` is `production` or `prod`:
 
 - `docker-compose.yml` runs migrations in `start-api.sh` before `uvicorn` starts serving traffic.
 - `worker` depends on API health so it starts only after DB, Redis, and startup migrations are ready.
+- `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
 - The same compose injects `TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12` by default for local reverse-proxy deployments.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
@@ -130,4 +133,6 @@ Beat schedules:
 - `dispatch-unclassified-items`: every `300.0` seconds
 - `dispatch-items-missing-iocs`: every `300.0` seconds
 - `dispatch-feed-metadata-backfill`: every `600.0` seconds
+- `dispatch-daily-digest-notifications`: every `3600.0` seconds
+- `dispatch-daily-ai-brief-generation`: every `300.0` seconds
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`
