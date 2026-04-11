@@ -11,7 +11,6 @@ import {
   AlertMatchListResponse,
   Feed,
   ItemDetail,
-  ItemListEntry,
   ItemListResponse,
   SavedView,
   Tag,
@@ -148,6 +147,44 @@ const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
 const MAX_IMPORTED_VIEWS = 250
 const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
+
+export function getDashboardStorageKeys(userId: string) {
+  return {
+    windows: `${WINDOW_STORAGE_KEY}:${userId}`,
+    windowSeenAt: `${WINDOW_SEEN_STORAGE_KEY}:${userId}`,
+    lastOpenedAt: `${USER_LAST_OPEN_STORAGE_KEY}:${userId}`,
+  } as const
+}
+
+export function migrateLegacyDashboardStorage(userId: string) {
+  if (typeof window === 'undefined' || !userId) {
+    return false
+  }
+
+  const storageKeys = getDashboardStorageKeys(userId)
+  const migrations: Array<{ legacyKey: string; scopedKey: string }> = [
+    { legacyKey: WINDOW_STORAGE_KEY, scopedKey: storageKeys.windows },
+    { legacyKey: WINDOW_SEEN_STORAGE_KEY, scopedKey: storageKeys.windowSeenAt },
+    { legacyKey: USER_LAST_OPEN_STORAGE_KEY, scopedKey: storageKeys.lastOpenedAt },
+  ]
+
+  let migrated = false
+  for (const { legacyKey, scopedKey } of migrations) {
+    if (window.localStorage.getItem(scopedKey) !== null) {
+      continue
+    }
+
+    const legacyValue = window.localStorage.getItem(legacyKey)
+    if (legacyValue === null) {
+      continue
+    }
+
+    window.localStorage.setItem(scopedKey, legacyValue)
+    migrated = true
+  }
+
+  return migrated
+}
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Floating (Advanced)' },
@@ -354,7 +391,7 @@ export function DashboardPage() {
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
   const [showSaveAsNew, setShowSaveAsNew] = useState(false)
-  const [openWindowMenuId, setOpenWindowMenuId] = useState<string | null>(null)
+  const [, setOpenWindowMenuId] = useState<string | null>(null)
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null)
   const [renameWindowDraft, setRenameWindowDraft] = useState('')
   const [relativeTimeAnchorMs, setRelativeTimeAnchorMs] = useState(() => getRelativeTimeAnchorMs())
@@ -362,11 +399,11 @@ export function DashboardPage() {
   const [expandedItemId, setExpandedItemId] = useState<string>('')
   const [noteDraft, setNoteDraft] = useState('')
 
-  const [windows, setWindows] = useState<DashboardWindow[]>(() => loadDashboardWindows())
-  const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>(() => loadWindowSeenState())
+  const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
+  const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
   const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
-  const initializedLastOpenUserRef = useRef<string | null>(null)
+  const initializedDashboardUserRef = useRef<string | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
@@ -395,15 +432,25 @@ export function DashboardPage() {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.setItem(WINDOW_STORAGE_KEY, JSON.stringify(serializeDashboardWindowLayouts(windows)))
-  }, [windows])
+    const userId = meQuery.data?.id
+    if (!userId || initializedDashboardUserRef.current !== userId) {
+      return
+    }
+    const storageKeys = getDashboardStorageKeys(userId)
+    window.localStorage.setItem(storageKeys.windows, JSON.stringify(serializeDashboardWindowLayouts(windows)))
+  }, [meQuery.data?.id, windows])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
-    window.localStorage.setItem(WINDOW_SEEN_STORAGE_KEY, JSON.stringify(windowSeenAt))
-  }, [windowSeenAt])
+    const userId = meQuery.data?.id
+    if (!userId || initializedDashboardUserRef.current !== userId) {
+      return
+    }
+    const storageKeys = getDashboardStorageKeys(userId)
+    window.localStorage.setItem(storageKeys.windowSeenAt, JSON.stringify(windowSeenAt))
+  }, [meQuery.data?.id, windowSeenAt])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -411,20 +458,27 @@ export function DashboardPage() {
     }
 
     const userId = meQuery.data?.id
-    if (!userId || initializedLastOpenUserRef.current === userId) {
+    if (!userId) {
+      initializedDashboardUserRef.current = null
+      setWindows([createWindowLayout('rss', 1, 1380, 760, 'full')])
+      setWindowSeenAt({})
+      setRssLastOpenedAt('')
       return
     }
 
-    const lastOpenedByUser = loadStoredTimestampMap(USER_LAST_OPEN_STORAGE_KEY)
-    setRssLastOpenedAt(lastOpenedByUser[userId] ?? '')
-    window.localStorage.setItem(
-      USER_LAST_OPEN_STORAGE_KEY,
-      JSON.stringify({
-        ...lastOpenedByUser,
-        [userId]: new Date().toISOString(),
-      }),
-    )
-    initializedLastOpenUserRef.current = userId
+    migrateLegacyDashboardStorage(userId)
+
+    if (initializedDashboardUserRef.current === userId) {
+      return
+    }
+
+    const storageKeys = getDashboardStorageKeys(userId)
+    const { width, height } = getWindowContainerDimensions(rootRef.current)
+    setWindows(loadDashboardWindows(storageKeys.windows, width, height))
+    setWindowSeenAt(loadWindowSeenState(storageKeys.windowSeenAt))
+    setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
+    window.localStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
+    initializedDashboardUserRef.current = userId
   }, [meQuery.data?.id])
 
   useEffect(() => {
@@ -2970,63 +3024,6 @@ function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFil
   return windowLayout.time_override ?? dashboardTimeFilter
 }
 
-function combineTimeWindows(filters: WindowTimeFilter[]): { sinceIso: string; untilIso: string } {
-  if (!filters.length) {
-    return { sinceIso: '', untilIso: '' }
-  }
-
-  const windows = filters.map((filter) =>
-    deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date, filter.rolling_days),
-  )
-
-  if (windows.some((entry) => !entry.sinceIso && !entry.untilIso)) {
-    return { sinceIso: '', untilIso: '' }
-  }
-
-  const sinceDates = windows
-    .map((entry) => (entry.sinceIso ? new Date(entry.sinceIso) : null))
-    .filter((entry): entry is Date => entry instanceof Date && !Number.isNaN(entry.getTime()))
-  const untilDates = windows
-    .map((entry) => (entry.untilIso ? new Date(entry.untilIso) : null))
-    .filter((entry): entry is Date => entry instanceof Date && !Number.isNaN(entry.getTime()))
-
-  const sinceIso =
-    sinceDates.length === windows.length
-      ? new Date(Math.min(...sinceDates.map((entry) => entry.getTime()))).toISOString()
-      : ''
-  const untilIso =
-    untilDates.length === windows.length
-      ? new Date(Math.max(...untilDates.map((entry) => entry.getTime()))).toISOString()
-      : ''
-
-  return { sinceIso, untilIso }
-}
-
-function filterEntriesByTimeWindow<T extends { published_at: string | null; first_seen_at: string }>(
-  entries: T[],
-  filter: WindowTimeFilter,
-): T[] {
-  const effective = deriveTimeWindow(filter.time_range, filter.custom_since_date, filter.custom_until_date, filter.rolling_days)
-  if (!effective.sinceIso && !effective.untilIso) {
-    return entries
-  }
-
-  const since = effective.sinceIso ? new Date(effective.sinceIso) : null
-  const until = effective.untilIso ? new Date(effective.untilIso) : null
-
-  return entries.filter((entry) => {
-    const reference = entry.published_at || entry.first_seen_at
-    if (!reference) return false
-
-    const candidate = new Date(reference)
-    if (Number.isNaN(candidate.getTime())) return false
-
-    if (since && candidate < since) return false
-    if (until && candidate > until) return false
-    return true
-  })
-}
-
 function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId: string) {
   queryClient.invalidateQueries({ queryKey: ['items'] })
   queryClient.invalidateQueries({ queryKey: ['item', itemId] })
@@ -3209,8 +3206,8 @@ function formatWindowTimeSummary(windowLayout: DashboardWindow, dashboardTimeFil
   )}`
 }
 
-function loadWindowSeenState(): Record<string, string> {
-  return loadStoredTimestampMap(WINDOW_SEEN_STORAGE_KEY)
+function loadWindowSeenState(storageKey: string): Record<string, string> {
+  return loadStoredTimestampMap(storageKey)
 }
 
 function loadStoredTimestampMap(storageKey: string): Record<string, string> {
@@ -3235,6 +3232,19 @@ function loadStoredTimestampMap(storageKey: string): Record<string, string> {
     return next
   } catch {
     return {}
+  }
+}
+
+function loadStoredTimestamp(storageKey: string): string {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  try {
+    const value = window.localStorage.getItem(storageKey)
+    return typeof value === 'string' ? value : ''
+  } catch {
+    return ''
   }
 }
 
@@ -3272,25 +3282,22 @@ function serializeDashboardWindowLayouts(windows: DashboardWindow[]) {
   }))
 }
 
-function loadDashboardWindows(): DashboardWindow[] {
+function loadDashboardWindows(storageKey: string, containerWidth: number, containerHeight: number): DashboardWindow[] {
   if (typeof window === 'undefined') {
-    return [createWindowLayout('rss', 1, 1380, 760, 'full')]
+    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
   }
 
-  const raw = window.localStorage.getItem(WINDOW_STORAGE_KEY)
+  const raw = window.localStorage.getItem(storageKey)
   if (!raw) {
-    const { width, height } = getWindowContainerDimensions(null)
-    return [createWindowLayout('rss', 1, width, height, 'full')]
+    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
   }
 
   try {
     const parsed = JSON.parse(raw) as unknown
     if (!Array.isArray(parsed)) {
-      const { width, height } = getWindowContainerDimensions(null)
-      return [createWindowLayout('rss', 1, width, height, 'full')]
+      return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
     }
 
-    const { width, height } = getWindowContainerDimensions(null)
     const windows: DashboardWindow[] = []
 
     for (const entry of parsed) {
@@ -3306,7 +3313,7 @@ function loadDashboardWindows(): DashboardWindow[] {
         title: typeof entry.title === 'string' && entry.title ? entry.title : defaultWindowTitle(entry.type, windows.length + 1),
         type: entry.type,
         snap: entry.snap,
-        rect: normalizePanelRect(rect, width, height),
+        rect: normalizePanelRect(rect, containerWidth, containerHeight),
         controls_collapsed: entry.controls_collapsed === true,
         scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
         time_override: parseWindowTimeFilterCandidate(entry.time_override),
@@ -3320,13 +3327,12 @@ function loadDashboardWindows(): DashboardWindow[] {
     }
 
     if (!windows.length) {
-      return [createWindowLayout('rss', 1, width, height, 'full')]
+      return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
     }
 
-    return normalizeDashboardWindows(windows, width, height)
+    return normalizeDashboardWindows(windows, containerWidth, containerHeight)
   } catch {
-    const { width, height } = getWindowContainerDimensions(null)
-    return [createWindowLayout('rss', 1, width, height, 'full')]
+    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
   }
 }
 
@@ -3869,11 +3875,11 @@ function cleanBullet(line: string): string {
 }
 
 function isNumberedLine(line: string): boolean {
-  return /^\d+[\.\)]\s+/.test(line)
+  return /^\d+[.)]\s+/.test(line)
 }
 
 function cleanNumbered(line: string): string {
-  return line.replace(/^\d+[\.\)]\s+/, '').trim()
+  return line.replace(/^\d+[.)]\s+/, '').trim()
 }
 
 function looksLikeSectionHeading(line: string): boolean {
