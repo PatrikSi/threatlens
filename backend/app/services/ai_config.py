@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -80,11 +81,12 @@ DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
 
 
 def get_or_create_ai_settings(db: Session) -> AISettings:
-    settings = db.scalar(select(AISettings).limit(1))
+    settings = db.scalar(select(AISettings).where(AISettings.singleton_key == 1))
     if settings is not None:
         return settings
 
     settings = AISettings(
+        singleton_key=1,
         provider_type="openai_compatible",
         temperature=0.2,
         max_completion_tokens=5000,
@@ -102,8 +104,15 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
         relevance_medium_threshold=0.55,
         relevance_high_threshold=0.8,
     )
-    db.add(settings)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(settings)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(select(AISettings).where(AISettings.singleton_key == 1))
+        if existing is None:
+            raise
+        return existing
     return settings
 
 

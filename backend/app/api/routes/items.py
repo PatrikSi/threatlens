@@ -103,6 +103,10 @@ def _parse_graph_node_id(node_id: str) -> tuple[str, uuid.UUID]:
     return kind, parsed
 
 
+def _escape_like_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _build_item_graph_node(
     *,
     item: Item,
@@ -349,12 +353,12 @@ def list_items(
 
     filters = []
     if q:
-        pattern = f"%{q.lower()}%"
+        pattern = f"%{_escape_like_value(q.lower())}%"
         filters.append(
             or_(
-                func.lower(Item.title).like(pattern),
-                func.lower(func.coalesce(Item.summary, "")).like(pattern),
-                func.lower(cast(Item.url, String)).like(pattern),
+                func.lower(Item.title).like(pattern, escape="\\"),
+                func.lower(func.coalesce(Item.summary, "")).like(pattern, escape="\\"),
+                func.lower(cast(Item.url, String)).like(pattern, escape="\\"),
             )
         )
     if selected_feed_ids:

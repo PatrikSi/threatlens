@@ -2,6 +2,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.core.config import get_settings
@@ -13,9 +14,11 @@ from app.models.item import Item
 from app.services.ai_config import apply_ai_settings_update, get_or_create_ai_settings
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPROCESS, AI_TRIGGER_MANUAL, queue_ai_task_run
+from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
 from app.tasks.feed_tasks import (
     _scheduled_daily_ai_brief_due,
+    _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
     classify_item,
     fetch_article,
@@ -100,7 +103,7 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.httpx.Client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
     monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
 
     result = fetch_feed.run(str(feed.id), force=True)
@@ -156,6 +159,149 @@ def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):
     assert result == {"status": "skipped", "reason": "invalid_item_id", "item_id": "not-a-uuid"}
 
 
+def test_fetch_article_falls_back_to_original_url_when_canonical_fetch_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="fallback-item",
+        url="https://example.com/articles/original",
+        canonical_url="https://example.com/articles/canonical",
+        title="Fallback target",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="fallback-item",
+        content_hash="b" * 64,
+        status="new",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _domain_slot_override(_domain: str, max_wait_seconds: int = 30):
+        _ = max_wait_seconds
+        yield
+
+    class _Response:
+        def __init__(self, url: str):
+            self.status_code = 200
+            self.headers = {"content-type": "text/html; charset=utf-8"}
+            self.url = url
+
+        def iter_bytes(self):
+            yield b"<html><body><article><h1>Recovered article</h1><p>Readable text.</p></article></body></html>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    queued: list[str] = []
+
+    def _safe_stream(_client, _method: str, url: str, **_kwargs):
+        if url.endswith("/canonical"):
+            raise RedirectError("broken canonical redirect")
+        return _Response(url)
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", _safe_stream)
+    monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_readable_text",
+        lambda _html: {
+            "title": "Recovered article",
+            "text": "Readable text.",
+            "method": "readable",
+            "language": "en",
+            "word_count": 2,
+            "error": None,
+        },
+    )
+
+    result = fetch_article.run(str(item.id))
+
+    assert result == {"status": "ok", "item_id": str(item.id)}
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    assert article is not None
+    assert article.final_url == item.url
+    assert article.text == "Readable text."
+    assert queued == [str(item.id)]
+
+
+def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="queue-error-item",
+        url="https://example.com/articles/queue-error-item",
+        canonical_url="https://example.com/articles/queue-error-item",
+        title="Queue failure target",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="queue-error-item",
+        content_hash="f" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    item_id = item.id
+
+    with pytest.raises(RuntimeError, match="broker down"):
+        _queue_item_ai_enrichment_run(
+            item_id=item_id,
+            trigger_source=AI_TRIGGER_MANUAL,
+            reason=None,
+            force=True,
+        )
+
+    run = db_session.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.item_id == item_id, AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT)
+        .order_by(AITaskRun.created_at.desc())
+    )
+    assert run is not None
+    assert run.status == "error"
+    assert run.reason == "enqueue_failed"
+    assert run.error == "broker down"
+
+
 def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -184,7 +330,9 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
         text="Researchers observed Fortinet exploitation in the wild.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
     db_session.commit()
 
     @contextmanager
@@ -233,6 +381,7 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
         fetch_interval_seconds=1800,
     )
     db_session.add(feed)
+    db_session.flush()
 
     item_ids: list[uuid.UUID] = []
     for index in range(2):
@@ -257,7 +406,9 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
             text="Researchers observed Fortinet exploitation in the wild.",
             extraction_method="readable",
         )
-        db_session.add_all([item, article])
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(article)
         item_ids.append(item.id)
     db_session.commit()
 
@@ -353,6 +504,29 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
         lambda db, *, item_id, force=False, task_run_id=None: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unexpected-error-item",
+        url="https://example.com/articles/unexpected-error-item",
+        canonical_url="https://example.com/articles/unexpected-error-item",
+        title="Unexpected error target",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unexpected-error-item",
+        content_hash="9" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
@@ -366,7 +540,7 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
         task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
         trigger_source=AI_TRIGGER_MANUAL,
         parent_run_id=parent_run.id,
-        item_id=uuid.uuid4(),
+        item_id=item.id,
         metadata={"parent_task": "reprocess"},
     )
     db_session.commit()
@@ -403,6 +577,7 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
         fetch_interval_seconds=1800,
     )
     db_session.add(feed)
+    db_session.flush()
 
     item_ids: list[uuid.UUID] = []
     for index in range(3):
@@ -427,7 +602,9 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
             text="Researchers observed Fortinet exploitation in the wild.",
             extraction_method="readable",
         )
-        db_session.add_all([item, article])
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(article)
         item_ids.append(item.id)
     db_session.commit()
 
@@ -564,4 +741,125 @@ def test_scheduled_daily_ai_brief_due_skips_after_today_ready_brief(db_session, 
 
     assert due is False
     assert reason == "already_generated"
+    get_settings.cache_clear()
+
+
+def test_scheduled_daily_ai_brief_due_retries_after_non_ready_brief(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_schedule_hour_utc=9,
+            daily_brief_schedule_minute_utc=0,
+        ),
+    )
+    db_session.add(settings)
+    db_session.add(
+        AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=datetime(2026, 3, 27, 0, 0, tzinfo=timezone.utc).date(),
+            window_start=datetime(2026, 3, 26, 9, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+            status="error",
+            item_count=0,
+            generated_at=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+            error="provider timeout",
+        )
+    )
+    db_session.commit()
+
+    due, reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert due is True
+    assert reason is None
+    get_settings.cache_clear()
+
+
+def test_scheduled_daily_ai_brief_due_skips_while_today_run_is_in_flight(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_schedule_hour_utc=9,
+            daily_brief_schedule_minute_utc=0,
+        ),
+    )
+    db_session.add(settings)
+    in_flight_run = queue_ai_task_run(
+        db_session,
+        task_type="daily_brief",
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    in_flight_run.status = "running"
+    in_flight_run.queued_at = datetime(2026, 3, 27, 9, 5, tzinfo=timezone.utc)
+    db_session.add(in_flight_run)
+    db_session.commit()
+
+    due, reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert due is False
+    assert reason == "already_running"
+    get_settings.cache_clear()
+
+
+def test_scheduled_daily_ai_brief_due_recovers_stale_pending_brief(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_schedule_hour_utc=9,
+            daily_brief_schedule_minute_utc=0,
+        ),
+    )
+    db_session.add(settings)
+    stale_time = datetime(2026, 3, 27, 8, 30, tzinfo=timezone.utc)
+    db_session.add(
+        AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=datetime(2026, 3, 27, 0, 0, tzinfo=timezone.utc).date(),
+            window_start=datetime(2026, 3, 26, 9, 0, tzinfo=timezone.utc),
+            window_end=datetime(2026, 3, 27, 9, 0, tzinfo=timezone.utc),
+            status="pending",
+            item_count=0,
+            generated_at=None,
+            created_at=stale_time,
+            updated_at=stale_time,
+        )
+    )
+    db_session.commit()
+
+    due, reason = _scheduled_daily_ai_brief_due(
+        db_session,
+        now=datetime(2026, 3, 27, 10, 0, tzinfo=timezone.utc),
+    )
+
+    assert due is True
+    assert reason is None
     get_settings.cache_clear()

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from urllib.parse import urljoin
 
+import httpcore
 import httpx
+from httpx._config import DEFAULT_LIMITS, Limits, create_ssl_context
 
-from app.services.url_utils import ensure_runtime_fetchable_url
+from app.services.url_utils import ensure_runtime_fetchable_url, resolve_runtime_allowed_ips
 
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
 
@@ -19,6 +21,91 @@ class UnsafeTargetError(SafeFetchError):
 
 class RedirectError(SafeFetchError):
     pass
+
+
+class _PinnedSyncBackend(httpcore.NetworkBackend):
+    def __init__(self, *, allow_private_network: bool) -> None:
+        self._allow_private_network = allow_private_network
+        self._backend = httpcore.SyncBackend()
+
+    def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: httpcore.SOCKET_OPTION | list[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        candidates = resolve_runtime_allowed_ips(host, allow_private_network=self._allow_private_network)
+        if not candidates:
+            raise UnsafeTargetError("URL is not allowed for outbound fetch")
+
+        last_error: Exception | None = None
+        for candidate in candidates:
+            try:
+                return self._backend.connect_tcp(
+                    host=candidate,
+                    port=port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except Exception as exc:  # pragma: no cover - exercised via caller-visible failures
+                last_error = exc
+
+        assert last_error is not None
+        raise last_error
+
+    def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: httpcore.SOCKET_OPTION | list[httpcore.SOCKET_OPTION] | None = None,
+    ) -> httpcore.NetworkStream:
+        return self._backend.connect_unix_socket(path=path, timeout=timeout, socket_options=socket_options)
+
+    def sleep(self, seconds: float) -> None:
+        self._backend.sleep(seconds)
+
+
+class SafeHTTPTransport(httpx.HTTPTransport):
+    def __init__(
+        self,
+        *,
+        allow_private_network: bool,
+        verify: bool = True,
+        cert=None,
+        trust_env: bool = True,
+        http1: bool = True,
+        http2: bool = False,
+        limits: Limits = DEFAULT_LIMITS,
+        local_address: str | None = None,
+        retries: int = 0,
+        socket_options=None,
+    ) -> None:
+        ssl_context = create_ssl_context(verify=verify, cert=cert, trust_env=trust_env)
+        self._pool = httpcore.ConnectionPool(
+            ssl_context=ssl_context,
+            max_connections=limits.max_connections,
+            max_keepalive_connections=limits.max_keepalive_connections,
+            keepalive_expiry=limits.keepalive_expiry,
+            http1=http1,
+            http2=http2,
+            local_address=local_address,
+            retries=retries,
+            socket_options=socket_options,
+            network_backend=_PinnedSyncBackend(allow_private_network=allow_private_network),
+        )
+
+
+def build_safe_http_client(
+    *,
+    timeout: httpx.Timeout,
+    headers: dict[str, str] | None = None,
+    allow_private_network: bool = False,
+) -> httpx.Client:
+    transport = SafeHTTPTransport(allow_private_network=allow_private_network)
+    return httpx.Client(timeout=timeout, headers=headers, transport=transport)
 
 
 def safe_get_with_redirects(

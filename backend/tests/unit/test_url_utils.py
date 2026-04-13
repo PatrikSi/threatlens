@@ -1,10 +1,22 @@
-from app.services.url_utils import is_fetchable_url, normalize_url
+from app.services.url_utils import is_fetchable_url, normalize_feed_url, normalize_url
 
 
 def test_normalize_url_removes_tracking_and_sorts_query():
     url = "HTTPS://Example.com:443/path/?utm_source=a&b=2&a=1#frag"
     normalized = normalize_url(url)
     assert normalized == "https://example.com/path?a=1&b=2"
+
+
+def test_normalize_feed_url_preserves_query_parameters():
+    url = "HTTPS://Example.com:443/path/?token=abc123&source=partner#frag"
+    normalized = normalize_feed_url(url)
+    assert normalized == "https://example.com/path?token=abc123&source=partner"
+
+
+def test_normalize_feed_url_preserves_userinfo_for_authenticated_feeds():
+    url = "https://alice:secret@example.com:443/path/feed.xml?token=abc123#frag"
+    normalized = normalize_feed_url(url)
+    assert normalized == "https://alice:secret@example.com/path/feed.xml?token=abc123"
 
 
 def test_normalize_url_handles_default_and_empty_path():

@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.tagging_rule import TaggingRule
@@ -20,17 +21,25 @@ class ActiveTaggingSettings:
 
 
 def get_or_create_tagging_settings(db: Session) -> TaggingSettings:
-    settings = db.scalar(select(TaggingSettings).limit(1))
+    settings = db.scalar(select(TaggingSettings).where(TaggingSettings.singleton_key == 1))
     if settings is not None:
         return settings
 
     settings = TaggingSettings(
+        singleton_key=1,
         enabled_categories_json=list(CLASSIFICATION_CATEGORIES),
         min_auto_tag_confidence=0.45,
         secondary_tag_limit=2,
     )
-    db.add(settings)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(settings)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(select(TaggingSettings).where(TaggingSettings.singleton_key == 1))
+        if existing is None:
+            raise
+        return existing
     return settings
 
 

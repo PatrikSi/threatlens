@@ -1,4 +1,5 @@
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 
 import pytest
@@ -12,6 +13,7 @@ from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.user import User
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import (
     AI_TASK_TYPE_ITEM_ENRICHMENT,
@@ -66,7 +68,9 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
         text="Analysts observed exploitation targeting exposed edge devices and remote access platforms.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
     db_session.commit()
 
     update_response = client.put(
@@ -159,6 +163,53 @@ def test_admin_can_manage_ai_settings_generate_daily_brief_and_read_usage(
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1
     assert usage_events[0].feature_type == "daily_brief"
+
+
+def test_daily_brief_generate_returns_conflict_when_generation_is_already_running(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+            "company_regions": [],
+            "company_stack": [],
+            "company_priority_topics": [],
+            "company_keywords": [],
+            "company_exclusions": [],
+        },
+        headers=auth_headers["admin"],
+    )
+
+    @contextmanager
+    def _busy_lock():
+        yield False
+
+    monkeypatch.setattr("app.api.routes.ai.daily_ai_brief_lock", _busy_lock)
+
+    response = client.post("/ai/daily-brief/generate", headers=auth_headers["admin"])
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Daily brief is already running"
+
+    run = db_session.scalar(select(AITaskRun).order_by(AITaskRun.created_at.desc()))
+    assert run is not None
+    assert run.task_type == "daily_brief"
+    assert run.status == "skipped"
+    assert run.reason == "already_running"
 
 
 def test_admin_can_test_connection_and_queue_ai_reprocess(
@@ -260,6 +311,57 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     assert len(captured["item_ids"]) == 1
     assert captured["task_run_id"] == response_payload["run_id"]
     assert captured["actor_user_id"]
+
+
+def test_reprocess_queue_marks_run_error_when_broker_publish_fails(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+            "company_regions": [],
+            "company_stack": [],
+            "company_priority_topics": [],
+            "company_keywords": [],
+            "company_exclusions": [],
+        },
+        headers=auth_headers["admin"],
+    )
+
+    monkeypatch.setattr(
+        "app.api.routes.ai.reprocess_recent_ai_items.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    response = client.post(
+        "/ai/reprocess",
+        json={"days": 14, "limit": 250},
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+
+    run = db_session.scalar(select(AITaskRun).order_by(AITaskRun.created_at.desc()))
+    assert run is not None
+    assert run.task_type == AI_TASK_TYPE_REPROCESS
+    assert run.status == "error"
+    assert run.reason == "enqueue_failed"
+    assert run.error == "broker down"
 
 
 def test_generate_daily_brief_without_items_returns_clean_422(
@@ -370,6 +472,48 @@ def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
     assert revoked == [("ai-brief-123", False, "SIGTERM")]
 
 
+def test_daily_brief_queue_marks_run_error_when_broker_publish_fails(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    monkeypatch.setattr(
+        "app.api.routes.ai.dispatch_daily_ai_brief_generation.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+
+    run = db_session.scalar(select(AITaskRun).order_by(AITaskRun.created_at.desc()))
+    assert run is not None
+    assert run.task_type == "daily_brief"
+    assert run.status == "error"
+    assert run.reason == "enqueue_failed"
+    assert run.error == "broker down"
+
+
 def test_admin_can_list_reprocess_child_runs_with_article_context(
     client: TestClient,
     auth_headers,
@@ -399,11 +543,14 @@ def test_admin_can_list_reprocess_child_runs_with_article_context(
     db_session.add_all([feed, item])
     db_session.flush()
 
+    actor = db_session.scalar(select(User).where(User.email == "admin@example.com"))
+    assert actor is not None
+
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,
-        actor_user_id=uuid.uuid4(),
+        actor_user_id=actor.id,
         metadata={"days": 7, "limit": 10},
     )
     child_run = queue_ai_task_run(
@@ -523,7 +670,9 @@ def test_ai_ops_endpoints_expose_runs_sources_and_audit_logs(
         text="Threat actors are targeting exposed Fortinet edge infrastructure and remote access systems.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
     db_session.commit()
 
     settings_response = client.put(

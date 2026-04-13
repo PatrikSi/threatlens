@@ -24,7 +24,7 @@ from app.schemas.feed import (
 )
 from app.services.audit import record_audit
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
-from app.services.url_utils import is_fetchable_url
+from app.services.url_utils import is_fetchable_url, normalize_feed_url
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
@@ -101,7 +101,7 @@ def import_feeds(
     metadata_backfill_ids: list[str] = []
 
     for index, entry in enumerate(payload.feeds, start=1):
-        feed_url = entry.url.strip()
+        feed_url = normalize_feed_url(entry.url)
         if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
@@ -111,21 +111,23 @@ def import_feeds(
             skipped += 1
             continue
 
-        resolved_name = (entry.name or "").strip()
-        description = entry.description
-        site_url = entry.site_url
-        language = entry.language
+        resolved_name = _resolve_import_text(entry, "name", existing.name if existing else None)
+        description = _resolve_import_text(entry, "description", existing.description if existing else None)
+        site_url = _resolve_import_text(entry, "site_url", existing.site_url if existing else None)
+        language = _resolve_import_text(entry, "language", existing.language if existing else None)
         etag = existing.etag if existing else None
         last_modified = existing.last_modified if existing else None
+        enabled = entry.enabled if existing is None or _import_field_provided(entry, "enabled") else existing.enabled
+        fetch_mode, fetch_interval_seconds, schedule_cron = _resolve_import_fetch_settings(entry, existing)
 
         if not resolved_name:
             if settings.probe_feed_metadata_on_import:
                 try:
                     metadata = probe_feed_metadata(feed_url)
                     resolved_name = metadata.name or feed_url
-                    description = description or metadata.description
-                    site_url = site_url or metadata.site_url
-                    language = language or metadata.language
+                    description = description or _clean_optional_text(metadata.description)
+                    site_url = site_url or _clean_optional_text(metadata.site_url)
+                    language = language or _clean_optional_text(metadata.language)
                     etag = metadata.etag or etag
                     last_modified = metadata.last_modified or last_modified
                 except FeedProbeError:
@@ -140,10 +142,10 @@ def import_feeds(
                 description=description,
                 site_url=site_url,
                 language=language,
-                enabled=entry.enabled,
-                fetch_mode=entry.fetch_mode,
-                fetch_interval_seconds=entry.fetch_interval_seconds or 1800,
-                schedule_cron=entry.schedule_cron,
+                enabled=enabled,
+                fetch_mode=fetch_mode,
+                fetch_interval_seconds=fetch_interval_seconds,
+                schedule_cron=schedule_cron,
                 etag=etag,
                 last_modified=last_modified,
             )
@@ -157,10 +159,10 @@ def import_feeds(
         existing.description = description
         existing.site_url = site_url
         existing.language = language
-        existing.enabled = entry.enabled
-        existing.fetch_mode = entry.fetch_mode
-        existing.fetch_interval_seconds = entry.fetch_interval_seconds or existing.fetch_interval_seconds
-        existing.schedule_cron = entry.schedule_cron
+        existing.enabled = enabled
+        existing.fetch_mode = fetch_mode
+        existing.fetch_interval_seconds = fetch_interval_seconds
+        existing.schedule_cron = schedule_cron
         existing.etag = etag
         existing.last_modified = last_modified
         db.add(existing)
@@ -200,7 +202,7 @@ def create_feed(
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
 ):
     settings = get_settings()
-    feed_url = payload.url.strip()
+    feed_url = normalize_feed_url(payload.url)
     if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
 
@@ -360,3 +362,47 @@ def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int) -> int:
         celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
         enqueued += 1
     return enqueued
+
+
+def _clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _resolve_import_text(entry: FeedImportEntry, field_name: str, existing_value: str | None) -> str | None:
+    if not _import_field_provided(entry, field_name):
+        return _clean_optional_text(existing_value)
+    return _clean_optional_text(getattr(entry, field_name))
+
+
+def _resolve_import_fetch_settings(entry: FeedImportEntry, existing: Feed | None) -> tuple[str, int, str | None]:
+    if existing is None:
+        return (
+            entry.fetch_mode,
+            entry.fetch_interval_seconds or 1800,
+            entry.schedule_cron,
+        )
+
+    fetch_mode = entry.fetch_mode if _import_field_provided(entry, "fetch_mode") else existing.fetch_mode
+    fetch_interval_seconds = (
+        entry.fetch_interval_seconds
+        if _import_field_provided(entry, "fetch_interval_seconds") or _import_field_provided(entry, "fetch_mode")
+        else existing.fetch_interval_seconds
+    ) or existing.fetch_interval_seconds or 1800
+    if fetch_mode == "interval":
+        return (fetch_mode, fetch_interval_seconds, None)
+
+    schedule_cron = (
+        entry.schedule_cron
+        if _import_field_provided(entry, "schedule_cron") or _import_field_provided(entry, "fetch_mode")
+        else existing.schedule_cron
+    )
+    return (fetch_mode, fetch_interval_seconds, schedule_cron)
+
+
+def _import_field_provided(entry: FeedImportEntry, field_name: str) -> bool:
+    if field_name == "schedule_cron":
+        return field_name in entry.model_dump(exclude_defaults=True)
+    return field_name in entry.model_fields_set

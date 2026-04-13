@@ -64,6 +64,7 @@ from app.services.ai_ops import (
     update_ai_task_run_celery,
 )
 from app.services.audit import record_audit
+from app.tasks.feed_tasks import CoordinationUnavailableError, daily_ai_brief_lock
 from app.tasks.feed_tasks import dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -305,7 +306,35 @@ def generate_daily_brief_route(
     start_ai_task_run(db, run_id=run.id, worker_name="api", metadata_updates={"force": True})
     db.commit()
 
-    result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
+    try:
+        with daily_ai_brief_lock() as acquired:
+            if not acquired:
+                finish_ai_task_run(
+                    db,
+                    run_id=run.id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="already_running",
+                    worker_name="api",
+                    model=settings.model,
+                    metadata_updates={"force": True},
+                )
+                db.commit()
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Daily brief is already running")
+
+            result = run_daily_brief_generation(db, force=True, task_run_id=run.id)
+    except CoordinationUnavailableError as exc:
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_ERROR,
+            reason="coordination_unavailable",
+            error=str(exc),
+            worker_name="api",
+            model=settings.model,
+        )
+        db.commit()
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Task queue is temporarily unavailable. Try again later.") from exc
+
     finish_ai_task_run(
         db,
         run_id=run.id,
@@ -363,18 +392,23 @@ def queue_daily_brief_route(
         metadata={"force": True, "queued_by": "api"},
     )
     db.commit()
-    task = dispatch_daily_ai_brief_generation.delay(True, str(run.id), str(admin.id))
-    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task.id)
+    task = _enqueue_task_run_or_fail(
+        db,
+        run_id=run.id,
+        task_factory=lambda: dispatch_daily_ai_brief_generation.delay(True, str(run.id), str(admin.id)),
+    )
+    task_id = getattr(task, "id", None)
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task_id)
     record_audit(
         db,
         actor_user_id=admin.id,
         action="ai.daily_brief.queue",
         resource_type="ai_daily_brief",
         success=True,
-        metadata={"task_id": task.id, "run_id": str(run.id)},
+        metadata={"task_id": task_id, "run_id": str(run.id)},
     )
     db.commit()
-    return AIQueuedTaskResponse(task_id=task.id, queued=True, run_id=run.id)
+    return AIQueuedTaskResponse(task_id=task_id, queued=True, run_id=run.id)
 
 
 @router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])
@@ -401,17 +435,22 @@ def reprocess_ai_for_recent_items_route(
         },
     )
     db.commit()
-    task = reprocess_recent_ai_items.delay(
-        payload.days,
-        payload.limit,
-        payload.start_time.isoformat() if payload.start_time else None,
-        payload.end_time.isoformat() if payload.end_time else None,
-        [str(feed_id) for feed_id in payload.feed_ids],
-        [str(item_id) for item_id in payload.item_ids],
-        task_run_id=str(run.id),
-        actor_user_id=str(admin.id),
+    task = _enqueue_task_run_or_fail(
+        db,
+        run_id=run.id,
+        task_factory=lambda: reprocess_recent_ai_items.delay(
+            payload.days,
+            payload.limit,
+            payload.start_time.isoformat() if payload.start_time else None,
+            payload.end_time.isoformat() if payload.end_time else None,
+            [str(feed_id) for feed_id in payload.feed_ids],
+            [str(item_id) for item_id in payload.item_ids],
+            task_run_id=str(run.id),
+            actor_user_id=str(admin.id),
+        ),
     )
-    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task.id)
+    task_id = getattr(task, "id", None)
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task_id)
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -424,12 +463,31 @@ def reprocess_ai_for_recent_items_route(
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
             "item_ids": [str(item_id) for item_id in payload.item_ids],
-            "task_id": task.id,
+            "task_id": task_id,
             "run_id": str(run.id),
         },
     )
     db.commit()
-    return AIReprocessResponse(task_id=task.id, queued=True, run_id=run.id)
+    return AIReprocessResponse(task_id=task_id, queued=True, run_id=run.id)
+
+
+def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory):
+    try:
+        return task_factory()
+    except Exception as exc:
+        finish_ai_task_run(
+            db,
+            run_id=run_id,
+            status=AI_STATUS_ERROR,
+            reason="enqueue_failed",
+            error=str(exc),
+            worker_name="api",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue is temporarily unavailable. Try again later.",
+        ) from exc
 
 
 @router.get("/ops/overview", response_model=AIOpsOverviewResponse, dependencies=[Depends(require_ai_enabled)])

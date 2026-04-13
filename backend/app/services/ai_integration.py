@@ -44,6 +44,7 @@ FEATURE_CONNECTION_TEST = "connection_test"
 MAX_ITEM_ARTICLE_PROMPT_CHARS = 8_000
 MAX_ITEM_SUMMARY_CHARS = 2_000
 MAX_BRIEF_ITEM_SUMMARY_CHARS = 900
+DAILY_BRIEF_PENDING_STALE_AFTER = timedelta(minutes=15)
 
 
 class AIIntegrationError(ValueError):
@@ -121,6 +122,18 @@ class AIDailyBriefGenerationResult:
     items_selected: int
     prompt_char_count: int | None = None
     response_char_count: int | None = None
+
+
+def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
+    if brief.status != "pending":
+        return False
+
+    reference = brief.updated_at or brief.created_at or brief.generated_at
+    if reference is None:
+        return True
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    return now - reference >= DAILY_BRIEF_PENDING_STALE_AFTER
 
 
 def test_ai_connection(db: Session, *, task_run_id: uuid.UUID | None = None) -> AITestConnectionResponse:
@@ -352,6 +365,14 @@ def run_daily_brief_generation(
             brief=existing,
             status="skipped",
             reason="already_generated",
+            items_considered=int(existing.item_count or 0),
+            items_selected=len(existing.top_item_ids_json or []),
+        )
+    if existing is not None and existing.status == "pending" and not force and not is_stale_daily_brief_pending(existing, now=now):
+        return AIDailyBriefGenerationResult(
+            brief=existing,
+            status="skipped",
+            reason="already_running",
             items_considered=int(existing.item_count or 0),
             items_selected=len(existing.top_item_ids_json or []),
         )

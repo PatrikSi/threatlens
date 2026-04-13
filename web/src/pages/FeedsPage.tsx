@@ -239,8 +239,9 @@ export function FeedsPage() {
   }, [feedsQuery.data])
 
   useEffect(() => {
+    const autosaveTimers = autosaveTimersRef.current
     return () => {
-      for (const timer of Object.values(autosaveTimersRef.current)) {
+      for (const timer of Object.values(autosaveTimers)) {
         clearTimeout(timer)
       }
     }

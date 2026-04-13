@@ -4,7 +4,7 @@ import feedparser
 import httpx
 
 from app.core.config import get_settings
-from app.services.safe_fetch import RedirectError, SafeFetchError, safe_stream_with_redirects
+from app.services.safe_fetch import build_safe_http_client, RedirectError, SafeFetchError, safe_stream_with_redirects
 from app.services.url_utils import is_fetchable_url
 
 
@@ -39,7 +39,11 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
     )
 
     try:
-        with httpx.Client(timeout=timeout, headers={"User-Agent": settings.fetch_user_agent}) as client:
+        with build_safe_http_client(
+            timeout=timeout,
+            headers={"User-Agent": settings.fetch_user_agent},
+            allow_private_network=settings.allow_private_network_fetch,
+        ) as client:
             response = safe_stream_with_redirects(
                 client,
                 "GET",

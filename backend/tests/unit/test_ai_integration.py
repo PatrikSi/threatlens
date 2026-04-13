@@ -116,6 +116,16 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
     return _FakeClient
 
 
+def _persist_feed_item(db_session, feed: Feed, item: Item, *children: object) -> None:
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    if children:
+        db_session.add_all(list(children))
+        db_session.flush()
+
+
 def test_get_or_create_ai_settings_uses_updated_runtime_defaults(db_session):
     settings = get_or_create_ai_settings(db_session)
 
@@ -197,7 +207,7 @@ def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_sessi
         rules_version="v2",
         classified_at=datetime.now(timezone.utc),
     )
-    db_session.add_all([feed, item, article, classification])
+    _persist_feed_item(db_session, feed, item, article, classification)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -292,7 +302,7 @@ def test_run_item_ai_enrichment_skips_when_matching_enrichment_is_already_pendin
         rules_version="v2",
         classified_at=datetime.now(timezone.utc),
     )
-    db_session.add_all([feed, item, article, classification])
+    _persist_feed_item(db_session, feed, item, article, classification)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -411,7 +421,7 @@ def test_run_item_ai_enrichment_force_updates_existing_row_in_place(
         model="old-model",
         error="Old failure",
     )
-    db_session.add_all([feed, item, article, classification, existing])
+    _persist_feed_item(db_session, feed, item, article, classification, existing)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -484,7 +494,7 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
         text="Threat activity affected exposed edge devices and remote access systems.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -564,7 +574,7 @@ def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_ena
         text="Threat activity affected exposed edge devices and remote access systems.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -645,7 +655,7 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
         text="Threat activity targeted exposed access systems and edge devices.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -729,7 +739,7 @@ def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_sessio
         text="Threat activity targeted exposed access systems and edge devices.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -811,7 +821,7 @@ def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
         text="A ransomware group expanded operations against regional businesses and used custom tooling.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -905,7 +915,7 @@ def test_run_item_ai_enrichment_recovers_from_missing_closing_brace_in_model_jso
         text="Researchers identified custom malware targeting a financial institution with keylogging and USB propagation.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -999,7 +1009,7 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
         text="A local language model returned malformed structured output for a security article.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -1096,7 +1106,7 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
         text="The first AI response is malformed and the second one is valid JSON.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -1223,7 +1233,7 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
         text="Citrix and F5 edge exposures require immediate patching and review.",
         extraction_method="readable",
     )
-    db_session.add_all([feed, item, article])
+    _persist_feed_item(db_session, feed, item, article)
     db_session.commit()
 
     settings = get_or_create_ai_settings(db_session)
@@ -1343,6 +1353,7 @@ def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_
         fetch_interval_seconds=1800,
     )
     db_session.add(feed)
+    db_session.flush()
 
     for index in range(3):
         item = Item(
@@ -1359,6 +1370,8 @@ def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_
             status="content_fetched",
             first_seen_at=datetime(2026, 3, 20 + index, 10, 0, tzinfo=timezone.utc),
         )
+        db_session.add(item)
+        db_session.flush()
         article = Article(
             item_id=item.id,
             final_url=item.url,
@@ -1366,7 +1379,7 @@ def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_
             text="Threat activity affected exposed edge devices and remote access systems.",
             extraction_method="readable",
         )
-        db_session.add_all([item, article])
+        db_session.add(article)
 
     db_session.commit()
 

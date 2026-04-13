@@ -11,6 +11,7 @@ class AISettings(Base):
     __tablename__ = "ai_settings"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    singleton_key: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1", unique=True)
     provider_type: Mapped[str] = mapped_column(String(32), nullable=False, default="openai_compatible", server_default="openai_compatible")
     base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     model: Mapped[str | None] = mapped_column(String(255), nullable=True)

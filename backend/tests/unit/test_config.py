@@ -38,3 +38,14 @@ def test_production_requires_secure_auth_cookie():
             admin_password="StrongPass123!",
             auth_cookie_secure=False,
         )
+
+
+def test_production_requires_csrf_for_cookie_auth():
+    with pytest.raises(ValueError):
+        Settings(
+            app_env="production",
+            jwt_secret="x" * 48,
+            admin_password="StrongPass123!",
+            auth_cookie_secure=True,
+            auth_require_csrf=False,
+        )

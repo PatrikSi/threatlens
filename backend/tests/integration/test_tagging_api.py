@@ -19,6 +19,8 @@ def test_admin_can_manage_tagging_settings_and_preview_rules(client: TestClient,
         enabled=True,
         fetch_interval_seconds=1800,
     )
+    db_session.add(feed)
+    db_session.flush()
     item = Item(
         id=uuid.uuid4(),
         feed_id=feed.id,
@@ -50,7 +52,9 @@ def test_admin_can_manage_tagging_settings_and_preview_rules(client: TestClient,
         rules_version="v2",
         classified_at=datetime.now(timezone.utc),
     )
-    db_session.add_all([feed, item, article, classification])
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
     db_session.commit()
 
     initial_response = client.get("/tagging/settings", headers=auth_headers["admin"])

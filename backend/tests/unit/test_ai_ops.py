@@ -2,6 +2,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
@@ -22,7 +23,33 @@ from app.services.ai_ops import (
 )
 
 
+def _create_item(db_session: Session, *, source_guid: str) -> Item:
+    feed = Feed(
+        id=uuid.uuid4(),
+        name=f"Feed {source_guid}",
+        url=f"https://example.com/{source_guid}.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid=source_guid,
+        url=f"https://example.com/articles/{source_guid}",
+        canonical_url=f"https://example.com/articles/{source_guid}",
+        title=f"Item {source_guid}",
+        dedupe_key=source_guid,
+        content_hash=source_guid[-1] * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+    return item
+
+
 def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="stale-child")
+
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
@@ -35,7 +62,7 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
         task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
         trigger_source=AI_TRIGGER_MANUAL,
         parent_run_id=parent_run.id,
-        item_id=uuid.uuid4(),
+        item_id=item.id,
         metadata={"parent_task": "reprocess"},
     )
     start_ai_task_run(db_session, run_id=parent_run.id, worker_name="celery@test", celery_task_id="parent-task-id")
@@ -86,11 +113,13 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
 
 
 def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
+    item = _create_item(db_session, source_guid="canceled-run")
+
     run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
         trigger_source=AI_TRIGGER_MANUAL,
-        item_id=uuid.uuid4(),
+        item_id=item.id,
     )
     finish_ai_task_run(
         db_session,
@@ -117,11 +146,13 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
 
 
 def test_list_ai_task_runs_skips_stale_reconciliation_when_live_snapshot_unavailable(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="snapshot-unavailable")
+
     run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
         trigger_source=AI_TRIGGER_MANUAL,
-        item_id=uuid.uuid4(),
+        item_id=item.id,
     )
     start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
 
@@ -173,7 +204,9 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_sessi
         source_hash="hash",
         relevance_reasons_json=[],
     )
-    db_session.add_all([feed, item, enrichment])
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(enrichment)
 
     run = queue_ai_task_run(
         db_session,

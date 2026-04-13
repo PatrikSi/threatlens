@@ -2,6 +2,7 @@ import socket
 
 import pytest
 
+from app.services.safe_fetch import UnsafeTargetError, _PinnedSyncBackend
 from app.services.url_utils import ensure_runtime_fetchable_url, is_runtime_fetchable_url
 
 
@@ -64,3 +65,39 @@ def test_ensure_runtime_fetchable_url_raises_for_private_targets_by_default(monk
 
     with pytest.raises(ValueError):
         ensure_runtime_fetchable_url("https://localhost/feed.xml")
+
+
+def test_pinned_sync_backend_connects_to_vetted_ip_instead_of_re_resolving_host(monkeypatch):
+    backend = _PinnedSyncBackend(allow_private_network=False)
+    captured: dict[str, object] = {}
+
+    class _FakeBackend:
+        def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+            captured["host"] = host
+            captured["port"] = port
+            captured["timeout"] = timeout
+            return object()
+
+        def connect_unix_socket(self, path, timeout=None, socket_options=None):
+            _ = (path, timeout, socket_options)
+            return object()
+
+        def sleep(self, seconds: float) -> None:
+            _ = seconds
+
+    monkeypatch.setattr("app.services.safe_fetch.resolve_runtime_allowed_ips", lambda *_args, **_kwargs: ["93.184.216.34"])
+    monkeypatch.setattr(backend, "_backend", _FakeBackend())
+
+    backend.connect_tcp("example.com", 443, timeout=5.0)
+
+    assert captured["host"] == "93.184.216.34"
+    assert captured["port"] == 443
+    assert captured["timeout"] == 5.0
+
+
+def test_pinned_sync_backend_rejects_hosts_without_allowed_runtime_ips(monkeypatch):
+    backend = _PinnedSyncBackend(allow_private_network=False)
+    monkeypatch.setattr("app.services.safe_fetch.resolve_runtime_allowed_ips", lambda *_args, **_kwargs: [])
+
+    with pytest.raises(UnsafeTargetError, match="URL is not allowed for outbound fetch"):
+        backend.connect_tcp("example.com", 443)

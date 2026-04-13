@@ -14,6 +14,7 @@ from app.models.item_classification import ItemClassification
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.core.security import get_password_hash
+from app.services import auth_rate_limit
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
 
@@ -21,6 +22,34 @@ from app.services.auth_rate_limit import LoginThrottleState
 @pytest.fixture(autouse=True)
 def _stub_feed_task_dispatch(monkeypatch):
     monkeypatch.setattr("app.api.routes.feeds.celery_app.send_task", lambda *_args, **_kwargs: None)
+
+
+@pytest.fixture(autouse=True)
+def _reset_auth_emergency_state():
+    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
+        for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
+            auth_rate_limit._emergency_clear_login_failures(email, ip)
+    yield
+    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
+        for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
+            auth_rate_limit._emergency_clear_login_failures(email, ip)
+
+
+class _UnavailableRedis:
+    def ttl(self, _key: str):
+        raise auth_rate_limit.redis.RedisError("redis unavailable")
+
+    def incr(self, _key: str):
+        raise auth_rate_limit.redis.RedisError("redis unavailable")
+
+    def expire(self, _key: str, _seconds: int):
+        raise auth_rate_limit.redis.RedisError("redis unavailable")
+
+    def set(self, _key: str, _value: str, ex: int, nx: bool):
+        raise auth_rate_limit.redis.RedisError("redis unavailable")
+
+    def delete(self, *_keys: str):
+        raise auth_rate_limit.redis.RedisError("redis unavailable")
 
 
 def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
@@ -49,6 +78,74 @@ def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
     )
     assert response.status_code == 429
     assert response.headers.get("retry-after") == "60"
+
+
+def test_login_succeeds_when_throttle_backend_is_unavailable(client: TestClient, monkeypatch, seed_users):
+    _ = seed_users
+    monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
+
+    response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+
+
+def test_login_uses_local_emergency_throttle_when_backend_is_unavailable(
+    client: TestClient,
+    monkeypatch,
+    seed_users,
+):
+    _ = seed_users
+    monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    first_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "WrongPass123!"},
+    )
+    assert first_response.status_code == 401
+
+    second_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "WrongPass123!"},
+    )
+    assert second_response.status_code == 429
+    assert second_response.headers.get("retry-after") is not None
+
+
+def test_successful_login_clears_local_emergency_throttle_when_backend_is_unavailable(
+    client: TestClient,
+    monkeypatch,
+    seed_users,
+):
+    _ = seed_users
+    monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    first_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "WrongPass123!"},
+    )
+    assert first_response.status_code == 401
+
+    success_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert success_response.status_code == 200
+
+    third_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "WrongPass123!"},
+    )
+    assert third_response.status_code == 401
+    assert third_response.json()["detail"] == "Invalid email or password"
 
 
 def test_registration_settings_endpoint_reflects_config(client: TestClient, monkeypatch):
@@ -537,6 +634,137 @@ def test_feed_import_and_export(client: TestClient, auth_headers):
     assert any(feed["name"] == "Bulk One" for feed in export_payload["feeds"])
 
 
+def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(client: TestClient, auth_headers):
+    first_response = client.post(
+        "/feeds",
+        json={
+            "name": "Normalized Feed",
+            "url": "https://example.com:443/path/feed.xml",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert first_response.status_code == 201
+    assert first_response.json()["url"] == "https://example.com/path/feed.xml"
+
+    second_response = client.post(
+        "/feeds",
+        json={
+            "name": "Duplicate Feed",
+            "url": "https://example.com/path/feed.xml/",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert second_response.status_code == 400
+    assert second_response.json()["detail"] == "Feed URL already exists"
+
+
+def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestClient, auth_headers):
+    first_response = client.post(
+        "/feeds",
+        json={
+            "name": "Token Feed A",
+            "url": "https://example.com/path/feed.xml?token=alpha",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert first_response.status_code == 201
+
+    second_response = client.post(
+        "/feeds",
+        json={
+            "name": "Token Feed B",
+            "url": "https://example.com/path/feed.xml?token=beta",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert second_response.status_code == 201
+    assert second_response.json()["url"] == "https://example.com/path/feed.xml?token=beta"
+
+
+def test_feed_create_keeps_userinfo_distinct_for_authenticated_feeds(client: TestClient, auth_headers):
+    first_response = client.post(
+        "/feeds",
+        json={
+            "name": "Credential Feed A",
+            "url": "https://alice:secret@example.com/path/feed.xml",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert first_response.status_code == 201
+
+    second_response = client.post(
+        "/feeds",
+        json={
+            "name": "Credential Feed B",
+            "url": "https://bob:secret@example.com/path/feed.xml",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert second_response.status_code == 201
+    assert second_response.json()["url"] == "https://bob:secret@example.com/path/feed.xml"
+
+
+def test_feed_import_overwrite_preserves_existing_metadata_when_fields_are_omitted(client: TestClient, auth_headers, db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Curated Feed",
+        url="https://example.com/feed.xml",
+        description="Curated description",
+        site_url="https://example.com",
+        language="en",
+        enabled=False,
+        fetch_mode="schedule",
+        fetch_interval_seconds=7200,
+        schedule_cron="0 * * * *",
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    response = client.post(
+        "/feeds/import",
+        json={
+            "overwrite_existing": True,
+            "feeds": [
+                {
+                    "url": "https://example.com:443/feed.xml/",
+                }
+            ],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 200
+    assert response.json()["updated"] == 1
+
+    db_session.refresh(feed)
+    assert feed.url == "https://example.com/feed.xml"
+    assert feed.name == "Curated Feed"
+    assert feed.description == "Curated description"
+    assert feed.site_url == "https://example.com"
+    assert feed.language == "en"
+    assert feed.enabled is False
+    assert feed.fetch_mode == "schedule"
+    assert feed.fetch_interval_seconds == 7200
+    assert feed.schedule_cron == "0 * * * *"
+
+
 def test_items_include_classification_fields(client: TestClient, auth_headers, db_session):
     feed = Feed(name="Classified Feed", url="https://example.com/classified.xml", enabled=True, fetch_interval_seconds=1800)
     db_session.add(feed)
@@ -579,6 +807,43 @@ def test_items_include_classification_fields(client: TestClient, auth_headers, d
     detail = detail_response.json()
     assert detail["classification"]["primary_category"] == "vulnerability"
     assert detail["classification"]["confidence"] == 0.87
+
+
+def test_item_search_escapes_sql_wildcards(client: TestClient, auth_headers, db_session):
+    feed = Feed(name="Wildcard Feed", url="https://example.com/wildcards.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    matching_item = Item(
+        feed_id=feed.id,
+        source_guid="wild-1",
+        url="https://example.com/articles/percent",
+        title="Coverage reached 100%",
+        summary="Contains a literal percent sign.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="wild-1",
+        content_hash="d" * 64,
+        status="new",
+    )
+    non_matching_item = Item(
+        feed_id=feed.id,
+        source_guid="wild-2",
+        url="https://example.com/articles/plain",
+        title="Coverage reached 100 percent",
+        summary="No wildcard characters here.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="wild-2",
+        content_hash="e" * 64,
+        status="new",
+    )
+    db_session.add_all([matching_item, non_matching_item])
+    db_session.commit()
+
+    response = client.get("/items?page=1&page_size=50&q=%25", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+    payload = response.json()
+    titles = [entry["title"] for entry in payload["items"]]
+    assert titles == ["Coverage reached 100%"]
 
 
 def test_item_graph_endpoint_returns_related_nodes(client: TestClient, auth_headers, db_session):

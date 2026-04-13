@@ -25,7 +25,11 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.services.audit import record_audit
-from app.services.auth_rate_limit import check_login_throttle, clear_login_failures, record_login_failure
+from app.services.auth_rate_limit import (
+    check_login_throttle,
+    clear_login_failures,
+    record_login_failure,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 

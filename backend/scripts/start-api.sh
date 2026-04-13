@@ -3,6 +3,9 @@ set -euo pipefail
 
 cd /app
 
+# These startup helpers are convenient for bootstrap and single-replica setups.
+# In horizontally scaled production, run migrations and admin seeding from one
+# controlled deploy job, then disable them on steady-state API replicas.
 if [ "${RUN_MIGRATIONS_ON_STARTUP:-true}" = "true" ]; then
   alembic upgrade head
 fi

@@ -8,7 +8,8 @@ The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
 - `api` - FastAPI backend
-- `worker` - Celery worker with embedded beat scheduler
+- `worker` - Celery worker
+- `beat` - Celery beat scheduler
 - `db` - PostgreSQL
 - `redis` - queue + coordination layer
 
@@ -66,7 +67,10 @@ Startup flow for `docker-compose.yml`:
 
 - `api` runs `alembic upgrade head` on startup before serving requests.
 - `worker` waits for the API health check, which indirectly gates on DB, Redis, and completed migrations.
+- `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
 - `api` also handles runtime admin seeding via `SEED_ADMIN_*` flags.
+
+For horizontally scaled production, treat startup migrations and admin seeding as bootstrap actions rather than steady-state behavior. Keep `RUN_MIGRATIONS_ON_STARTUP` and `SEED_ADMIN_ON_STARTUP` enabled only for the bootstrap instance or one-off deploy job, then disable them on long-lived replicas.
 
 Check containers:
 
@@ -128,11 +132,12 @@ db.close()
 PY
 ```
 
-2. If admin is missing at startup, ensure these values are explicitly set in your deployment:
+2. If admin is missing at startup, ensure these values are explicitly set in your deployment bootstrap:
    - `SEED_ADMIN_ON_STARTUP=true`
    - `ADMIN_EMAIL=<value>`
    - `ADMIN_PASSWORD=<value>`
    - `RUN_MIGRATIONS_ON_STARTUP=true`
+   - Disable those flags again on steady-state replicas once bootstrap is complete.
 
 3. If lockout errors persist after stack recreation, clear Redis auth lock keys (or remove Redis volume):
 
@@ -148,6 +153,7 @@ docker compose exec redis sh -lc \
 ```bash
 docker compose logs -f api
 docker compose logs -f worker
+docker compose logs -f beat
 ```
 
 ### Trigger feed refresh
@@ -168,13 +174,14 @@ curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
 - Frontend production build:
 
 ```bash
+# Uses `/api` as the default production API base. Override `VITE_API_BASE_URL` only for non-proxied deployments.
 docker build -q -f web/Dockerfile web
 ```
 
 - Runtime smoke:
 
 ```bash
-docker compose up -d --build api worker web
+docker compose up -d --build api worker beat web
 curl http://localhost:8000/health/ready
 curl http://localhost:3000/api/health/ready
 ```
@@ -354,7 +361,8 @@ uvicorn app.main:app --reload
 Run workers:
 
 ```bash
-celery -A app.tasks.celery_app.celery_app worker --beat --loglevel=INFO
+celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
+celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 ```
 
 ### Frontend
