@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { formatDateTime } from '../utils/datetime'
 import {
   Feed,
@@ -57,6 +58,7 @@ export function TaggingSettingsPage() {
   const [notice, setNotice] = useState<string | null>(null)
   const [reapplyDays, setReapplyDays] = useState('30')
   const [reapplyLimit, setReapplyLimit] = useState('0')
+  const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
 
   const bundleQuery = useQuery({
     queryKey: ['tagging', 'settings'],
@@ -143,6 +145,16 @@ export function TaggingSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
+
+  const onConfirmDeleteRule = () => {
+    if (!pendingRuleDelete) {
+      return
+    }
+
+    const ruleId = pendingRuleDelete.id
+    setPendingRuleDelete(null)
+    deleteRule.mutate(ruleId)
+  }
 
   const previewRule = useMutation({
     mutationFn: (payload: TaggingRuleWriteRequest) =>
@@ -597,8 +609,8 @@ export function TaggingSettingsPage() {
               {selectedRule && (
                 <button
                   className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
-                  disabled={deleteRule.isPending}
-                  onClick={() => deleteRule.mutate(selectedRule.id)}
+                  disabled={deleteRule.isPending || Boolean(pendingRuleDelete)}
+                  onClick={() => setPendingRuleDelete(selectedRule)}
                 >
                   Delete rule
                 </button>
@@ -683,6 +695,27 @@ export function TaggingSettingsPage() {
           </section>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingRuleDelete)}
+        title="Delete tagging rule?"
+        description="This permanently removes the rule from auto-tagging."
+        confirmLabel="Delete rule"
+        onCancel={() => setPendingRuleDelete(null)}
+        onConfirm={onConfirmDeleteRule}
+        confirmDisabled={deleteRule.isPending}
+        isConfirming={deleteRule.isPending}
+      >
+        {pendingRuleDelete && (
+          <div className="space-y-3">
+            <p className="font-semibold text-ink dark:text-white">{pendingRuleDelete.name}</p>
+            <p className="text-xs text-slate dark:text-white/70">Tag: {pendingRuleDelete.tag_name}</p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Match: {pendingRuleDelete.match_type} on {pendingRuleDelete.applies_to.join(', ')}
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

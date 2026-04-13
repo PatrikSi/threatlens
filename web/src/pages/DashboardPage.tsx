@@ -2,6 +2,7 @@ import { ChangeEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, u
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
@@ -381,6 +382,7 @@ export function DashboardPage() {
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
+  const [pendingViewDelete, setPendingViewDelete] = useState<SavedViewPreview | null>(null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
   const [isImportingViews, setIsImportingViews] = useState(false)
   const [importViewsError, setImportViewsError] = useState('')
@@ -634,6 +636,16 @@ export function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
+
+  const onConfirmDeleteView = () => {
+    if (!pendingViewDelete) {
+      return
+    }
+
+    const viewId = pendingViewDelete.id
+    setPendingViewDelete(null)
+    deleteView.mutate(viewId)
+  }
 
   const updateExistingView = useMutation({
     mutationFn: (payload: { viewId: string; name?: string; query?: DashboardSavedViewState }) =>
@@ -2907,8 +2919,8 @@ export function DashboardPage() {
                     <button
                       type="button"
                       className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                      onClick={() => deleteView.mutate(view.id)}
-                      disabled={deleteView.isPending}
+                      onClick={() => setPendingViewDelete(view)}
+                      disabled={deleteView.isPending || Boolean(pendingViewDelete)}
                     >
                       Delete
                     </button>
@@ -2925,6 +2937,26 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingViewDelete)}
+        title="Delete saved view?"
+        description="This permanently removes the saved dashboard layout and filters."
+        confirmLabel="Delete view"
+        onCancel={() => setPendingViewDelete(null)}
+        onConfirm={onConfirmDeleteView}
+        confirmDisabled={deleteView.isPending}
+        isConfirming={deleteView.isPending}
+      >
+        {pendingViewDelete && (
+          <div className="space-y-2">
+            <p className="font-semibold text-ink dark:text-white">{pendingViewDelete.name}</p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Saved on {formatDateTime(pendingViewDelete.created_at)}
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

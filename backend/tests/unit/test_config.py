@@ -49,3 +49,10 @@ def test_production_requires_csrf_for_cookie_auth():
             auth_cookie_secure=True,
             auth_require_csrf=False,
         )
+
+
+def test_bootstrap_mutation_flags_default_off():
+    settings = Settings()
+
+    assert settings.run_migrations_on_startup is False
+    assert settings.seed_admin_on_startup is False

@@ -34,7 +34,7 @@ from app.schemas.notification import (
     NotificationWebhookWrite,
 )
 from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
-from app.services.url_utils import ensure_runtime_fetchable_url
+from app.services.url_utils import ensure_runtime_fetchable_url, redact_feed_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -58,7 +58,11 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
     NotificationTemplateVariable(key="user.email", description="Owner email address.", example="analyst@example.com"),
     NotificationTemplateVariable(key="feed.id", description="Feed identifier.", example="01b5d2a8-4734-4b95-8c7c-51171f260432"),
     NotificationTemplateVariable(key="feed.name", description="Feed display name.", example="Unit42 RSS"),
-    NotificationTemplateVariable(key="feed.url", description="Feed source URL.", example="https://example.com/feed.xml"),
+    NotificationTemplateVariable(
+        key="feed.url",
+        description="Redacted feed source URL suitable for notifications.",
+        example="https://example.com/feed.xml",
+    ),
     NotificationTemplateVariable(key="feed.site_url", description="Feed website URL when known.", example="https://example.com"),
     NotificationTemplateVariable(key="feed.error_count", description="Consecutive feed fetch failures.", example="3"),
     NotificationTemplateVariable(key="feed.last_error", description="Latest feed error message.", example="http_status:500"),
@@ -911,7 +915,7 @@ def _build_template_context(
         "user.email": getattr(user, "email", "") or "",
         "feed.id": str(getattr(feed, "id", "")),
         "feed.name": getattr(feed, "name", "") or "",
-        "feed.url": getattr(feed, "url", "") or "",
+        "feed.url": redact_feed_url(getattr(feed, "url", "") or ""),
         "feed.site_url": getattr(feed, "site_url", "") or "",
         "feed.error_count": str(getattr(feed, "error_count", "") or ""),
         "feed.last_error": getattr(feed, "last_error", "") or "",

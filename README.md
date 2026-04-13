@@ -7,6 +7,7 @@ ThreatLens is a self-hosted threat intelligence aggregator built for security te
 The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
+- `bootstrap` - one-shot migrations + admin seeding job in `docker-compose.yml`
 - `api` - FastAPI backend
 - `worker` - Celery worker
 - `beat` - Celery beat scheduler
@@ -65,12 +66,12 @@ docker compose up --build -d
 
 Startup flow for `docker-compose.yml`:
 
-- `api` runs `alembic upgrade head` on startup before serving requests.
-- `worker` waits for the API health check, which indirectly gates on DB, Redis, and completed migrations.
+- `bootstrap` runs migrations/admin seeding once, then exits successfully.
+- `api`, `worker`, and `beat` wait for `bootstrap` plus healthy DB/Redis before starting steady-state work.
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
-- `api` also handles runtime admin seeding via `SEED_ADMIN_*` flags.
+- `api` replicas do not mutate schema or admin state on boot unless you explicitly re-enable those flags.
 
-For horizontally scaled production, treat startup migrations and admin seeding as bootstrap actions rather than steady-state behavior. Keep `RUN_MIGRATIONS_ON_STARTUP` and `SEED_ADMIN_ON_STARTUP` enabled only for the bootstrap instance or one-off deploy job, then disable them on long-lived replicas.
+For horizontally scaled production, keep migrations/admin seeding in a dedicated bootstrap or init step. `docker-compose.yml` models that pattern with the one-shot `bootstrap` service; steady-state replicas should keep `RUN_MIGRATIONS_ON_STARTUP` and `SEED_ADMIN_ON_STARTUP` disabled.
 
 Check containers:
 
@@ -132,12 +133,12 @@ db.close()
 PY
 ```
 
-2. If admin is missing at startup, ensure these values are explicitly set in your deployment bootstrap:
+2. If admin is missing at startup, ensure these values are explicitly set in your bootstrap job or one-shot init step:
    - `SEED_ADMIN_ON_STARTUP=true`
    - `ADMIN_EMAIL=<value>`
    - `ADMIN_PASSWORD=<value>`
    - `RUN_MIGRATIONS_ON_STARTUP=true`
-   - Disable those flags again on steady-state replicas once bootstrap is complete.
+   - Keep those flags disabled on steady-state API/worker/beat replicas.
 
 3. If lockout errors persist after stack recreation, clear Redis auth lock keys (or remove Redis volume):
 
@@ -154,6 +155,7 @@ docker compose exec redis sh -lc \
 docker compose logs -f api
 docker compose logs -f worker
 docker compose logs -f beat
+docker compose logs -f bootstrap
 ```
 
 ### Trigger feed refresh
@@ -174,14 +176,16 @@ curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
 - Frontend production build:
 
 ```bash
-# Uses `/api` as the default production API base. Override `VITE_API_BASE_URL` only for non-proxied deployments.
+# Uses `/api` as the default production API base.
+# For non-proxied deployments, also set `THREATLENS_CSP_CONNECT_SRC` on the web container
+# to include the external API origin, e.g. `THREATLENS_CSP_CONNECT_SRC="'self' https://api.example.com"`.
 docker build -q -f web/Dockerfile web
 ```
 
 - Runtime smoke:
 
 ```bash
-docker compose up -d --build api worker beat web
+docker compose up -d --build bootstrap api worker beat web
 curl http://localhost:8000/health/ready
 curl http://localhost:3000/api/health/ready
 ```
@@ -361,6 +365,7 @@ uvicorn app.main:app --reload
 Run workers:
 
 ```bash
+RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true /app/scripts/bootstrap.sh
 celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
 celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 ```

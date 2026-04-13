@@ -24,7 +24,7 @@ from app.schemas.feed import (
 )
 from app.services.audit import record_audit
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
-from app.services.url_utils import is_fetchable_url, normalize_feed_url
+from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
@@ -36,7 +36,7 @@ def list_feeds(
     _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.desc())).all()
-    return list(feeds)
+    return [_serialize_feed(feed) for feed in feeds]
 
 
 @router.post("/metadata", response_model=FeedMetadataResponse)
@@ -70,8 +70,8 @@ def export_feeds(
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.asc())).all()
     exported = [
         FeedImportEntry(
-            name=feed.name,
-            url=feed.url,
+            name=redact_feed_url(feed.name),
+            url=redact_feed_url(feed.url),
             description=feed.description,
             site_url=feed.site_url,
             language=feed.language,
@@ -124,16 +124,16 @@ def import_feeds(
             if settings.probe_feed_metadata_on_import:
                 try:
                     metadata = probe_feed_metadata(feed_url)
-                    resolved_name = metadata.name or feed_url
+                    resolved_name = metadata.name or redact_feed_url(feed_url)
                     description = description or _clean_optional_text(metadata.description)
                     site_url = site_url or _clean_optional_text(metadata.site_url)
                     language = language or _clean_optional_text(metadata.language)
                     etag = metadata.etag or etag
                     last_modified = metadata.last_modified or last_modified
                 except FeedProbeError:
-                    resolved_name = feed_url
+                    resolved_name = redact_feed_url(feed_url)
             else:
-                resolved_name = feed_url
+                resolved_name = redact_feed_url(feed_url)
 
         if existing is None:
             new_feed = Feed(
@@ -225,16 +225,16 @@ def create_feed(
                 metadata = None
 
             if metadata is not None:
-                resolved_name = metadata.name or feed_url
+                resolved_name = metadata.name or redact_feed_url(feed_url)
                 description = description or metadata.description
                 site_url = site_url or metadata.site_url
                 language = language or metadata.language
                 etag = metadata.etag
                 last_modified = metadata.last_modified
             else:
-                resolved_name = feed_url
+                resolved_name = redact_feed_url(feed_url)
         else:
-            resolved_name = feed_url
+            resolved_name = redact_feed_url(feed_url)
 
     feed = Feed(
         name=resolved_name,
@@ -257,12 +257,12 @@ def create_feed(
         action="feeds.create",
         resource_type="feed",
         resource_id=str(feed.id),
-        metadata={"name": feed.name, "url": feed.url},
+        metadata={"name": redact_feed_url(feed.name), "url": redact_feed_url(feed.url)},
     )
     db.commit()
     db.refresh(feed)
     _enqueue_metadata_backfills([str(feed.id)], settings.max_metadata_backfill_tasks_per_request)
-    return feed
+    return _serialize_feed(feed)
 
 
 @router.patch("/{feed_id}", response_model=FeedResponse)
@@ -306,7 +306,7 @@ def update_feed(
     )
     db.commit()
     db.refresh(feed)
-    return feed
+    return _serialize_feed(feed)
 
 
 @router.delete("/{feed_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -406,3 +406,12 @@ def _import_field_provided(entry: FeedImportEntry, field_name: str) -> bool:
     if field_name == "schedule_cron":
         return field_name in entry.model_dump(exclude_defaults=True)
     return field_name in entry.model_fields_set
+
+
+def _serialize_feed(feed: Feed) -> FeedResponse:
+    return FeedResponse.model_validate(feed).model_copy(
+        update={
+            "name": redact_feed_url(feed.name),
+            "url": redact_feed_url(feed.url),
+        }
+    )

@@ -11,7 +11,7 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-RUN chmod +x /app/scripts/start-api.sh
+RUN chmod +x /app/scripts/start-api.sh /app/scripts/bootstrap.sh
 RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
 
 ENV PYTHONPATH=/app

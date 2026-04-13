@@ -11,6 +11,26 @@ TRACKING_PARAMS = {
     "source",
 }
 
+SENSITIVE_QUERY_PARAMS = {
+    "access_token",
+    "apikey",
+    "api_key",
+    "auth",
+    "auth_token",
+    "authorization",
+    "bearer",
+    "client_secret",
+    "credential",
+    "jwt",
+    "key",
+    "pass",
+    "password",
+    "secret",
+    "sig",
+    "signature",
+    "token",
+}
+
 BLOCKED_HOSTNAMES = {
     "localhost",
     "localhost.",
@@ -26,6 +46,13 @@ BLOCKED_HOSTNAME_SUFFIXES = {
 def _is_tracking_param(key: str) -> bool:
     lowered = key.lower()
     return lowered.startswith("utm_") or lowered in TRACKING_PARAMS
+
+
+def _is_sensitive_query_param(key: str) -> bool:
+    lowered = key.lower().replace("-", "_")
+    if lowered in SENSITIVE_QUERY_PARAMS:
+        return True
+    return any(marker in lowered for marker in ("token", "secret", "password", "credential", "signature", "auth"))
 
 
 def _normalize_hostname(hostname: str) -> str:
@@ -132,6 +159,43 @@ def normalize_feed_url(url: str | None) -> str:
             path = "/"
 
     return urlunsplit((scheme, netloc, path, parts.query, ""))
+
+
+def redact_feed_url(url: str | None) -> str:
+    if not url:
+        return ""
+
+    candidate = url.strip()
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:
+        return candidate
+
+    scheme = (parts.scheme or "http").lower()
+    hostname = (parts.hostname or "").lower()
+    if not hostname:
+        return candidate
+
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+
+    netloc = _build_netloc(scheme=scheme, hostname=hostname, port=port)
+
+    path = parts.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+        if not path:
+            path = "/"
+
+    query_pairs = [
+        (key, "REDACTED" if _is_sensitive_query_param(key) else value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+    ]
+    query = urlencode(query_pairs, doseq=True)
+
+    return urlunsplit((scheme, netloc, path, query, ""))
 
 
 def is_fetchable_url(url: str | None, allow_private_network: bool = False) -> bool:

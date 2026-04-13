@@ -2,6 +2,7 @@ import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { ApiToken, ApiTokenCreateResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -14,6 +15,7 @@ export function TokensPage() {
   const [scopesText, setScopesText] = useState('')
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [createdToken, setCreatedToken] = useState<ApiTokenCreateResponse | null>(null)
+  const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
 
   const tokenQueryKey = ['tokens', adminUserFilter]
   const tokensQuery = useQuery({
@@ -57,6 +59,16 @@ export function TokensPage() {
     mutationFn: (tokenId: string) => apiFetch(`/tokens/${tokenId}`, { method: 'DELETE' }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tokens'] }),
   })
+
+  const onConfirmRevoke = () => {
+    if (!pendingRevocation) {
+      return
+    }
+
+    const tokenId = pendingRevocation.id
+    setPendingRevocation(null)
+    revokeToken.mutate(tokenId)
+  }
 
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -137,8 +149,8 @@ export function TokensPage() {
                 </div>
                 <button
                   className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                  onClick={() => revokeToken.mutate(token.id)}
-                  disabled={Boolean(token.revoked_at) || revokeToken.isPending}
+                  onClick={() => setPendingRevocation(token)}
+                  disabled={Boolean(token.revoked_at) || revokeToken.isPending || Boolean(pendingRevocation)}
                 >
                   {token.revoked_at ? 'Revoked' : 'Revoke'}
                 </button>
@@ -157,6 +169,30 @@ export function TokensPage() {
           {tokensQuery.isError && <p className="text-sm text-red-600">Failed to load tokens.</p>}
         </div>
       </section>
+
+      <ConfirmDialog
+        open={Boolean(pendingRevocation)}
+        title="Revoke API token?"
+        description="Revoking a token immediately disables any client that is using it."
+        confirmLabel="Revoke token"
+        onCancel={() => setPendingRevocation(null)}
+        onConfirm={onConfirmRevoke}
+        confirmDisabled={revokeToken.isPending}
+        isConfirming={revokeToken.isPending}
+      >
+        {pendingRevocation && (
+          <div className="space-y-3">
+            <p className="font-semibold text-ink dark:text-white">{pendingRevocation.name}</p>
+            <p className="text-xs text-slate dark:text-white/70">Prefix: {pendingRevocation.token_prefix}</p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Scopes: {pendingRevocation.scopes.join(', ') || 'none'}
+            </p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Expires: {pendingRevocation.expires_at ? formatDateTime(pendingRevocation.expires_at) : 'Never'}
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

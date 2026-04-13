@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 're
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -50,6 +51,8 @@ export function FeedsPage() {
   const [importWarning, setImportWarning] = useState<string>('')
   const [lastImportResult, setLastImportResult] = useState<FeedImportResponse | null>(null)
   const [managementNotice, setManagementNotice] = useState('')
+  const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
+  const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<Feed[] | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const autosaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -69,9 +72,15 @@ export function FeedsPage() {
       if (!name.trim() && metadata.name) {
         setName(metadata.name)
       }
-      setDescription(metadata.description || '')
-      setSiteUrl(metadata.site_url || '')
-      setLanguage(metadata.language || '')
+      if (!description.trim() && metadata.description) {
+        setDescription(metadata.description)
+      }
+      if (!siteUrl.trim() && metadata.site_url) {
+        setSiteUrl(metadata.site_url)
+      }
+      if (!language.trim() && metadata.language) {
+        setLanguage(metadata.language)
+      }
     },
   })
 
@@ -285,6 +294,28 @@ export function FeedsPage() {
   const onDetectMetadata = () => {
     if (!url.trim()) return
     detectMetadata.mutate(url.trim())
+  }
+
+  const onConfirmDeleteFeed = () => {
+    if (!pendingDeleteFeed) {
+      return
+    }
+
+    const feedId = pendingDeleteFeed.id
+    setPendingDeleteFeed(null)
+    setManagementNotice('')
+    deleteFeed.mutate(feedId)
+  }
+
+  const onConfirmBulkDeleteFeeds = () => {
+    if (!pendingBulkDeleteFeeds?.length) {
+      return
+    }
+
+    const feedIds = pendingBulkDeleteFeeds.map((feed) => feed.id)
+    setPendingBulkDeleteFeeds(null)
+    setManagementNotice('')
+    bulkDeleteFeeds.mutate(feedIds)
   }
 
   const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -583,55 +614,56 @@ export function FeedsPage() {
         </div>
 
         <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
-              disabled={!canManage || !visibleFeedIds.length || bulkRefreshFeeds.isPending}
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            disabled={!canManage || !visibleFeedIds.length || bulkRefreshFeeds.isPending}
             onClick={() => {
               setManagementNotice('')
               bulkRefreshFeeds.mutate(visibleFeedIds)
-              }}
-            >
-              Refresh Filtered
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            }}
+          >
+            Refresh Filtered
+          </button>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
             disabled={!canManage || !visibleDisabledFeedIds.length || bulkSetEnabled.isPending}
             onClick={() => {
               setManagementNotice('')
               bulkSetEnabled.mutate({ ids: visibleDisabledFeedIds, enabled: true })
-              }}
-            >
-              Enable Disabled (Filtered)
-            </button>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+            }}
+          >
+            Enable Disabled (Filtered)
+          </button>
+          <button
+            type="button"
+            className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
             disabled={!canManage || !visibleEnabledFeedIds.length || bulkSetEnabled.isPending}
             onClick={() => {
               setManagementNotice('')
               bulkSetEnabled.mutate({ ids: visibleEnabledFeedIds, enabled: false })
-              }}
-            >
-              Disable Enabled (Filtered)
-            </button>
-            {canDelete && (
-              <button
+            }}
+          >
+            Disable Enabled (Filtered)
+          </button>
+          {canDelete && (
+            <button
               type="button"
               className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
-              disabled={!visibleDisabledFeedIds.length || bulkDeleteFeeds.isPending}
+              disabled={
+                !visibleDisabledFeedIds.length ||
+                bulkDeleteFeeds.isPending ||
+                Boolean(pendingDeleteFeed) ||
+                Boolean(pendingBulkDeleteFeeds)
+              }
               onClick={() => {
-                if (!window.confirm(`Delete ${visibleDisabledFeedIds.length} disabled feeds in current view? This cannot be undone.`)) {
-                  return
-                }
-                setManagementNotice('')
-                bulkDeleteFeeds.mutate(visibleDisabledFeedIds)
-                }}
-              >
-                Delete Disabled (Filtered)
-              </button>
-            )}
+                setPendingBulkDeleteFeeds(filteredFeeds.filter((feed) => !feed.enabled))
+              }}
+            >
+              Delete Disabled (Filtered)
+            </button>
+          )}
         </div>
 
         {importFilename && (
@@ -711,14 +743,8 @@ export function FeedsPage() {
                   {canDelete && (
                     <button
                       className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
-                      onClick={() => {
-                        if (!window.confirm(`Delete feed "${feed.name}"? This also removes related items and history.`)) {
-                          return
-                        }
-                        setManagementNotice('')
-                        deleteFeed.mutate(feed.id)
-                      }}
-                      disabled={deleteFeed.isPending}
+                      onClick={() => setPendingDeleteFeed(feed)}
+                      disabled={deleteFeed.isPending || Boolean(pendingDeleteFeed) || Boolean(pendingBulkDeleteFeeds)}
                     >
                       Delete
                     </button>
@@ -787,6 +813,54 @@ export function FeedsPage() {
           {!feedsQuery.isLoading && !filteredFeeds.length && <p className="text-sm text-slate dark:text-slate-300">No feeds match your search.</p>}
         </div>
       </section>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteFeed)}
+        title="Delete feed?"
+        description="This removes the feed, its related items, and its fetch history."
+        confirmLabel="Delete feed"
+        onCancel={() => setPendingDeleteFeed(null)}
+        onConfirm={onConfirmDeleteFeed}
+        confirmDisabled={deleteFeed.isPending}
+        isConfirming={deleteFeed.isPending}
+      >
+        {pendingDeleteFeed && (
+          <div className="space-y-2">
+            <p className="font-semibold text-ink dark:text-white">{pendingDeleteFeed.name}</p>
+            <p className="break-all font-mono text-xs text-slate dark:text-white/65">{pendingDeleteFeed.url}</p>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={Boolean(pendingBulkDeleteFeeds?.length)}
+        title="Delete filtered disabled feeds?"
+        description="This permanently removes every disabled feed in the current filtered view."
+        confirmLabel="Delete feeds"
+        onCancel={() => setPendingBulkDeleteFeeds(null)}
+        onConfirm={onConfirmBulkDeleteFeeds}
+        confirmDisabled={bulkDeleteFeeds.isPending}
+        isConfirming={bulkDeleteFeeds.isPending}
+      >
+        {pendingBulkDeleteFeeds && (
+          <div className="space-y-3">
+            <p>
+              You are about to delete{' '}
+              <span className="font-semibold text-ink dark:text-white">{pendingBulkDeleteFeeds.length}</span> disabled feed
+              {pendingBulkDeleteFeeds.length === 1 ? '' : 's'} from this view.
+            </p>
+            <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+              <ul className="space-y-1">
+                {pendingBulkDeleteFeeds.map((feed) => (
+                  <li key={feed.id} className="break-all font-mono text-xs text-slate-700 dark:text-white/70">
+                    {feed.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

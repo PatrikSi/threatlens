@@ -6,6 +6,7 @@
 
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
+- `bootstrap`: one-shot migrations/admin-seeding job
 - `api`: FastAPI (`8000`)
 - `worker`: Celery worker
 - `beat`: Celery beat scheduler
@@ -64,8 +65,8 @@
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
-| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `true` | Controls automatic migration execution in `start-api.sh`; recommended only for bootstrap jobs or single-replica deployments. |
-| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `true` | Controls automatic admin seeding in `start-api.sh`; recommended only for bootstrap jobs or single-replica deployments. |
+| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; keep disabled on steady-state replicas and enable only in bootstrap/init jobs. |
+| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`; keep disabled on steady-state replicas and enable only in bootstrap/init jobs. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. |
@@ -87,8 +88,8 @@ When `APP_ENV` is `production` or `prod`:
 
 ## Compose Notes
 
-- `docker-compose.yml` runs migrations in `start-api.sh` before `uvicorn` starts serving traffic.
-- `worker` depends on API health so it starts only after DB, Redis, and startup migrations are ready.
+- `docker-compose.yml` runs migrations/admin seeding in the one-shot `bootstrap` service before steady-state services start.
+- `api`, `worker`, and `beat` depend on `bootstrap` completing successfully, plus healthy DB/Redis.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
 - The same compose injects `TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12` by default for local reverse-proxy deployments.
 
@@ -124,6 +125,8 @@ When `APP_ENV` is `production` or `prod`:
 
 - `/api/*` is reverse proxied to `http://api:8000/`.
 - All other paths fall back to `/index.html` for SPA routing.
+- `THREATLENS_CSP_CONNECT_SRC` defaults to `'self'` in the web container image.
+- For non-proxied deployments, override `THREATLENS_CSP_CONNECT_SRC` to include the external API origin used by `VITE_API_BASE_URL`.
 
 ## Celery Scheduling (`backend/app/tasks/celery_app.py`)
 

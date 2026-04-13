@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { formatDateTime } from '../utils/datetime'
 import {
   Feed,
@@ -69,6 +70,7 @@ export function NotificationsPage() {
   const [sampleFeedId, setSampleFeedId] = useState('')
   const [formNotice, setFormNotice] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<NotificationWebhookTestResponse | null>(null)
+  const [pendingWebhookDelete, setPendingWebhookDelete] = useState<NotificationWebhook | null>(null)
 
   const webhooksQuery = useQuery({
     queryKey: ['notifications', 'webhooks'],
@@ -126,6 +128,16 @@ export function NotificationsPage() {
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
     },
   })
+
+  const onConfirmDeleteWebhook = () => {
+    if (!pendingWebhookDelete) {
+      return
+    }
+
+    const webhookId = pendingWebhookDelete.id
+    setPendingWebhookDelete(null)
+    deleteWebhook.mutate(webhookId)
+  }
 
   const testWebhook = useMutation({
     mutationFn: (payload: { webhook: NotificationWebhookWriteRequest; sample_feed_id?: string }) =>
@@ -602,8 +614,11 @@ export function NotificationsPage() {
               {selectedWebhookId && (
                 <button
                   className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
-                  disabled={deleteWebhook.isPending}
-                  onClick={() => deleteWebhook.mutate(selectedWebhookId)}
+                  disabled={deleteWebhook.isPending || Boolean(pendingWebhookDelete)}
+                  onClick={() => {
+                    const webhook = webhooks.find((entry) => entry.id === selectedWebhookId) ?? null
+                    setPendingWebhookDelete(webhook)
+                  }}
                 >
                   Delete webhook
                 </button>
@@ -884,6 +899,25 @@ export function NotificationsPage() {
           </section>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingWebhookDelete)}
+        title="Delete webhook?"
+        description="This removes the webhook and its delivery history."
+        confirmLabel="Delete webhook"
+        onCancel={() => setPendingWebhookDelete(null)}
+        onConfirm={onConfirmDeleteWebhook}
+        confirmDisabled={deleteWebhook.isPending}
+        isConfirming={deleteWebhook.isPending}
+      >
+        {pendingWebhookDelete && (
+          <div className="space-y-3">
+            <p className="font-semibold text-ink dark:text-white">{pendingWebhookDelete.name}</p>
+            <p className="text-xs text-slate dark:text-white/70">Event: {describeEventType(pendingWebhookDelete.event_type)}</p>
+            <p className="break-all font-mono text-xs text-slate dark:text-white/70">{pendingWebhookDelete.url_template}</p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }

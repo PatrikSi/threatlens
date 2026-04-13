@@ -186,6 +186,9 @@ def change_password(
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(response: Response):
+def logout(
+    response: Response,
+    _user: User = Depends(get_current_user),
+):
     clear_auth_cookies(response)
     return {"status": "ok"}

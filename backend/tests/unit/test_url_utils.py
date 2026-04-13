@@ -1,4 +1,4 @@
-from app.services.url_utils import is_fetchable_url, normalize_feed_url, normalize_url
+from app.services.url_utils import is_fetchable_url, normalize_feed_url, normalize_url, redact_feed_url
 
 
 def test_normalize_url_removes_tracking_and_sorts_query():
@@ -17,6 +17,16 @@ def test_normalize_feed_url_preserves_userinfo_for_authenticated_feeds():
     url = "https://alice:secret@example.com:443/path/feed.xml?token=abc123#frag"
     normalized = normalize_feed_url(url)
     assert normalized == "https://alice:secret@example.com/path/feed.xml?token=abc123"
+
+
+def test_redact_feed_url_hides_credentials_and_sensitive_query_values():
+    url = "https://alice:secret@example.com:443/path/feed.xml?token=abc123&source=partner&api_key=xyz"
+    redacted = redact_feed_url(url)
+    assert redacted == "https://example.com/path/feed.xml?token=REDACTED&source=partner&api_key=REDACTED"
+
+
+def test_redact_feed_url_leaves_non_urls_unchanged():
+    assert redact_feed_url("Legacy Feed") == "Legacy Feed"
 
 
 def test_normalize_url_handles_default_and_empty_path():

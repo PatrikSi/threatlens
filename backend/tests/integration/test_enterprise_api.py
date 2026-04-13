@@ -634,6 +634,41 @@ def test_feed_import_and_export(client: TestClient, auth_headers):
     assert any(feed["name"] == "Bulk One" for feed in export_payload["feeds"])
 
 
+def test_feed_import_redacts_secret_urls_in_fallback_names_and_exports(client: TestClient, auth_headers, db_session):
+    import_response = client.post(
+        "/feeds/import",
+        json={
+            "overwrite_existing": False,
+            "feeds": [
+                {
+                    "url": "https://alice:secret@example.com/imported.xml?token=alpha&source=partner",
+                    "enabled": True,
+                    "fetch_mode": "interval",
+                    "fetch_interval_seconds": 1800,
+                }
+            ],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert import_response.status_code == 200
+    assert import_response.json()["created"] == 1
+
+    feed = db_session.scalar(select(Feed).where(Feed.url == "https://alice:secret@example.com/imported.xml?token=alpha&source=partner"))
+    assert feed is not None
+    assert feed.name == "https://example.com/imported.xml?token=REDACTED&source=partner"
+
+    list_response = client.get("/feeds", headers=auth_headers["viewer"])
+    assert list_response.status_code == 200
+    assert list_response.json()[0]["name"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+    assert list_response.json()[0]["url"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+
+    export_response = client.get("/feeds/export", headers=auth_headers["admin"])
+    assert export_response.status_code == 200
+    export_payload = export_response.json()
+    assert export_payload["feeds"][0]["name"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+    assert export_payload["feeds"][0]["url"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+
+
 def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(client: TestClient, auth_headers):
     first_response = client.post(
         "/feeds",
@@ -664,7 +699,7 @@ def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(
     assert second_response.json()["detail"] == "Feed URL already exists"
 
 
-def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestClient, auth_headers):
+def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestClient, auth_headers, db_session):
     first_response = client.post(
         "/feeds",
         json={
@@ -677,6 +712,7 @@ def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestCl
         headers=auth_headers["admin"],
     )
     assert first_response.status_code == 201
+    assert first_response.json()["url"] == "https://example.com/path/feed.xml?token=REDACTED"
 
     second_response = client.post(
         "/feeds",
@@ -690,10 +726,17 @@ def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestCl
         headers=auth_headers["admin"],
     )
     assert second_response.status_code == 201
-    assert second_response.json()["url"] == "https://example.com/path/feed.xml?token=beta"
+    assert second_response.json()["url"] == "https://example.com/path/feed.xml?token=REDACTED"
+
+    first_feed = db_session.scalar(select(Feed).where(Feed.name == "Token Feed A"))
+    second_feed = db_session.scalar(select(Feed).where(Feed.name == "Token Feed B"))
+    assert first_feed is not None
+    assert second_feed is not None
+    assert first_feed.url == "https://example.com/path/feed.xml?token=alpha"
+    assert second_feed.url == "https://example.com/path/feed.xml?token=beta"
 
 
-def test_feed_create_keeps_userinfo_distinct_for_authenticated_feeds(client: TestClient, auth_headers):
+def test_feed_create_keeps_userinfo_distinct_for_authenticated_feeds(client: TestClient, auth_headers, db_session):
     first_response = client.post(
         "/feeds",
         json={
@@ -706,6 +749,7 @@ def test_feed_create_keeps_userinfo_distinct_for_authenticated_feeds(client: Tes
         headers=auth_headers["admin"],
     )
     assert first_response.status_code == 201
+    assert first_response.json()["url"] == "https://example.com/path/feed.xml"
 
     second_response = client.post(
         "/feeds",
@@ -719,7 +763,83 @@ def test_feed_create_keeps_userinfo_distinct_for_authenticated_feeds(client: Tes
         headers=auth_headers["admin"],
     )
     assert second_response.status_code == 201
-    assert second_response.json()["url"] == "https://bob:secret@example.com/path/feed.xml"
+    assert second_response.json()["url"] == "https://example.com/path/feed.xml"
+
+    first_feed = db_session.scalar(select(Feed).where(Feed.name == "Credential Feed A"))
+    second_feed = db_session.scalar(select(Feed).where(Feed.name == "Credential Feed B"))
+    assert first_feed is not None
+    assert second_feed is not None
+    assert first_feed.url == "https://alice:secret@example.com/path/feed.xml"
+    assert second_feed.url == "https://bob:secret@example.com/path/feed.xml"
+
+
+def test_feed_create_redacts_secret_urls_in_read_surfaces_and_audit_logs(client: TestClient, auth_headers, db_session):
+    create_response = client.post(
+        "/feeds",
+        json={
+            "url": "https://alice:secret@example.com/path/feed.xml?token=alpha&source=partner",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+    create_payload = create_response.json()
+    assert create_payload["name"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+    assert create_payload["url"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+
+    feed = db_session.scalar(select(Feed).where(Feed.id == create_payload["id"]))
+    assert feed is not None
+    assert feed.url == "https://alice:secret@example.com/path/feed.xml?token=alpha&source=partner"
+
+    list_response = client.get("/feeds", headers=auth_headers["viewer"])
+    assert list_response.status_code == 200
+    list_payload = list_response.json()
+    assert list_payload[0]["name"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+    assert list_payload[0]["url"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+
+    export_response = client.get("/feeds/export", headers=auth_headers["admin"])
+    assert export_response.status_code == 200
+    export_payload = export_response.json()
+    assert export_payload["feeds"][0]["name"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+    assert export_payload["feeds"][0]["url"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+
+    audit_response = client.get("/audit-logs?action=feeds.create&page_size=10", headers=auth_headers["admin"])
+    assert audit_response.status_code == 200
+    audit_payload = audit_response.json()
+    matching_log = next(log for log in audit_payload["logs"] if log["resource_id"] == create_payload["id"])
+    assert matching_log["metadata_json"]["name"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+    assert matching_log["metadata_json"]["url"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
+
+
+def test_feed_update_redacts_secret_urls_in_response_and_preserves_storage(client: TestClient, auth_headers, db_session):
+    create_response = client.post(
+        "/feeds",
+        json={
+            "url": "https://alice:secret@example.com/path/update.xml?token=alpha",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+    feed_id = create_response.json()["id"]
+
+    update_response = client.patch(
+        f"/feeds/{feed_id}",
+        json={"description": "Updated description"},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+    update_payload = update_response.json()
+    assert update_payload["name"] == "https://example.com/path/update.xml?token=REDACTED"
+    assert update_payload["url"] == "https://example.com/path/update.xml?token=REDACTED"
+
+    feed = db_session.scalar(select(Feed).where(Feed.id == feed_id))
+    assert feed is not None
+    assert feed.url == "https://alice:secret@example.com/path/update.xml?token=alpha"
 
 
 def test_feed_import_overwrite_preserves_existing_metadata_when_fields_are_omitted(client: TestClient, auth_headers, db_session):

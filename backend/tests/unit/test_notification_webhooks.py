@@ -114,6 +114,45 @@ def test_render_notification_request_expands_templates_into_json_body():
     }
 
 
+def test_render_notification_request_redacts_feed_url_template_values():
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        body_mode="json",
+        body_fields=[NotificationWebhookField(key="feed.url", value="{{ feed.url }}")],
+    )
+
+    rendered = render_notification_request(
+        payload,
+        user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
+        feed=Feed(
+            id=uuid.uuid4(),
+            name="Secure Feed",
+            url="https://alice:secret@example.com/feed.xml?token=abc123&source=partner",
+            enabled=True,
+            fetch_interval_seconds=1800,
+        ),
+        item=Item(
+            id=uuid.uuid4(),
+            feed_id=uuid.uuid4(),
+            url="https://example.com/articles/1",
+            title="Threat report",
+            summary="summary",
+            published_at=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc),
+            dedupe_key="dedupe",
+            content_hash="a" * 64,
+            status="new",
+        ),
+    )
+
+    assert rendered.json_body == {
+        "feed": {
+            "url": "https://example.com/feed.xml?token=REDACTED&source=partner",
+        }
+    }
+
+
 def test_render_notification_request_defaults_raw_json_to_application_json():
     payload = NotificationWebhookWrite(
         name="Gotify",
