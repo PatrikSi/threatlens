@@ -1,8 +1,9 @@
-import { Link, Navigate } from 'react-router-dom'
+import { Link, Navigate, useLocation } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { User } from '../types/api'
+import { SessionIssueState } from './SessionIssueState'
 
 interface RoleRouteProps {
   roles: User['role'][]
@@ -11,12 +12,14 @@ interface RoleRouteProps {
 
 export function RoleRoute({ roles, children }: RoleRouteProps) {
   const meQuery = useCurrentUser()
+  const location = useLocation()
+  const from = { pathname: location.pathname, search: location.search, hash: location.hash }
 
   if (meQuery.isLoading) {
     return <div className="p-6 text-sm text-slate dark:text-slate-300">Checking permissions...</div>
   }
   if (meQuery.error instanceof ApiError && meQuery.error.status === 401) {
-    return <Navigate to="/login" replace state={{ authMessage: 'Session expired. Sign in again.' }} />
+    return <Navigate to="/login" replace state={{ authMessage: 'Session expired. Sign in again.', from }} />
   }
   if (meQuery.error instanceof ApiError && meQuery.error.status === 403) {
     return (
@@ -28,8 +31,24 @@ export function RoleRoute({ roles, children }: RoleRouteProps) {
       </div>
     )
   }
+  if (meQuery.error) {
+    return (
+      <SessionIssueState
+        title="Permission check unavailable"
+        description="ThreatLens could not confirm your role because the API is unavailable or returned an unexpected error."
+        errorMessage={meQuery.error instanceof Error ? meQuery.error.message : undefined}
+        actionLabel="Retry permission check"
+        onAction={() => void meQuery.refetch()}
+        secondaryLinkLabel="Go to dashboard"
+        secondaryLinkTo="/"
+      />
+    )
+  }
+  if (!meQuery.data) {
+    return <Navigate to="/login" replace state={{ authMessage: 'Sign in to continue.', from }} />
+  }
 
-  if (!meQuery.data || !roles.includes(meQuery.data.role)) {
+  if (!roles.includes(meQuery.data.role)) {
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-amber-300/60 bg-white/90 p-6 shadow-sm dark:border-amber-500/30 dark:bg-[#041612]/95">
         <h2 className="font-display text-3xl text-ink dark:text-white">Role required</h2>

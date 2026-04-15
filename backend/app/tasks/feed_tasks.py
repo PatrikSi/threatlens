@@ -141,16 +141,63 @@ def enqueue_notification_webhook_delivery_processing(delivery_ids: list[uuid.UUI
     if not delivery_ids:
         return True
 
-    try:
-        process_notification_webhook_deliveries.delay([str(delivery_id) for delivery_id in delivery_ids])
+    delivery_id_chunks = _chunk_uuid_list(
+        delivery_ids,
+        max(1, int(settings.notification_delivery_enqueue_batch_size)),
+    )
+    all_enqueued = True
+
+    for delivery_id_chunk in delivery_id_chunks:
+        serialized_ids = [str(delivery_id) for delivery_id in delivery_id_chunk]
+        try:
+            process_notification_webhook_deliveries.delay(serialized_ids)
+        except Exception as exc:
+            all_enqueued = False
+            logger.exception(
+                "notification_webhook_delivery_enqueue_failed delivery_count=%s error=%s",
+                len(delivery_id_chunk),
+                exc,
+            )
+    return all_enqueued
+
+
+def enqueue_article_fetch_processing(item_ids: list[uuid.UUID]) -> bool:
+    if not item_ids:
         return True
-    except Exception as exc:
-        logger.exception(
-            "notification_webhook_delivery_enqueue_failed delivery_count=%s error=%s",
-            len(delivery_ids),
-            exc,
-        )
-        return False
+
+    all_enqueued = True
+    for item_id in item_ids:
+        try:
+            fetch_article.delay(str(item_id))
+        except Exception as exc:
+            all_enqueued = False
+            logger.exception("article_fetch_enqueue_failed item_id=%s error=%s", item_id, exc)
+    return all_enqueued
+
+
+def _chunk_uuid_list(values: list[uuid.UUID], chunk_size: int) -> list[list[uuid.UUID]]:
+    return [values[index : index + chunk_size] for index in range(0, len(values), chunk_size)]
+
+
+def _article_fetch_repair_cutoff(now: datetime | None = None) -> datetime:
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - timedelta(seconds=max(0, int(settings.dispatch_items_missing_articles_after_seconds)))
+
+
+def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | None = None) -> list[uuid.UUID]:
+    repair_cutoff = _article_fetch_repair_cutoff(now)
+    return list(
+        db.scalars(
+            select(Item.id)
+            .outerjoin(Article, Article.item_id == Item.id)
+            .where(
+                Article.item_id.is_(None),
+                Item.first_seen_at <= repair_cutoff,
+            )
+            .order_by(Item.first_seen_at.asc())
+            .limit(limit)
+        ).all()
+    )
 
 
 @contextmanager
@@ -453,6 +500,26 @@ def dispatch_unclassified_items():
 
     for item_id in item_ids:
         classify_item.delay(str(item_id))
+        queued += 1
+
+    return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_articles")
+def dispatch_items_missing_articles():
+    with db_session() as db:
+        item_ids = _list_item_ids_missing_articles(
+            db,
+            limit=settings.dispatch_items_missing_articles_batch_size,
+        )
+
+    queued = 0
+    for item_id in item_ids:
+        try:
+            fetch_article.delay(str(item_id))
+        except Exception as exc:
+            logger.exception("article_fetch_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
+            continue
         queued += 1
 
     return {"queued": queued}
@@ -1124,8 +1191,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 db.add(feed)
                 db.commit()
 
-            for item_id in changed_item_ids:
-                fetch_article.delay(str(item_id))
+            article_enqueue_ok = enqueue_article_fetch_processing(changed_item_ids)
             notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(reserved_notification_delivery_ids)
 
             return {
@@ -1134,6 +1200,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 "new_or_updated_items": len(changed_item_ids),
                 "new_items": len(new_items),
                 "final_url": final_url,
+                "article_enqueue_failed": bool(changed_item_ids) and not article_enqueue_ok,
                 "notification_deliveries_reserved": len(reserved_notification_delivery_ids),
                 "notification_enqueue_failed": bool(reserved_notification_delivery_ids) and not notification_enqueue_ok,
             }

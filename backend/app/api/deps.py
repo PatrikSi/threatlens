@@ -25,30 +25,19 @@ def get_current_user(
     db: Session = Depends(get_db),
     token: str | None = Depends(oauth2_scheme),
 ) -> User:
-    request.state.token_scopes = None
-    token_source = "header"
+    user, credentials_present = _resolve_authenticated_user(request, db, token)
+    if user is None:
+        detail = "Invalid credentials" if credentials_present else "Not authenticated"
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+    return user
 
-    if not token:
-        token = _resolve_cookie_token(request)
-        token_source = "cookie"
-    if not token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
 
-    if token_source == "cookie":
-        _enforce_csrf_if_needed(request)
-
-    user = _resolve_jwt_user(db, token)
-    if user is not None:
-        _ensure_user_can_authenticate(user)
-        return user
-
-    token_result = _resolve_api_token_user(db, token)
-    if token_result is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-    user, scopes = token_result
-    _ensure_user_can_authenticate(user)
-    request.state.token_scopes = scopes
+def get_optional_current_user(
+    request: Request,
+    db: Session = Depends(get_db),
+    token: str | None = Depends(oauth2_scheme),
+) -> User | None:
+    user, _credentials_present = _resolve_authenticated_user(request, db, token)
     return user
 
 
@@ -161,6 +150,34 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
         except Exception:
             db.rollback()
     return user, scopes
+
+
+def _resolve_authenticated_user(request: Request, db: Session, token: str | None) -> tuple[User | None, bool]:
+    request.state.token_scopes = None
+    token_source = "header"
+
+    if not token:
+        token = _resolve_cookie_token(request)
+        token_source = "cookie"
+    if not token:
+        return None, False
+
+    if token_source == "cookie":
+        _enforce_csrf_if_needed(request)
+
+    user = _resolve_jwt_user(db, token)
+    if user is not None:
+        _ensure_user_can_authenticate(user)
+        return user, True
+
+    token_result = _resolve_api_token_user(db, token)
+    if token_result is None:
+        return None, True
+
+    user, scopes = token_result
+    _ensure_user_can_authenticate(user)
+    request.state.token_scopes = scopes
+    return user, True
 
 
 def _should_update_last_used(last_used_at: datetime | None, now: datetime) -> bool:

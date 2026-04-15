@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     probe_feed_metadata_on_import: bool = False
     max_metadata_backfill_tasks_per_request: int = 100
     dispatch_due_feeds_batch_size: int = 500
+    dispatch_items_missing_articles_batch_size: int = 200
+    dispatch_items_missing_articles_after_seconds: int = 300
     dispatch_unclassified_items_batch_size: int = 200
     dispatch_items_missing_iocs_batch_size: int = 200
     dispatch_feed_metadata_scan_limit: int = 250
@@ -74,6 +76,7 @@ class Settings(BaseSettings):
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
+    notification_delivery_enqueue_batch_size: int = 100
     notification_delivery_recovery_batch_size: int = 100
     notification_delivery_sending_stale_after_seconds: int = 120
     notification_delivery_queue_degraded_after_seconds: int = 300

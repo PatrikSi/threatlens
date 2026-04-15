@@ -535,7 +535,24 @@ def test_health_live_endpoint(client: TestClient):
     assert response.json() == {"ok": True}
 
 
-def test_health_worker_endpoint_reports_ok(client: TestClient, monkeypatch):
+def test_health_worker_endpoint_reports_ok(client: TestClient, auth_headers, monkeypatch):
+    class _Inspector:
+        def ping(self):
+            return {"celery@worker-1": {"ok": "pong"}}
+
+    monkeypatch.setattr(
+        "app.api.routes.health.celery_app.control.inspect",
+        lambda timeout: _Inspector(),
+    )
+
+    response = client.get("/health/worker", headers=auth_headers["admin"])
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["workers"]["celery@worker-1"] == "pong"
+
+
+def test_health_worker_endpoint_hides_worker_details_from_public(client: TestClient, monkeypatch):
     class _Inspector:
         def ping(self):
             return {"celery@worker-1": {"ok": "pong"}}
@@ -546,13 +563,28 @@ def test_health_worker_endpoint_reports_ok(client: TestClient, monkeypatch):
     )
 
     response = client.get("/health/worker")
+
     assert response.status_code == 200
+    assert response.json() == {"ok": True}
+
+
+def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClient, auth_headers, monkeypatch):
+    stale_heartbeat = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    class _RedisClient:
+        def get(self, key):
+            _ = key
+            return stale_heartbeat
+
+    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+
+    response = client.get("/health/beat", headers=auth_headers["admin"])
+    assert response.status_code == 503
     payload = response.json()
-    assert payload["ok"] is True
-    assert payload["workers"]["celery@worker-1"] == "pong"
+    assert payload["ok"] is False
 
 
-def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClient, monkeypatch):
+def test_health_beat_endpoint_hides_internal_details_from_public(client: TestClient, monkeypatch):
     stale_heartbeat = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
 
     class _RedisClient:
@@ -563,12 +595,12 @@ def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClien
     monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
 
     response = client.get("/health/beat")
+
     assert response.status_code == 503
-    payload = response.json()
-    assert payload["ok"] is False
+    assert response.json() == {"ok": False}
 
 
-def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, db_session, seed_users):
+def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, auth_headers, db_session, seed_users):
     viewer = seed_users["viewer"]
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
@@ -630,7 +662,7 @@ def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, d
     )
     db_session.commit()
 
-    response = client.get("/health/notifications")
+    response = client.get("/health/notifications", headers=auth_headers["admin"])
 
     assert response.status_code == 503
     payload = response.json()
@@ -638,6 +670,54 @@ def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, d
     assert payload["pending_deliveries"] == 1
     assert payload["sending_deliveries"] == 1
     assert payload["stale_sending_deliveries"] == 1
+
+
+def test_health_notifications_endpoint_hides_queue_counts_from_public(client: TestClient, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Health webhook",
+        url_template="https://hooks.example.com/health",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all(
+        [
+            webhook,
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="pending",
+                attempt_count=0,
+                success=False,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/health",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview=None,
+                error=None,
+                attempted_at=datetime.now(timezone.utc) - timedelta(minutes=6),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get("/health/notifications")
+
+    assert response.status_code == 503
+    assert response.json() == {"ok": False, "status": "degraded"}
 
 
 def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, monkeypatch):

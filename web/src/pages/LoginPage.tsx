@@ -38,7 +38,7 @@ export function LoginPage() {
     onSuccess: (data) => {
       void data
       markAuthenticated()
-      navigate('/', { replace: true })
+      navigate(resolvePostLoginDestination(location.state), { replace: true })
     },
   })
 
@@ -199,4 +199,20 @@ function resolveRegisterError(error: unknown): string {
     return error.message
   }
   return 'Registration failed. Try again later.'
+}
+
+function resolvePostLoginDestination(state: unknown): string {
+  if (!state || typeof state !== 'object' || !('from' in state)) {
+    return '/'
+  }
+
+  const from = state.from
+  if (!from || typeof from !== 'object') {
+    return '/'
+  }
+
+  const pathname = 'pathname' in from && typeof from.pathname === 'string' ? from.pathname : '/'
+  const search = 'search' in from && typeof from.search === 'string' ? from.search : ''
+  const hash = 'hash' in from && typeof from.hash === 'string' ? from.hash : ''
+  return `${pathname}${search}${hash}` || '/'
 }

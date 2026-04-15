@@ -164,7 +164,7 @@ def list_notification_webhook_deliveries(
     total = db.scalar(select(func.count()).select_from(deliveries_query.subquery())) or 0
     deliveries = db.scalars(
         deliveries_query
-        .order_by(NotificationWebhookDelivery.attempted_at.desc())
+        .order_by(NotificationWebhookDelivery.attempted_at.desc(), NotificationWebhookDelivery.id.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
@@ -201,6 +201,11 @@ def retry_notification_webhook_delivery_route(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Webhook delivery is already queued or in progress",
+        )
+    if delivery.delivery_state != "failed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only failed webhook deliveries can be retried",
         )
 
     retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)

@@ -231,6 +231,91 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
     assert payload["deliveries"][0]["response_body_preview"] == "server error"
 
 
+def test_user_can_list_notification_webhook_delivery_history_with_stable_tiebreaker(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="History webhook",
+        url_template="https://hooks.example.com/history",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    attempted_at = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+    earlier_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+    later_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    db_session.add(webhook)
+    db_session.flush()
+    db_session.add_all(
+        [
+            NotificationWebhookDelivery(
+                id=earlier_id,
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="failed",
+                attempt_count=1,
+                success=False,
+                status_code=500,
+                duration_ms=42,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/history/1",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body='{"title":"Example"}',
+                response_body_preview="server error",
+                error="HTTP 500",
+                item_title_snapshot="Earlier item",
+                feed_name_snapshot="Example feed",
+                attempted_at=attempted_at,
+            ),
+            NotificationWebhookDelivery(
+                id=later_id,
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="failed",
+                attempt_count=1,
+                success=False,
+                status_code=500,
+                duration_ms=42,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/history/2",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body='{"title":"Example"}',
+                response_body_preview="server error",
+                error="HTTP 500",
+                item_title_snapshot="Later item",
+                feed_name_snapshot="Example feed",
+                attempted_at=attempted_at,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(f"/notifications/webhooks/{webhook.id}/deliveries?page=1&page_size=10", headers=auth_headers["viewer"])
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [entry["id"] for entry in payload["deliveries"]] == [str(later_id), str(earlier_id)]
+
+
 def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
     viewer = seed_users["viewer"]
     webhook = NotificationWebhook(
@@ -362,6 +447,56 @@ def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(clien
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "Webhook delivery is already queued or in progress"
+
+
+def test_user_cannot_retry_successful_notification_webhook_delivery(client: TestClient, auth_headers, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=viewer.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="succeeded",
+        attempt_count=1,
+        success=True,
+        status_code=204,
+        duration_ms=11,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"Retry"}',
+        response_body_preview="ok",
+        error=None,
+        item_title_snapshot="Retry item",
+        feed_name_snapshot="Retry feed",
+    )
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    response = client.post(
+        f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
+        headers=auth_headers["viewer"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Only failed webhook deliveries can be retried"
 
 
 def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers, db_session, seed_users):

@@ -23,6 +23,8 @@ type NotificationWebhookDraft = Omit<NotificationWebhookWriteRequest, 'body_temp
   content_type: string
 }
 
+const DELIVERY_HISTORY_REFRESH_MS = 30_000
+
 const EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string; description: string }> = [
   { value: 'rss_item_new', label: 'New RSS Item', description: 'Fire when a new RSS item is ingested from a feed.' },
   { value: 'alert_match', label: 'Alert Match', description: 'Fire when an item matches one or more of your alert interests.' },
@@ -72,6 +74,7 @@ export function NotificationsPage() {
   const [formNotice, setFormNotice] = useState<string | null>(null)
   const [testResult, setTestResult] = useState<NotificationWebhookTestResponse | null>(null)
   const [pendingWebhookDelete, setPendingWebhookDelete] = useState<NotificationWebhook | null>(null)
+  const [pendingDeliveryRetry, setPendingDeliveryRetry] = useState<NotificationWebhookDelivery | null>(null)
 
   const webhooksQuery = useQuery({
     queryKey: ['notifications', 'webhooks'],
@@ -91,6 +94,7 @@ export function NotificationsPage() {
   const analyticsQuery = useQuery({
     queryKey: ['notifications', 'analytics'],
     queryFn: () => apiFetch<NotificationAnalyticsResponse>('/notifications/analytics'),
+    refetchInterval: DELIVERY_HISTORY_REFRESH_MS,
   })
 
   const saveWebhook = useMutation({
@@ -159,6 +163,7 @@ export function NotificationsPage() {
         `/notifications/webhooks/${selectedWebhookId}/deliveries?page=1&page_size=10`,
       ),
     enabled: Boolean(selectedWebhookId),
+    refetchInterval: selectedWebhookId ? DELIVERY_HISTORY_REFRESH_MS : false,
   })
 
   const retryDelivery = useMutation({
@@ -168,9 +173,13 @@ export function NotificationsPage() {
         { method: 'POST' },
       ),
     onSuccess: (delivery) => {
+      setPendingDeliveryRetry(null)
       setFormNotice(delivery.success ? 'Webhook retry succeeded.' : 'Webhook retry failed.')
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'webhooks', delivery.webhook_id, 'deliveries'] })
       void queryClient.invalidateQueries({ queryKey: ['notifications', 'analytics'] })
+    },
+    onError: () => {
+      setPendingDeliveryRetry(null)
     },
   })
 
@@ -196,6 +205,7 @@ export function NotificationsPage() {
     setSampleFeedId('')
     setFormNotice(null)
     setTestResult(null)
+    setPendingDeliveryRetry(null)
   }
 
   const onCreateNewWebhook = () => {
@@ -204,6 +214,16 @@ export function NotificationsPage() {
     setSampleFeedId('')
     setFormNotice(null)
     setTestResult(null)
+    setPendingDeliveryRetry(null)
+  }
+
+  const onConfirmRetryDelivery = () => {
+    if (!pendingDeliveryRetry) {
+      return
+    }
+
+    const { webhook_id: webhookId, id: deliveryId } = pendingDeliveryRetry
+    retryDelivery.mutate({ webhookId, deliveryId })
   }
 
   const onSave = () => {
@@ -858,13 +878,20 @@ export function NotificationsPage() {
 
                     <div className="mt-4 space-y-3 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-                          disabled={retryDelivery.isPending || !isRetryableDelivery(delivery)}
-                          onClick={() => retryDelivery.mutate({ webhookId: delivery.webhook_id, deliveryId: delivery.id })}
-                        >
-                          Retry delivery
-                        </button>
+                        {isRetryableDelivery(delivery) ? (
+                          <button
+                            className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                            disabled={retryDelivery.isPending}
+                            onClick={() => {
+                              retryDelivery.reset()
+                              setPendingDeliveryRetry(delivery)
+                            }}
+                          >
+                            Retry failed delivery
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate dark:text-white/60">{describeRetryAvailability(delivery)}</span>
+                        )}
                         <span className="text-xs text-slate dark:text-white/60">Timeout: {delivery.timeout_seconds}s</span>
                         {delivery.claimed_at && (
                           <span className="text-xs text-slate dark:text-white/60">Claimed: {formatTimestamp(delivery.claimed_at)}</span>
@@ -944,6 +971,28 @@ export function NotificationsPage() {
             <p className="break-all font-mono text-xs text-slate dark:text-white/70">{pendingWebhookDelete.url_template}</p>
           </div>
         )}
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={Boolean(pendingDeliveryRetry)}
+        title="Retry failed delivery?"
+        description="ThreatLens will send the saved request again. Successful deliveries are not replayed by default."
+        confirmLabel="Retry delivery"
+        onCancel={() => setPendingDeliveryRetry(null)}
+        onConfirm={onConfirmRetryDelivery}
+        confirmDisabled={retryDelivery.isPending}
+        isConfirming={retryDelivery.isPending}
+      >
+        {pendingDeliveryRetry ? (
+          <div className="space-y-3">
+            <p className="font-semibold text-ink dark:text-white">
+              {pendingDeliveryRetry.item_title || pendingDeliveryRetry.feed_name || 'Webhook delivery'}
+            </p>
+            <p className="text-xs text-slate dark:text-white/70">
+              {describeEventType(pendingDeliveryRetry.event_type)} at {formatTimestamp(pendingDeliveryRetry.attempted_at)}
+            </p>
+            <p className="break-all font-mono text-xs text-slate dark:text-white/70">{pendingDeliveryRetry.rendered_url}</p>
+          </div>
+        ) : null}
       </ConfirmDialog>
     </div>
   )
@@ -1343,7 +1392,14 @@ function deliveryStatusBadgeClass(delivery: NotificationWebhookDelivery): string
 }
 
 function isRetryableDelivery(delivery: NotificationWebhookDelivery): boolean {
-  return delivery.delivery_state === 'succeeded' || delivery.delivery_state === 'failed'
+  return delivery.delivery_state === 'failed'
+}
+
+function describeRetryAvailability(delivery: NotificationWebhookDelivery): string {
+  if (delivery.delivery_state === 'succeeded') {
+    return 'Successful deliveries are not replayed by default.'
+  }
+  return 'This delivery is already queued or in progress.'
 }
 
 function formatTimestamp(value: string): string {

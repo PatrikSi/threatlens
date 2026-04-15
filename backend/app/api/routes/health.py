@@ -6,8 +6,11 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_optional_current_user
 from app.core.config import get_settings
+from app.core.rbac import ROLE_ADMIN
 from app.db.session import get_db
+from app.models.user import User
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
 from app.tasks.celery_app import celery_app
 
@@ -30,20 +33,28 @@ def live():
 
 
 @router.get("/worker")
-def worker():
-    return _worker_health_response()
+def worker(user: User | None = Depends(get_optional_current_user)):
+    detailed = _is_admin_user(user)
+    return _worker_health_response(detailed=detailed)
 
 
 @router.get("/beat")
-def beat():
-    return _beat_health_response()
+def beat(user: User | None = Depends(get_optional_current_user)):
+    detailed = _is_admin_user(user)
+    return _beat_health_response(detailed=detailed)
 
 
 @router.get("/notifications")
-def notifications(db: Session = Depends(get_db)):
+def notifications(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
     snapshot = get_notification_delivery_queue_snapshot(db)
     status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    return JSONResponse(status_code=status_code, content=snapshot.model_dump())
+    payload = snapshot.model_dump()
+    if not _is_admin_user(user):
+        payload = {
+            "ok": snapshot.ok,
+            "status": snapshot.status,
+        }
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 def _readiness_response(db: Session):
@@ -69,7 +80,7 @@ def _readiness_response(db: Session):
     return JSONResponse(status_code=status_code, content={"ok": ok, "db": db_ok, "redis": redis_ok})
 
 
-def _worker_health_response():
+def _worker_health_response(*, detailed: bool):
     settings = get_settings()
 
     worker_ok = False
@@ -85,10 +96,13 @@ def _worker_health_response():
         worker_ok = False
 
     status_code = status.HTTP_200_OK if worker_ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    return JSONResponse(status_code=status_code, content={"ok": worker_ok, "workers": workers})
+    payload = {"ok": worker_ok}
+    if detailed:
+        payload["workers"] = workers
+    return JSONResponse(status_code=status_code, content=payload)
 
 
-def _beat_health_response():
+def _beat_health_response(*, detailed: bool):
     settings = get_settings()
     now = datetime.now(timezone.utc)
 
@@ -113,13 +127,18 @@ def _beat_health_response():
             beat_ok = False
 
     status_code = status.HTTP_200_OK if beat_ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    return JSONResponse(
-        status_code=status_code,
-        content={
-            "ok": beat_ok,
-            "heartbeat_key": settings.beat_heartbeat_key,
-            "heartbeat_at": heartbeat_raw,
-            "age_seconds": age_seconds,
-            "stale_after_seconds": settings.beat_heartbeat_stale_after_seconds,
-        },
-    )
+    payload = {"ok": beat_ok}
+    if detailed:
+        payload.update(
+            {
+                "heartbeat_key": settings.beat_heartbeat_key,
+                "heartbeat_at": heartbeat_raw,
+                "age_seconds": age_seconds,
+                "stale_after_seconds": settings.beat_heartbeat_stale_after_seconds,
+            }
+        )
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+def _is_admin_user(user: User | None) -> bool:
+    return user is not None and user.role == ROLE_ADMIN

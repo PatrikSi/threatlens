@@ -26,6 +26,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_unclassified_items",
             "schedule": 300.0,
         },
+        "dispatch-items-missing-articles": {
+            "task": "app.tasks.feed_tasks.dispatch_items_missing_articles",
+            "schedule": 300.0,
+        },
         "dispatch-items-missing-iocs": {
             "task": "app.tasks.feed_tasks.dispatch_items_missing_iocs",
             "schedule": 300.0,
