@@ -186,9 +186,14 @@ def change_password(
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(
-    response: Response,
-    _user: User = Depends(get_current_user),
-):
+def logout(request: Request, response: Response):
+    settings = get_settings()
+    auth_cookie = request.cookies.get(settings.auth_cookie_name)
+    if auth_cookie and settings.auth_require_csrf:
+        csrf_cookie = request.cookies.get(settings.auth_csrf_cookie_name)
+        csrf_header = request.headers.get(settings.auth_csrf_header_name)
+        if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing or invalid CSRF token")
+
     clear_auth_cookies(response)
     return {"status": "ok"}

@@ -445,6 +445,16 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 skipped += 1
                 continue
 
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="rss_item_new",
+                item_id=item.id,
+                success_only=True,
+            ):
+                skipped += 1
+                continue
+
             attempt = send_notification_webhook(
                 db,
                 webhook=webhook,

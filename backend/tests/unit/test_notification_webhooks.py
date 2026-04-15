@@ -717,6 +717,93 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     assert result["skipped"] == 1
 
 
+def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_delivery(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/1",
+        title="Threat report",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:1",
+        content_hash="a" * 64,
+        status="new",
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="All feeds",
+        url_template="https://example.com/a",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    prior_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        item_id=item.id,
+        feed_id=feed.id,
+        item_title_snapshot=item.title,
+        feed_name_snapshot=feed.name,
+        delivery_kind="live",
+        success=True,
+        status_code=204,
+        duration_ms=9,
+        timeout_seconds=10,
+        rendered_url="https://example.com/a",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview="ok",
+        error=None,
+        attempted_at=datetime.now(timezone.utc),
+    )
+
+    _persist_rows(db_session, feed, user)
+    _persist_rows(db_session, item, webhook, prior_delivery)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    def _send(*_args, **_kwargs):
+        raise AssertionError("duplicate rss_item_new delivery should have been skipped")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    result = dispatch_new_item_notification_webhooks(str(item.id))
+
+    assert result["matched_webhooks"] == 1
+    assert result["delivered"] == 0
+    assert result["failed"] == 0
+    assert result["skipped"] == 1
+
+
 def test_build_alert_match_context_for_item_collects_matching_alerts(db_session):
     user = User(
         id=uuid.uuid4(),

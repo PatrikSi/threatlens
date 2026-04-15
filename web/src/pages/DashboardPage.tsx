@@ -369,6 +369,16 @@ function parseAlertWindowFiltersCandidate(
   }
 }
 
+function resolveDashboardViewSaveError(error: unknown) {
+  if (error instanceof ApiError && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Failed to save the dashboard view. Your edits are still open.'
+}
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -390,6 +400,7 @@ export function DashboardPage() {
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [isEditMode, setIsEditMode] = useState(false)
+  const [viewSaveError, setViewSaveError] = useState('')
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
   const [showSaveAsNew, setShowSaveAsNew] = useState(false)
@@ -619,10 +630,20 @@ export function DashboardPage() {
           query_json: payload.query,
         }),
       }),
+    onMutate: () => {
+      setViewSaveError('')
+    },
     onSuccess: (view) => {
       setSavedViewName('')
       setActiveSavedViewId(view.id)
+      setIsEditMode(false)
+      setShowAddWindowMenu(false)
+      setOpenWindowMenuId(null)
+      setShowSaveAsNew(false)
       queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+    onError: (error) => {
+      setViewSaveError(resolveDashboardViewSaveError(error))
     },
   })
 
@@ -656,9 +677,19 @@ export function DashboardPage() {
           ...(payload.query !== undefined ? { query_json: payload.query } : {}),
         }),
       }),
+    onMutate: () => {
+      setViewSaveError('')
+    },
     onSuccess: (view) => {
       setActiveSavedViewId(view.id)
+      setIsEditMode(false)
+      setShowAddWindowMenu(false)
+      setOpenWindowMenuId(null)
+      setShowSaveAsNew(false)
       queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+    onError: (error) => {
+      setViewSaveError(resolveDashboardViewSaveError(error))
     },
   })
 
@@ -1648,10 +1679,6 @@ export function DashboardPage() {
                     className="h-8 w-full rounded bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
                     onClick={() => {
                       updateActiveView()
-                      setIsEditMode(false)
-                      setShowAddWindowMenu(false)
-                      setOpenWindowMenuId(null)
-                      setShowSaveAsNew(false)
                     }}
                     disabled={updateExistingView.isPending}
                   >
@@ -1679,10 +1706,6 @@ export function DashboardPage() {
                         className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold disabled:opacity-50 sm:w-auto dark:border-cyan-900/40"
                         onClick={() => {
                           saveCurrentView()
-                          setIsEditMode(false)
-                          setShowAddWindowMenu(false)
-                          setOpenWindowMenuId(null)
-                          setShowSaveAsNew(false)
                         }}
                         disabled={saveView.isPending || !savedViewName.trim()}
                       >
@@ -1704,9 +1727,6 @@ export function DashboardPage() {
                     className="h-8 w-full rounded bg-ink px-3 text-xs font-semibold text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-slate-950"
                     onClick={() => {
                       saveCurrentView()
-                      setIsEditMode(false)
-                      setShowAddWindowMenu(false)
-                      setOpenWindowMenuId(null)
                     }}
                     disabled={saveView.isPending || !savedViewName.trim()}
                   >
@@ -1722,6 +1742,7 @@ export function DashboardPage() {
                   setShowAddWindowMenu(false)
                   setOpenWindowMenuId(null)
                   setShowSaveAsNew(false)
+                  setViewSaveError('')
                 }}
               >
                 Cancel
@@ -1729,6 +1750,7 @@ export function DashboardPage() {
             </>
           )}
         </div>
+        {viewSaveError && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{viewSaveError}</p>}
       </div>
 
       <div

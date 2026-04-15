@@ -42,8 +42,9 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
     }
   }
 
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeoutController = new AbortController()
+  const { signal, cleanup } = composeAbortSignals(options.signal, timeoutController.signal)
+  const timeout = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
 
   let response: Response
   try {
@@ -51,15 +52,16 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
       ...options,
       headers,
       credentials: 'include',
-      signal: controller.signal,
+      signal,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
+    if (error instanceof DOMException && error.name === 'AbortError' && !options.signal?.aborted) {
       throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s (${path})`)
     }
     throw error
   } finally {
     clearTimeout(timeout)
+    cleanup()
   }
 
   if (!response.ok) {
@@ -74,6 +76,45 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
   }
 
   return (await response.json()) as T
+}
+
+function composeAbortSignals(primary: AbortSignal | null | undefined, secondary: AbortSignal) {
+  if (!primary) {
+    return { signal: secondary, cleanup: () => {} }
+  }
+
+  if (primary.aborted) {
+    return { signal: primary, cleanup: () => {} }
+  }
+
+  if (secondary.aborted) {
+    return { signal: secondary, cleanup: () => {} }
+  }
+
+  const controller = new AbortController()
+  const abort = (source: AbortSignal) => {
+    if (controller.signal.aborted) {
+      return
+    }
+    controller.abort(readAbortReason(source))
+  }
+  const onPrimaryAbort = () => abort(primary)
+  const onSecondaryAbort = () => abort(secondary)
+
+  primary.addEventListener('abort', onPrimaryAbort)
+  secondary.addEventListener('abort', onSecondaryAbort)
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      primary.removeEventListener('abort', onPrimaryAbort)
+      secondary.removeEventListener('abort', onSecondaryAbort)
+    },
+  }
+}
+
+function readAbortReason(signal: AbortSignal): unknown {
+  return 'reason' in signal ? signal.reason : undefined
 }
 
 function tryParseJson(value: string): unknown {

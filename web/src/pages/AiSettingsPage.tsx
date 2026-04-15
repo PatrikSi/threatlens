@@ -2,6 +2,7 @@ import { Dispatch, RefObject, SetStateAction, useDeferredValue, useEffect, useMe
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
@@ -123,6 +124,7 @@ export function AiSettingsPage() {
   const [reprocessItemSearch, setReprocessItemSearch] = useState('')
   const [selectedReprocessItems, setSelectedReprocessItems] = useState<ItemListEntry[]>([])
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
+  const [pendingCancelRun, setPendingCancelRun] = useState<AITaskRunResponse | null>(null)
   const [selectedModel, setSelectedModel] = useState('all')
   const [runPage, setRunPage] = useState(0)
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
@@ -344,12 +346,28 @@ export function AiSettingsPage() {
     },
     onSuccess: (run) => {
       setNotice(`${formatTaskTypeLabel(run.task_type)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`)
+      setPendingCancelRun(null)
       invalidateAiQueries(queryClient)
+    },
+    onError: (error) => {
+      setNotice(error instanceof Error && error.message ? error.message : 'Failed to cancel the AI task.')
     },
     onSettled: () => {
       setCancelingRunId(null)
     },
   })
+
+  const requestRunCancellation = (run: AITaskRunResponse) => {
+    setNotice(null)
+    setPendingCancelRun(run)
+  }
+
+  const confirmRunCancellation = () => {
+    if (!pendingCancelRun) {
+      return
+    }
+    cancelRunMutation.mutate(pendingCancelRun.id)
+  }
 
   const readiness = useMemo(() => {
     if (!settingsQuery.data) {
@@ -547,10 +565,7 @@ export function AiSettingsPage() {
                 live={liveStatusQuery.data}
                 activeTasksLoading={activeTasksLoading}
                 onOpenRun={openRunInHistory}
-                onCancelRun={(runId) => {
-                  setNotice(null)
-                  cancelRunMutation.mutate(runId)
-                }}
+                onCancelRun={requestRunCancellation}
                 cancelingRunId={cancelingRunId}
                 dailyBriefEnabled={draft.daily_brief_enabled}
                 generatePending={generateBriefMutation.isPending}
@@ -632,6 +647,29 @@ export function AiSettingsPage() {
           )}
         </section>
       </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingCancelRun)}
+        title="Cancel AI task?"
+        description="This stops queued or running AI work. Use it when the current run should not continue."
+        confirmLabel={pendingCancelRun ? cancelActionLabel(pendingCancelRun) : 'Cancel task'}
+        onCancel={() => setPendingCancelRun(null)}
+        onConfirm={confirmRunCancellation}
+        isConfirming={cancelRunMutation.isPending}
+        confirmDisabled={!pendingCancelRun}
+      >
+        {pendingCancelRun && (
+          <div className="space-y-2">
+            <p className="font-semibold text-ink dark:text-white">{formatTaskTypeLabel(pendingCancelRun.task_type)}</p>
+            <p className="text-xs text-slate dark:text-white/70">
+              {formatTriggerLabel(pendingCancelRun.trigger_source)} · {describeRunScope(pendingCancelRun)}
+            </p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Status: {formatStatusLabel(pendingCancelRun.status, pendingCancelRun.reason)}
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
     </div>
   )
 }
@@ -953,7 +991,7 @@ function ActiveTasksPanel({
   live: AILiveStatusResponse | undefined
   isLoading: boolean
   onOpenRun: (runId: string) => void
-  onCancelRun: (runId: string) => void
+  onCancelRun: (run: AITaskRunResponse) => void
   cancelingRunId: string | null
 }) {
   return (
@@ -1005,7 +1043,7 @@ function ActiveTasksPanel({
                   <button
                     type="button"
                     className="rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
-                    onClick={() => onCancelRun(run.id)}
+                    onClick={() => onCancelRun(run)}
                     disabled={cancelingRunId === run.id}
                   >
                     {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
@@ -1587,7 +1625,7 @@ function ActivityTab({
   runDetailQuery: ReturnType<typeof useQuery<AITaskRunDetailResponse>>
   briefSources: AIDailyBriefSourceItemResponse[]
   selectedRunSectionRef: RefObject<HTMLDivElement | null>
-  onCancelRun: (runId: string) => void
+  onCancelRun: (run: AITaskRunResponse) => void
   cancelingRunId: string | null
 }) {
   const selectedRun = runDetailQuery.data?.run
@@ -1924,7 +1962,7 @@ function ActivityTab({
                       <button
                         type="button"
                         className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-                        onClick={() => onCancelRun(selectedRun.id)}
+                        onClick={() => onCancelRun(selectedRun)}
                         disabled={cancelingRunId === selectedRun.id}
                       >
                         {cancelingRunId === selectedRun.id ? 'Working...' : cancelActionLabel(selectedRun)}

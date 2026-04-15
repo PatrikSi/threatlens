@@ -315,7 +315,10 @@ def list_items(
     until: datetime | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
-    sort: str = Query(default="published_at_desc"),
+    sort: str = Query(
+        default="published_at_desc",
+        pattern="^(published_at_desc|published_at_asc|first_seen_desc|first_seen_asc)$",
+    ),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
 ):
@@ -400,7 +403,7 @@ def list_items(
         "first_seen_desc": Item.first_seen_at.desc(),
         "first_seen_asc": Item.first_seen_at.asc(),
     }
-    order_by = order_clauses.get(sort, order_clauses["published_at_desc"])
+    order_by = order_clauses[sort]
 
     rows = db.execute(query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).all()
 

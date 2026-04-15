@@ -274,6 +274,33 @@ def test_change_password_invalidates_existing_jwt_sessions(client: TestClient, s
     assert new_password_login.status_code == 200
 
 
+def test_logout_clears_auth_cookies_without_requiring_a_valid_session(client: TestClient):
+    response = client.post("/auth/logout")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+    set_cookie = response.headers.get("set-cookie", "")
+    assert "threatlens_session=" in set_cookie
+    assert "threatlens_csrf=" in set_cookie
+
+
+def test_logout_with_cookie_session_requires_csrf_header(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    denied_logout = client.post("/auth/logout")
+    assert denied_logout.status_code == 403
+
+    allowed_logout = client.post("/auth/logout", headers={"x-csrf-token": csrf_token})
+    assert allowed_logout.status_code == 200
+    assert allowed_logout.json() == {"status": "ok"}
+
+
 def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
     _ = seed_users
     login_response = client.post(
@@ -291,6 +318,12 @@ def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_use
     response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 403
     assert response.json()["detail"] == "Account is inactive"
+
+
+def test_items_list_rejects_invalid_sort_value(client: TestClient, auth_headers):
+    response = client.get("/items?sort=bogus", headers=auth_headers["viewer"])
+
+    assert response.status_code == 422
 
 
 def test_admin_unapproval_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):
