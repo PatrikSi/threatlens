@@ -29,11 +29,12 @@ from app.services.notification_webhooks import (
     list_template_variables,
     notification_webhook_delivery_response_from_model,
     notification_webhook_response_from_model,
+    reserve_webhook_failed_notification_deliveries,
     retry_notification_webhook_delivery,
     test_notification_webhook,
     validate_notification_webhook_payload,
 )
-from app.tasks.feed_tasks import dispatch_webhook_failed_notification_webhooks
+from app.tasks.feed_tasks import enqueue_notification_webhook_delivery_processing
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -203,6 +204,11 @@ def retry_notification_webhook_delivery_route(
         )
 
     retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
+    failed_delivery_reservations = (
+        reserve_webhook_failed_notification_deliveries(db, failed_delivery=retried)
+        if not retried.success and retried.event_type_snapshot != "webhook_failed"
+        else None
+    )
     record_audit(
         db,
         actor_user_id=user.id,
@@ -219,8 +225,8 @@ def retry_notification_webhook_delivery_route(
     )
     db.commit()
     db.refresh(retried)
-    if not retried.success and retried.event_type_snapshot != "webhook_failed":
-        dispatch_webhook_failed_notification_webhooks.delay(str(retried.id))
+    if failed_delivery_reservations is not None:
+        enqueue_notification_webhook_delivery_processing(failed_delivery_reservations.delivery_ids)
     return notification_webhook_delivery_response_from_model(retried)
 
 

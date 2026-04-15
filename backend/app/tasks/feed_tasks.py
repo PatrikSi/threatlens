@@ -56,17 +56,18 @@ from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
 from app.services.notification_webhooks import (
-    FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS,
     FEED_FAILING_NOTIFICATION_THRESHOLD,
-    FailedWebhookContext,
-    build_alert_match_context_for_item,
     build_daily_digest_context,
     get_matching_notification_webhooks,
     get_matching_notification_webhooks_for_feed,
     has_recent_notification_delivery,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
+    reserve_alert_match_notification_deliveries,
+    reserve_feed_failing_notification_deliveries,
+    reserve_new_item_notification_deliveries,
     reserve_notification_webhook_delivery,
+    reserve_webhook_failed_notification_deliveries,
     try_acquire_notification_delivery_lock,
 )
 from app.services.tag_feedback import load_feedback_adjustments
@@ -118,7 +119,12 @@ def _process_reserved_notification_deliveries(
 
         failed += 1
         if attempt.delivery.event_type_snapshot != "webhook_failed":
-            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+            failed_delivery_reservations = reserve_webhook_failed_notification_deliveries(
+                db,
+                failed_delivery=attempt.delivery,
+            )
+            db.commit()
+            enqueue_notification_webhook_delivery_processing(failed_delivery_reservations.delivery_ids)
         logger.warning(
             "notification_webhook_delivery_failed webhook_id=%s delivery_id=%s event_type=%s status_code=%s error=%s",
             attempt.delivery.webhook_id,
@@ -129,6 +135,22 @@ def _process_reserved_notification_deliveries(
         )
 
     return delivered, failed
+
+
+def enqueue_notification_webhook_delivery_processing(delivery_ids: list[uuid.UUID]) -> bool:
+    if not delivery_ids:
+        return True
+
+    try:
+        process_notification_webhook_deliveries.delay([str(delivery_id) for delivery_id in delivery_ids])
+        return True
+    except Exception as exc:
+        logger.exception(
+            "notification_webhook_delivery_enqueue_failed delivery_count=%s error=%s",
+            len(delivery_ids),
+            exc,
+        )
+        return False
 
 
 @contextmanager
@@ -172,6 +194,34 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
                 redis_client.delete(key)
         except redis.RedisError:
             pass
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.process_notification_webhook_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def process_notification_webhook_deliveries(delivery_ids: list[str]):
+    parsed_delivery_ids: list[uuid.UUID] = []
+    skipped = 0
+    for delivery_id in delivery_ids:
+        try:
+            parsed_delivery_ids.append(uuid.UUID(delivery_id))
+        except ValueError:
+            skipped += 1
+
+    if not parsed_delivery_ids:
+        return {"status": "skipped", "reason": "no_valid_delivery_ids", "skipped": skipped}
+
+    with db_session() as db:
+        delivered, failed = _process_reserved_notification_deliveries(db, parsed_delivery_ids)
+        return {
+            "status": "ok",
+            "scanned": len(parsed_delivery_ids),
+            "delivered": delivered,
+            "failed": failed,
+            "skipped": skipped,
+        }
 
 
 def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) -> None:
@@ -469,54 +519,18 @@ def dispatch_new_item_notification_webhooks(item_id: str):
         if feed is None:
             return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
 
-        webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
-
-        for webhook in webhooks:
-            user = db.scalar(select(User).where(User.id == webhook.user_id))
-            if user is None or not user.is_active or not user.is_approved:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="rss_item_new",
-                item_id=item.id,
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="rss_item_new",
-                item_id=item.id,
-            ):
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="rss_item_new",
-                item=item,
-                feed=feed,
-            )
-            reserved_delivery_ids.append(delivery.id)
+        reservation = reserve_new_item_notification_deliveries(db, item=item, feed=feed)
 
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
+        delivered, failed = _process_reserved_notification_deliveries(db, reservation.delivery_ids)
 
         return {
             "status": "ok",
             "item_id": item_id,
-            "matched_webhooks": len(webhooks),
+            "matched_webhooks": reservation.matched_webhooks,
             "delivered": delivered,
             "failed": failed,
-            "skipped": skipped,
+            "skipped": reservation.skipped,
         }
 
 
@@ -540,64 +554,18 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
         if feed is None:
             return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
 
-        webhooks = get_matching_notification_webhooks(db, event_type="alert_match", feed_id=feed.id)
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
-        cached_contexts: dict[uuid.UUID, object | None] = {}
-
-        for webhook in webhooks:
-            user = db.scalar(select(User).where(User.id == webhook.user_id))
-            if user is None or not user.is_active or not user.is_approved:
-                skipped += 1
-                continue
-
-            if webhook.user_id not in cached_contexts:
-                cached_contexts[webhook.user_id] = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
-
-            alert_context = cached_contexts[webhook.user_id]
-            if alert_context is None:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="alert_match",
-                item_id=item.id,
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="alert_match",
-                item_id=item.id,
-            ):
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="alert_match",
-                item=item,
-                feed=feed,
-                alert_context=alert_context,
-            )
-            reserved_delivery_ids.append(delivery.id)
+        reservation = reserve_alert_match_notification_deliveries(db, item=item, feed=feed)
 
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
+        delivered, failed = _process_reserved_notification_deliveries(db, reservation.delivery_ids)
 
         return {
             "status": "ok",
             "item_id": item_id,
-            "matched_webhooks": len(webhooks),
+            "matched_webhooks": reservation.matched_webhooks,
             "delivered": delivered,
             "failed": failed,
-            "skipped": skipped,
+            "skipped": reservation.skipped,
         }
 
 
@@ -619,57 +587,18 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
         if feed.error_count < FEED_FAILING_NOTIFICATION_THRESHOLD:
             return {"status": "skipped", "reason": "below_failure_threshold", "feed_id": feed_id}
 
-        webhooks = get_matching_notification_webhooks(db, event_type="feed_failing", feed_id=feed.id)
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
-        cooldown_start = datetime.now(timezone.utc) - timedelta(hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS)
-
-        for webhook in webhooks:
-            user = db.scalar(select(User).where(User.id == webhook.user_id))
-            if user is None or not user.is_active or not user.is_approved:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="feed_failing",
-                feed_id=feed.id,
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="feed_failing",
-                feed_id=feed.id,
-                since=cooldown_start,
-            ):
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="feed_failing",
-                feed=feed,
-                item=None,
-                feed_name=feed.name,
-            )
-            reserved_delivery_ids.append(delivery.id)
+        reservation = reserve_feed_failing_notification_deliveries(db, feed=feed)
 
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
+        delivered, failed = _process_reserved_notification_deliveries(db, reservation.delivery_ids)
 
         return {
             "status": "ok",
             "feed_id": feed_id,
-            "matched_webhooks": len(webhooks),
+            "matched_webhooks": reservation.matched_webhooks,
             "delivered": delivered,
             "failed": failed,
-            "skipped": skipped,
+            "skipped": reservation.skipped,
         }
 
 
@@ -691,81 +620,18 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
         if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
             return {"status": "skipped", "reason": "not_eligible", "delivery_id": delivery_id}
 
-        source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id))
-        if source_webhook is None:
-            return {"status": "skipped", "reason": "source_webhook_not_found", "delivery_id": delivery_id}
-
-        user = db.scalar(select(User).where(User.id == failed_delivery.user_id))
-        if user is None or not user.is_active or not user.is_approved:
-            return {"status": "skipped", "reason": "user_not_active", "delivery_id": delivery_id}
-
-        feed = None
-        if failed_delivery.feed_id is not None:
-            feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id))
-
-        failed_context = FailedWebhookContext(
-            id=source_webhook.id,
-            name=source_webhook.name,
-            event_type=failed_delivery.event_type_snapshot,
-            status_code=failed_delivery.status_code,
-            error=failed_delivery.error,
-            attempted_at=failed_delivery.attempted_at,
-        )
-
-        webhooks = get_matching_notification_webhooks(
-            db,
-            event_type="webhook_failed",
-            feed_id=failed_delivery.feed_id,
-            user_id=failed_delivery.user_id,
-        )
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
-        for webhook in webhooks:
-            if webhook.id == failed_delivery.webhook_id:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="webhook_failed",
-                source_delivery_id=failed_delivery.id,
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="webhook_failed",
-                source_delivery_id=failed_delivery.id,
-            ):
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="webhook_failed",
-                feed=feed,
-                item=None,
-                failed_webhook_context=failed_context,
-                feed_name=getattr(feed, "name", None),
-                source_delivery_id=failed_delivery.id,
-            )
-            reserved_delivery_ids.append(delivery.id)
+        reservation = reserve_webhook_failed_notification_deliveries(db, failed_delivery=failed_delivery)
 
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
+        delivered, failed = _process_reserved_notification_deliveries(db, reservation.delivery_ids)
 
         return {
             "status": "ok",
             "delivery_id": delivery_id,
-            "matched_webhooks": len(webhooks),
+            "matched_webhooks": reservation.matched_webhooks,
             "delivered": delivered,
             "failed": failed,
-            "skipped": skipped,
+            "skipped": reservation.skipped,
         }
 
 
@@ -1135,6 +1001,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
             if not acquired:
                 return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
+            reserved_notification_delivery_ids: list[uuid.UUID] = []
             with db_session() as db:
                 try:
                     parsed_feed_id = uuid.UUID(feed_id)
@@ -1154,8 +1021,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     headers["If-Modified-Since"] = feed.last_modified
 
                 if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
-                    if _mark_feed_failure(db, feed, "unsafe_feed_url") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                        dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, "unsafe_feed_url")
                     return {"status": "error", "feed_id": feed_id}
 
                 try:
@@ -1193,8 +1059,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                                 return {"status": "not_modified", "feed_id": feed_id}
 
                             if status_code != 200:
-                                if _mark_feed_failure(db, feed, f"http_status:{status_code}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                                _mark_feed_failure_and_enqueue_notifications(db, feed, f"http_status:{status_code}")
                                 return {"status": "error", "feed_id": feed_id}
 
                             body_chunks: list[bytes] = []
@@ -1215,13 +1080,11 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
                     except MaxRetriesExceededError:
                         logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
-                        if _mark_feed_failure(db, feed, f"network_error:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                            dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                        _mark_feed_failure_and_enqueue_notifications(db, feed, f"network_error:{exc}")
                         return {"status": "error", "feed_id": feed_id}
                 except FeedResponseTooLargeError as exc:
                     logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
-                    if _mark_feed_failure(db, feed, str(exc)) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                        dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, str(exc))
                     return {"status": "error", "feed_id": feed_id}
 
                 connector = RSSConnector()
@@ -1229,13 +1092,26 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 _backfill_feed_metadata_from_body(feed, body_bytes)
 
                 changed_item_ids: list[uuid.UUID] = []
-                new_item_ids: list[uuid.UUID] = []
+                new_items: list[Item] = []
                 for parsed in parsed_items:
                     item, changed, is_new = _upsert_item_from_parsed(db, feed, parsed)
                     if changed:
                         changed_item_ids.append(item.id)
                     if is_new:
-                        new_item_ids.append(item.id)
+                        new_items.append(item)
+
+                if new_items:
+                    feed_notification_webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
+                    webhook_user_cache: dict[uuid.UUID, User | None] = {}
+                    for new_item in new_items:
+                        reservation = reserve_new_item_notification_deliveries(
+                            db,
+                            item=new_item,
+                            feed=feed,
+                            webhooks=feed_notification_webhooks,
+                            user_cache=webhook_user_cache,
+                        )
+                        reserved_notification_delivery_ids.extend(reservation.delivery_ids)
 
                 now = datetime.now(timezone.utc)
                 feed.etag = response_etag or feed.etag
@@ -1250,15 +1126,16 @@ def fetch_feed(self, feed_id: str, force: bool = False):
 
             for item_id in changed_item_ids:
                 fetch_article.delay(str(item_id))
-            for item_id in new_item_ids:
-                dispatch_new_item_notification_webhooks.delay(str(item_id))
+            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(reserved_notification_delivery_ids)
 
             return {
                 "status": "ok",
                 "feed_id": feed_id,
                 "new_or_updated_items": len(changed_item_ids),
-                "new_items": len(new_item_ids),
+                "new_items": len(new_items),
                 "final_url": final_url,
+                "notification_deliveries_reserved": len(reserved_notification_delivery_ids),
+                "notification_enqueue_failed": bool(reserved_notification_delivery_ids) and not notification_enqueue_ok,
             }
     except CoordinationUnavailableError as exc:
         logger.warning("feed_fetch_coordination_unavailable feed_id=%s error=%s", feed_id, exc)
@@ -1271,8 +1148,8 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 except ValueError:
                     return {"status": "error", "feed_id": feed_id}
                 feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-                if feed is not None and _mark_feed_failure(db, feed, f"coordination_unavailable:{exc}") >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-                    dispatch_feed_failing_notification_webhooks.delay(str(feed.id))
+                if feed is not None:
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, f"coordination_unavailable:{exc}")
             return {"status": "error", "feed_id": feed_id}
 
 
@@ -1555,6 +1432,7 @@ def fetch_article(self, item_id: str):
 
 @celery_app.task(name="app.tasks.feed_tasks.classify_item")
 def classify_item(item_id: str):
+    alert_delivery_ids: list[uuid.UUID] = []
     with db_session() as db:
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -1610,8 +1488,14 @@ def classify_item(item_id: str):
                 feed_url=feed_url,
                 feedback_adjustments=feedback_adjustments,
             )
+            if feed is not None:
+                alert_delivery_ids = reserve_alert_match_notification_deliveries(
+                    db,
+                    item=item,
+                    feed=feed,
+                ).delivery_ids
             db.commit()
-            dispatch_alert_match_notification_webhooks.delay(item_id)
+            enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
             extract_item_iocs.delay(item_id)
             if queue_ai_enrichment:
                 _queue_item_ai_enrichment_run(
@@ -1662,9 +1546,15 @@ def classify_item(item_id: str):
             feed_url=feed_url,
             feedback_adjustments=feedback_adjustments,
         )
+        if feed is not None:
+            alert_delivery_ids = reserve_alert_match_notification_deliveries(
+                db,
+                item=item,
+                feed=feed,
+            ).delivery_ids
         db.commit()
 
-    dispatch_alert_match_notification_webhooks.delay(item_id)
+    enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
     extract_item_iocs.delay(item_id)
     if queue_ai_enrichment:
         _queue_item_ai_enrichment_run(
@@ -2264,5 +2154,12 @@ def _mark_feed_failure(db: Session, feed: Feed, error: str):
     feed.error_count += 1
     feed.last_error = error
     db.add(feed)
-    db.commit()
+    db.flush()
     return feed.error_count
+
+
+def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
+    _mark_feed_failure(db, feed, error)
+    reservation = reserve_feed_failing_notification_deliveries(db, feed=feed)
+    db.commit()
+    return enqueue_notification_webhook_delivery_processing(reservation.delivery_ids)

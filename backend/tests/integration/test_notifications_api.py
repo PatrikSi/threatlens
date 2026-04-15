@@ -440,6 +440,17 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
         {"event_type": "feed_failing", "total_deliveries": 1, "failed_deliveries": 1},
         {"event_type": "rss_item_new", "total_deliveries": 1, "failed_deliveries": 0},
     ]
+    assert payload["queue"] == {
+        "status": "healthy",
+        "ok": True,
+        "pending_deliveries": 0,
+        "sending_deliveries": 0,
+        "stale_sending_deliveries": 0,
+        "oldest_pending_age_seconds": None,
+        "oldest_sending_age_seconds": None,
+        "degraded_after_seconds": 300,
+        "stale_after_seconds": 120,
+    }
 
 
 def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, seed_users):

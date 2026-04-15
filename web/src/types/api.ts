@@ -507,6 +507,18 @@ export interface NotificationAnalyticsWebhookSummary {
   last_failure_at: string | null
 }
 
+export interface NotificationQueueSnapshot {
+  status: 'healthy' | 'degraded' | 'critical'
+  ok: boolean
+  pending_deliveries: number
+  sending_deliveries: number
+  stale_sending_deliveries: number
+  oldest_pending_age_seconds: number | null
+  oldest_sending_age_seconds: number | null
+  degraded_after_seconds: number
+  stale_after_seconds: number
+}
+
 export interface NotificationAnalyticsResponse {
   total_deliveries: number
   successful_deliveries: number
@@ -515,6 +527,7 @@ export interface NotificationAnalyticsResponse {
   failures_last_24h: number
   most_failing_webhook: NotificationAnalyticsWebhookSummary | null
   events: NotificationAnalyticsEventSummary[]
+  queue: NotificationQueueSnapshot
 }
 
 export interface TaggingSettings {

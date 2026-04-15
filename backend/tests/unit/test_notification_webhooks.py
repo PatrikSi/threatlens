@@ -711,7 +711,7 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.reserve_notification_webhook_delivery", _reserve)
+    monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
     monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
@@ -862,9 +862,9 @@ def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_una
         yield db_session
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.services.notification_webhooks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
+        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("reserve should not run when lock is unavailable")),
     )
 
@@ -1052,7 +1052,7 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.reserve_notification_webhook_delivery", _reserve)
+    monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
     monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
@@ -1403,6 +1403,49 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
             delivery_state="failed",
             attempt_count=1,
         ),
+        NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=user.id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            success=False,
+            status_code=None,
+            duration_ms=None,
+            timeout_seconds=10,
+            rendered_url="https://example.com/analytics",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            response_body_preview=None,
+            error=None,
+            attempted_at=datetime.now(timezone.utc) - timedelta(minutes=7),
+            delivery_state="pending",
+            attempt_count=0,
+        ),
+        NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=user.id,
+            event_type_snapshot="rss_item_new",
+            delivery_kind="live",
+            success=False,
+            status_code=None,
+            duration_ms=None,
+            timeout_seconds=10,
+            rendered_url="https://example.com/analytics",
+            rendered_method="POST",
+            rendered_headers_json=[],
+            rendered_query_params_json=[],
+            rendered_body=None,
+            response_body_preview=None,
+            error=None,
+            attempted_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+            claimed_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+            delivery_state="sending",
+            attempt_count=1,
+        ),
     )
     db_session.commit()
 
@@ -1419,3 +1462,11 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
         ("alert_match", 1, 1),
         ("rss_item_new", 1, 0),
     ]
+    assert analytics.queue.status == "critical"
+    assert analytics.queue.pending_deliveries == 1
+    assert analytics.queue.sending_deliveries == 1
+    assert analytics.queue.stale_sending_deliveries == 1
+    assert analytics.queue.oldest_pending_age_seconds is not None
+    assert analytics.queue.oldest_pending_age_seconds >= 420
+    assert analytics.queue.oldest_sending_age_seconds is not None
+    assert analytics.queue.oldest_sending_age_seconds >= 180

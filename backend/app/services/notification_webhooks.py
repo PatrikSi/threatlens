@@ -25,6 +25,7 @@ from app.models.user import User
 from app.schemas.notification import (
     NotificationAnalyticsEventSummary,
     NotificationAnalyticsResponse,
+    NotificationQueueSnapshot,
     NotificationAnalyticsWebhookSummary,
     NotificationEventType,
     NotificationWebhookDeliveryResponse,
@@ -143,8 +144,9 @@ NOTIFICATION_DELIVERY_SENDING = "sending"
 NOTIFICATION_DELIVERY_SUCCEEDED = "succeeded"
 NOTIFICATION_DELIVERY_FAILED = "failed"
 NOTIFICATION_DELIVERY_TERMINAL_STATES = (NOTIFICATION_DELIVERY_SUCCEEDED, NOTIFICATION_DELIVERY_FAILED)
-NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE = 100
-NOTIFICATION_DELIVERY_STALE_AFTER = timedelta(minutes=2)
+NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE = settings.notification_delivery_recovery_batch_size
+NOTIFICATION_DELIVERY_STALE_AFTER = timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
+NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER = timedelta(seconds=settings.notification_delivery_queue_degraded_after_seconds)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -214,6 +216,13 @@ class RenderedNotificationRequest:
 class NotificationWebhookDeliveryAttempt:
     result: NotificationWebhookTestResponse
     delivery: NotificationWebhookDelivery
+
+
+@dataclass(frozen=True)
+class NotificationDeliveryReservationBatch:
+    delivery_ids: list[uuid.UUID]
+    matched_webhooks: int
+    skipped: int
 
 
 def list_template_variables() -> list[NotificationTemplateVariable]:
@@ -508,6 +517,274 @@ def get_matching_notification_webhooks(
         for webhook in enabled_webhooks
         if webhook.feed_scope == "all" or str(feed_id) in (webhook.feed_ids_json or [])
     ]
+
+
+def reserve_new_item_notification_deliveries(
+    db: Session,
+    *,
+    item: Item,
+    feed: Feed,
+    webhooks: list[NotificationWebhook] | None = None,
+    user_cache: dict[uuid.UUID, User | None] | None = None,
+) -> NotificationDeliveryReservationBatch:
+    matched_webhooks = webhooks if webhooks is not None else get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
+    resolved_user_cache = user_cache if user_cache is not None else {}
+    reserved_delivery_ids: list[uuid.UUID] = []
+    skipped = 0
+
+    for webhook in matched_webhooks:
+        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        if user is None:
+            skipped += 1
+            continue
+
+        if not try_acquire_notification_delivery_lock(
+            db,
+            webhook_id=webhook.id,
+            event_type="rss_item_new",
+            item_id=item.id,
+        ):
+            skipped += 1
+            continue
+
+        if has_recent_notification_delivery(
+            db,
+            webhook_id=webhook.id,
+            event_type="rss_item_new",
+            item_id=item.id,
+        ):
+            skipped += 1
+            continue
+
+        delivery = reserve_notification_webhook_delivery(
+            db,
+            webhook=webhook,
+            user=user,
+            event_type="rss_item_new",
+            item=item,
+            feed=feed,
+        )
+        reserved_delivery_ids.append(delivery.id)
+
+    return NotificationDeliveryReservationBatch(
+        delivery_ids=reserved_delivery_ids,
+        matched_webhooks=len(matched_webhooks),
+        skipped=skipped,
+    )
+
+
+def reserve_alert_match_notification_deliveries(
+    db: Session,
+    *,
+    item: Item,
+    feed: Feed,
+    webhooks: list[NotificationWebhook] | None = None,
+    user_cache: dict[uuid.UUID, User | None] | None = None,
+) -> NotificationDeliveryReservationBatch:
+    matched_webhooks = (
+        webhooks if webhooks is not None else get_matching_notification_webhooks(db, event_type="alert_match", feed_id=feed.id)
+    )
+    resolved_user_cache = user_cache if user_cache is not None else {}
+    reserved_delivery_ids: list[uuid.UUID] = []
+    skipped = 0
+    cached_contexts: dict[uuid.UUID, AlertMatchContext | None] = {}
+
+    for webhook in matched_webhooks:
+        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        if user is None:
+            skipped += 1
+            continue
+
+        if webhook.user_id not in cached_contexts:
+            cached_contexts[webhook.user_id] = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
+
+        alert_context = cached_contexts[webhook.user_id]
+        if alert_context is None:
+            skipped += 1
+            continue
+
+        if not try_acquire_notification_delivery_lock(
+            db,
+            webhook_id=webhook.id,
+            event_type="alert_match",
+            item_id=item.id,
+        ):
+            skipped += 1
+            continue
+
+        if has_recent_notification_delivery(
+            db,
+            webhook_id=webhook.id,
+            event_type="alert_match",
+            item_id=item.id,
+        ):
+            skipped += 1
+            continue
+
+        delivery = reserve_notification_webhook_delivery(
+            db,
+            webhook=webhook,
+            user=user,
+            event_type="alert_match",
+            item=item,
+            feed=feed,
+            alert_context=alert_context,
+        )
+        reserved_delivery_ids.append(delivery.id)
+
+    return NotificationDeliveryReservationBatch(
+        delivery_ids=reserved_delivery_ids,
+        matched_webhooks=len(matched_webhooks),
+        skipped=skipped,
+    )
+
+
+def reserve_feed_failing_notification_deliveries(
+    db: Session,
+    *,
+    feed: Feed,
+    webhooks: list[NotificationWebhook] | None = None,
+    user_cache: dict[uuid.UUID, User | None] | None = None,
+    now: datetime | None = None,
+) -> NotificationDeliveryReservationBatch:
+    if int(feed.error_count or 0) < FEED_FAILING_NOTIFICATION_THRESHOLD:
+        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+
+    matched_webhooks = (
+        webhooks if webhooks is not None else get_matching_notification_webhooks(db, event_type="feed_failing", feed_id=feed.id)
+    )
+    resolved_user_cache = user_cache if user_cache is not None else {}
+    reserved_delivery_ids: list[uuid.UUID] = []
+    skipped = 0
+    cooldown_start = (now or datetime.now(timezone.utc)) - timedelta(hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS)
+
+    for webhook in matched_webhooks:
+        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        if user is None:
+            skipped += 1
+            continue
+
+        if not try_acquire_notification_delivery_lock(
+            db,
+            webhook_id=webhook.id,
+            event_type="feed_failing",
+            feed_id=feed.id,
+        ):
+            skipped += 1
+            continue
+
+        if has_recent_notification_delivery(
+            db,
+            webhook_id=webhook.id,
+            event_type="feed_failing",
+            feed_id=feed.id,
+            since=cooldown_start,
+        ):
+            skipped += 1
+            continue
+
+        delivery = reserve_notification_webhook_delivery(
+            db,
+            webhook=webhook,
+            user=user,
+            event_type="feed_failing",
+            feed=feed,
+            item=None,
+            feed_name=feed.name,
+        )
+        reserved_delivery_ids.append(delivery.id)
+
+    return NotificationDeliveryReservationBatch(
+        delivery_ids=reserved_delivery_ids,
+        matched_webhooks=len(matched_webhooks),
+        skipped=skipped,
+    )
+
+
+def reserve_webhook_failed_notification_deliveries(
+    db: Session,
+    *,
+    failed_delivery: NotificationWebhookDelivery,
+    source_webhook: NotificationWebhook | None = None,
+    user: User | None = None,
+    feed: Feed | None = None,
+) -> NotificationDeliveryReservationBatch:
+    if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
+        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+
+    resolved_source_webhook = source_webhook or db.scalar(
+        select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id)
+    )
+    if resolved_source_webhook is None:
+        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+
+    resolved_user = user or db.scalar(select(User).where(User.id == failed_delivery.user_id))
+    if resolved_user is None or not resolved_user.is_active or not resolved_user.is_approved:
+        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+
+    resolved_feed = feed
+    if resolved_feed is None and failed_delivery.feed_id is not None:
+        resolved_feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id))
+
+    failed_context = FailedWebhookContext(
+        id=resolved_source_webhook.id,
+        name=resolved_source_webhook.name,
+        event_type=failed_delivery.event_type_snapshot,
+        status_code=failed_delivery.status_code,
+        error=failed_delivery.error,
+        attempted_at=failed_delivery.attempted_at,
+    )
+
+    matched_webhooks = get_matching_notification_webhooks(
+        db,
+        event_type="webhook_failed",
+        feed_id=failed_delivery.feed_id,
+        user_id=failed_delivery.user_id,
+    )
+    reserved_delivery_ids: list[uuid.UUID] = []
+    skipped = 0
+
+    for webhook in matched_webhooks:
+        if webhook.id == failed_delivery.webhook_id:
+            skipped += 1
+            continue
+
+        if not try_acquire_notification_delivery_lock(
+            db,
+            webhook_id=webhook.id,
+            event_type="webhook_failed",
+            source_delivery_id=failed_delivery.id,
+        ):
+            skipped += 1
+            continue
+
+        if has_recent_notification_delivery(
+            db,
+            webhook_id=webhook.id,
+            event_type="webhook_failed",
+            source_delivery_id=failed_delivery.id,
+        ):
+            skipped += 1
+            continue
+
+        delivery = reserve_notification_webhook_delivery(
+            db,
+            webhook=webhook,
+            user=resolved_user,
+            event_type="webhook_failed",
+            feed=resolved_feed,
+            item=None,
+            failed_webhook_context=failed_context,
+            feed_name=getattr(resolved_feed, "name", None),
+            source_delivery_id=failed_delivery.id,
+        )
+        reserved_delivery_ids.append(delivery.id)
+
+    return NotificationDeliveryReservationBatch(
+        delivery_ids=reserved_delivery_ids,
+        matched_webhooks=len(matched_webhooks),
+        skipped=skipped,
+    )
 
 
 def reserve_notification_webhook_delivery(
@@ -1089,6 +1366,73 @@ def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> Notificati
         failures_last_24h=failures_last_24h,
         most_failing_webhook=most_failing_webhook,
         events=events,
+        queue=get_notification_delivery_queue_snapshot(db, user_id=user_id),
+    )
+
+
+def get_notification_delivery_queue_snapshot(
+    db: Session,
+    *,
+    user_id: uuid.UUID | None = None,
+    now: datetime | None = None,
+) -> NotificationQueueSnapshot:
+    current_time = now or datetime.now(timezone.utc)
+    stale_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
+
+    base_filters = []
+    if user_id is not None:
+        base_filters.append(NotificationWebhookDelivery.user_id == user_id)
+
+    pending_filters = [*base_filters, NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING]
+    sending_filters = [*base_filters, NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING]
+    stale_sending_filters = [
+        *sending_filters,
+        or_(
+            NotificationWebhookDelivery.claimed_at.is_(None),
+            NotificationWebhookDelivery.claimed_at < stale_cutoff,
+        ),
+    ]
+
+    pending_deliveries = int(
+        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*pending_filters)) or 0
+    )
+    sending_deliveries = int(
+        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*sending_filters)) or 0
+    )
+    stale_sending_deliveries = int(
+        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*stale_sending_filters)) or 0
+    )
+
+    oldest_pending_at = db.scalar(
+        select(func.min(NotificationWebhookDelivery.attempted_at)).where(*pending_filters)
+    )
+    oldest_sending_at = db.scalar(
+        select(func.min(func.coalesce(NotificationWebhookDelivery.claimed_at, NotificationWebhookDelivery.attempted_at))).where(
+            *sending_filters
+        )
+    )
+
+    oldest_pending_age_seconds = _seconds_since(current_time, oldest_pending_at)
+    oldest_sending_age_seconds = _seconds_since(current_time, oldest_sending_at)
+
+    status = "healthy"
+    if stale_sending_deliveries > 0:
+        status = "critical"
+    elif oldest_pending_age_seconds is not None and oldest_pending_age_seconds >= int(
+        NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER.total_seconds()
+    ):
+        status = "degraded"
+
+    return NotificationQueueSnapshot(
+        status=status,
+        ok=status == "healthy",
+        pending_deliveries=pending_deliveries,
+        sending_deliveries=sending_deliveries,
+        stale_sending_deliveries=stale_sending_deliveries,
+        oldest_pending_age_seconds=oldest_pending_age_seconds,
+        oldest_sending_age_seconds=oldest_sending_age_seconds,
+        degraded_after_seconds=int(NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER.total_seconds()),
+        stale_after_seconds=int(NOTIFICATION_DELIVERY_STALE_AFTER.total_seconds()),
     )
 
 
@@ -1620,7 +1964,6 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
         NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_query_params_json or [])
     ]
     body_text = delivery.rendered_body
-
     return RenderedNotificationRequest(
         method=delivery.rendered_method,
         url=delivery.rendered_url,
@@ -1634,3 +1977,26 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
         raw_body=body_text.encode("utf-8") if body_text is not None else None,
         timeout_seconds=delivery.timeout_seconds,
     )
+
+
+def _get_active_notification_webhook_user(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    user_cache: dict[uuid.UUID, User | None],
+) -> User | None:
+    if webhook.user_id not in user_cache:
+        user_cache[webhook.user_id] = db.scalar(select(User).where(User.id == webhook.user_id))
+    user = user_cache[webhook.user_id]
+    if user is None or not user.is_active or not user.is_approved:
+        return None
+    return user
+
+
+def _seconds_since(now: datetime, timestamp: datetime | None) -> int | None:
+    if timestamp is None:
+        return None
+    value = timestamp
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return max(0, int((now - value).total_seconds()))

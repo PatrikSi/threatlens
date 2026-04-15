@@ -8,9 +8,13 @@ from sqlalchemy import select
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_run import AITaskRun
+from app.models.alert_interest import AlertInterest
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.models.user import User
 from app.services.ai_config import apply_ai_settings_update, get_or_create_ai_settings
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPROCESS, AI_TRIGGER_MANUAL, queue_ai_task_run
@@ -127,6 +131,117 @@ def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
     result = fetch_feed.run("not-a-uuid")
 
     assert result == {"status": "skipped", "reason": "invalid_feed_id", "feed_id": "not-a-uuid"}
+
+
+def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="New item webhook",
+        event_type="rss_item_new",
+        url_template="https://hooks.example.com/items",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all([feed, user])
+    db_session.flush()
+    db_session.add(webhook)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    class _Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+        url = "https://example.com/feed.xml"
+
+        def iter_bytes(self):
+            yield b"<rss />"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    created_items = 0
+
+    def _upsert_item(_db, current_feed, _parsed):
+        nonlocal created_items
+        created_items += 1
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=current_feed.id,
+            source_guid=f"feed-item-{created_items}",
+            url=f"https://example.com/articles/{created_items}",
+            canonical_url=f"https://example.com/articles/{created_items}",
+            title=f"New item {created_items}",
+            summary="Summary",
+            published_at=datetime.now(timezone.utc),
+            dedupe_key=f"feed-item-{created_items}",
+            content_hash=str(created_items) * 64,
+            status="new",
+        )
+        _db.add(item)
+        _db.flush()
+        return item, True, True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.tasks.feed_tasks.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "1"}], None))
+    monkeypatch.setattr("app.tasks.feed_tasks._backfill_feed_metadata_from_body", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_item)
+    monkeypatch.setattr("app.tasks.feed_tasks.fetch_article.delay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    result = fetch_feed.run(str(feed.id), force=True)
+
+    delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
+
+    assert result["status"] == "ok"
+    assert result["notification_deliveries_reserved"] == 1
+    assert result["notification_enqueue_failed"] is True
+    assert delivery is not None
+    assert delivery.delivery_state == "pending"
+    assert delivery.event_type_snapshot == "rss_item_new"
 
 
 def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch):
@@ -367,6 +482,105 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     assert captured["item_id"] == str(item.id)
     assert captured["force"] == "False"
     assert captured["task_run_id"]
+
+
+def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="item-alert-1",
+        url="https://example.com/articles/1",
+        canonical_url="https://example.com/articles/1",
+        title="Fortinet exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="item-alert-1",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed Fortinet exploitation in the wild.",
+        extraction_method="readable",
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Alert webhook",
+        event_type="alert_match",
+        url_template="https://hooks.example.com/alerts",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    alert = AlertInterest(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Fortinet watch",
+        category="appliance",
+        keywords=["fortinet"],
+        enabled=True,
+    )
+    db_session.add_all([feed, user, item])
+    db_session.flush()
+    db_session.add_all([article, webhook, alert])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "InactiveAISettings",
+            (),
+            {
+                "ai_enabled": False,
+                "ai_configured": False,
+                "auto_enrich_new_items": False,
+            },
+        )(),
+    )
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    result = classify_item.run(str(item.id))
+
+    delivery = db_session.scalar(
+        select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id)
+    )
+
+    assert result["status"] == "ok"
+    assert delivery is not None
+    assert delivery.delivery_state == "pending"
+    assert delivery.event_type_snapshot == "alert_match"
 
 
 def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatch):

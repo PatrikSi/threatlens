@@ -11,6 +11,8 @@ from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.notification_webhook import NotificationWebhook
+from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.core.security import get_password_hash
@@ -564,6 +566,78 @@ def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClien
     assert response.status_code == 503
     payload = response.json()
     assert payload["ok"] is False
+
+
+def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Health webhook",
+        url_template="https://hooks.example.com/health",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add_all(
+        [
+            webhook,
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="pending",
+                attempt_count=0,
+                success=False,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/health",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview=None,
+                error=None,
+                attempted_at=datetime.now(timezone.utc) - timedelta(minutes=6),
+            ),
+            NotificationWebhookDelivery(
+                id=uuid.uuid4(),
+                webhook_id=webhook.id,
+                user_id=viewer.id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="sending",
+                attempt_count=1,
+                claimed_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+                success=False,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/health",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                response_body_preview=None,
+                error=None,
+                attempted_at=datetime.now(timezone.utc) - timedelta(minutes=3),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get("/health/notifications")
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["status"] == "critical"
+    assert payload["pending_deliveries"] == 1
+    assert payload["sending_deliveries"] == 1
+    assert payload["stale_sending_deliveries"] == 1
 
 
 def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, monkeypatch):

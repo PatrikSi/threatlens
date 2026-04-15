@@ -8,6 +8,7 @@ import {
   Feed,
   NotificationAnalyticsResponse,
   NotificationEventType,
+  NotificationQueueSnapshot,
   NotificationTemplateVariable,
   NotificationWebhookDelivery,
   NotificationWebhookDeliveryListResponse,
@@ -252,10 +253,24 @@ export function NotificationsPage() {
 
         {analytics && (
           <div className="mt-4 space-y-4">
-            <div className="grid gap-3 md:grid-cols-4">
+            {analytics.queue.status !== 'healthy' && (
+              <div className={`rounded-lg border px-4 py-3 text-sm ${
+                analytics.queue.status === 'critical'
+                  ? 'border-red-200 bg-red-50 text-red-800 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200'
+                  : 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-200'
+              }`}>
+                <p className="font-semibold">Notification queue needs attention</p>
+                <p className="mt-1">
+                  {describeQueueStatusMessage(analytics.queue)}
+                </p>
+              </div>
+            )}
+
+            <div className="grid gap-3 md:grid-cols-5">
               <MetricCard label="Total Deliveries" value={String(analytics.total_deliveries)} />
               <MetricCard label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
               <MetricCard label="Failures 24h" value={String(analytics.failures_last_24h)} />
+              <MetricCard label="Queue Status" value={describeQueueStatusLabel(analytics.queue)} />
               <MetricCard
                 label="Most Failing Webhook"
                 value={analytics.most_failing_webhook ? analytics.most_failing_webhook.webhook_name : 'None'}
@@ -285,23 +300,35 @@ export function NotificationsPage() {
               </div>
 
               <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
-                <h4 className="font-semibold">Current Snapshot</h4>
+                <div className="flex items-center justify-between gap-3">
+                  <h4 className="font-semibold">Delivery Queue</h4>
+                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${queueStatusBadgeClass(analytics.queue)}`}>
+                    {describeQueueStatusLabel(analytics.queue)}
+                  </span>
+                </div>
                 <div className="mt-3 space-y-2 text-sm">
                   <p>
-                    Successful deliveries: <span className="font-semibold">{analytics.successful_deliveries}</span>
+                    Pending deliveries: <span className="font-semibold">{analytics.queue.pending_deliveries}</span>
                   </p>
                   <p>
-                    Failed deliveries: <span className="font-semibold">{analytics.failed_deliveries}</span>
+                    In-flight deliveries: <span className="font-semibold">{analytics.queue.sending_deliveries}</span>
                   </p>
                   <p>
-                    Most failing webhook:{' '}
-                    <span className="font-semibold">{analytics.most_failing_webhook?.webhook_name ?? 'None'}</span>
+                    Stale claims: <span className="font-semibold">{analytics.queue.stale_sending_deliveries}</span>
                   </p>
-                  {analytics.most_failing_webhook?.last_failure_at && (
+                  {analytics.queue.oldest_pending_age_seconds != null && (
                     <p className="text-xs text-slate dark:text-white/60">
-                      Last failure: {formatTimestamp(analytics.most_failing_webhook.last_failure_at)}
+                      Oldest pending age: {formatAgeSeconds(analytics.queue.oldest_pending_age_seconds)}
                     </p>
                   )}
+                  {analytics.queue.oldest_sending_age_seconds != null && (
+                    <p className="text-xs text-slate dark:text-white/60">
+                      Oldest in-flight age: {formatAgeSeconds(analytics.queue.oldest_sending_age_seconds)}
+                    </p>
+                  )}
+                  <p className="text-xs text-slate dark:text-white/60">
+                    Queue enters degraded state after {formatAgeSeconds(analytics.queue.degraded_after_seconds)}.
+                  </p>
                 </div>
               </div>
             </div>
@@ -987,6 +1014,46 @@ function MetricCard({ label, value }: { label: string; value: string }) {
       <p className="mt-1 text-sm font-semibold">{value}</p>
     </div>
   )
+}
+
+function describeQueueStatusLabel(queue: NotificationQueueSnapshot): string {
+  if (queue.status === 'critical') {
+    return 'Critical'
+  }
+  if (queue.status === 'degraded') {
+    return 'Degraded'
+  }
+  return 'Healthy'
+}
+
+function describeQueueStatusMessage(queue: NotificationQueueSnapshot): string {
+  if (queue.status === 'critical') {
+    return `${queue.stale_sending_deliveries} delivery claim${queue.stale_sending_deliveries === 1 ? '' : 's'} look stranded. The recovery sweep should retry them, but the worker path needs attention.`
+  }
+  if (queue.oldest_pending_age_seconds != null) {
+    return `The oldest queued delivery has been waiting ${formatAgeSeconds(queue.oldest_pending_age_seconds)}, which is beyond the ${formatAgeSeconds(queue.degraded_after_seconds)} backlog target.`
+  }
+  return 'Deliveries are flowing normally.'
+}
+
+function queueStatusBadgeClass(queue: NotificationQueueSnapshot): string {
+  if (queue.status === 'critical') {
+    return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+  }
+  if (queue.status === 'degraded') {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+  }
+  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+}
+
+function formatAgeSeconds(value: number): string {
+  if (value < 60) {
+    return `${value}s`
+  }
+  if (value < 3600) {
+    return `${Math.floor(value / 60)}m`
+  }
+  return `${Math.floor(value / 3600)}h ${Math.floor((value % 3600) / 60)}m`
 }
 
 function createDefaultDraft(): NotificationWebhookDraft {

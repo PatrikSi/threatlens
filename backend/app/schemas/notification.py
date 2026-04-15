@@ -11,6 +11,7 @@ NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]
 NotificationDeliveryKind = Literal["live", "retry"]
 NotificationDeliveryState = Literal["pending", "sending", "succeeded", "failed"]
+NotificationQueueStatus = Literal["healthy", "degraded", "critical"]
 
 
 class NotificationWebhookField(BaseModel):
@@ -181,6 +182,18 @@ class NotificationAnalyticsWebhookSummary(BaseModel):
     last_failure_at: datetime | None
 
 
+class NotificationQueueSnapshot(BaseModel):
+    status: NotificationQueueStatus
+    ok: bool
+    pending_deliveries: int
+    sending_deliveries: int
+    stale_sending_deliveries: int
+    oldest_pending_age_seconds: int | None
+    oldest_sending_age_seconds: int | None
+    degraded_after_seconds: int
+    stale_after_seconds: int
+
+
 class NotificationAnalyticsResponse(BaseModel):
     total_deliveries: int
     successful_deliveries: int
@@ -189,3 +202,4 @@ class NotificationAnalyticsResponse(BaseModel):
     failures_last_24h: int
     most_failing_webhook: NotificationAnalyticsWebhookSummary | None
     events: list[NotificationAnalyticsEventSummary]
+    queue: NotificationQueueSnapshot

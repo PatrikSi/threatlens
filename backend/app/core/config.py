@@ -74,6 +74,9 @@ class Settings(BaseSettings):
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
+    notification_delivery_recovery_batch_size: int = 100
+    notification_delivery_sending_stale_after_seconds: int = 120
+    notification_delivery_queue_degraded_after_seconds: int = 300
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator("cors_origins", "trusted_proxy_cidrs", mode="before")
