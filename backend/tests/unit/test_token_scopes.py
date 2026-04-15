@@ -22,3 +22,7 @@ def test_has_required_scope_admin_matches_all():
     granted = {"admin:*"}
     assert has_required_scope(granted, "read:feeds")
     assert has_required_scope(granted, "write:users")
+
+
+def test_has_required_scope_empty_grants_nothing():
+    assert not has_required_scope(set(), "read:feeds")

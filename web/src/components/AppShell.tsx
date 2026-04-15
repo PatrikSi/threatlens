@@ -88,9 +88,9 @@ export function AppShell() {
       return
     }
 
-    if (meQuery.error instanceof ApiError && (meQuery.error.status === 401 || meQuery.error.status === 403)) {
+    if (meQuery.error instanceof ApiError && meQuery.error.status === 401) {
       markLoggedOut()
-      navigate('/login', { replace: true })
+      navigate('/login', { replace: true, state: { authMessage: 'Session expired. Sign in again.' } })
     }
   }, [markLoggedOut, meQuery.error, navigate])
 

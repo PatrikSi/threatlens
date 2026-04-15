@@ -83,10 +83,6 @@ def require_token_scopes(*required_scopes: str):
             return user
 
         granted = set(token_scopes)
-        settings = get_settings()
-
-        if not granted and settings.allow_legacy_unscoped_tokens:
-            return user
 
         for required_scope in required_scopes:
             if not has_required_scope(granted, required_scope):

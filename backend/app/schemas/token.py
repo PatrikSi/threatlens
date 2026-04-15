@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.token_scopes import is_scope_allowed, normalize_token_scopes
 
@@ -19,6 +19,12 @@ class ApiTokenCreateRequest(BaseModel):
         if invalid:
             raise ValueError(f"Unsupported scopes: {', '.join(invalid)}")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_explicit_empty_scope_list(self):
+        if "scopes" in self.model_fields_set and not self.scopes:
+            raise ValueError("scopes must include at least one value; omit the field to use default scopes")
+        return self
 
 
 class ApiTokenCreateResponse(BaseModel):

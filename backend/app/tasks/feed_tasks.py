@@ -65,6 +65,7 @@ from app.services.notification_webhooks import (
     get_matching_notification_webhooks_for_feed,
     has_recent_notification_delivery,
     send_notification_webhook,
+    try_acquire_notification_delivery_lock,
 )
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
@@ -445,6 +446,15 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 skipped += 1
                 continue
 
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="rss_item_new",
+                item_id=item.id,
+            ):
+                skipped += 1
+                continue
+
             if has_recent_notification_delivery(
                 db,
                 webhook_id=webhook.id,
@@ -524,6 +534,15 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
                 skipped += 1
                 continue
 
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="alert_match",
+                item_id=item.id,
+            ):
+                skipped += 1
+                continue
+
             if has_recent_notification_delivery(
                 db,
                 webhook_id=webhook.id,
@@ -583,6 +602,15 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
         for webhook in webhooks:
             user = db.scalar(select(User).where(User.id == webhook.user_id))
             if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="feed_failing",
+                feed_id=feed.id,
+            ):
                 skipped += 1
                 continue
 
@@ -672,6 +700,25 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
                 skipped += 1
                 continue
 
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="webhook_failed",
+                source_delivery_id=failed_delivery.id,
+            ):
+                skipped += 1
+                continue
+
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="webhook_failed",
+                source_delivery_id=failed_delivery.id,
+                success_only=True,
+            ):
+                skipped += 1
+                continue
+
             attempt = send_notification_webhook(
                 db,
                 webhook=webhook,
@@ -681,6 +728,7 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
                 item=None,
                 failed_webhook_context=failed_context,
                 feed_name=getattr(feed, "name", None),
+                source_delivery_id=failed_delivery.id,
             )
             db.commit()
             if attempt.result.success:
@@ -710,6 +758,15 @@ def dispatch_daily_digest_notification_webhooks():
         for webhook in webhooks:
             user = db.scalar(select(User).where(User.id == webhook.user_id))
             if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="daily_digest",
+                scope_key=digest_day_start.date().isoformat(),
+            ):
                 skipped += 1
                 continue
 

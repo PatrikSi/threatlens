@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import time
 import uuid
@@ -513,6 +514,7 @@ def send_notification_webhook(
     delivery_kind: str = "live",
     item_title: str | None = None,
     feed_name: str | None = None,
+    source_delivery_id: uuid.UUID | None = None,
 ) -> NotificationWebhookDeliveryAttempt:
     payload = notification_webhook_write_from_model(webhook)
     rendered = render_notification_request(
@@ -537,6 +539,7 @@ def send_notification_webhook(
         feed_id=getattr(feed, "id", None),
         item_title=item_title if item_title is not None else getattr(item, "title", None),
         feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
+        source_delivery_id=source_delivery_id,
     )
     return NotificationWebhookDeliveryAttempt(result=result, delivery=delivery)
 
@@ -579,6 +582,7 @@ def retry_notification_webhook_delivery(
         feed_id=delivery.feed_id,
         item_title=delivery.item_title_snapshot,
         feed_name=delivery.feed_name_snapshot,
+        source_delivery_id=delivery.source_delivery_id,
     )
 
 
@@ -789,6 +793,7 @@ def has_recent_notification_delivery(
     since: datetime | None = None,
     item_id: uuid.UUID | None = None,
     feed_id: uuid.UUID | None = None,
+    source_delivery_id: uuid.UUID | None = None,
     delivery_kind: str = "live",
     success_only: bool = False,
 ) -> bool:
@@ -803,9 +808,45 @@ def has_recent_notification_delivery(
         query = query.where(NotificationWebhookDelivery.item_id == item_id)
     if feed_id is not None:
         query = query.where(NotificationWebhookDelivery.feed_id == feed_id)
+    if source_delivery_id is not None:
+        query = query.where(NotificationWebhookDelivery.source_delivery_id == source_delivery_id)
     if success_only:
         query = query.where(NotificationWebhookDelivery.success.is_(True))
     return db.scalar(query.limit(1)) is not None
+
+
+def try_acquire_notification_delivery_lock(
+    db: Session,
+    *,
+    webhook_id: uuid.UUID,
+    event_type: NotificationEventType,
+    delivery_kind: str = "live",
+    item_id: uuid.UUID | None = None,
+    feed_id: uuid.UUID | None = None,
+    source_delivery_id: uuid.UUID | None = None,
+    scope_key: str | None = None,
+) -> bool:
+    bind = db.get_bind()
+    if bind is None or bind.dialect.name != "postgresql":
+        return True
+
+    digest = hashlib.blake2b(
+        "|".join(
+            [
+                str(webhook_id),
+                event_type,
+                delivery_kind,
+                str(item_id or ""),
+                str(feed_id or ""),
+                str(source_delivery_id or ""),
+                scope_key or "",
+            ]
+        ).encode("utf-8"),
+        digest_size=8,
+    ).digest()
+    left = int.from_bytes(digest[:4], "big", signed=True)
+    right = int.from_bytes(digest[4:], "big", signed=True)
+    return bool(db.scalar(select(func.pg_try_advisory_xact_lock(left, right))))
 
 
 def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> NotificationAnalyticsResponse:
@@ -1233,6 +1274,7 @@ def _record_notification_webhook_delivery(
     feed_id: uuid.UUID | None,
     item_title: str | None,
     feed_name: str | None,
+    source_delivery_id: uuid.UUID | None,
 ) -> NotificationWebhookDelivery:
     delivery = NotificationWebhookDelivery(
         webhook_id=webhook.id,
@@ -1240,6 +1282,7 @@ def _record_notification_webhook_delivery(
         event_type_snapshot=event_type,
         item_id=item_id,
         feed_id=feed_id,
+        source_delivery_id=source_delivery_id,
         delivery_kind=delivery_kind,
         success=result.success,
         status_code=result.status_code,

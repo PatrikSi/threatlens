@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch } from '../api/client'
 import { useAuth } from '../components/AuthContext'
@@ -10,6 +10,7 @@ type AuthMode = 'login' | 'register'
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { markAuthenticated } = useAuth()
   const [mode, setMode] = useState<AuthMode>('login')
   const [email, setEmail] = useState('')
@@ -60,6 +61,10 @@ export function LoginPage() {
   })
 
   const selfRegistrationEnabled = registrationSettingsQuery.data?.allow_self_registration ?? false
+  const authMessage =
+    typeof location.state === 'object' && location.state && 'authMessage' in location.state
+      ? String(location.state.authMessage || '')
+      : ''
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode)
@@ -98,6 +103,11 @@ export function LoginPage() {
             ? 'Sign in to manage feeds and triage articles.'
             : 'Self-registered accounts require admin approval before login.'}
         </p>
+        {mode === 'login' && authMessage && (
+          <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            {authMessage}
+          </p>
+        )}
 
         {selfRegistrationEnabled && (
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">

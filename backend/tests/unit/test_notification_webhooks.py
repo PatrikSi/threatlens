@@ -29,6 +29,7 @@ from app.tasks.feed_tasks import (
     dispatch_alert_match_notification_webhooks,
     dispatch_feed_failing_notification_webhooks,
     dispatch_new_item_notification_webhooks,
+    dispatch_webhook_failed_notification_webhooks,
 )
 
 
@@ -804,6 +805,70 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
     assert result["skipped"] == 1
 
 
+def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_unavailable(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/1",
+        title="Threat report",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:lock-contention",
+        content_hash="a" * 64,
+        status="new",
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="All feeds",
+        url_template="https://example.com/a",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    _persist_rows(db_session, feed, user)
+    _persist_rows(db_session, item, webhook)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.send_notification_webhook",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("send should not run when lock is unavailable")),
+    )
+
+    result = dispatch_new_item_notification_webhooks(str(item.id))
+
+    assert result["matched_webhooks"] == 1
+    assert result["delivered"] == 0
+    assert result["failed"] == 0
+    assert result["skipped"] == 1
+
+
 def test_build_alert_match_context_for_item_collects_matching_alerts(db_session):
     user = User(
         id=uuid.uuid4(),
@@ -1064,6 +1129,118 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(db
 
     assert result["matched_webhooks"] == 1
     assert result["delivered"] == 0
+    assert result["skipped"] == 1
+
+
+def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successful_source_delivery(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    source_webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Primary webhook",
+        event_type="rss_item_new",
+        url_template="https://example.com/source",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    target_webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Failure webhook",
+        event_type="webhook_failed",
+        url_template="https://example.com/failure",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    failed_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=source_webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        feed_id=feed.id,
+        delivery_kind="live",
+        success=False,
+        status_code=500,
+        duration_ms=25,
+        timeout_seconds=10,
+        rendered_url="https://example.com/source",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview="error",
+        error="HTTP 500",
+        feed_name_snapshot=feed.name,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    prior_failure_notice = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=target_webhook.id,
+        user_id=user.id,
+        event_type_snapshot="webhook_failed",
+        feed_id=feed.id,
+        source_delivery_id=failed_delivery.id,
+        delivery_kind="live",
+        success=True,
+        status_code=204,
+        duration_ms=11,
+        timeout_seconds=10,
+        rendered_url="https://example.com/failure",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview="ok",
+        error=None,
+        feed_name_snapshot=feed.name,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    _persist_rows(db_session, user, feed)
+    _persist_rows(db_session, source_webhook, target_webhook)
+    _persist_rows(db_session, failed_delivery, prior_failure_notice)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.send_notification_webhook",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate failure notice should be skipped")),
+    )
+
+    result = dispatch_webhook_failed_notification_webhooks(str(failed_delivery.id))
+
+    assert result["matched_webhooks"] == 1
+    assert result["delivered"] == 0
+    assert result["failed"] == 0
     assert result["skipped"] == 1
 
 

@@ -27,6 +27,12 @@ class NotificationWebhookDelivery(Base):
     )
     item_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("items.id", ondelete="SET NULL"), nullable=True)
     feed_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), ForeignKey("feeds.id", ondelete="SET NULL"), nullable=True)
+    source_delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("notification_webhook_deliveries.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     delivery_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="live", server_default="live")
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)

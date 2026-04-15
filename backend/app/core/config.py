@@ -112,6 +112,8 @@ class Settings(BaseSettings):
                 raise ValueError("auth_cookie_secure must be true in production")
             if not self.auth_require_csrf:
                 raise ValueError("auth_require_csrf must be true in production")
+            if self.allow_legacy_unscoped_tokens:
+                raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
         return self
 
 

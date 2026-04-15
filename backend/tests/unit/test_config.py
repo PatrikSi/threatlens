@@ -51,6 +51,18 @@ def test_production_requires_csrf_for_cookie_auth():
         )
 
 
+def test_production_rejects_legacy_unscoped_token_bypass():
+    with pytest.raises(ValueError):
+        Settings(
+            app_env="production",
+            jwt_secret="x" * 48,
+            admin_password="StrongPass123!",
+            auth_cookie_secure=True,
+            auth_require_csrf=True,
+            allow_legacy_unscoped_tokens=True,
+        )
+
+
 def test_bootstrap_mutation_flags_default_off():
     settings = Settings()
 

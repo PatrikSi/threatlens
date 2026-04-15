@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { ApiToken, ApiTokenCreateResponse } from '../types/api'
@@ -37,13 +37,17 @@ export function TokensPage() {
         .map((scope) => scope.trim())
         .filter(Boolean)
 
+      const body: Record<string, unknown> = {
+        name,
+        expires_in_days: expiresInDays,
+      }
+      if (scopes.length > 0) {
+        body.scopes = scopes
+      }
+
       return apiFetch<ApiTokenCreateResponse>('/tokens', {
         method: 'POST',
-        body: JSON.stringify({
-          name,
-          expires_in_days: expiresInDays,
-          scopes,
-        }),
+        body: JSON.stringify(body),
       })
     },
     onSuccess: (data) => {
@@ -75,11 +79,16 @@ export function TokensPage() {
     createToken.mutate()
   }
 
+  const legacyUnscopedTokens = tokensQuery.data?.filter((token) => token.scopes.length === 0) ?? []
+
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Create API Token</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">Token value is only shown once after creation.</p>
+        <div className="mt-3 rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-slate dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-slate-200">
+          Leave scopes blank to apply the recommended read-only defaults. Explicit empty scope lists are not allowed.
+        </div>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
             <label className="text-sm font-semibold">Name</label>
@@ -114,7 +123,11 @@ export function TokensPage() {
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createToken.isPending}>
             Generate Token
           </button>
-          {createToken.isError && <p className="text-sm text-red-600">Failed to create token.</p>}
+          {createToken.isError && (
+            <p className="text-sm text-red-600">
+              {createToken.error instanceof ApiError ? createToken.error.message : 'Failed to create token.'}
+            </p>
+          )}
         </form>
 
         {createdToken && (
@@ -138,6 +151,13 @@ export function TokensPage() {
             />
           )}
         </div>
+
+        {legacyUnscopedTokens.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            {legacyUnscopedTokens.length === 1 ? '1 token has' : `${legacyUnscopedTokens.length} tokens have`} no scopes.
+            Scoped API routes now reject unscoped tokens, so rotate these credentials before they break automation.
+          </div>
+        )}
 
         <div className="mt-3 space-y-2">
           {tokensQuery.data?.map((token) => (

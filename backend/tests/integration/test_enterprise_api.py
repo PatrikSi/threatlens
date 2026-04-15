@@ -667,6 +667,37 @@ def test_feed_import_and_export(client: TestClient, auth_headers):
     assert any(feed["name"] == "Bulk One" for feed in export_payload["feeds"])
 
 
+def test_feed_import_still_succeeds_when_backfill_enqueue_fails(client: TestClient, auth_headers, db_session, monkeypatch):
+    def _raise_send_task(*_args, **_kwargs):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr("app.api.routes.feeds.celery_app.send_task", _raise_send_task)
+
+    import_response = client.post(
+        "/feeds/import",
+        json={
+            "overwrite_existing": False,
+            "feeds": [
+                {
+                    "name": "Queued Later",
+                    "url": "https://example.com/queued-later.xml",
+                    "enabled": True,
+                    "fetch_mode": "interval",
+                    "fetch_interval_seconds": 600,
+                }
+            ],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert import_response.status_code == 200
+    payload = import_response.json()
+    assert payload["created"] == 1
+    assert any("scheduler will retry later" in error for error in payload["errors"])
+
+    feed = db_session.scalar(select(Feed).where(Feed.url == "https://example.com/queued-later.xml"))
+    assert feed is not None
+
+
 def test_feed_import_redacts_secret_urls_in_fallback_names_and_exports(client: TestClient, auth_headers, db_session):
     import_response = client.post(
         "/feeds/import",
@@ -730,6 +761,30 @@ def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(
     )
     assert second_response.status_code == 400
     assert second_response.json()["detail"] == "Feed URL already exists"
+
+
+def test_feed_create_still_succeeds_when_backfill_enqueue_fails(client: TestClient, auth_headers, db_session, monkeypatch):
+    def _raise_send_task(*_args, **_kwargs):
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr("app.api.routes.feeds.celery_app.send_task", _raise_send_task)
+
+    response = client.post(
+        "/feeds",
+        json={
+            "name": "Backfill Later",
+            "url": "https://example.com/backfill-later.xml",
+            "enabled": True,
+            "fetch_mode": "interval",
+            "fetch_interval_seconds": 1800,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert response.status_code == 201
+    assert response.json()["name"] == "Backfill Later"
+
+    feed = db_session.scalar(select(Feed).where(Feed.url == "https://example.com/backfill-later.xml"))
+    assert feed is not None
 
 
 def test_feed_create_keeps_query_distinct_for_authenticated_feeds(client: TestClient, auth_headers, db_session):
@@ -1256,14 +1311,14 @@ def test_api_token_creation_only_uses_default_scopes_when_scope_field_is_omitted
         json={"name": "empty-scope-token", "expires_in_days": 30, "scopes": []},
         headers=auth_headers["admin"],
     )
-    assert empty_scope_response.status_code == 201
+    assert empty_scope_response.status_code == 422
 
     tokens_response = client.get("/tokens", headers=auth_headers["admin"])
     assert tokens_response.status_code == 200
     tokens_by_name = {entry["name"]: entry for entry in tokens_response.json()}
 
     assert tokens_by_name["default-scope-token"]["scopes"] == list(DEFAULT_API_TOKEN_SCOPES)
-    assert tokens_by_name["empty-scope-token"]["scopes"] == []
+    assert "empty-scope-token" not in tokens_by_name
 
 
 def test_api_token_write_scope_allows_feed_mutation(client: TestClient, auth_headers):
@@ -1316,23 +1371,14 @@ def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_header
     assert created["scopes"] == ["read:feeds", "read:items", "read:stats", "read:alerts"]
 
 
-def test_token_preserves_explicit_empty_scope_list(client: TestClient, auth_headers):
+def test_token_rejects_explicit_empty_scope_list(client: TestClient, auth_headers):
     create_response = client.post(
         "/tokens",
         json={"name": "no-scope-token", "expires_in_days": 30, "scopes": []},
         headers=auth_headers["admin"],
     )
-    assert create_response.status_code == 201
-    token_payload = create_response.json()
-
-    list_response = client.get("/tokens", headers=auth_headers["admin"])
-    assert list_response.status_code == 200
-    created = next(token for token in list_response.json() if token["name"] == "no-scope-token")
-    assert created["scopes"] == []
-
-    denied_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})
-    assert denied_response.status_code == 403
-    assert denied_response.json()["detail"] == "Insufficient token scope"
+    assert create_response.status_code == 422
+    assert "omit the field" in create_response.text
 
 
 def test_audit_log_endpoint(client: TestClient, auth_headers):

@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
@@ -240,7 +241,13 @@ def _ensure_tag_exists(db: Session, tag_name: str) -> None:
     existing = db.scalar(select(Tag).where(Tag.name == tag_name))
     if existing is not None:
         return
-    db.add(Tag(name=tag_name))
+    try:
+        with db.begin_nested():
+            db.add(Tag(name=tag_name))
+            db.flush()
+    except IntegrityError:
+        if db.scalar(select(Tag.id).where(Tag.name == tag_name)) is None:
+            raise
 
 
 def _build_rule_preview_response(db: Session, payload: TaggingRulePreviewRequest) -> TaggingRulePreviewResponse:

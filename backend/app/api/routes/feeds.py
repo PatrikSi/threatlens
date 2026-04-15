@@ -1,7 +1,9 @@
 import uuid
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -28,6 +30,7 @@ from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_
 from app.tasks.celery_app import celery_app
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=list[FeedResponse])
@@ -111,60 +114,25 @@ def import_feeds(
             skipped += 1
             continue
 
-        resolved_name = _resolve_import_text(entry, "name", existing.name if existing else None)
-        description = _resolve_import_text(entry, "description", existing.description if existing else None)
-        site_url = _resolve_import_text(entry, "site_url", existing.site_url if existing else None)
-        language = _resolve_import_text(entry, "language", existing.language if existing else None)
-        etag = existing.etag if existing else None
-        last_modified = existing.last_modified if existing else None
-        enabled = entry.enabled if existing is None or _import_field_provided(entry, "enabled") else existing.enabled
-        fetch_mode, fetch_interval_seconds, schedule_cron = _resolve_import_fetch_settings(entry, existing)
-
-        if not resolved_name:
-            if settings.probe_feed_metadata_on_import:
-                try:
-                    metadata = probe_feed_metadata(feed_url)
-                    resolved_name = metadata.name or redact_feed_url(feed_url)
-                    description = description or _clean_optional_text(metadata.description)
-                    site_url = site_url or _clean_optional_text(metadata.site_url)
-                    language = language or _clean_optional_text(metadata.language)
-                    etag = metadata.etag or etag
-                    last_modified = metadata.last_modified or last_modified
-                except FeedProbeError:
-                    resolved_name = redact_feed_url(feed_url)
-            else:
-                resolved_name = redact_feed_url(feed_url)
+        feed_values = _resolve_import_feed_values(entry, existing=existing, settings=settings, feed_url=feed_url)
 
         if existing is None:
-            new_feed = Feed(
-                name=resolved_name,
-                url=feed_url,
-                description=description,
-                site_url=site_url,
-                language=language,
-                enabled=enabled,
-                fetch_mode=fetch_mode,
-                fetch_interval_seconds=fetch_interval_seconds,
-                schedule_cron=schedule_cron,
-                etag=etag,
-                last_modified=last_modified,
-            )
-            db.add(new_feed)
-            db.flush()
-            metadata_backfill_ids.append(str(new_feed.id))
-            created += 1
-            continue
+            created_feed = _create_feed_record(db, url=feed_url, **feed_values)
+            if created_feed is not None:
+                metadata_backfill_ids.append(str(created_feed.id))
+                created += 1
+                continue
 
-        existing.name = resolved_name
-        existing.description = description
-        existing.site_url = site_url
-        existing.language = language
-        existing.enabled = enabled
-        existing.fetch_mode = fetch_mode
-        existing.fetch_interval_seconds = fetch_interval_seconds
-        existing.schedule_cron = schedule_cron
-        existing.etag = etag
-        existing.last_modified = last_modified
+            existing = db.scalar(select(Feed).where(Feed.url == feed_url))
+            if existing is None:
+                errors.append(f"entry {index}: feed URL already exists")
+                continue
+            if not payload.overwrite_existing:
+                skipped += 1
+                continue
+            feed_values = _resolve_import_feed_values(entry, existing=existing, settings=settings, feed_url=feed_url)
+
+        _apply_feed_values(existing, feed_values)
         db.add(existing)
         metadata_backfill_ids.append(str(existing.id))
         updated += 1
@@ -186,8 +154,9 @@ def import_feeds(
     metadata_backfill_enqueued = _enqueue_metadata_backfills(
         metadata_backfill_ids,
         settings.max_metadata_backfill_tasks_per_request,
+        errors=errors,
     )
-    if metadata_backfill_enqueued < len(metadata_backfill_ids):
+    if min(len(metadata_backfill_ids), settings.max_metadata_backfill_tasks_per_request) < len(metadata_backfill_ids):
         errors.append(
             f"metadata backfill queue capped at {settings.max_metadata_backfill_tasks_per_request}; remaining feeds will backfill via scheduler"
         )
@@ -236,7 +205,8 @@ def create_feed(
         else:
             resolved_name = redact_feed_url(feed_url)
 
-    feed = Feed(
+    feed = _create_feed_record(
+        db,
         name=resolved_name,
         url=feed_url,
         description=description,
@@ -249,8 +219,8 @@ def create_feed(
         etag=etag,
         last_modified=last_modified,
     )
-    db.add(feed)
-    db.flush()
+    if feed is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
     record_audit(
         db,
         actor_user_id=user.id,
@@ -354,12 +324,29 @@ def refresh_feed(
     return {"status": "queued"}
 
 
-def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int) -> int:
+def _create_feed_record(db: Session, **feed_values) -> Feed | None:
+    feed = Feed(**feed_values)
+    try:
+        with db.begin_nested():
+            db.add(feed)
+            db.flush()
+    except IntegrityError:
+        return None
+    return feed
+
+
+def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None) -> int:
     if max_tasks <= 0:
         return 0
     enqueued = 0
     for target_id in feed_ids[:max_tasks]:
-        celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
+        try:
+            celery_app.send_task("app.tasks.feed_tasks.backfill_feed_metadata", args=[target_id])
+        except Exception:
+            logger.warning("feed_metadata_backfill_enqueue_failed feed_id=%s", target_id, exc_info=True)
+            if errors is not None:
+                errors.append(f"metadata backfill enqueue failed for feed {target_id}; scheduler will retry later")
+            continue
         enqueued += 1
     return enqueued
 
@@ -400,6 +387,56 @@ def _resolve_import_fetch_settings(entry: FeedImportEntry, existing: Feed | None
         else existing.schedule_cron
     )
     return (fetch_mode, fetch_interval_seconds, schedule_cron)
+
+
+def _resolve_import_feed_values(
+    entry: FeedImportEntry,
+    *,
+    existing: Feed | None,
+    settings,
+    feed_url: str,
+) -> dict[str, str | bool | int | None]:
+    resolved_name = _resolve_import_text(entry, "name", existing.name if existing else None)
+    description = _resolve_import_text(entry, "description", existing.description if existing else None)
+    site_url = _resolve_import_text(entry, "site_url", existing.site_url if existing else None)
+    language = _resolve_import_text(entry, "language", existing.language if existing else None)
+    etag = existing.etag if existing else None
+    last_modified = existing.last_modified if existing else None
+    enabled = entry.enabled if existing is None or _import_field_provided(entry, "enabled") else existing.enabled
+    fetch_mode, fetch_interval_seconds, schedule_cron = _resolve_import_fetch_settings(entry, existing)
+
+    if not resolved_name:
+        if settings.probe_feed_metadata_on_import:
+            try:
+                metadata = probe_feed_metadata(feed_url)
+                resolved_name = metadata.name or redact_feed_url(feed_url)
+                description = description or _clean_optional_text(metadata.description)
+                site_url = site_url or _clean_optional_text(metadata.site_url)
+                language = language or _clean_optional_text(metadata.language)
+                etag = metadata.etag or etag
+                last_modified = metadata.last_modified or last_modified
+            except FeedProbeError:
+                resolved_name = redact_feed_url(feed_url)
+        else:
+            resolved_name = redact_feed_url(feed_url)
+
+    return {
+        "name": resolved_name,
+        "description": description,
+        "site_url": site_url,
+        "language": language,
+        "enabled": enabled,
+        "fetch_mode": fetch_mode,
+        "fetch_interval_seconds": fetch_interval_seconds,
+        "schedule_cron": schedule_cron,
+        "etag": etag,
+        "last_modified": last_modified,
+    }
+
+
+def _apply_feed_values(feed: Feed, values: dict[str, str | bool | int | None]) -> None:
+    for key, value in values.items():
+        setattr(feed, key, value)
 
 
 def _import_field_provided(entry: FeedImportEntry, field_name: str) -> bool:
