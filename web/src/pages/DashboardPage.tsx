@@ -719,6 +719,7 @@ export function DashboardPage() {
     }),
     onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
   })
+  const viewSavePending = saveView.isPending || updateExistingView.isPending
 
   const rssWindowQueries = useQueries({
     queries: rssWindows.map((windowLayout) => {
@@ -1680,14 +1681,15 @@ export function DashboardPage() {
                     onClick={() => {
                       updateActiveView()
                     }}
-                    disabled={updateExistingView.isPending}
+                    disabled={viewSavePending}
                   >
-                    Save
+                    {updateExistingView.isPending ? 'Saving...' : 'Save'}
                   </button>
                   {!showSaveAsNew ? (
                     <button
                       type="button"
                       className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                      disabled={viewSavePending}
                       onClick={() => setShowSaveAsNew(true)}
                     >
                       Save as New...
@@ -1699,6 +1701,7 @@ export function DashboardPage() {
                         value={savedViewName}
                         onChange={(event) => setSavedViewName(event.target.value)}
                         placeholder="New view name..."
+                        disabled={viewSavePending}
                         className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
                       />
                       <button
@@ -1707,9 +1710,9 @@ export function DashboardPage() {
                         onClick={() => {
                           saveCurrentView()
                         }}
-                        disabled={saveView.isPending || !savedViewName.trim()}
+                        disabled={viewSavePending || !savedViewName.trim()}
                       >
-                        Create
+                        {saveView.isPending ? 'Creating...' : 'Create'}
                       </button>
                     </>
                   )}
@@ -1720,6 +1723,7 @@ export function DashboardPage() {
                     value={savedViewName}
                     onChange={(event) => setSavedViewName(event.target.value)}
                     placeholder="View name..."
+                    disabled={viewSavePending}
                     className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
                   />
                   <button
@@ -1728,15 +1732,16 @@ export function DashboardPage() {
                     onClick={() => {
                       saveCurrentView()
                     }}
-                    disabled={saveView.isPending || !savedViewName.trim()}
+                    disabled={viewSavePending || !savedViewName.trim()}
                   >
-                    Save New View
+                    {saveView.isPending ? 'Saving...' : 'Save New View'}
                   </button>
                 </>
               )}
               <button
                 type="button"
                 className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                disabled={viewSavePending}
                 onClick={() => {
                   setIsEditMode(false)
                   setShowAddWindowMenu(false)
@@ -1751,12 +1756,20 @@ export function DashboardPage() {
           )}
         </div>
         {viewSaveError && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{viewSaveError}</p>}
+        {viewSavePending && <p className="mt-2 text-sm text-cyan-700 dark:text-cyan-300">Saving the current layout. Editing is temporarily locked until the request finishes.</p>}
       </div>
 
       <div
         ref={rootRef}
-        className={`${isWideLayout ? 'relative h-[calc(100vh-126px)] min-h-[620px] w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-3 p-3'}`}
+        className={`relative ${isWideLayout ? 'h-[calc(100vh-126px)] min-h-[620px] w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-3 p-3'}`}
       >
+        {viewSavePending && (
+          <div className="absolute inset-0 z-30 flex items-start justify-center bg-white/55 px-4 py-6 backdrop-blur-[1px] dark:bg-slate-950/45">
+            <div className="rounded-full border border-cyan/30 bg-white/95 px-4 py-2 text-sm font-semibold text-cyan shadow-sm dark:border-cyan-500/35 dark:bg-[#041612]/95 dark:text-cyan-100">
+              Saving view changes...
+            </div>
+          </div>
+        )}
         {windows.map((windowLayout) => {
           const resolvedRect =
             windowLayout.snap === 'free'

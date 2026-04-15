@@ -38,6 +38,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks",
             "schedule": 3600.0,
         },
+        "dispatch-pending-notification-webhooks": {
+            "task": "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries",
+            "schedule": 60.0,
+        },
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
             "schedule": 300.0,

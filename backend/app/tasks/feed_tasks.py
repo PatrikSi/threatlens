@@ -64,7 +64,9 @@ from app.services.notification_webhooks import (
     get_matching_notification_webhooks,
     get_matching_notification_webhooks_for_feed,
     has_recent_notification_delivery,
-    send_notification_webhook,
+    list_recoverable_notification_delivery_ids,
+    process_notification_webhook_delivery,
+    reserve_notification_webhook_delivery,
     try_acquire_notification_delivery_lock,
 )
 from app.services.tag_feedback import load_feedback_adjustments
@@ -99,6 +101,34 @@ def db_session() -> Session:
         yield db
     finally:
         db.close()
+
+
+def _process_reserved_notification_deliveries(
+    db: Session,
+    delivery_ids: list[uuid.UUID],
+) -> tuple[int, int]:
+    delivered = 0
+    failed = 0
+
+    for delivery_id in delivery_ids:
+        attempt = process_notification_webhook_delivery(db, delivery_id=delivery_id)
+        if attempt.result.success:
+            delivered += 1
+            continue
+
+        failed += 1
+        if attempt.delivery.event_type_snapshot != "webhook_failed":
+            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+        logger.warning(
+            "notification_webhook_delivery_failed webhook_id=%s delivery_id=%s event_type=%s status_code=%s error=%s",
+            attempt.delivery.webhook_id,
+            attempt.delivery.id,
+            attempt.delivery.event_type_snapshot,
+            attempt.result.status_code,
+            attempt.result.error,
+        )
+
+    return delivered, failed
 
 
 @contextmanager
@@ -419,7 +449,11 @@ def dispatch_feed_metadata_backfill():
     return {"queued": queued}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_new_item_notification_webhooks")
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_new_item_notification_webhooks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_new_item_notification_webhooks(item_id: str):
     with db_session() as db:
         try:
@@ -436,8 +470,7 @@ def dispatch_new_item_notification_webhooks(item_id: str):
             return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
 
         webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
-        delivered = 0
-        failed = 0
+        reserved_delivery_ids: list[uuid.UUID] = []
         skipped = 0
 
         for webhook in webhooks:
@@ -460,12 +493,11 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 webhook_id=webhook.id,
                 event_type="rss_item_new",
                 item_id=item.id,
-                success_only=True,
             ):
                 skipped += 1
                 continue
 
-            attempt = send_notification_webhook(
+            delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
@@ -473,20 +505,10 @@ def dispatch_new_item_notification_webhooks(item_id: str):
                 item=item,
                 feed=feed,
             )
-            db.commit()
-            if attempt.result.success:
-                delivered += 1
-                continue
+            reserved_delivery_ids.append(delivery.id)
 
-            failed += 1
-            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
-            logger.warning(
-                "notification_webhook_delivery_failed webhook_id=%s item_id=%s status_code=%s error=%s",
-                webhook.id,
-                item.id,
-                attempt.result.status_code,
-                attempt.result.error,
-            )
+        db.commit()
+        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
 
         return {
             "status": "ok",
@@ -498,7 +520,11 @@ def dispatch_new_item_notification_webhooks(item_id: str):
         }
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks")
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_alert_match_notification_webhooks(item_id: str):
     with db_session() as db:
         try:
@@ -515,8 +541,7 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
             return {"status": "skipped", "reason": "feed_not_found", "item_id": item_id}
 
         webhooks = get_matching_notification_webhooks(db, event_type="alert_match", feed_id=feed.id)
-        delivered = 0
-        failed = 0
+        reserved_delivery_ids: list[uuid.UUID] = []
         skipped = 0
         cached_contexts: dict[uuid.UUID, object | None] = {}
 
@@ -552,7 +577,7 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
                 skipped += 1
                 continue
 
-            attempt = send_notification_webhook(
+            delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
@@ -561,13 +586,10 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
                 feed=feed,
                 alert_context=alert_context,
             )
-            db.commit()
-            if attempt.result.success:
-                delivered += 1
-                continue
+            reserved_delivery_ids.append(delivery.id)
 
-            failed += 1
-            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+        db.commit()
+        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
 
         return {
             "status": "ok",
@@ -579,7 +601,11 @@ def dispatch_alert_match_notification_webhooks(item_id: str):
         }
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks")
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_feed_failing_notification_webhooks(feed_id: str):
     with db_session() as db:
         try:
@@ -594,8 +620,7 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
             return {"status": "skipped", "reason": "below_failure_threshold", "feed_id": feed_id}
 
         webhooks = get_matching_notification_webhooks(db, event_type="feed_failing", feed_id=feed.id)
-        delivered = 0
-        failed = 0
+        reserved_delivery_ids: list[uuid.UUID] = []
         skipped = 0
         cooldown_start = datetime.now(timezone.utc) - timedelta(hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS)
 
@@ -624,7 +649,7 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
                 skipped += 1
                 continue
 
-            attempt = send_notification_webhook(
+            delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
@@ -633,13 +658,10 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
                 item=None,
                 feed_name=feed.name,
             )
-            db.commit()
-            if attempt.result.success:
-                delivered += 1
-                continue
+            reserved_delivery_ids.append(delivery.id)
 
-            failed += 1
-            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+        db.commit()
+        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
 
         return {
             "status": "ok",
@@ -651,7 +673,11 @@ def dispatch_feed_failing_notification_webhooks(feed_id: str):
         }
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks")
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
     with db_session() as db:
         try:
@@ -692,8 +718,7 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
             feed_id=failed_delivery.feed_id,
             user_id=failed_delivery.user_id,
         )
-        delivered = 0
-        failed = 0
+        reserved_delivery_ids: list[uuid.UUID] = []
         skipped = 0
         for webhook in webhooks:
             if webhook.id == failed_delivery.webhook_id:
@@ -714,12 +739,11 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
                 webhook_id=webhook.id,
                 event_type="webhook_failed",
                 source_delivery_id=failed_delivery.id,
-                success_only=True,
             ):
                 skipped += 1
                 continue
 
-            attempt = send_notification_webhook(
+            delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
@@ -730,11 +754,10 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
                 feed_name=getattr(feed, "name", None),
                 source_delivery_id=failed_delivery.id,
             )
-            db.commit()
-            if attempt.result.success:
-                delivered += 1
-            else:
-                failed += 1
+            reserved_delivery_ids.append(delivery.id)
+
+        db.commit()
+        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
 
         return {
             "status": "ok",
@@ -746,14 +769,18 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
         }
 
 
-@celery_app.task(name="app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks")
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_daily_digest_notification_webhooks():
     with db_session() as db:
         webhooks = get_matching_notification_webhooks(db, event_type="daily_digest")
-        delivered = 0
-        failed = 0
+        reserved_delivery_ids: list[uuid.UUID] = []
         skipped = 0
         digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        digest_scope_key = digest_day_start.date().isoformat()
 
         for webhook in webhooks:
             user = db.scalar(select(User).where(User.id == webhook.user_id))
@@ -775,7 +802,7 @@ def dispatch_daily_digest_notification_webhooks():
                 webhook_id=webhook.id,
                 event_type="daily_digest",
                 since=digest_day_start,
-                success_only=True,
+                scope_key=digest_scope_key,
             ):
                 skipped += 1
                 continue
@@ -786,7 +813,7 @@ def dispatch_daily_digest_notification_webhooks():
                 skipped += 1
                 continue
 
-            attempt = send_notification_webhook(
+            delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
@@ -796,16 +823,31 @@ def dispatch_daily_digest_notification_webhooks():
                 digest_context=digest_context,
                 item_title=f"{digest_context.total_items} items in last 24h",
                 feed_name=", ".join(digest_context.feed_names[:3]) or None,
+                scope_key=digest_scope_key,
             )
-            db.commit()
-            if attempt.result.success:
-                delivered += 1
-                continue
+            reserved_delivery_ids.append(delivery.id)
 
-            failed += 1
-            dispatch_webhook_failed_notification_webhooks.delay(str(attempt.delivery.id))
+        db.commit()
+        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
 
         return {"status": "ok", "matched_webhooks": len(webhooks), "delivered": delivered, "failed": failed, "skipped": skipped}
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dispatch_pending_notification_webhook_deliveries():
+    with db_session() as db:
+        delivery_ids = list_recoverable_notification_delivery_ids(db)
+        delivered, failed = _process_reserved_notification_deliveries(db, delivery_ids)
+        return {
+            "status": "ok",
+            "scanned": len(delivery_ids),
+            "delivered": delivered,
+            "failed": failed,
+        }
 
 
 @celery_app.task(bind=True, name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")

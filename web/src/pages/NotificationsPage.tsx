@@ -750,11 +750,9 @@ export function NotificationsPage() {
               </div>
               {deliveriesQuery.data?.deliveries[0] && (
                 <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                    deliveriesQuery.data.deliveries[0].success
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                      : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                  }`}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${deliveryStatusBadgeClass(
+                    deliveriesQuery.data.deliveries[0],
+                  )}`}
                 >
                   Last status: {describeDeliveryStatus(deliveriesQuery.data.deliveries[0])}
                 </span>
@@ -805,11 +803,9 @@ export function NotificationsPage() {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                delivery.success
-                                  ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                                  : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
-                              }`}
+                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${deliveryStatusBadgeClass(
+                                delivery,
+                              )}`}
                             >
                               {describeDeliveryStatus(delivery)}
                             </span>
@@ -827,7 +823,8 @@ export function NotificationsPage() {
                         </div>
                         <div className="text-right text-xs text-slate dark:text-white/60">
                           <p>{delivery.rendered_method}</p>
-                          <p>{delivery.duration_ms != null ? `${delivery.duration_ms} ms` : 'n/a'}</p>
+                          <p>{delivery.duration_ms != null ? `${delivery.duration_ms} ms` : describeDeliverySecondaryStatus(delivery)}</p>
+                          <p>Attempt {delivery.attempt_count}</p>
                         </div>
                       </div>
                     </summary>
@@ -836,12 +833,15 @@ export function NotificationsPage() {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-                          disabled={retryDelivery.isPending}
+                          disabled={retryDelivery.isPending || !isRetryableDelivery(delivery)}
                           onClick={() => retryDelivery.mutate({ webhookId: delivery.webhook_id, deliveryId: delivery.id })}
                         >
                           Retry delivery
                         </button>
                         <span className="text-xs text-slate dark:text-white/60">Timeout: {delivery.timeout_seconds}s</span>
+                        {delivery.claimed_at && (
+                          <span className="text-xs text-slate dark:text-white/60">Claimed: {formatTimestamp(delivery.claimed_at)}</span>
+                        )}
                       </div>
 
                       <div>
@@ -893,7 +893,7 @@ export function NotificationsPage() {
 
             {selectedWebhookId && deliveriesQuery.data && deliveriesQuery.data.deliveries.length === 0 && (
               <p className="mt-3 text-sm text-slate dark:text-white/70">
-                No deliveries yet. Matching events will show up here automatically after the first live delivery attempt.
+                No deliveries yet. Matching events will queue here automatically after the first live delivery reservation.
               </p>
             )}
           </section>
@@ -1240,10 +1240,43 @@ function describeFeedScope(scope: NotificationWebhook['feed_scope'], count: numb
 }
 
 function describeDeliveryStatus(delivery: NotificationWebhookDelivery): string {
+  if (delivery.delivery_state === 'pending') {
+    return 'Queued'
+  }
+  if (delivery.delivery_state === 'sending') {
+    return 'Sending'
+  }
   if (delivery.status_code != null) {
     return `${delivery.success ? 'Success' : 'Failed'} · HTTP ${delivery.status_code}`
   }
   return delivery.success ? 'Success' : 'Failed'
+}
+
+function describeDeliverySecondaryStatus(delivery: NotificationWebhookDelivery): string {
+  if (delivery.delivery_state === 'pending') {
+    return 'Waiting for worker'
+  }
+  if (delivery.delivery_state === 'sending') {
+    return 'In progress'
+  }
+  return 'n/a'
+}
+
+function deliveryStatusBadgeClass(delivery: NotificationWebhookDelivery): string {
+  if (delivery.delivery_state === 'pending') {
+    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+  }
+  if (delivery.delivery_state === 'sending') {
+    return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200'
+  }
+  if (delivery.success) {
+    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+  }
+  return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+}
+
+function isRetryableDelivery(delivery: NotificationWebhookDelivery): boolean {
+  return delivery.delivery_state === 'succeeded' || delivery.delivery_state === 'failed'
 }
 
 function formatTimestamp(value: string): string {

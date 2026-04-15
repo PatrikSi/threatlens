@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -138,6 +138,13 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
 TEMPLATE_VARIABLE_KEYS = frozenset(variable.key for variable in TEMPLATE_VARIABLES)
 TEMPLATE_PATTERN = __import__("re").compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 MAX_RESPONSE_PREVIEW_CHARS = 4000
+NOTIFICATION_DELIVERY_PENDING = "pending"
+NOTIFICATION_DELIVERY_SENDING = "sending"
+NOTIFICATION_DELIVERY_SUCCEEDED = "succeeded"
+NOTIFICATION_DELIVERY_FAILED = "failed"
+NOTIFICATION_DELIVERY_TERMINAL_STATES = (NOTIFICATION_DELIVERY_SUCCEEDED, NOTIFICATION_DELIVERY_FAILED)
+NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE = 100
+NOTIFICATION_DELIVERY_STALE_AFTER = timedelta(minutes=2)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -267,6 +274,9 @@ def notification_webhook_delivery_response_from_model(
         item_title=delivery.item_title_snapshot,
         feed_name=delivery.feed_name_snapshot,
         delivery_kind=delivery.delivery_kind,
+        delivery_state=delivery.delivery_state,
+        attempt_count=delivery.attempt_count,
+        claimed_at=delivery.claimed_at,
         success=delivery.success,
         status_code=delivery.status_code,
         duration_ms=delivery.duration_ms,
@@ -500,6 +510,149 @@ def get_matching_notification_webhooks(
     ]
 
 
+def reserve_notification_webhook_delivery(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    user: User,
+    event_type: NotificationEventType,
+    feed: Feed | SimpleNamespace | None = None,
+    item: Item | SimpleNamespace | None = None,
+    alert_context: AlertMatchContext | None = None,
+    failed_webhook_context: FailedWebhookContext | None = None,
+    digest_context: DailyDigestContext | None = None,
+    delivery_kind: str = "live",
+    item_title: str | None = None,
+    feed_name: str | None = None,
+    source_delivery_id: uuid.UUID | None = None,
+    scope_key: str | None = None,
+) -> NotificationWebhookDelivery:
+    payload = notification_webhook_write_from_model(webhook)
+    delivery_id = uuid.uuid4()
+    queued_at = datetime.now(timezone.utc)
+
+    try:
+        rendered = render_notification_request(
+            payload,
+            user=user,
+            feed=feed,
+            item=item,
+            event_type=event_type,
+            triggered_at=queued_at,
+            delivery_id=delivery_id,
+            alert_context=alert_context,
+            failed_webhook_context=failed_webhook_context,
+            digest_context=digest_context,
+        )
+    except (TemplateRenderError, ValueError) as exc:
+        return _create_failed_notification_webhook_delivery(
+            db,
+            delivery_id=delivery_id,
+            webhook=webhook,
+            event_type=event_type,
+            timeout_seconds=payload.timeout_seconds,
+            rendered_url=payload.url_template,
+            rendered_method=payload.method,
+            rendered_headers_json=[field.model_dump() for field in payload.headers],
+            rendered_query_params_json=[field.model_dump() for field in payload.query_params],
+            rendered_body=payload.body_template if payload.body_mode == "raw" else None,
+            delivery_kind=delivery_kind,
+            item_id=getattr(item, "id", None),
+            feed_id=getattr(feed, "id", None),
+            item_title=item_title if item_title is not None else getattr(item, "title", None),
+            feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
+            source_delivery_id=source_delivery_id,
+            scope_key=scope_key,
+            attempted_at=queued_at,
+            error=str(exc),
+        )
+
+    return _create_pending_notification_webhook_delivery(
+        db,
+        delivery_id=delivery_id,
+        webhook=webhook,
+        event_type=event_type,
+        rendered=rendered,
+        delivery_kind=delivery_kind,
+        item_id=getattr(item, "id", None),
+        feed_id=getattr(feed, "id", None),
+        item_title=item_title if item_title is not None else getattr(item, "title", None),
+        feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
+        source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
+        attempted_at=queued_at,
+    )
+
+
+def reserve_notification_webhook_delivery_from_saved_request(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookDelivery:
+    return _create_pending_notification_webhook_delivery(
+        db,
+        delivery_id=uuid.uuid4(),
+        webhook=webhook,
+        event_type=delivery.event_type_snapshot,
+        rendered=_rendered_request_from_delivery(delivery),
+        delivery_kind="retry",
+        item_id=delivery.item_id,
+        feed_id=delivery.feed_id,
+        item_title=delivery.item_title_snapshot,
+        feed_name=delivery.feed_name_snapshot,
+        source_delivery_id=delivery.source_delivery_id,
+        scope_key=delivery.scope_key,
+        attempted_at=datetime.now(timezone.utc),
+    )
+
+
+def process_notification_webhook_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+) -> NotificationWebhookDeliveryAttempt:
+    delivery = _claim_notification_webhook_delivery(db, delivery_id=delivery_id)
+    if delivery is None:
+        current = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == delivery_id))
+        if current is None:
+            raise ValueError("Webhook delivery not found")
+        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(current), delivery=current)
+
+    rendered = _rendered_request_from_delivery(delivery)
+    result = _send_rendered_notification_request(rendered)
+    finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
+    return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized)
+
+
+def list_recoverable_notification_delivery_ids(
+    db: Session,
+    *,
+    limit: int = NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE,
+    now: datetime | None = None,
+) -> list[uuid.UUID]:
+    claim_cutoff = (now or datetime.now(timezone.utc)) - NOTIFICATION_DELIVERY_STALE_AFTER
+    return list(
+        db.scalars(
+            select(NotificationWebhookDelivery.id)
+            .where(
+                or_(
+                    NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
+                    and_(
+                        NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING,
+                        or_(
+                            NotificationWebhookDelivery.claimed_at.is_(None),
+                            NotificationWebhookDelivery.claimed_at < claim_cutoff,
+                        ),
+                    ),
+                )
+            )
+            .order_by(NotificationWebhookDelivery.attempted_at.asc())
+            .limit(limit)
+        ).all()
+    )
+
+
 def send_notification_webhook(
     db: Session,
     *,
@@ -515,33 +668,26 @@ def send_notification_webhook(
     item_title: str | None = None,
     feed_name: str | None = None,
     source_delivery_id: uuid.UUID | None = None,
+    scope_key: str | None = None,
 ) -> NotificationWebhookDeliveryAttempt:
-    payload = notification_webhook_write_from_model(webhook)
-    rendered = render_notification_request(
-        payload,
+    delivery = reserve_notification_webhook_delivery(
         user=user,
+        db=db,
+        webhook=webhook,
+        event_type=event_type,
         feed=feed,
         item=item,
-        event_type=event_type,
         alert_context=alert_context,
         failed_webhook_context=failed_webhook_context,
         digest_context=digest_context,
-    )
-    result = _send_rendered_notification_request(rendered)
-    delivery = _record_notification_webhook_delivery(
-        db,
-        webhook=webhook,
-        event_type=event_type,
-        rendered=rendered,
-        result=result,
         delivery_kind=delivery_kind,
-        item_id=getattr(item, "id", None),
-        feed_id=getattr(feed, "id", None),
-        item_title=item_title if item_title is not None else getattr(item, "title", None),
-        feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
+        item_title=item_title,
+        feed_name=feed_name,
         source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
     )
-    return NotificationWebhookDeliveryAttempt(result=result, delivery=delivery)
+    db.commit()
+    return process_notification_webhook_delivery(db, delivery_id=delivery.id)
 
 
 def send_notification_webhook_for_item(
@@ -569,21 +715,9 @@ def retry_notification_webhook_delivery(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookDelivery:
-    rendered = _rendered_request_from_delivery(delivery)
-    result = _send_rendered_notification_request(rendered)
-    return _record_notification_webhook_delivery(
-        db,
-        webhook=webhook,
-        event_type=delivery.event_type_snapshot,
-        rendered=rendered,
-        result=result,
-        delivery_kind="retry",
-        item_id=delivery.item_id,
-        feed_id=delivery.feed_id,
-        item_title=delivery.item_title_snapshot,
-        feed_name=delivery.feed_name_snapshot,
-        source_delivery_id=delivery.source_delivery_id,
-    )
+    retried = reserve_notification_webhook_delivery_from_saved_request(db, webhook=webhook, delivery=delivery)
+    db.commit()
+    return process_notification_webhook_delivery(db, delivery_id=retried.id).delivery
 
 
 def _resolve_sample_feed_and_item(
@@ -794,8 +928,10 @@ def has_recent_notification_delivery(
     item_id: uuid.UUID | None = None,
     feed_id: uuid.UUID | None = None,
     source_delivery_id: uuid.UUID | None = None,
+    scope_key: str | None = None,
     delivery_kind: str = "live",
     success_only: bool = False,
+    states: tuple[str, ...] | None = None,
 ) -> bool:
     query = select(NotificationWebhookDelivery.id).where(
         NotificationWebhookDelivery.webhook_id == webhook_id,
@@ -810,8 +946,12 @@ def has_recent_notification_delivery(
         query = query.where(NotificationWebhookDelivery.feed_id == feed_id)
     if source_delivery_id is not None:
         query = query.where(NotificationWebhookDelivery.source_delivery_id == source_delivery_id)
+    if scope_key is not None:
+        query = query.where(NotificationWebhookDelivery.scope_key == scope_key)
+    if states:
+        query = query.where(NotificationWebhookDelivery.delivery_state.in_(states))
     if success_only:
-        query = query.where(NotificationWebhookDelivery.success.is_(True))
+        query = query.where(NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED)
     return db.scalar(query.limit(1)) is not None
 
 
@@ -851,14 +991,24 @@ def try_acquire_notification_delivery_lock(
 
 def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> NotificationAnalyticsResponse:
     total_deliveries = int(
-        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(NotificationWebhookDelivery.user_id == user_id))
+        db.scalar(
+            select(func.count())
+            .select_from(NotificationWebhookDelivery)
+            .where(
+                NotificationWebhookDelivery.user_id == user_id,
+                NotificationWebhookDelivery.delivery_state.in_(NOTIFICATION_DELIVERY_TERMINAL_STATES),
+            )
+        )
         or 0
     )
     successful_deliveries = int(
         db.scalar(
             select(func.count())
             .select_from(NotificationWebhookDelivery)
-            .where(NotificationWebhookDelivery.user_id == user_id, NotificationWebhookDelivery.success.is_(True))
+            .where(
+                NotificationWebhookDelivery.user_id == user_id,
+                NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED,
+            )
         )
         or 0
     )
@@ -870,7 +1020,7 @@ def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> Notificati
             .select_from(NotificationWebhookDelivery)
             .where(
                 NotificationWebhookDelivery.user_id == user_id,
-                NotificationWebhookDelivery.success.is_(False),
+                NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_FAILED,
                 NotificationWebhookDelivery.attempted_at >= cutoff,
             )
         )
@@ -880,18 +1030,21 @@ def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> Notificati
     event_rows = db.execute(
         select(
             NotificationWebhookDelivery.event_type_snapshot,
-            NotificationWebhookDelivery.success,
+            NotificationWebhookDelivery.delivery_state,
             func.count().label("count"),
         )
-        .where(NotificationWebhookDelivery.user_id == user_id)
-        .group_by(NotificationWebhookDelivery.event_type_snapshot, NotificationWebhookDelivery.success)
+        .where(
+            NotificationWebhookDelivery.user_id == user_id,
+            NotificationWebhookDelivery.delivery_state.in_(NOTIFICATION_DELIVERY_TERMINAL_STATES),
+        )
+        .group_by(NotificationWebhookDelivery.event_type_snapshot, NotificationWebhookDelivery.delivery_state)
         .order_by(NotificationWebhookDelivery.event_type_snapshot.asc())
     ).all()
     events_by_type: dict[str, dict[str, int]] = {}
-    for event_type, success, count in event_rows:
+    for event_type, delivery_state, count in event_rows:
         bucket = events_by_type.setdefault(event_type, {"total": 0, "failed": 0})
         bucket["total"] += int(count)
-        if not success:
+        if delivery_state == NOTIFICATION_DELIVERY_FAILED:
             bucket["failed"] += int(count)
 
     events = [
@@ -909,7 +1062,10 @@ def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> Notificati
             func.max(NotificationWebhookDelivery.attempted_at).label("last_failure_at"),
         )
         .join(NotificationWebhook, NotificationWebhook.id == NotificationWebhookDelivery.webhook_id)
-        .where(NotificationWebhookDelivery.user_id == user_id, NotificationWebhookDelivery.success.is_(False))
+        .where(
+            NotificationWebhookDelivery.user_id == user_id,
+            NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_FAILED,
+        )
         .group_by(NotificationWebhookDelivery.webhook_id, NotificationWebhook.name)
         .order_by(func.count().desc(), func.max(NotificationWebhookDelivery.attempted_at).desc())
         .limit(1)
@@ -1262,44 +1418,197 @@ def _origin_tuple(url: str) -> tuple[str, str, int | None]:
     return scheme, (split.hostname or "").lower(), port
 
 
-def _record_notification_webhook_delivery(
+def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> NotificationWebhookTestResponse:
+    return NotificationWebhookTestResponse(
+        success=delivery.success,
+        status_code=delivery.status_code,
+        duration_ms=delivery.duration_ms,
+        rendered_url=delivery.rendered_url,
+        rendered_method=delivery.rendered_method,
+        rendered_headers=[
+            NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_headers_json or [])
+        ],
+        rendered_query_params=[
+            NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_query_params_json or [])
+        ],
+        rendered_body=delivery.rendered_body,
+        response_body_preview=delivery.response_body_preview,
+        error=delivery.error,
+    )
+
+
+def _create_pending_notification_webhook_delivery(
     db: Session,
     *,
+    delivery_id: uuid.UUID,
     webhook: NotificationWebhook,
     event_type: NotificationEventType,
     rendered: RenderedNotificationRequest,
-    result: NotificationWebhookTestResponse,
     delivery_kind: str,
     item_id: uuid.UUID | None,
     feed_id: uuid.UUID | None,
     item_title: str | None,
     feed_name: str | None,
     source_delivery_id: uuid.UUID | None,
+    scope_key: str | None,
+    attempted_at: datetime,
 ) -> NotificationWebhookDelivery:
     delivery = NotificationWebhookDelivery(
+        id=delivery_id,
         webhook_id=webhook.id,
         user_id=webhook.user_id,
         event_type_snapshot=event_type,
         item_id=item_id,
         feed_id=feed_id,
         source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
         delivery_kind=delivery_kind,
-        success=result.success,
-        status_code=result.status_code,
-        duration_ms=result.duration_ms,
+        delivery_state=NOTIFICATION_DELIVERY_PENDING,
+        attempt_count=0,
+        claimed_at=None,
+        success=False,
+        status_code=None,
+        duration_ms=None,
         timeout_seconds=rendered.timeout_seconds,
-        rendered_url=result.rendered_url,
-        rendered_method=result.rendered_method,
-        rendered_headers_json=[field.model_dump() for field in result.rendered_headers],
-        rendered_query_params_json=[field.model_dump() for field in result.rendered_query_params],
-        rendered_body=result.rendered_body,
-        response_body_preview=result.response_body_preview,
-        error=result.error,
+        rendered_url=rendered.url,
+        rendered_method=rendered.method,
+        rendered_headers_json=[field.model_dump() for field in rendered.headers],
+        rendered_query_params_json=[field.model_dump() for field in rendered.query_params],
+        rendered_body=rendered.body,
+        response_body_preview=None,
+        error=None,
         item_title_snapshot=item_title,
         feed_name_snapshot=feed_name,
+        attempted_at=attempted_at,
     )
     db.add(delivery)
     db.flush()
+    return delivery
+
+
+def _create_failed_notification_webhook_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    webhook: NotificationWebhook,
+    event_type: NotificationEventType,
+    timeout_seconds: int,
+    rendered_url: str,
+    rendered_method: str,
+    rendered_headers_json: list[dict[str, str]],
+    rendered_query_params_json: list[dict[str, str]],
+    rendered_body: str | None,
+    delivery_kind: str,
+    item_id: uuid.UUID | None,
+    feed_id: uuid.UUID | None,
+    item_title: str | None,
+    feed_name: str | None,
+    source_delivery_id: uuid.UUID | None,
+    scope_key: str | None,
+    attempted_at: datetime,
+    error: str,
+) -> NotificationWebhookDelivery:
+    delivery = NotificationWebhookDelivery(
+        id=delivery_id,
+        webhook_id=webhook.id,
+        user_id=webhook.user_id,
+        event_type_snapshot=event_type,
+        item_id=item_id,
+        feed_id=feed_id,
+        source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
+        delivery_kind=delivery_kind,
+        delivery_state=NOTIFICATION_DELIVERY_FAILED,
+        attempt_count=1,
+        claimed_at=attempted_at,
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=timeout_seconds,
+        rendered_url=rendered_url,
+        rendered_method=rendered_method,
+        rendered_headers_json=rendered_headers_json,
+        rendered_query_params_json=rendered_query_params_json,
+        rendered_body=rendered_body,
+        response_body_preview=None,
+        error=error,
+        item_title_snapshot=item_title,
+        feed_name_snapshot=feed_name,
+        attempted_at=attempted_at,
+    )
+    db.add(delivery)
+    db.flush()
+    return delivery
+
+
+def _claim_notification_webhook_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    now: datetime | None = None,
+) -> NotificationWebhookDelivery | None:
+    current_time = now or datetime.now(timezone.utc)
+    stale_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
+    delivery = db.scalar(
+        select(NotificationWebhookDelivery)
+        .where(NotificationWebhookDelivery.id == delivery_id)
+        .with_for_update()
+    )
+    if delivery is None:
+        return None
+
+    if delivery.delivery_state in NOTIFICATION_DELIVERY_TERMINAL_STATES:
+        return None
+    if (
+        delivery.delivery_state == NOTIFICATION_DELIVERY_SENDING
+        and delivery.claimed_at is not None
+        and delivery.claimed_at >= stale_cutoff
+    ):
+        return None
+
+    delivery.delivery_state = NOTIFICATION_DELIVERY_SENDING
+    delivery.claimed_at = current_time
+    delivery.attempt_count = max(int(delivery.attempt_count or 0), 0) + 1
+    delivery.attempted_at = current_time
+    delivery.status_code = None
+    delivery.duration_ms = None
+    delivery.response_body_preview = None
+    delivery.error = None
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
+def _finalize_notification_webhook_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    result: NotificationWebhookTestResponse,
+) -> NotificationWebhookDelivery:
+    delivery = db.scalar(
+        select(NotificationWebhookDelivery)
+        .where(NotificationWebhookDelivery.id == delivery_id)
+        .with_for_update()
+    )
+    if delivery is None:
+        raise ValueError("Webhook delivery not found")
+
+    delivery.delivery_state = NOTIFICATION_DELIVERY_SUCCEEDED if result.success else NOTIFICATION_DELIVERY_FAILED
+    delivery.success = result.success
+    delivery.status_code = result.status_code
+    delivery.duration_ms = result.duration_ms
+    delivery.rendered_url = result.rendered_url
+    delivery.rendered_method = result.rendered_method
+    delivery.rendered_headers_json = [field.model_dump() for field in result.rendered_headers]
+    delivery.rendered_query_params_json = [field.model_dump() for field in result.rendered_query_params]
+    delivery.rendered_body = result.rendered_body
+    delivery.response_body_preview = result.response_body_preview
+    delivery.error = result.error
+    delivery.attempted_at = datetime.now(timezone.utc)
+    db.add(delivery)
+    db.commit()
+    db.refresh(delivery)
     return delivery
 
 

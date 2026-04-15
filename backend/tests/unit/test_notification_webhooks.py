@@ -1,6 +1,7 @@
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -29,6 +30,7 @@ from app.tasks.feed_tasks import (
     dispatch_alert_match_notification_webhooks,
     dispatch_feed_failing_notification_webhooks,
     dispatch_new_item_notification_webhooks,
+    dispatch_pending_notification_webhook_deliveries,
     dispatch_webhook_failed_notification_webhooks,
 )
 
@@ -469,6 +471,8 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert delivery is not None
     assert delivery.event_type_snapshot == "rss_item_new"
     assert delivery.delivery_kind == "live"
+    assert delivery.delivery_state == "succeeded"
+    assert delivery.attempt_count == 1
     assert delivery.item_id == item.id
     assert delivery.feed_id == feed.id
     assert delivery.item_title_snapshot == item.title
@@ -538,6 +542,8 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
         error="HTTP 500",
         item_title_snapshot="Threat report",
         feed_name_snapshot="Unit42",
+        delivery_state="failed",
+        attempt_count=1,
     )
     _persist_rows(db_session, user, feed)
     _persist_rows(db_session, item, webhook)
@@ -573,6 +579,8 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
     assert captured["raw_body"] == b'{"title":"ThreatLens"}'
     assert captured["timeout_seconds"] == 12
     assert retried.delivery_kind == "retry"
+    assert retried.delivery_state == "succeeded"
+    assert retried.attempt_count == 1
     assert retried.item_id == original_delivery.item_id
     assert retried.feed_id == original_delivery.feed_id
     assert retried.item_title_snapshot == "Threat report"
@@ -684,30 +692,27 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     db_session.commit()
 
     delivered_ids: list[uuid.UUID] = []
+    reserved_webhook_ids: dict[uuid.UUID, uuid.UUID] = {}
 
-    def _send(_db, *, webhook, user, event_type, item, feed, **_kwargs):
-        delivered_ids.append(webhook.id)
+    def _reserve(_db, *, webhook, user, event_type, item, feed, **_kwargs):
         assert event_type == "rss_item_new"
+        delivery_id = uuid.uuid4()
+        reserved_webhook_ids[delivery_id] = webhook.id
+        return SimpleNamespace(id=delivery_id)
 
-        class _Result:
-            success = True
-            status_code = 204
-            error = None
-
-        class _Delivery:
-            id = uuid.uuid4()
-
-        class _Attempt:
-            result = _Result()
-            delivery = _Delivery()
-
-        return _Attempt()
+    def _process(_db, *, delivery_id):
+        delivered_ids.append(reserved_webhook_ids[delivery_id])
+        return SimpleNamespace(
+            result=SimpleNamespace(success=True, status_code=204, error=None),
+            delivery=SimpleNamespace(id=delivery_id, event_type_snapshot="rss_item_new", webhook_id=reserved_webhook_ids[delivery_id]),
+        )
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
+    monkeypatch.setattr("app.tasks.feed_tasks.reserve_notification_webhook_delivery", _reserve)
+    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -781,6 +786,8 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
         response_body_preview="ok",
         error=None,
         attempted_at=datetime.now(timezone.utc),
+        delivery_state="succeeded",
+        attempt_count=1,
     )
 
     _persist_rows(db_session, feed, user)
@@ -791,10 +798,10 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
     def _db_session_override():
         yield db_session
 
-    def _send(*_args, **_kwargs):
-        raise AssertionError("duplicate rss_item_new delivery should have been skipped")
-
-    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate rss_item_new delivery should have been skipped")),
+    )
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -857,8 +864,8 @@ def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_una
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.tasks.feed_tasks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.send_notification_webhook",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("send should not run when lock is unavailable")),
+        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("reserve should not run when lock is unavailable")),
     )
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -1025,31 +1032,28 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
     db_session.commit()
 
     delivered_ids: list[uuid.UUID] = []
+    reserved_webhook_ids: dict[uuid.UUID, uuid.UUID] = {}
 
-    def _send(_db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs):
-        delivered_ids.append(webhook.id)
+    def _reserve(_db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs):
         assert event_type == "alert_match"
         assert alert_context is not None
+        delivery_id = uuid.uuid4()
+        reserved_webhook_ids[delivery_id] = webhook.id
+        return SimpleNamespace(id=delivery_id)
 
-        class _Result:
-            success = True
-            status_code = 204
-            error = None
-
-        class _Delivery:
-            id = uuid.uuid4()
-
-        class _Attempt:
-            result = _Result()
-            delivery = _Delivery()
-
-        return _Attempt()
+    def _process(_db, *, delivery_id):
+        delivered_ids.append(reserved_webhook_ids[delivery_id])
+        return SimpleNamespace(
+            result=SimpleNamespace(success=True, status_code=204, error=None),
+            delivery=SimpleNamespace(id=delivery_id, event_type_snapshot="alert_match", webhook_id=reserved_webhook_ids[delivery_id]),
+        )
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.send_notification_webhook", _send)
+    monkeypatch.setattr("app.tasks.feed_tasks.reserve_notification_webhook_delivery", _reserve)
+    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
     result = dispatch_alert_match_notification_webhooks(str(item.id))
@@ -1113,6 +1117,8 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(db
         error=None,
         feed_name_snapshot=feed.name,
         attempted_at=datetime.now(timezone.utc),
+        delivery_state="succeeded",
+        attempt_count=1,
     )
     _persist_rows(db_session, feed, user)
     _persist_rows(db_session, webhook)
@@ -1198,6 +1204,8 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
         error="HTTP 500",
         feed_name_snapshot=feed.name,
         attempted_at=datetime.now(timezone.utc),
+        delivery_state="failed",
+        attempt_count=1,
     )
     prior_failure_notice = NotificationWebhookDelivery(
         id=uuid.uuid4(),
@@ -1220,6 +1228,8 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
         error=None,
         feed_name_snapshot=feed.name,
         attempted_at=datetime.now(timezone.utc),
+        delivery_state="succeeded",
+        attempt_count=1,
     )
     _persist_rows(db_session, user, feed)
     _persist_rows(db_session, source_webhook, target_webhook)
@@ -1232,7 +1242,7 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.send_notification_webhook",
+        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate failure notice should be skipped")),
     )
 
@@ -1242,6 +1252,86 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
     assert result["delivered"] == 0
     assert result["failed"] == 0
     assert result["skipped"] == 1
+
+
+def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Recovery webhook",
+        event_type="rss_item_new",
+        url_template="https://example.com/recovery",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    pending_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="pending",
+        attempt_count=0,
+        success=False,
+        timeout_seconds=10,
+        rendered_url="https://example.com/recovery",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, pending_delivery)
+    db_session.commit()
+
+    def _fake_send(rendered):
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=9,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview="ok",
+            error=None,
+        )
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    result = dispatch_pending_notification_webhook_deliveries()
+    db_session.refresh(pending_delivery)
+
+    assert result["scanned"] == 1
+    assert result["delivered"] == 1
+    assert result["failed"] == 0
+    assert pending_delivery.delivery_state == "succeeded"
+    assert pending_delivery.attempt_count == 1
+    assert pending_delivery.status_code == 204
 
 
 def test_get_notification_analytics_summarizes_delivery_history(db_session):
@@ -1289,6 +1379,8 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
             response_body_preview="ok",
             error=None,
             attempted_at=datetime.now(timezone.utc),
+            delivery_state="succeeded",
+            attempt_count=1,
         ),
         NotificationWebhookDelivery(
             id=uuid.uuid4(),
@@ -1308,6 +1400,8 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
             response_body_preview="HTTP 500",
             error="HTTP 500",
             attempted_at=datetime.now(timezone.utc),
+            delivery_state="failed",
+            attempt_count=1,
         ),
     )
     db_session.commit()

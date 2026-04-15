@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -198,6 +199,8 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
         user_id=viewer.id,
         event_type_snapshot="rss_item_new",
         delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
         success=False,
         status_code=500,
         duration_ms=42,
@@ -222,6 +225,8 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
     assert payload["deliveries"][0]["id"] == str(delivery.id)
     assert payload["deliveries"][0]["event_type"] == "rss_item_new"
     assert payload["deliveries"][0]["delivery_kind"] == "live"
+    assert payload["deliveries"][0]["delivery_state"] == "failed"
+    assert payload["deliveries"][0]["attempt_count"] == 1
     assert payload["deliveries"][0]["item_title"] == "Example item"
     assert payload["deliveries"][0]["response_body_preview"] == "server error"
 
@@ -248,6 +253,8 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
         user_id=viewer.id,
         event_type_snapshot="rss_item_new",
         delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
         success=False,
         status_code=500,
         duration_ms=51,
@@ -272,6 +279,8 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
             user_id=webhook.user_id,
             event_type_snapshot=delivery.event_type_snapshot,
             delivery_kind="retry",
+            delivery_state="succeeded",
+            attempt_count=1,
             success=True,
             status_code=204,
             duration_ms=12,
@@ -305,6 +314,56 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
     assert payload["item_title"] == "Retry item"
 
 
+def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(client: TestClient, auth_headers, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="Retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=viewer.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="sending",
+        attempt_count=1,
+        claimed_at=datetime.now(timezone.utc),
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"Retry"}',
+        response_body_preview=None,
+        error=None,
+        item_title_snapshot="Retry item",
+        feed_name_snapshot="Retry feed",
+    )
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    response = client.post(
+        f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
+        headers=auth_headers["viewer"],
+    )
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Webhook delivery is already queued or in progress"
+
+
 def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers, db_session, seed_users):
     viewer = seed_users["viewer"]
     webhook = NotificationWebhook(
@@ -330,6 +389,8 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
                 user_id=viewer.id,
                 event_type_snapshot="rss_item_new",
                 delivery_kind="live",
+                delivery_state="succeeded",
+                attempt_count=1,
                 success=True,
                 status_code=204,
                 duration_ms=12,
@@ -348,6 +409,8 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
                 user_id=viewer.id,
                 event_type_snapshot="feed_failing",
                 delivery_kind="live",
+                delivery_state="failed",
+                attempt_count=1,
                 success=False,
                 status_code=500,
                 duration_ms=18,

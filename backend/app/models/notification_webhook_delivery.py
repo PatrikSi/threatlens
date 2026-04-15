@@ -33,7 +33,11 @@ class NotificationWebhookDelivery(Base):
         nullable=True,
         index=True,
     )
+    scope_key: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
     delivery_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="live", server_default="live")
+    delivery_state: Mapped[str] = mapped_column(String(16), nullable=False, default="pending", server_default="pending", index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -10,6 +10,7 @@ NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]
 NotificationDeliveryKind = Literal["live", "retry"]
+NotificationDeliveryState = Literal["pending", "sending", "succeeded", "failed"]
 
 
 class NotificationWebhookField(BaseModel):
@@ -143,6 +144,9 @@ class NotificationWebhookDeliveryResponse(BaseModel):
     item_title: str | None
     feed_name: str | None
     delivery_kind: NotificationDeliveryKind
+    delivery_state: NotificationDeliveryState
+    attempt_count: int
+    claimed_at: datetime | None
     success: bool
     status_code: int | None
     duration_ms: int | None

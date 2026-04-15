@@ -1,6 +1,7 @@
 server {
     listen 3000;
     server_name _;
+    resolver 127.0.0.11 valid=30s ipv6=off;
 
     # If TLS is terminated by an upstream reverse proxy, force HTTPS externally.
     if ($http_x_forwarded_proto = "http") {
@@ -17,7 +18,9 @@ server {
     add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ${THREATLENS_CSP_CONNECT_SRC};" always;
 
     location /api/ {
-        proxy_pass http://api:8000/;
+        set $api_upstream http://api:8000;
+        rewrite ^/api/?(.*)$ /$1 break;
+        proxy_pass $api_upstream;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

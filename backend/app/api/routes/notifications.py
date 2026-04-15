@@ -196,6 +196,11 @@ def retry_notification_webhook_delivery_route(
     )
     if delivery is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook delivery not found")
+    if delivery.delivery_state in {"pending", "sending"}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Webhook delivery is already queued or in progress",
+        )
 
     retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
     record_audit(

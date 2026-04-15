@@ -470,6 +470,9 @@ export interface NotificationWebhookDelivery {
   item_title: string | null
   feed_name: string | null
   delivery_kind: 'live' | 'retry'
+  delivery_state: 'pending' | 'sending' | 'succeeded' | 'failed'
+  attempt_count: number
+  claimed_at: string | null
   success: boolean
   status_code: number | null
   duration_ms: number | null
