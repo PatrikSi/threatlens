@@ -511,8 +511,11 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     db_session.add(settings)
     db_session.commit()
 
+    captured_messages: list[dict[str, str]] = []
+
     def _fake_call(active, *, messages):
-        _ = (active, messages)
+        _ = active
+        captured_messages[:] = messages
         return AICompletionResult(
             payload={
                 "title": "ThreatLens Daily Brief",
@@ -540,6 +543,11 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     stored = db_session.scalar(select(AIDailyBrief).where(AIDailyBrief.id == brief.id))
     assert stored is not None
     assert stored.item_count == 1
+    assert "Use only the provided company context and items." in captured_messages[0]["content"]
+    request_payload = json.loads(captured_messages[1]["content"])
+    assert request_payload["audience"] == "security leads and analysts preparing a daily triage and prioritization handoff"
+    assert request_payload["requested_output"]["recommended_actions"].startswith("3-5 short, practical")
+    assert request_payload["briefing_priorities"][2].startswith("Synthesis of overlapping stories")
 
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1
@@ -709,6 +717,12 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
     assert event.payload_json["status_code"] == 200
     assert "request_payload" in event.payload_json
     assert "response_body" in event.payload_json
+    prompt_messages = event.payload_json["request_payload"]["messages"]
+    assert "Use only the provided article text" in prompt_messages[0]["content"]
+    request_payload = json.loads(prompt_messages[1]["content"])
+    assert request_payload["audience"] == "security lead or analyst triaging content for one defended organization"
+    assert request_payload["requested_output"]["summary_text"].startswith("2-4 concise sentences")
+    assert request_payload["requested_output"]["relevance_reasons"].startswith("1-4 short plain strings")
 
 
 def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
@@ -1505,3 +1519,10 @@ def test_prompt_builders_allow_editable_base_prompts(db_session, ai_enabled_env)
     assert "arrays of short plain strings only" in build_daily_brief_system_prompt(active)
     assert DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT != active.item_enrichment_system_prompt
     assert DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT != active.daily_brief_system_prompt
+
+
+def test_default_prompts_emphasize_grounding_and_security_audience():
+    assert "Use only the provided article text" in DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT
+    assert "Approximate relevance rubric" in DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT
+    assert "Write for security leads and analysts" in DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT
+    assert "Recommended actions must be brief, practical, and evidence-based." in DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT

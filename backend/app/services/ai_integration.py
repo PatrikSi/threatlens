@@ -642,15 +642,18 @@ def _build_item_enrichment_messages(
     feed: Feed | None,
     tag_names: list[str],
 ) -> list[dict[str, str]]:
-    feature_instructions: list[str] = []
+    feature_instructions: dict[str, str] = {}
     if active.summary_enabled:
-        feature_instructions.append(
-            "summary_text: 2-4 sentences explaining the article, emphasizing practical security impact."
+        feature_instructions["summary_text"] = (
+            "2-4 concise sentences explaining the article and its practical defensive significance. Use only the provided input."
         )
     if active.relevance_enabled:
-        feature_instructions.append(
-            "relevance_score: a number between 0 and 1 for how relevant the article is to the company profile; "
-            "relevance_reasons: 1-4 short bullet-style reasons."
+        feature_instructions["relevance_score"] = (
+            "A number between 0 and 1 describing how relevant the item is to the company profile. "
+            "Score conservatively when the match is generic, indirect, speculative, or contradicted by exclusions."
+        )
+        feature_instructions["relevance_reasons"] = (
+            "1-4 short plain strings citing concrete matches, mismatches, exclusions, or evidence gaps from company_context and item content."
         )
 
     return [
@@ -660,6 +663,7 @@ def _build_item_enrichment_messages(
             "content": json.dumps(
                 {
                     "task": "item_enrichment",
+                    "audience": "security lead or analyst triaging content for one defended organization",
                     "requested_output": feature_instructions,
                     "company_context": _build_company_context(active),
                     "item": {
@@ -711,6 +715,18 @@ def _build_daily_brief_messages(
             "content": json.dumps(
                 {
                     "task": "daily_brief",
+                    "audience": "security leads and analysts preparing a daily triage and prioritization handoff",
+                    "requested_output": {
+                        "title": "A short title capturing the most important theme from the selected items.",
+                        "brief_text": "A concise overview explaining what matters most to the organization and why.",
+                        "key_points": "4-6 short factual strings prioritizing the most relevant developments without duplicating the same story.",
+                        "recommended_actions": "3-5 short, practical, evidence-based strings for validation, monitoring, or response.",
+                    },
+                    "briefing_priorities": [
+                        "Direct relevance to the company profile, stack, vendors, regions, keywords, and priority topics",
+                        "Clear defensive significance, active risk, or near-term actionability",
+                        "Synthesis of overlapping stories so repeated coverage does not dominate the brief",
+                    ],
                     "company_context": _build_company_context(active),
                     "window_start": window_start.isoformat(),
                     "window_end": window_end.isoformat(),
