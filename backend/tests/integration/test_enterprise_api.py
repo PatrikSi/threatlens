@@ -92,6 +92,8 @@ def test_login_succeeds_when_throttle_backend_is_unavailable(client: TestClient,
     )
     assert response.status_code == 200
     assert response.json()["access_token"]
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
 
 
 def test_login_uses_local_emergency_throttle_when_backend_is_unavailable(
@@ -274,6 +276,26 @@ def test_change_password_invalidates_existing_jwt_sessions(client: TestClient, s
         json={"email": "admin@example.com", "password": "AdminPass456!"},
     )
     assert new_password_login.status_code == 200
+
+
+def test_change_password_revokes_existing_api_tokens(client: TestClient, auth_headers):
+    token_response = client.post(
+        "/tokens",
+        json={"name": "password-reset-token", "expires_in_days": 30, "scopes": ["read:feeds"]},
+        headers=auth_headers["admin"],
+    )
+    assert token_response.status_code == 201
+    token_value = token_response.json()["token"]
+
+    change_response = client.post(
+        "/auth/change-password",
+        json={"current_password": "AdminPass123!", "new_password": "AdminPass456!"},
+        headers=auth_headers["admin"],
+    )
+    assert change_response.status_code == 200
+
+    stale_token_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_value}"})
+    assert stale_token_response.status_code == 401
 
 
 def test_logout_clears_auth_cookies_without_requiring_a_valid_session(client: TestClient):
@@ -1395,6 +1417,8 @@ def test_api_token_flow(client: TestClient, auth_headers):
         headers=auth_headers["admin"],
     )
     assert token_response.status_code == 201
+    assert token_response.headers["cache-control"] == "no-store"
+    assert token_response.headers["pragma"] == "no-cache"
     token_payload = token_response.json()
 
     access_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})

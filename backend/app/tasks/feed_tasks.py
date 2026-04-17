@@ -783,7 +783,12 @@ def dispatch_pending_notification_webhook_deliveries():
         }
 
 
-@celery_app.task(bind=True, name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation")
+@celery_app.task(
+    bind=True,
+    name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def dispatch_daily_ai_brief_generation(
     self,
     force: bool = False,
@@ -923,7 +928,11 @@ def record_beat_heartbeat():
     return {"status": "ok", "at": now}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.backfill_feed_metadata")
+@celery_app.task(
+    name="app.tasks.feed_tasks.backfill_feed_metadata",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def backfill_feed_metadata(feed_id: str):
     try:
         with feed_lock(feed_id) as acquired:
@@ -1061,7 +1070,12 @@ def _clean_text(value: object) -> str | None:
     return text or None
 
 
-@celery_app.task(name="app.tasks.feed_tasks.fetch_feed", bind=True)
+@celery_app.task(
+    name="app.tasks.feed_tasks.fetch_feed",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def fetch_feed(self, feed_id: str, force: bool = False):
     try:
         with feed_lock(feed_id) as acquired:
@@ -1220,7 +1234,12 @@ def fetch_feed(self, feed_id: str, force: bool = False):
             return {"status": "error", "feed_id": feed_id}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.fetch_article", bind=True)
+@celery_app.task(
+    name="app.tasks.feed_tasks.fetch_article",
+    bind=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def fetch_article(self, item_id: str):
     with db_session() as db:
         try:
@@ -1497,7 +1516,11 @@ def fetch_article(self, item_id: str):
     return {"status": "ok", "item_id": item_id}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.classify_item")
+@celery_app.task(
+    name="app.tasks.feed_tasks.classify_item",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def classify_item(item_id: str):
     alert_delivery_ids: list[uuid.UUID] = []
     with db_session() as db:
@@ -1642,7 +1665,12 @@ def classify_item(item_id: str):
     return {"status": "ok", "item_id": item_id, "category": result.primary_category}
 
 
-@celery_app.task(bind=True, name="app.tasks.feed_tasks.generate_item_ai_enrichment")
+@celery_app.task(
+    bind=True,
+    name="app.tasks.feed_tasks.generate_item_ai_enrichment",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, task_run_id: str | None = None):
     with db_session() as db:
         parsed_run_id = None
@@ -1747,7 +1775,12 @@ def _parse_datetime_text(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
-@celery_app.task(bind=True, name="app.tasks.feed_tasks.reprocess_recent_ai_items")
+@celery_app.task(
+    bind=True,
+    name="app.tasks.feed_tasks.reprocess_recent_ai_items",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def reprocess_recent_ai_items(
     self,
     days: int | None,
@@ -1920,7 +1953,11 @@ def reprocess_recent_ai_items(
     return {"queued": queued, "run_id": task_run_id}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.extract_item_iocs")
+@celery_app.task(
+    name="app.tasks.feed_tasks.extract_item_iocs",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def extract_item_iocs(item_id: str):
     with db_session() as db:
         try:
@@ -2018,7 +2055,11 @@ def extract_item_iocs(item_id: str):
     return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
 
 
-@celery_app.task(name="app.tasks.feed_tasks.reapply_recent_item_tags")
+@celery_app.task(
+    name="app.tasks.feed_tasks.reapply_recent_item_tags",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def reapply_recent_item_tags(days: int = 30, limit: int = 0):
     if days <= 0:
         return {"status": "skipped", "reason": "invalid_days", "days": days}

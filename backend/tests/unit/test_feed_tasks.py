@@ -34,6 +34,21 @@ from app.tasks.feed_tasks import (
 )
 
 
+def test_core_pipeline_tasks_ack_late_and_reject_on_worker_loss():
+    assert backfill_feed_metadata.acks_late is True
+    assert backfill_feed_metadata.reject_on_worker_lost is True
+    assert fetch_feed.acks_late is True
+    assert fetch_feed.reject_on_worker_lost is True
+    assert fetch_article.acks_late is True
+    assert fetch_article.reject_on_worker_lost is True
+    assert classify_item.acks_late is True
+    assert classify_item.reject_on_worker_lost is True
+    assert generate_item_ai_enrichment_task.acks_late is True
+    assert generate_item_ai_enrichment_task.reject_on_worker_lost is True
+    assert reprocess_recent_ai_items.acks_late is True
+    assert reprocess_recent_ai_items.reject_on_worker_lost is True
+
+
 def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),

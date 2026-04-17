@@ -184,7 +184,8 @@ def test_render_notification_request_defaults_raw_json_to_application_json():
     )
 
     assert rendered.headers_dict["Content-Type"] == "application/json"
-    assert [(field.key, field.value) for field in rendered.headers] == [("Content-Type", "application/json")]
+    assert rendered.headers_dict["X-ThreatLens-Delivery-ID"]
+    assert ("Content-Type", "application/json") in [(field.key, field.value) for field in rendered.headers]
 
 
 def test_render_notification_request_rejects_duplicate_headers_case_insensitively():
@@ -449,6 +450,8 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     db_session.commit()
 
     def _fake_send(rendered):
+        captured_headers = {field.key: field.value for field in rendered.headers}
+        assert "X-ThreatLens-Delivery-ID" in captured_headers
         return NotificationWebhookTestResponse(
             success=True,
             status_code=202,
@@ -479,6 +482,7 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert delivery.feed_name_snapshot == feed.name
     assert delivery.status_code == 202
     assert delivery.response_body_preview == "accepted"
+    assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (delivery.rendered_headers_json or []))
 
 
 def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_session, monkeypatch):
@@ -557,6 +561,7 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
         captured["query_param_pairs"] = list(rendered.query_param_pairs)
         captured["raw_body"] = rendered.raw_body
         captured["timeout_seconds"] = rendered.timeout_seconds
+        captured["rendered_headers"] = list(rendered.headers)
         return NotificationWebhookTestResponse(
             success=True,
             status_code=204,
@@ -586,6 +591,11 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
     assert retried.item_title_snapshot == "Threat report"
     assert retried.feed_name_snapshot == "Unit42"
     assert retried.success is True
+    assert any(header.key == "X-ThreatLens-Delivery-ID" for header in captured["rendered_headers"])
+    assert any(
+        header.key == "X-ThreatLens-Delivery-ID" and header.value == str(original_delivery.id)
+        for header in captured["rendered_headers"]
+    )
 
 
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):

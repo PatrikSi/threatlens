@@ -120,6 +120,8 @@ class Settings(BaseSettings):
                 raise ValueError("auth_require_csrf must be true in production")
             if self.allow_legacy_unscoped_tokens:
                 raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
+        if self.seed_admin_on_startup and self.admin_password == "admin123":
+            raise ValueError("admin_password default is not allowed when seed_admin_on_startup is enabled")
         return self
 
 

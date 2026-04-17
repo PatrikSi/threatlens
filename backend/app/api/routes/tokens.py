@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,7 @@ def list_tokens(
 @router.post("", response_model=ApiTokenCreateResponse, status_code=status.HTTP_201_CREATED)
 def create_token(
     payload: ApiTokenCreateRequest,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
 ):
@@ -73,6 +74,8 @@ def create_token(
     )
     db.commit()
 
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     return ApiTokenCreateResponse(token=token_value, token_prefix=token_prefix, expires_at=expires_at)
 
 

@@ -162,6 +162,7 @@ BLOCKED_REQUEST_HEADERS = frozenset(
         "upgrade",
     }
 )
+THREATLENS_DELIVERY_ID_HEADER = "X-ThreatLens-Delivery-ID"
 
 
 class TemplateRenderError(ValueError):
@@ -382,6 +383,7 @@ def render_notification_request(
     rendered_query_params = [_render_field(field, context) for field in payload.query_params]
     rendered_headers = [_render_field(field, context) for field in payload.headers]
     headers_dict = _canonicalize_headers(rendered_headers)
+    headers_dict[THREATLENS_DELIVERY_ID_HEADER] = str(delivery_uuid)
     query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
 
     body_text: str | None = None
@@ -878,7 +880,7 @@ def reserve_notification_webhook_delivery_from_saved_request(
         feed_id=delivery.feed_id,
         item_title=delivery.item_title_snapshot,
         feed_name=delivery.feed_name_snapshot,
-        source_delivery_id=delivery.source_delivery_id,
+        source_delivery_id=delivery.source_delivery_id or delivery.id,
         scope_key=delivery.scope_key,
         attempted_at=datetime.now(timezone.utc),
     )
@@ -1963,6 +1965,9 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
     rendered_query_params = [
         NotificationWebhookField.model_validate(entry) for entry in (delivery.rendered_query_params_json or [])
     ]
+    headers_dict = _canonicalize_headers(rendered_headers)
+    headers_dict.setdefault(THREATLENS_DELIVERY_ID_HEADER, str(delivery.source_delivery_id or delivery.id))
+    rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
     body_text = delivery.rendered_body
     return RenderedNotificationRequest(
         method=delivery.rendered_method,
@@ -1970,7 +1975,7 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
         headers=rendered_headers,
         query_params=rendered_query_params,
         body=body_text,
-        headers_dict=_canonicalize_headers(rendered_headers),
+        headers_dict=headers_dict,
         query_param_pairs=[],
         json_body=None,
         form_body=None,

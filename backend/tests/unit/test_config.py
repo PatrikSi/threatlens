@@ -30,6 +30,11 @@ def test_production_rejects_default_admin_password():
         Settings(app_env="production", jwt_secret="x" * 48, admin_password="admin123")
 
 
+def test_admin_seeding_rejects_default_admin_password():
+    with pytest.raises(ValueError):
+        Settings(seed_admin_on_startup=True, admin_password="admin123")
+
+
 def test_production_requires_secure_auth_cookie():
     with pytest.raises(ValueError):
         Settings(

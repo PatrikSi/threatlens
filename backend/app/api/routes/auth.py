@@ -1,5 +1,7 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, resolve_client_ip
@@ -12,6 +14,7 @@ from app.core.security import (
     set_auth_cookies,
     verify_password,
 )
+from app.models.api_token import ApiToken
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import (
@@ -136,6 +139,8 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     token = create_access_token(str(user.id), token_version=int(user.auth_token_version or 0))
     csrf_token = generate_csrf_token()
     set_auth_cookies(response, token, csrf_token)
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
     record_audit(
         db,
         actor_user_id=user.id,
@@ -171,6 +176,15 @@ def change_password(
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
+    revoked_at = datetime.now(timezone.utc)
+    revoked_api_tokens = db.execute(
+        update(ApiToken)
+        .where(
+            ApiToken.user_id == user.id,
+            ApiToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=revoked_at)
+    ).rowcount or 0
     user.password_hash = get_password_hash(payload.new_password)
     user.auth_token_version = int(user.auth_token_version or 0) + 1
     db.add(user)
@@ -180,6 +194,7 @@ def change_password(
         action="auth.change_password",
         resource_type="user",
         resource_id=str(user.id),
+        metadata={"revoked_api_tokens": int(revoked_api_tokens)},
     )
     db.commit()
     return {"status": "ok"}
