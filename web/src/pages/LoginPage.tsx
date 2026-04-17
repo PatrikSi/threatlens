@@ -185,18 +185,21 @@ export function LoginPage() {
 }
 
 function resolveLoginError(error: unknown): string {
-  if (error instanceof ApiError && error.status === 401) {
-    return 'Invalid email or password.'
+  if (error instanceof ApiError && error.status === 429) {
+    return 'Too many sign-in attempts. Wait a moment and try again.'
   }
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return error.message
+  if (error instanceof ApiError) {
+    return 'Sign in failed. Check your credentials or account status and try again. If this account was recently created, it may still need admin approval.'
   }
-  return 'Login failed. Check credentials and try again.'
+  return 'Sign in failed. Try again.'
 }
 
 function resolveRegisterError(error: unknown): string {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return error.message
+  if (error instanceof ApiError && error.status === 429) {
+    return 'Too many registration attempts. Wait a moment and try again.'
+  }
+  if (error instanceof ApiError) {
+    return 'Registration failed. Check the submitted details and try again later.'
   }
   return 'Registration failed. Try again later.'
 }

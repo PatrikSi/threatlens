@@ -417,11 +417,38 @@ export function DashboardPage() {
   const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
   const initializedDashboardUserRef = useRef<string | null>(null)
+  const windowPersistenceTimeoutRef = useRef<number | null>(null)
+  const pendingWindowPersistenceRef = useRef<{ userId: string; serialized: string } | null>(null)
+  const persistedWindowUserIdRef = useRef<string | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
+
+  const flushPendingWindowPersistence = (targetUserId?: string | null) => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const pending = pendingWindowPersistenceRef.current
+    if (!pending) {
+      return
+    }
+
+    if (targetUserId !== undefined && pending.userId !== targetUserId) {
+      return
+    }
+
+    if (windowPersistenceTimeoutRef.current !== null) {
+      window.clearTimeout(windowPersistenceTimeoutRef.current)
+      windowPersistenceTimeoutRef.current = null
+    }
+
+    const storageKeys = getDashboardStorageKeys(pending.userId)
+    window.localStorage.setItem(storageKeys.windows, pending.serialized)
+    pendingWindowPersistenceRef.current = null
+  }
 
   useEffect(() => {
     const syncLayout = () => {
@@ -450,8 +477,36 @@ export function DashboardPage() {
       return
     }
     const storageKeys = getDashboardStorageKeys(userId)
-    window.localStorage.setItem(storageKeys.windows, JSON.stringify(serializeDashboardWindowLayouts(windows)))
+    const serialized = JSON.stringify(serializeDashboardWindowLayouts(windows))
+    if (windowPersistenceTimeoutRef.current !== null) {
+      window.clearTimeout(windowPersistenceTimeoutRef.current)
+    }
+    pendingWindowPersistenceRef.current = { userId, serialized }
+
+    windowPersistenceTimeoutRef.current = window.setTimeout(() => {
+      window.localStorage.setItem(storageKeys.windows, serialized)
+      pendingWindowPersistenceRef.current = null
+      windowPersistenceTimeoutRef.current = null
+    }, 200)
+
+    return () => {
+      if (windowPersistenceTimeoutRef.current !== null) {
+        window.clearTimeout(windowPersistenceTimeoutRef.current)
+        windowPersistenceTimeoutRef.current = null
+      }
+    }
   }, [meQuery.data?.id, windows])
+
+  useEffect(() => {
+    const userId = meQuery.data?.id ?? null
+    const previousUserId = persistedWindowUserIdRef.current
+    if (previousUserId && previousUserId !== userId) {
+      flushPendingWindowPersistence(previousUserId)
+    }
+    persistedWindowUserIdRef.current = userId
+  }, [meQuery.data?.id])
+
+  useEffect(() => () => flushPendingWindowPersistence(), [])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -699,7 +754,10 @@ export function DashboardPage() {
         method: 'POST',
         body: JSON.stringify({ is_read: payload.isRead }),
       }),
-    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+    onSuccess: (_data, variables) =>
+      syncItemStateInCache(queryClient, variables.itemId, {
+        isRead: variables.isRead,
+      }),
   })
 
   const updateStar = useMutation({
@@ -708,7 +766,10 @@ export function DashboardPage() {
         method: 'POST',
         body: JSON.stringify({ is_starred: payload.isStarred }),
       }),
-    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+    onSuccess: (_data, variables) =>
+      syncItemStateInCache(queryClient, variables.itemId, {
+        isStarred: variables.isStarred,
+      }),
   })
 
   const updateNote = useMutation({
@@ -716,8 +777,11 @@ export function DashboardPage() {
       apiFetch(`/items/${payload.itemId}/note`, {
         method: 'POST',
         body: JSON.stringify({ note: payload.note }),
-    }),
-    onSuccess: (_data, variables) => invalidateLists(queryClient, variables.itemId),
+      }),
+    onSuccess: (_data, variables) =>
+      syncItemStateInCache(queryClient, variables.itemId, {
+        note: variables.note,
+      }),
   })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
 
@@ -2158,6 +2222,8 @@ export function DashboardPage() {
                         const expanded = expandedItemId === item.id
                         const detail = expanded ? detailQuery.data : null
                         const compact = rssFilters.view_mode === 'compact'
+                        const itemHref = sanitizeHref(item.canonical_url || item.url)
+                        const detailHref = sanitizeHref(detail?.article?.final_url || detail?.url || null)
 
                         return (
                           <article
@@ -2169,15 +2235,19 @@ export function DashboardPage() {
                             <div className="w-full text-left">
                               <div className="flex items-start justify-between gap-3">
                                 <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-semibold leading-snug`}>
-                                  <a
-                                    href={item.canonical_url || item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="hover:text-cyan hover:underline"
-                                    onClick={(event) => event.stopPropagation()}
-                                  >
-                                    {item.title}
-                                  </a>
+                                  {itemHref ? (
+                                    <a
+                                      href={itemHref}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="hover:text-cyan hover:underline"
+                                      onClick={(event) => event.stopPropagation()}
+                                    >
+                                      {item.title}
+                                    </a>
+                                  ) : (
+                                    <span>{item.title}</span>
+                                  )}
                                 </h3>
                                 <div className="flex shrink-0 items-center gap-2">
                                   <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
@@ -2228,14 +2298,20 @@ export function DashboardPage() {
                                 {detail && detail.id === item.id && (
                                   <>
                                     <div className="flex flex-wrap items-center gap-2">
-                                      <a
-                                        className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
-                                        href={detail.article?.final_url || detail.url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                      >
-                                        Open Source Link
-                                      </a>
+                                      {detailHref ? (
+                                        <a
+                                          className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                                          href={detailHref}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          Open Source Link
+                                        </a>
+                                      ) : (
+                                        <span className="rounded border border-slate/20 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:text-slate-400">
+                                          Source link unavailable
+                                        </span>
+                                      )}
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                                         disabled={!canManage}
@@ -2578,19 +2654,24 @@ export function DashboardPage() {
                     <div className="space-y-2">
                       {alertWindowItems.map((item) => {
                         const compactAlerts = alertFilters.view_mode === 'compact'
+                        const itemHref = sanitizeHref(item.canonical_url || item.url)
                         return (
                         <article key={item.id} className={`rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-3'} dark:border-cyan-900/40`}>
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <h3 className={`font-semibold leading-snug ${compactAlerts ? 'text-[13px]' : ''}`}>
-                                <a
-                                  href={item.canonical_url || item.url}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="hover:text-cyan hover:underline"
-                                >
-                                  {item.title}
-                                </a>
+                                {itemHref ? (
+                                  <a
+                                    href={itemHref}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="hover:text-cyan hover:underline"
+                                  >
+                                    {item.title}
+                                  </a>
+                                ) : (
+                                  <span>{item.title}</span>
+                                )}
                               </h3>
                               <p className={`text-xs text-slate dark:text-slate-300 ${compactAlerts ? 'mt-0.5' : 'mt-1'}`}>
                                 {item.feed_name} • Published {formatPublishedAt(item.published_at)}
@@ -2752,14 +2833,18 @@ export function DashboardPage() {
                             {selectedBrief.items.map((item) => (
                               <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
                                 <div className="flex items-start justify-between gap-2">
-                                  <a
-                                    href={item.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-sm font-semibold hover:text-cyan hover:underline dark:hover:text-cyan-200"
-                                  >
-                                    {item.title}
-                                  </a>
+                                  {sanitizeHref(item.url) ? (
+                                    <a
+                                      href={sanitizeHref(item.url) ?? undefined}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sm font-semibold hover:text-cyan hover:underline dark:hover:text-cyan-200"
+                                    >
+                                      {item.title}
+                                    </a>
+                                  ) : (
+                                    <span className="text-sm font-semibold">{item.title}</span>
+                                  )}
                                   {item.relevance_label && (
                                     <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${aiRelevanceTone(item.relevance_label)}`}>
                                       {formatAiRelevanceLabel(item.relevance_label)}
@@ -3091,9 +3176,83 @@ function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFil
   return windowLayout.time_override ?? dashboardTimeFilter
 }
 
-function invalidateLists(queryClient: ReturnType<typeof useQueryClient>, itemId: string) {
-  queryClient.invalidateQueries({ queryKey: ['items'] })
-  queryClient.invalidateQueries({ queryKey: ['item', itemId] })
+type ItemCachePatch = {
+  isRead?: boolean
+  isStarred?: boolean
+  note?: string | null
+}
+
+function syncItemStateInCache(queryClient: ReturnType<typeof useQueryClient>, itemId: string, patch: ItemCachePatch) {
+  queryClient.setQueriesData<ItemListResponse>({ queryKey: ['items'] }, (current) => {
+    if (!current) {
+      return current
+    }
+
+    let changed = false
+    const items = current.items.map((item) => {
+      if (item.id !== itemId) {
+        return item
+      }
+
+      changed = true
+      return {
+        ...item,
+        is_read: patch.isRead ?? item.is_read,
+        is_starred: patch.isStarred ?? item.is_starred,
+      }
+    })
+
+    return changed ? { ...current, items } : current
+  })
+
+  queryClient.setQueryData<ItemDetail>(['item', itemId], (current) => {
+    if (!current) {
+      return current
+    }
+
+    return {
+      ...current,
+      state: {
+        ...current.state,
+        is_read: patch.isRead ?? current.state.is_read,
+        is_starred: patch.isStarred ?? current.state.is_starred,
+        note: patch.note !== undefined ? patch.note : current.state.note,
+        updated_at: new Date().toISOString(),
+      },
+    }
+  })
+
+  if (patch.isRead === undefined && patch.isStarred === undefined) {
+    return
+  }
+
+  queryClient.invalidateQueries({
+    predicate: (query) => shouldRefreshFilteredItemList(query.queryKey, patch),
+  })
+}
+
+function shouldRefreshFilteredItemList(queryKey: readonly unknown[], patch: ItemCachePatch) {
+  if (queryKey[0] !== 'items') {
+    return false
+  }
+
+  if (queryKey.length !== 11) {
+    return false
+  }
+
+  const readStatus = queryKey[4]
+  const starStatus = queryKey[5]
+  const isDashboardReadStatus = readStatus === 'all' || readStatus === 'read' || readStatus === 'unread'
+  const isDashboardStarStatus = starStatus === 'all' || starStatus === 'starred' || starStatus === 'unstarred'
+
+  if (!isDashboardReadStatus || !isDashboardStarStatus) {
+    return false
+  }
+
+  return (
+    (patch.isRead !== undefined && readStatus !== 'all') ||
+    (patch.isStarred !== undefined && starStatus !== 'all')
+  )
 }
 
 function formatPublishedAt(value: string | null) {
@@ -4043,7 +4202,6 @@ function sanitizeHref(rawHref: string | null): string | null {
   if (!rawHref) return null
   const href = rawHref.trim()
   if (/^https?:\/\//i.test(href)) return href
-  if (/^mailto:/i.test(href)) return href
   return null
 }
 

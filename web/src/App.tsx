@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
-import { Suspense, lazy, useMemo } from 'react'
+import { Suspense, lazy, useEffect, useMemo } from 'react'
 
 import { AppShell } from './components/AppShell'
 import { AuthProvider, useAuth } from './components/AuthContext'
@@ -31,8 +31,7 @@ const TaggingSettingsPage = lazy(() =>
 const TokensPage = lazy(() => import('./pages/TokensPage').then((module) => ({ default: module.TokensPage })))
 const UsersPage = lazy(() => import('./pages/UsersPage').then((module) => ({ default: module.UsersPage })))
 
-function createQueryClient(sessionVersion: number) {
-  void sessionVersion
+function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
       queries: {
@@ -68,10 +67,17 @@ function suspenseRoute(element: React.ReactNode, label: string) {
 
 function SessionScopedApp() {
   const { sessionVersion } = useAuth()
-  const queryClient = useMemo(() => createQueryClient(sessionVersion), [sessionVersion])
+  const queryClient = useMemo(() => createQueryClient(), [])
+
+  useEffect(() => {
+    if (sessionVersion === 0) {
+      return
+    }
+    queryClient.clear()
+  }, [queryClient, sessionVersion])
 
   return (
-    <QueryClientProvider client={queryClient} key={sessionVersion}>
+    <QueryClientProvider client={queryClient}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
