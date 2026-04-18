@@ -9,15 +9,20 @@ Centralized account, token, and admin operations.
 Always visible:
 
 - Account
-- Notifications
 - API Tokens
+- Notifications
 
 Admin-only:
 
-- AI
+- AI (`/settings/ai`) when enabled
 - Tagging
 - Users
 - Audit Logs
+
+Legacy route behavior:
+
+- `/ai` redirects to `/settings/ai`
+- `/settings` redirects to `/settings/account`
 
 ## Account Page
 
@@ -106,6 +111,7 @@ Admin-only:
 
 - Create user form
 - Search and edit user directory
+- Expandable role definitions for `admin`, `analyst`, and `viewer`
 - Editable fields per user:
   - role
   - active flag

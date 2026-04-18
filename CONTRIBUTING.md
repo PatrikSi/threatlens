@@ -1,57 +1,17 @@
-# Contributing to ThreatLens
+# Contributing
 
 ## Scope
 
-ThreatLens is a self-hosted threat intelligence platform. Contributions should prioritize operator trust, secure defaults, and predictable behavior under failure.
+ThreatLens is a security-oriented self-hosted product. Contributions should favor secure defaults, clear operator behavior, and incremental changes that are easy to review and test.
 
-## Before You Start
+## Workflow
 
-- Open an issue or discussion before large changes, refactors, or feature additions.
-- Keep changes narrowly scoped and easy to review.
-- Document any new config flags, migrations, or operator-visible behavior.
-- Never commit real credentials, customer data, or sample secrets.
+1. Start from a current branch based on `main`.
+2. Keep changes focused. Separate refactors, behavior changes, and docs updates when possible.
+3. Add or update tests when behavior changes.
+4. Update docs when routes, settings, or deployment steps change.
 
-## Local Workflow
-
-1. Copy the environment template:
-
-```bash
-cp .env.example .env
-```
-
-2. Install backend dependencies and run migrations:
-
-```bash
-cd backend
-python -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/alembic upgrade head
-```
-
-3. Start the API:
-
-```bash
-./scripts/start-api.sh
-```
-
-4. Start worker and beat in separate shells:
-
-```bash
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-./.venv/bin/celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
-```
-
-5. For the frontend, use the `web` workspace:
-
-```bash
-cd web
-npm install
-npm run dev
-```
-
-## Required Checks
-
-Run the checks relevant to your change before opening a pull request.
+## Local Checks
 
 Backend:
 
@@ -62,34 +22,31 @@ Backend:
 Frontend:
 
 ```bash
-cd web
-npm test
-npm run lint
-npm run build
+docker run --rm -v "$PWD/web:/workspace" -w /workspace node:22 \
+  bash -lc "npm ci && npm test && npm run lint && npm run build"
 ```
 
-Compose validation:
+Compose rendering:
 
 ```bash
-docker compose --env-file .env.example config
+cp .env.example .env
+docker compose config >/dev/null
 ```
-
-## Change Guidelines
-
-- Add or update tests when behavior changes.
-- Prefer secure-by-default behavior over opt-in hardening.
-- Treat docs as part of the feature. Update README, config docs, and UI references when routes or settings change.
-- Preserve backward compatibility where practical; if not, call out operator impact clearly.
-- Avoid destructive git history edits in pull requests.
 
 ## Pull Requests
 
-Each pull request should include:
+- Explain what changed and why.
+- Call out migrations, config changes, or operator-visible behavior changes.
+- Include verification steps you ran.
+- Flag security-sensitive changes explicitly.
 
-- a short summary of the user or operator problem being solved
-- the implementation approach and any tradeoffs
-- testing performed
-- deployment, migration, or configuration impact
-- security-sensitive considerations when applicable
+## Design Expectations
 
-Use the repository pull request template as the minimum checklist.
+- Prefer secure-by-default behavior.
+- Fail clearly when queues, brokers, or remote dependencies are unavailable.
+- Avoid silent operator-facing state drift in the UI.
+- Do not remove existing safeguards without documenting the tradeoff.
+
+## Communication
+
+If you are unsure whether a change belongs in ThreatLens, open an issue or draft PR early with the problem statement, proposed approach, and rollout considerations.

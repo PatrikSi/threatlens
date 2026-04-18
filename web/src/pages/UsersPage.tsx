@@ -5,6 +5,36 @@ import { ApiError, apiFetch } from '../api/client'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
+const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilities: string[] }> = [
+  {
+    role: 'admin',
+    summary: 'Full administrative access across user management, global settings, and operational oversight.',
+    capabilities: [
+      'Manage users, approvals, and role changes',
+      'Access audit logs and global administration surfaces',
+      'Manage feeds, triage actions, tagging, and AI settings',
+    ],
+  },
+  {
+    role: 'analyst',
+    summary: 'Operational user for daily feed management, investigation, and triage workflows.',
+    capabilities: [
+      'Manage feeds and perform triage actions',
+      'Configure personal notifications and API tokens',
+      'No access to user administration, audit logs, or global AI/tagging controls',
+    ],
+  },
+  {
+    role: 'viewer',
+    summary: 'Read-oriented access for monitoring without operational or administrative mutation rights.',
+    capabilities: [
+      'View dashboard, feeds, and other read-only surfaces',
+      'Access personal account settings, API tokens, and notifications',
+      'Cannot change feeds, tags, or triage state',
+    ],
+  },
+]
+
 export function UsersPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
@@ -130,6 +160,28 @@ export function UsersPage() {
             className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
           />
         </div>
+
+        <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
+          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
+            <span className="inline-flex items-center gap-2">
+              <span>Role Definitions</span>
+              <span className="text-xs font-normal text-slate dark:text-slate-300">Expand for admin, analyst, and viewer access boundaries</span>
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-3 lg:grid-cols-3">
+            {ROLE_DEFINITIONS.map((entry) => (
+              <section key={entry.role} className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-900 dark:text-white">{entry.role}</h3>
+                <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
+                <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-900 dark:text-slate-200">
+                  {entry.capabilities.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+            ))}
+          </div>
+        </details>
 
         <div className="mt-3 space-y-2">
           {filteredUsers.map((user) => (

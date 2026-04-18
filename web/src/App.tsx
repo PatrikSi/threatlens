@@ -21,9 +21,6 @@ const NotificationsPage = lazy(() =>
 const SettingsLayout = lazy(() =>
   import('./pages/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
 )
-const SettingsOverviewPage = lazy(() =>
-  import('./pages/SettingsOverviewPage').then((module) => ({ default: module.SettingsOverviewPage })),
-)
 const StatsPage = lazy(() => import('./pages/StatsPage').then((module) => ({ default: module.StatsPage })))
 const TaggingSettingsPage = lazy(() =>
   import('./pages/TaggingSettingsPage').then((module) => ({ default: module.TaggingSettingsPage })),
@@ -94,7 +91,7 @@ function SessionScopedApp() {
           <Route path="stats" element={suspenseRoute(<StatsPage />, 'Loading statistics...')} />
           <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
-            <Route index element={suspenseRoute(<SettingsOverviewPage />, 'Loading settings overview...')} />
+            <Route index element={<Navigate to="account" replace />} />
             <Route path="account" element={suspenseRoute(<AccountPage />, 'Loading account settings...')} />
             <Route path="notifications" element={suspenseRoute(<NotificationsPage />, 'Loading notification settings...')} />
             <Route

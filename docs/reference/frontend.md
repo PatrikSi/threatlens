@@ -185,6 +185,7 @@ AI-enhanced dashboard behavior:
   - AI summary text
   - AI relevance label and score
   - AI reasons or error state
+- Item expansion state and unsaved note drafts are isolated per dashboard window.
 - Daily Brief windows show retained brief history and per-window brief selection
 
 ### `AiSettingsPage`
@@ -343,8 +344,8 @@ UI elements:
 - Current role badge
 - Settings nav entries:
   - `Account`
-  - `Notifications`
   - `API Tokens`
+  - `Notifications`
   - admin-only `AI`, `Tagging`, `Users`, `Audit Logs`
 
 API calls:

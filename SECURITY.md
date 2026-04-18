@@ -2,38 +2,31 @@
 
 ## Supported Versions
 
-ThreatLens is currently maintained from the latest default branch. Security fixes are applied there first.
+ThreatLens currently supports the latest code on `main`. Security fixes may not be backported to older snapshots.
 
 ## Reporting a Vulnerability
 
 Please do not open public issues for suspected vulnerabilities.
 
-Use a private reporting channel instead:
+Use one of these private channels instead:
 
-- the repository host's private security reporting workflow, if available
-- a direct private message or email to the current maintainer
+- GitHub private vulnerability reporting or a private security advisory, if enabled for the repository
+- Direct contact with the repository maintainers through the private contact method listed on the project hosting profile
 
-If you are unsure how to reach the maintainer privately, open a minimal public issue that does not include exploit details and ask for a secure contact path.
-
-## What to Include
-
-Please include:
+Include:
 
 - affected version or commit
 - impact summary
 - reproduction steps or proof of concept
-- any required configuration or environment details
-- suggested mitigations, if you have them
+- any suggested mitigation
 
-## Response Expectations
+## What to Expect
 
-The project aims to:
+- We will acknowledge receipt as quickly as practical.
+- We may ask follow-up questions to reproduce and scope the issue.
+- We will coordinate disclosure timing once a fix or mitigation is available.
 
-- acknowledge reports promptly
-- confirm severity and scope
-- coordinate a fix and disclosure timeline
-- credit reporters who want attribution
+## Preferred Handling
 
-## Disclosure
-
-Please allow time for investigation and patching before public disclosure. Coordinated disclosure helps protect downstream self-hosted deployments.
+- Give maintainers a reasonable window to investigate and ship a fix before public disclosure.
+- Avoid testing against systems you do not own or have permission to assess.

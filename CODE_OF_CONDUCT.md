@@ -2,30 +2,26 @@
 
 ## Our Standard
 
-ThreatLens contributors are expected to be respectful, technically honest, and collaborative. We want a project where people can ask questions, offer feedback, and improve the software without hostility or gatekeeping.
+ThreatLens aims to be a respectful, security-conscious, and collaborative project. We want contributors and maintainers to communicate clearly, assume good intent, and focus feedback on the work rather than the person.
 
-Examples of expected behavior:
+## Expected Behavior
 
-- assuming good intent while still giving clear technical feedback
-- sharing context, tradeoffs, and evidence instead of personal attacks
-- welcoming contributors with different experience levels
-- respecting privacy and handling security concerns responsibly
+- Be respectful and constructive.
+- Share context when giving technical feedback.
+- Welcome questions and differing viewpoints.
+- Prefer evidence, reproduction steps, and specific examples over dismissive commentary.
 
-Examples of unacceptable behavior:
+## Unacceptable Behavior
 
-- harassment, discrimination, or intimidation
-- doxxing or sharing private information without permission
-- abusive language or repeated bad-faith disruption
-- public disclosure of sensitive security details before maintainers can respond
-
-## Scope
-
-This applies to project discussions, issues, pull requests, reviews, and other community spaces tied to ThreatLens.
-
-## Enforcement
-
-Project maintainers may edit, remove, or moderate content that violates this policy. Repeated or severe violations may lead to temporary or permanent participation restrictions.
+- Harassment, intimidation, or personal attacks
+- Discriminatory or demeaning language
+- Publishing private information without permission
+- Deliberately disruptive behavior in issues, discussions, or pull requests
 
 ## Reporting
 
-Report conduct concerns to the maintainers through a private channel when possible. For security-sensitive or privacy-sensitive incidents, follow the guidance in `SECURITY.md`.
+Report conduct concerns privately to the repository maintainers through the project hosting platform. Please include links, screenshots, or any other relevant context so maintainers can review the situation fairly.
+
+## Enforcement
+
+Maintainers may remove content, pause discussions, or restrict participation when behavior violates this policy.
