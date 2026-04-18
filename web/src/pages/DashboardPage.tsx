@@ -1124,6 +1124,8 @@ export function DashboardPage() {
   }, [alertInterestsQuery.data])
 
   const handleToggleItem = (windowId: string, itemId: string, isRead: boolean) => {
+    clearItemFeedback(setItemActionFeedbackByItemId, itemId)
+    clearItemFeedback(setArticleRetryFeedbackByItemId, itemId)
     setExpandedItemIdsByWindowId((current) => {
       if (current[windowId] === itemId) {
         const next = { ...current }

@@ -59,6 +59,20 @@ def test_validate_notification_webhook_payload_rejects_unknown_template_variable
         raise AssertionError("expected payload validation to fail")
 
 
+def test_validate_notification_webhook_payload_rejects_public_http_targets(monkeypatch):
+    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="http://hooks.example.com/notify",
+        method="POST",
+        body_mode="none",
+    )
+
+    with pytest.raises(ValueError, match="must use https"):
+        validate_notification_webhook_payload(payload, set())
+
+
 def test_notification_webhook_write_extracts_query_params_from_url_template():
     payload = NotificationWebhookWrite(
         name="Example",

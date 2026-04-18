@@ -5,7 +5,7 @@ export function resolveVisibleRunSelection(
   if (!runs?.length) {
     return null
   }
-  if (selectedRunId) {
+  if (selectedRunId && runs.some((run) => run.id === selectedRunId)) {
     return selectedRunId
   }
   return runs[0].id

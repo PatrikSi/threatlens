@@ -54,7 +54,8 @@ export function AiSettingsPage() {
   const currentUserQuery = useCurrentUser()
   const [activeTab, setActiveTab] = useState<AiTab>('overview')
   const [days, setDays] = useState(30)
-  const [draft, setDraft] = useState<AISettingsDraft>(DEFAULT_DRAFT)
+  const [draft, setDraftState] = useState<AISettingsDraft>(DEFAULT_DRAFT)
+  const [draftDirty, setDraftDirty] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
   const [reprocessDays, setReprocessDays] = useState('7')
@@ -73,6 +74,11 @@ export function AiSettingsPage() {
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
   const activityTabRef = useRef<HTMLDivElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
+
+  const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
+    setDraftDirty(true)
+    setDraftState(value)
+  }
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
@@ -204,11 +210,11 @@ export function AiSettingsPage() {
   })
 
   useEffect(() => {
-    if (!settingsQuery.data) {
+    if (!settingsQuery.data || draftDirty) {
       return
     }
-    setDraft(createDraftFromSettings(settingsQuery.data))
-  }, [settingsQuery.data])
+    setDraftState(createDraftFromSettings(settingsQuery.data))
+  }, [draftDirty, settingsQuery.data])
 
   useEffect(() => {
     if (!runsQuery.data) {
@@ -237,7 +243,8 @@ export function AiSettingsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (saved) => {
-      setDraft(createDraftFromSettings(saved))
+      setDraftState(createDraftFromSettings(saved))
+      setDraftDirty(false)
       setNotice({ tone: 'success', message: 'AI settings saved.' })
       setTestResult(null)
       invalidateAiQueries(queryClient)

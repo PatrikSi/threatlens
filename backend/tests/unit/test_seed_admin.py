@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.core.rbac import ROLE_VIEWER
 from app.core.security import get_password_hash, verify_password
+from app.models.api_token import ApiToken
 from app.models.user import User
 from app.scripts.seed_admin import seed_admin
 
@@ -60,6 +61,16 @@ def test_seed_admin_can_reset_existing_password(db_session, monkeypatch):
         is_active=True,
     )
     db_session.add(existing)
+    db_session.flush()
+    api_token = ApiToken(
+        id=uuid.uuid4(),
+        user_id=existing.id,
+        name="existing-token",
+        token_prefix="tl_test",
+        token_hash="hash",
+        scopes=[],
+    )
+    db_session.add(api_token)
     db_session.commit()
 
     class _SessionProxy:
@@ -89,6 +100,7 @@ def test_seed_admin_can_reset_existing_password(db_session, monkeypatch):
 
     assert verify_password("AdminPass123!", existing.password_hash)
     assert existing.auth_token_version == 1
+    assert db_session.scalar(select(ApiToken).where(ApiToken.user_id == existing.id)) is None
 
 
 def test_seed_admin_handles_concurrent_create_conflict(db_session, monkeypatch):

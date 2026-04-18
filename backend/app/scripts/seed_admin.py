@@ -4,6 +4,7 @@ from sqlalchemy.exc import IntegrityError
 from app.core.rbac import ROLE_ADMIN
 from app.core.config import get_settings
 from app.core.security import get_password_hash
+from app.models.api_token import ApiToken
 from app.db.session import SessionLocal
 from app.models.user import User
 
@@ -35,6 +36,7 @@ def seed_admin() -> None:
         if settings.seed_admin_reset_password_on_startup:
             existing.password_hash = get_password_hash(settings.admin_password)
             existing.auth_token_version = int(existing.auth_token_version or 0) + 1
+            db.query(ApiToken).filter(ApiToken.user_id == existing.id).delete(synchronize_session=False)
             changed = True
         if settings.seed_admin_force_role and existing.role != ROLE_ADMIN:
             existing.role = ROLE_ADMIN

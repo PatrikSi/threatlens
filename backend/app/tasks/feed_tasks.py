@@ -610,7 +610,11 @@ def dispatch_unclassified_items():
         ).all()
 
     for item_id in item_ids:
-        classify_item.delay(str(item_id))
+        try:
+            classify_item.delay(str(item_id))
+        except Exception as exc:
+            logger.exception("unclassified_item_enqueue_failed item_id=%s error=%s", item_id, exc)
+            continue
         queued += 1
 
     return {"queued": queued}
@@ -649,7 +653,11 @@ def dispatch_items_missing_iocs():
         ).all()
 
     for item_id in item_ids:
-        extract_item_iocs.delay(str(item_id))
+        try:
+            extract_item_iocs.delay(str(item_id))
+        except Exception as exc:
+            logger.exception("item_ioc_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
+            continue
         queued += 1
 
     return {"queued": queued}
@@ -671,7 +679,11 @@ def dispatch_feed_metadata_backfill():
             break
         if not _needs_metadata_backfill(feed):
             continue
-        backfill_feed_metadata.delay(str(feed.id))
+        try:
+            backfill_feed_metadata.delay(str(feed.id))
+        except Exception as exc:
+            logger.exception("feed_metadata_backfill_enqueue_failed feed_id=%s error=%s", feed.id, exc)
+            continue
         queued += 1
 
     return {"queued": queued}

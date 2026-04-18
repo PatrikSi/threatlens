@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -38,6 +38,9 @@ const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilitie
 export function UsersPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
+  const [rowNoticeByUserId, setRowNoticeByUserId] = useState<
+    Record<string, { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' }>
+  >({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>({
     email: '',
     password: '',
@@ -69,7 +72,34 @@ export function UsersPage() {
         method: 'PATCH',
         body: JSON.stringify(payload.body),
       }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['users'] }),
+    onMutate: (payload) => {
+      setRowNoticeByUserId((current) => {
+        const next = { ...current }
+        delete next[payload.id]
+        return next
+      })
+    },
+    onSuccess: (_user, payload) => {
+      setRowNoticeByUserId((current) => ({
+        ...current,
+        [payload.id]: {
+          tone: 'success',
+          message: payload.body.password ? 'Password updated.' : 'User settings updated.',
+          action: payload.body.password ? 'password' : 'settings',
+        },
+      }))
+      void queryClient.invalidateQueries({ queryKey: ['users'] })
+    },
+    onError: (error, payload) => {
+      setRowNoticeByUserId((current) => ({
+        ...current,
+        [payload.id]: {
+          tone: 'error',
+          message: resolveUsersMutationError(error),
+          action: payload.body.password ? 'password' : 'settings',
+        },
+      }))
+    },
   })
 
   const filteredUsers = useMemo(() => {
@@ -185,7 +215,13 @@ export function UsersPage() {
 
         <div className="mt-3 space-y-2">
           {filteredUsers.map((user) => (
-            <UserRow key={user.id} user={user} onSave={(body) => updateUser.mutate({ id: user.id, body })} saving={updateUser.isPending} />
+            <UserRow
+              key={user.id}
+              user={user}
+              onSave={(body) => updateUser.mutate({ id: user.id, body })}
+              saving={updateUser.isPending && updateUser.variables?.id === user.id}
+              notice={rowNoticeByUserId[user.id] ?? null}
+            />
           ))}
 
           {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
@@ -196,12 +232,34 @@ export function UsersPage() {
   )
 }
 
-function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserUpdateRequest) => void; saving: boolean }) {
+function UserRow({
+  user,
+  onSave,
+  saving,
+  notice,
+}: {
+  user: User
+  onSave: (payload: UserUpdateRequest) => void
+  saving: boolean
+  notice: { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' } | null
+}) {
   const [role, setRole] = useState<User['role']>(user.role)
   const [isActive, setIsActive] = useState(user.is_active)
   const [isApproved, setIsApproved] = useState(user.is_approved)
   const [resetPassword, setResetPassword] = useState('')
   const trimmedPassword = resetPassword.trim()
+
+  useEffect(() => {
+    setRole(user.role)
+    setIsActive(user.is_active)
+    setIsApproved(user.is_approved)
+  }, [user.is_active, user.is_approved, user.role])
+
+  useEffect(() => {
+    if (notice?.tone === 'success' && notice.action === 'password') {
+      setResetPassword('')
+    }
+  }, [notice])
 
   return (
     <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
@@ -257,14 +315,16 @@ function UserRow({ user, onSave, saving }: { user: User; onSave: (payload: UserU
         <button
           className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
           disabled={saving || trimmedPassword.length < 8}
-          onClick={() => {
-            onSave({ password: trimmedPassword })
-            setResetPassword('')
-          }}
+          onClick={() => onSave({ password: trimmedPassword })}
         >
           Save password
         </button>
       </div>
+      {notice && (
+        <p className={`mt-2 text-sm ${notice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
+          {notice.message}
+        </p>
+      )}
     </div>
   )
 }
@@ -274,4 +334,14 @@ function resolveUsersError(error: unknown): string {
     return `Failed to load users: ${error.message}`
   }
   return 'Failed to load users.'
+}
+
+function resolveUsersMutationError(error: unknown): string {
+  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Failed to update user.'
 }

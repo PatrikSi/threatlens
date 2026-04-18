@@ -436,6 +436,12 @@ def _validate_notification_target_url(url_template: str) -> None:
         raise ValueError("url_template must not contain templates in the scheme or host")
     if split.scheme.lower() not in {"http", "https"}:
         raise ValueError("url_template must use http or https")
+    if split.scheme.lower() != "https" and not settings.allow_private_network_webhooks:
+        raise ValueError("url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled")
+    if split.scheme.lower() == "http" and settings.allow_private_network_webhooks and is_fetchable_url(url_template, allow_private_network=False):
+        raise ValueError(
+            "url_template must use https for publicly routable hosts; plain http is only allowed for private-network webhook endpoints"
+        )
     if split.username or split.password:
         raise ValueError("url_template must not include embedded credentials")
     if split.fragment:
