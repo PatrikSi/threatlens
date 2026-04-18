@@ -598,7 +598,10 @@ def list_daily_brief_source_items(
     daily_brief_id: uuid.UUID,
     included: bool | None = None,
     limit: int = 200,
-) -> list[AIDailyBriefSourceItemResponse]:
+) -> list[AIDailyBriefSourceItemResponse] | None:
+    brief_exists = db.scalar(select(AIDailyBrief.id).where(AIDailyBrief.id == daily_brief_id))
+    if brief_exists is None:
+        return None
     query = select(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == daily_brief_id)
     if included is not None:
         query = query.where(AIDailyBriefSourceItem.included.is_(included))

@@ -1,8 +1,12 @@
 import uuid
 from datetime import date, datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from app.core.config import get_settings
+from app.services.url_utils import is_fetchable_url
 
 AIProviderType = Literal["openai_compatible"]
 AIRelevanceLabel = Literal["low", "medium", "high"]
@@ -82,7 +86,6 @@ class AISettingsUpdate(BaseModel):
         return _normalize_string_list(value)
 
     @field_validator(
-        "base_url",
         "model",
         "company_name",
         "company_industry",
@@ -101,6 +104,36 @@ class AISettingsUpdate(BaseModel):
             return None
         text = str(value).strip()
         return text or None
+
+    @field_validator("base_url", mode="before")
+    @classmethod
+    def _validate_base_url(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        base_url = str(value).strip()
+        if not base_url:
+            return None
+
+        try:
+            parsed = urlsplit(base_url)
+        except ValueError as exc:
+            raise ValueError("base_url must be a valid URL") from exc
+
+        settings = get_settings()
+        allow_private_network = bool(settings.allow_private_network_ai)
+        if parsed.scheme.lower() not in {"http", "https"}:
+            raise ValueError("base_url must use http or https")
+        if parsed.scheme.lower() != "https" and not allow_private_network:
+            raise ValueError("base_url must use https unless ALLOW_PRIVATE_NETWORK_AI is enabled")
+        if parsed.username or parsed.password:
+            raise ValueError("base_url must not include embedded credentials")
+        if parsed.query or parsed.fragment:
+            raise ValueError("base_url must not include query parameters or fragments")
+        if "{{" in parsed.scheme or "{{" in parsed.netloc:
+            raise ValueError("base_url must not contain templates in the scheme or host")
+        if not is_fetchable_url(base_url, allow_private_network=allow_private_network):
+            raise ValueError("base_url is not allowed for outbound fetch")
+        return base_url
 
     @model_validator(mode="after")
     def _validate_thresholds(self):

@@ -26,6 +26,7 @@ from app.services.notification_webhooks import (
     send_notification_webhook_for_item,
     validate_notification_webhook_payload,
 )
+from app.services.secret_storage import decrypt_json, decrypt_text
 from app.tasks.feed_tasks import (
     dispatch_alert_match_notification_webhooks,
     dispatch_feed_failing_notification_webhooks,
@@ -481,8 +482,9 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert delivery.item_title_snapshot == item.title
     assert delivery.feed_name_snapshot == feed.name
     assert delivery.status_code == 202
-    assert delivery.response_body_preview == "accepted"
-    assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (delivery.rendered_headers_json or []))
+    assert decrypt_text(delivery.response_body_preview) == "accepted"
+    rendered_headers = decrypt_json(delivery.rendered_headers_json)
+    assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (rendered_headers or []))
 
 
 def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_session, monkeypatch):

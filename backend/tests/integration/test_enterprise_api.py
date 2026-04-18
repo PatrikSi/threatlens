@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
+from app.models.api_token import ApiToken
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -296,6 +297,46 @@ def test_change_password_revokes_existing_api_tokens(client: TestClient, auth_he
 
     stale_token_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_value}"})
     assert stale_token_response.status_code == 401
+
+
+def test_admin_password_reset_revokes_existing_api_tokens(client: TestClient, auth_headers, db_session):
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+
+    token_response = client.post(
+        "/tokens",
+        json={"name": "viewer-reset-token", "expires_in_days": 30, "scopes": ["read:feeds"]},
+        headers=auth_headers["viewer"],
+    )
+    assert token_response.status_code == 201
+    token_value = token_response.json()["token"]
+
+    update_response = client.patch(
+        f"/users/{viewer.id}",
+        json={"password": "ViewerPass456!"},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+
+    db_session.refresh(viewer)
+    assert viewer.auth_token_version == 1
+    active_tokens = db_session.scalars(select(ApiToken).where(ApiToken.user_id == viewer.id, ApiToken.revoked_at.is_(None))).all()
+    assert active_tokens == []
+
+    stale_token_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_value}"})
+    assert stale_token_response.status_code == 401
+
+    old_password_login = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert old_password_login.status_code == 401
+
+    new_password_login = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass456!"},
+    )
+    assert new_password_login.status_code == 200
 
 
 def test_logout_clears_auth_cookies_without_requiring_a_valid_session(client: TestClient):
@@ -1472,8 +1513,8 @@ def test_api_token_auth_rejects_unapproved_user(client: TestClient, auth_headers
     assert update_response.status_code == 200
 
     denied_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token_payload['token']}"})
-    assert denied_response.status_code == 403
-    assert denied_response.json()["detail"] == "Your account is pending admin approval."
+    assert denied_response.status_code == 401
+    assert denied_response.json()["detail"] == "Invalid credentials"
 
 
 def test_api_token_creation_only_uses_default_scopes_when_scope_field_is_omitted(client: TestClient, auth_headers):

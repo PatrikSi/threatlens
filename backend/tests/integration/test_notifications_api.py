@@ -228,7 +228,7 @@ def test_user_can_list_notification_webhook_delivery_history(client: TestClient,
     assert payload["deliveries"][0]["delivery_state"] == "failed"
     assert payload["deliveries"][0]["attempt_count"] == 1
     assert payload["deliveries"][0]["item_title"] == "Example item"
-    assert payload["deliveries"][0]["response_body_preview"] == "server error"
+    assert payload["deliveries"][0]["response_body_preview"] == "Stored body withheld (12 chars)"
 
 
 def test_user_can_list_notification_webhook_delivery_history_with_stable_tiebreaker(

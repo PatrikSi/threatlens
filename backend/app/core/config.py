@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     article_read_timeout_seconds: int = 20
     article_max_bytes: int = 4_000_000
     allow_private_network_fetch: bool = False
+    allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2

@@ -34,6 +34,16 @@ from app.tasks.feed_tasks import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _allow_private_network_ai(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_AI", "true")
+    get_settings.cache_clear()
+    try:
+        yield
+    finally:
+        get_settings.cache_clear()
+
+
 def test_core_pipeline_tasks_ack_late_and_reject_on_worker_loss():
     assert backfill_feed_metadata.acks_late is True
     assert backfill_feed_metadata.reject_on_worker_lost is True

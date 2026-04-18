@@ -27,6 +27,7 @@ from app.services.ai_ops import (
 def ai_enabled_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_API_KEY", "")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_AI", "true")
     get_settings.cache_clear()
     try:
         yield

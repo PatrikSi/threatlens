@@ -7,12 +7,14 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import case, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_usage_event import AIUsageEvent
@@ -36,6 +38,7 @@ from app.services.ai_config import (
     build_item_enrichment_system_prompt,
     load_active_ai_settings,
 )
+from app.services.safe_fetch import SafeFetchError, build_safe_http_client
 
 FEATURE_ITEM_ENRICHMENT = "item_enrichment"
 FEATURE_DAILY_BRIEF = "daily_brief"
@@ -68,17 +71,14 @@ class AIIntegrationError(ValueError):
         self.retry_hint = retry_hint
 
     def debug_payload(self) -> dict[str, object]:
-        payload: dict[str, object] = {}
-        if self.request_url:
-            payload["request_url"] = self.request_url
-        if self.request_payload is not None:
-            payload["request_payload"] = self.request_payload
-        if self.status_code is not None:
-            payload["status_code"] = self.status_code
-        if self.response_body is not None:
-            payload["response_body"] = self.response_body
-        if self.response_json is not None:
-            payload["response_json"] = self.response_json
+        payload = _sanitize_provider_exchange(
+            request_url=self.request_url,
+            request_payload=self.request_payload,
+            response_body=self.response_body,
+            response_json=self.response_json,
+            status_code=self.status_code,
+            finish_reason=None,
+        )
         if self.retry_hint:
             payload["retry_hint"] = self.retry_hint
         return payload
@@ -856,20 +856,131 @@ def _next_retry_max_completion_tokens(
 
 
 def _build_provider_exchange_payload(completion: AICompletionResult) -> dict[str, object]:
+    return _sanitize_provider_exchange(
+        request_url=completion.request_url,
+        request_payload=completion.request_payload,
+        response_body=completion.response_body,
+        response_json=completion.response_json,
+        status_code=completion.status_code,
+        finish_reason=completion.finish_reason,
+    )
+
+
+def _sanitize_provider_exchange(
+    *,
+    request_url: str | None,
+    request_payload: dict[str, object] | None,
+    response_body: str | None,
+    response_json: object | None,
+    status_code: int | None,
+    finish_reason: str | None,
+) -> dict[str, object]:
     payload: dict[str, object] = {}
-    if completion.request_url:
-        payload["request_url"] = completion.request_url
-    if completion.request_payload is not None:
-        payload["request_payload"] = completion.request_payload
-    if completion.status_code is not None:
-        payload["status_code"] = completion.status_code
-    if completion.finish_reason:
-        payload["finish_reason"] = completion.finish_reason
-    if completion.response_body is not None:
-        payload["response_body"] = completion.response_body
-    if completion.response_json is not None:
-        payload["response_json"] = completion.response_json
+    if request_url:
+        payload.update(_summarize_request_url(request_url))
+    if request_payload is not None:
+        payload.update(_summarize_request_payload(request_payload))
+    if status_code is not None:
+        payload["status_code"] = status_code
+    if finish_reason:
+        payload["finish_reason"] = finish_reason
+    if response_body is not None:
+        payload["response_body_chars"] = len(response_body)
+        payload["response_body_sha256"] = hashlib.sha256(response_body.encode("utf-8", errors="ignore")).hexdigest()
+    if response_json is not None:
+        payload["response_json_summary"] = _summarize_response_json(response_json)
     return payload
+
+
+def _summarize_request_url(request_url: str) -> dict[str, object]:
+    parsed = urlsplit(request_url)
+    return {
+        "request_url": request_url,
+        "request_scheme": parsed.scheme.lower(),
+        "request_host": (parsed.hostname or "").lower(),
+        "request_path": parsed.path or "/",
+    }
+
+
+def _summarize_request_payload(request_payload: dict[str, object]) -> dict[str, object]:
+    messages = request_payload.get("messages")
+    message_roles: list[str] = []
+    prompt_char_count = 0
+    if isinstance(messages, list):
+        for entry in messages:
+            if not isinstance(entry, dict):
+                continue
+            role = entry.get("role")
+            if isinstance(role, str):
+                message_roles.append(role)
+            content = entry.get("content")
+            if isinstance(content, str):
+                prompt_char_count += len(content)
+            elif isinstance(content, list):
+                for part in content:
+                    if not isinstance(part, dict):
+                        continue
+                    text_value = part.get("text") or part.get("content")
+                    if isinstance(text_value, str):
+                        prompt_char_count += len(text_value)
+
+    summary: dict[str, object] = {
+        "request_message_count": len(messages) if isinstance(messages, list) else 0,
+        "request_message_roles": message_roles,
+        "request_prompt_chars": prompt_char_count,
+    }
+    model = request_payload.get("model")
+    if isinstance(model, str):
+        summary["request_model"] = model
+    temperature = request_payload.get("temperature")
+    if isinstance(temperature, (int, float)):
+        summary["request_temperature"] = float(temperature)
+    max_tokens = request_payload.get("max_tokens")
+    if isinstance(max_tokens, int):
+        summary["request_max_tokens"] = max_tokens
+    return summary
+
+
+def _summarize_response_json(response_json: object) -> dict[str, object]:
+    if isinstance(response_json, dict):
+        summary: dict[str, object] = {
+            "top_level_keys": sorted(str(key) for key in response_json.keys())[:20],
+        }
+        model = response_json.get("model")
+        if isinstance(model, str):
+            summary["response_model"] = model
+        usage = response_json.get("usage")
+        if isinstance(usage, dict):
+            usage_summary: dict[str, int] = {}
+            for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                value = usage.get(key)
+                if isinstance(value, int):
+                    usage_summary[key] = value
+            if usage_summary:
+                summary["usage"] = usage_summary
+        choices = response_json.get("choices")
+        if isinstance(choices, list):
+            summary["choices_count"] = len(choices)
+            if choices and isinstance(choices[0], dict):
+                finish_reason = choices[0].get("finish_reason")
+                if isinstance(finish_reason, str):
+                    summary["first_choice_finish_reason"] = finish_reason
+        error = response_json.get("error")
+        if isinstance(error, dict):
+            error_summary: dict[str, object] = {}
+            for key in ("type", "code", "param"):
+                value = error.get(key)
+                if value is not None:
+                    error_summary[key] = value
+            message = error.get("message")
+            if isinstance(message, str):
+                error_summary["message_chars"] = len(message)
+            if error_summary:
+                summary["error"] = error_summary
+        return summary
+    if isinstance(response_json, list):
+        return {"type": "list", "length": len(response_json)}
+    return {"type": type(response_json).__name__}
 
 
 def _call_ai_json(
@@ -896,8 +1007,19 @@ def _call_ai_json(
         headers["Authorization"] = f"Bearer {active.api_key}"
 
     started_at = time.perf_counter()
+    runtime_settings = get_settings()
+    timeout = httpx.Timeout(
+        connect=active.request_timeout_seconds,
+        read=active.request_timeout_seconds,
+        write=active.request_timeout_seconds,
+        pool=active.request_timeout_seconds,
+    )
     try:
-        with httpx.Client(timeout=active.request_timeout_seconds) as client:
+        with build_safe_http_client(
+            timeout=timeout,
+            headers={"User-Agent": runtime_settings.fetch_user_agent},
+            allow_private_network=runtime_settings.allow_private_network_ai,
+        ) as client:
             response = client.post(request_url, headers=headers, json=request_payload)
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:
@@ -914,7 +1036,7 @@ def _call_ai_json(
             response_json=response_json,
             status_code=exc.response.status_code,
         ) from exc
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, SafeFetchError, ValueError) as exc:
         raise AIIntegrationError(
             f"AI request failed: {exc}",
             request_url=request_url,

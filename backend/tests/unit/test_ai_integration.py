@@ -43,6 +43,7 @@ from app.schemas.ai import AISettingsUpdate
 def ai_enabled_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_API_KEY", "")
+    monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_AI", "true")
     get_settings.cache_clear()
     try:
         yield
@@ -715,14 +716,11 @@ def test_run_item_ai_enrichment_records_provider_exchange_event(db_session, ai_e
     assert event is not None
     assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
     assert event.payload_json["status_code"] == 200
-    assert "request_payload" in event.payload_json
-    assert "response_body" in event.payload_json
-    prompt_messages = event.payload_json["request_payload"]["messages"]
-    assert "Use only the provided article text" in prompt_messages[0]["content"]
-    request_payload = json.loads(prompt_messages[1]["content"])
-    assert request_payload["audience"] == "security lead or analyst triaging content for one defended organization"
-    assert request_payload["requested_output"]["summary_text"].startswith("2-4 concise sentences")
-    assert request_payload["requested_output"]["relevance_reasons"].startswith("1-4 short plain strings")
+    assert event.payload_json["request_model"] == "local-threat-model"
+    assert event.payload_json["request_message_count"] == 2
+    assert event.payload_json["request_prompt_chars"] > 0
+    assert event.payload_json["response_body_chars"] > 0
+    assert event.payload_json["response_json_summary"]["top_level_keys"] == ["choices"]
 
 
 def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
@@ -800,7 +798,9 @@ def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_sessio
     assert event is not None
     assert event.message == "AI request failed: provider 500"
     assert event.payload_json["status_code"] == 500
-    assert event.payload_json["response_body"] == '{"error":"provider failed"}'
+    assert event.payload_json["request_message_count"] == 2
+    assert event.payload_json["response_body_chars"] == len('{"error":"provider failed"}')
+    assert event.payload_json["response_json_summary"]["top_level_keys"] == ["error"]
 
 
 def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
@@ -882,8 +882,8 @@ def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
         },
     }
     monkeypatch.setattr(
-        "app.services.ai_integration.httpx.Client",
-        _fake_httpx_client_factory(payload),
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
     result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
@@ -976,8 +976,8 @@ def test_run_item_ai_enrichment_recovers_from_missing_closing_brace_in_model_jso
         },
     }
     monkeypatch.setattr(
-        "app.services.ai_integration.httpx.Client",
-        _fake_httpx_client_factory(payload),
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
     result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
@@ -1067,8 +1067,8 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
         },
     }
     monkeypatch.setattr(
-        "app.services.ai_integration.httpx.Client",
-        _fake_httpx_client_factory(payload),
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: _fake_httpx_client_factory(payload)(*args, **kwargs),
     )
 
     result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
@@ -1083,9 +1083,10 @@ def test_run_item_ai_enrichment_records_parse_failure_context(
     assert event is not None
     assert event.message == "AI response did not contain valid JSON"
     assert event.payload_json["request_url"] == "http://localhost:11434/v1/chat/completions"
-    assert event.payload_json["request_payload"]["model"] == "local-threat-model"
+    assert event.payload_json["request_model"] == "local-threat-model"
     assert event.payload_json["status_code"] == 200
-    assert event.payload_json["response_json"]["choices"][0]["message"]["content"] == "summary_text: malformed response"
+    assert event.payload_json["response_json_summary"]["top_level_keys"] == ["choices", "created", "id", "model", "object", "usage"]
+    assert event.payload_json["response_json_summary"]["choices_count"] == 1
 
 
 def test_run_item_ai_enrichment_retries_after_malformed_model_output(
@@ -1188,9 +1189,10 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
             "total_tokens": 134,
         },
     }
+    fake_client_factory = _fake_httpx_client_sequence_factory([invalid_payload, valid_payload])
     monkeypatch.setattr(
-        "app.services.ai_integration.httpx.Client",
-        _fake_httpx_client_sequence_factory([invalid_payload, valid_payload]),
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: fake_client_factory(*args, **kwargs),
     )
 
     result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
@@ -1323,9 +1325,10 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
             "total_tokens": 2820,
         },
     }
+    fake_client_factory = _fake_httpx_client_sequence_factory([invalid_payload, valid_payload])
     monkeypatch.setattr(
-        "app.services.ai_integration.httpx.Client",
-        _fake_httpx_client_sequence_factory([invalid_payload, valid_payload]),
+        "app.services.ai_integration.build_safe_http_client",
+        lambda *args, **kwargs: fake_client_factory(*args, **kwargs),
     )
 
     result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)

@@ -618,4 +618,7 @@ def list_daily_brief_sources_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_AI)),
 ):
     _ = admin
-    return list_daily_brief_source_items(db, daily_brief_id=brief_id, included=included, limit=limit)
+    sources = list_daily_brief_source_items(db, daily_brief_id=brief_id, included=included, limit=limit)
+    if sources is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Daily brief not found")
+    return sources

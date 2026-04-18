@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
@@ -10,6 +10,7 @@ from app.core.rbac import ALL_ROLES, ROLE_ADMIN
 from app.core.security import get_password_hash
 from app.core.token_scopes import SCOPE_READ_USERS, SCOPE_WRITE_USERS
 from app.db.session import get_db
+from app.models.api_token import ApiToken
 from app.models.user import User
 from app.schemas.user import UserAdminResponse, UserCreateRequest, UserUpdateRequest
 from app.services.audit import record_audit
@@ -108,6 +109,7 @@ def update_user(
 
     _ensure_active_approved_admin_remains(db, user, payload)
     should_rotate_auth_tokens = payload.password is not None
+    revoked_api_tokens = 0
 
     if payload.role is not None:
         if payload.role not in ALL_ROLES:
@@ -135,6 +137,18 @@ def update_user(
         user.password_hash = get_password_hash(payload.password)
 
     if should_rotate_auth_tokens:
+        revoked_at = datetime.now(timezone.utc)
+        revoked_api_tokens = (
+            db.execute(
+                update(ApiToken)
+                .where(
+                    ApiToken.user_id == user.id,
+                    ApiToken.revoked_at.is_(None),
+                )
+                .values(revoked_at=revoked_at)
+            ).rowcount
+            or 0
+        )
         user.auth_token_version = int(user.auth_token_version or 0) + 1
 
     db.add(user)
@@ -150,6 +164,7 @@ def update_user(
             "is_approved": user.is_approved,
             "password_updated": payload.password is not None,
             "auth_token_version": user.auth_token_version,
+            "revoked_api_tokens": int(revoked_api_tokens),
         },
     )
     db.commit()
