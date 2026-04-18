@@ -1,25 +1,31 @@
 # Code of Conduct
 
-ThreatLens follows a simple standard: be respectful, be constructive, and assume good intent.
+## Our Standard
 
-## Expected Behavior
+ThreatLens contributors are expected to be respectful, technically honest, and collaborative. We want a project where people can ask questions, offer feedback, and improve the software without hostility or gatekeeping.
 
-- Be courteous and professional.
-- Give feedback that helps others improve.
-- Respect different backgrounds, experience levels, and viewpoints.
-- Focus on the work, not the person.
+Examples of expected behavior:
 
-## Unacceptable Behavior
+- assuming good intent while still giving clear technical feedback
+- sharing context, tradeoffs, and evidence instead of personal attacks
+- welcoming contributors with different experience levels
+- respecting privacy and handling security concerns responsibly
 
-- Harassment, discrimination, intimidation, or personal attacks.
-- Deliberate sabotage, trolling, or repeated bad-faith disruption.
-- Sharing private information without permission.
-- Any conduct that makes collaboration unsafe or hostile.
+Examples of unacceptable behavior:
+
+- harassment, discrimination, or intimidation
+- doxxing or sharing private information without permission
+- abusive language or repeated bad-faith disruption
+- public disclosure of sensitive security details before maintainers can respond
+
+## Scope
+
+This applies to project discussions, issues, pull requests, reviews, and other community spaces tied to ThreatLens.
 
 ## Enforcement
 
-Project maintainers may remove comments, close issues, or reject contributions that violate this code of conduct.
+Project maintainers may edit, remove, or moderate content that violates this policy. Repeated or severe violations may lead to temporary or permanent participation restrictions.
 
 ## Reporting
 
-If you experience or witness harmful behavior, report it privately to the project maintainers through the repository's preferred support channel.
+Report conduct concerns to the maintainers through a private channel when possible. For security-sensitive or privacy-sensitive incidents, follow the guidance in `SECURITY.md`.

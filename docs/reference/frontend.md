@@ -24,11 +24,12 @@ Route tree:
   - `/alerts` -> `AlertsPage`
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
-  - `/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
+  - `/ai` -> redirect to `/settings/ai`
   - `/settings` -> `SettingsLayout`
-    - index -> `SettingsOverviewPage`
+    - index -> redirect to `/settings/account`
     - `/settings/account` -> `AccountPage`
     - `/settings/notifications` -> `NotificationsPage`
+    - `/settings/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
     - `/settings/tagging` -> admin-only `TaggingSettingsPage`
     - `/settings/tokens` -> `TokensPage`
     - `/settings/users` -> admin-only `UsersPage`
@@ -48,9 +49,10 @@ Route tree:
 ### Browser storage keys
 
 - Theme mode: `threatlens.theme`
-- Dashboard window state: `threatlens.dashboard.windows.v2`
-- Dashboard alert seen timestamps: `threatlens.dashboard.window-seen.v1`
-- User RSS last-open timestamps: `threatlens.user-last-open.v1`
+- Dashboard window state: `threatlens.dashboard.windows.v2:<userId>`
+- Dashboard alert seen timestamps: `threatlens.dashboard.window-seen.v1:<userId>`
+- User RSS last-open timestamps: `threatlens.user-last-open.v1:<userId>`
+- Legacy unscoped dashboard storage keys are migrated into the user-scoped keys on first load
 
 ## Theme System (`ThemeContext.tsx`)
 
@@ -81,7 +83,6 @@ Top navigation links:
 - `Alerts`
 - `Feeds`
 - `Stats`
-- `AI` (admin-only, shown only when AI is enabled)
 - `Settings`
 
 Top-right controls:
@@ -120,7 +121,7 @@ Snap modes:
 
 Dashboard constants:
 
-- `DASHBOARD_VIEW_VERSION = 3`
+- `DASHBOARD_VIEW_VERSION = 6`
 - `WINDOW_MIN_WIDTH = 460`
 - `WINDOW_MIN_HEIGHT = 320`
 - `DRAG_EDGE_SNAP_THRESHOLD = 12`
@@ -139,11 +140,13 @@ Window behaviors:
 - Per-window rename
 - Scratch note persistence for notes windows
 - RSS and alerts filter state is isolated per window and preserved in saved views
+- The toolbar search reflects a shared cross-panel search only when searchable panels are aligned; otherwise it shows a mixed-state placeholder
+- RSS expanded item detail and note drafts are panel-scoped rather than shared globally
 - Daily Brief window selection is isolated per window and preserved in saved views
 
 RSS filter values:
 
-- Time range: `all|24h|7d|30d|custom`
+- Time range: `all|24h|7d|30d|days|custom`
 - Read status: `all|read|unread`
 - Star status: `all|starred|unstarred`
 - Sort: `published_at_desc|published_at_asc|first_seen_desc|first_seen_asc`
@@ -151,7 +154,7 @@ RSS filter values:
 
 Alerts filter values (dashboard window):
 
-- Time range: `all|24h|7d|30d|custom`
+- Time range: `all|24h|7d|30d|days|custom`
 - Sort: `published_at_desc|published_at_asc|first_seen_desc|first_seen_asc`
 - View mode: `expanded|compact`
 
@@ -201,6 +204,7 @@ Key UI areas:
 - scoped AI reprocess controls
 - live running/queued task panel
 - run history and drilldown
+- selected run detail automatically re-anchors to the visible filtered list
 - provider exchange inspection
 - prompt history and manual action history
 
@@ -331,19 +335,17 @@ API calls:
 - `GET /stats/activity-heatmap?...`
 - `GET /stats/signal-radar?...`
 
-### `SettingsLayout` and `SettingsOverviewPage`
+### `SettingsLayout`
 
 UI elements:
 
 - Role-aware settings nav
 - Current role badge
-- Role capability cards (Admin, Analyst, Viewer)
 - Settings nav entries:
-  - `Overview`
   - `Account`
   - `Notifications`
   - `API Tokens`
-  - admin-only `Tagging`, `Users`, `Audit Logs`
+  - admin-only `AI`, `Tagging`, `Users`, `Audit Logs`
 
 API calls:
 

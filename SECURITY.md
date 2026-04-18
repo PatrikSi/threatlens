@@ -1,27 +1,39 @@
 # Security Policy
 
-ThreatLens is a security-focused project, so vulnerabilities should be reported privately.
+## Supported Versions
+
+ThreatLens is currently maintained from the latest default branch. Security fixes are applied there first.
 
 ## Reporting a Vulnerability
 
-- Do not open a public issue for a suspected security problem.
-- Use the repository's private security reporting channel if one is available.
-- If private reporting is not available, contact the maintainers directly through the project's established support channel.
+Please do not open public issues for suspected vulnerabilities.
+
+Use a private reporting channel instead:
+
+- the repository host's private security reporting workflow, if available
+- a direct private message or email to the current maintainer
+
+If you are unsure how to reach the maintainer privately, open a minimal public issue that does not include exploit details and ask for a secure contact path.
+
+## What to Include
 
 Please include:
 
-- A short summary of the issue.
-- The affected component or endpoint.
-- Reproduction steps or proof of concept.
-- Any relevant logs, screenshots, or request traces.
+- affected version or commit
+- impact summary
+- reproduction steps or proof of concept
+- any required configuration or environment details
+- suggested mitigations, if you have them
 
-## What to Expect
+## Response Expectations
 
-- We will review reports as soon as practical.
-- We may ask for clarification or a reduced reproduction case.
-- We will coordinate disclosure timing before any public write-up.
+The project aims to:
 
-## Safe Disclosure
+- acknowledge reports promptly
+- confirm severity and scope
+- coordinate a fix and disclosure timeline
+- credit reporters who want attribution
 
-- Avoid exfiltrating data beyond what is needed to demonstrate the issue.
-- Do not escalate access, destroy data, or disrupt running systems while testing.
+## Disclosure
+
+Please allow time for investigation and patching before public disclosure. Coordinated disclosure helps protect downstream self-hosted deployments.

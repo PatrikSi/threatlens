@@ -7,7 +7,6 @@ ThreatLens is a self-hosted threat intelligence aggregator built for security te
 The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
-- `bootstrap` - one-shot migrations + admin seeding job in `docker-compose.yml`
 - `api` - FastAPI backend
 - `worker` - Celery worker
 - `beat` - Celery beat scheduler
@@ -38,7 +37,7 @@ Copy the environment template:
 cp .env.example .env
 ```
 
-When running in Portainer (or any orchestrator that injects environment variables directly), a `.env` file is not required. The API reads process environment variables first; `.env` is only a local convenience.
+The provided `docker-compose.yml` expects a real `.env` file. If you deploy with another orchestrator that injects environment variables directly, treat `.env.example` as the canonical reference and adapt the manifests instead of using the compose file unchanged.
 
 You'll need to configure at least:
 
@@ -48,11 +47,20 @@ You'll need to configure at least:
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
-Admin bootstrap behavior:
+Secure defaults in the shipped template:
+
+- `APP_ENV=production`
+- `AUTH_COOKIE_SECURE=true`
+- `SEED_ADMIN_ON_STARTUP=false`
+- `EXPOSE_API_DOCS_IN_PRODUCTION=false`
+
+For an HTTP-only local evaluation, set `APP_ENV=development` and `AUTH_COOKIE_SECURE=false` before first startup.
+
+Admin startup behavior:
 
 - `SEED_ADMIN_ON_STARTUP=true` seeds `ADMIN_EMAIL`/`ADMIN_PASSWORD` on first startup.
 - `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=true` forces that account password to be reset at startup (useful during controlled credential rotation).
-- After bootstrap, set `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` unless you intentionally want startup-driven password resets.
+- After initial setup, set `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` unless you intentionally want startup-driven password resets.
 
 There are a number of additional flags for auth hardening, rate limiting, and feed handling - check `.env.example` for full details.
 
@@ -66,12 +74,15 @@ docker compose up --build -d
 
 Startup flow for `docker-compose.yml`:
 
-- `bootstrap` runs migrations/admin seeding once, then exits successfully.
-- `api`, `worker`, and `beat` wait for `bootstrap` plus healthy DB/Redis before starting steady-state work.
+- `api` runs migrations on startup by default and can also seed the admin account when `SEED_ADMIN_ON_STARTUP=true`.
+- `worker` and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
-- `api` replicas do not mutate schema or admin state on boot unless you explicitly re-enable those flags.
+- `worker` and `beat` keep schema/admin startup mutations disabled.
+- Only the `web` service is published by default. The API stays internal to the compose network and is reached through `/api`.
 
-For horizontally scaled production, keep migrations/admin seeding in a dedicated bootstrap or init step. `docker-compose.yml` models that pattern with the one-shot `bootstrap` service; steady-state replicas should keep `RUN_MIGRATIONS_ON_STARTUP` and `SEED_ADMIN_ON_STARTUP` disabled.
+The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
+
+For horizontally scaled production, run migrations/admin seeding from one controlled deploy or init step before scaling API replicas. The default `docker-compose.yml` is optimized for a single API instance handling startup mutations safely.
 
 Check containers:
 
@@ -82,11 +93,11 @@ docker compose ps
 Endpoints:
 
 - UI: `http://localhost:3000`
-- API health: `http://localhost:8000/health`
-- Readiness: `http://localhost:8000/health/ready`
-- Worker: `http://localhost:8000/health/worker`
-- Beat: `http://localhost:8000/health/beat`
-- Interactive API docs: `http://localhost:8000/docs`
+- API health: `http://localhost:3000/api/health`
+- Readiness: `http://localhost:3000/api/health/ready`
+- Worker: `http://localhost:3000/api/health/worker`
+- Beat: `http://localhost:3000/api/health/beat`
+- Interactive API docs: `http://localhost:3000/api/docs` when docs are enabled
 
 Stop:
 
@@ -133,12 +144,12 @@ db.close()
 PY
 ```
 
-2. If admin is missing at startup, ensure these values are explicitly set in your bootstrap job or one-shot init step:
+2. If admin is missing at startup, ensure these values are explicitly set on the API service startup:
    - `SEED_ADMIN_ON_STARTUP=true`
    - `ADMIN_EMAIL=<value>`
    - `ADMIN_PASSWORD=<value>`
    - `RUN_MIGRATIONS_ON_STARTUP=true`
-   - Keep those flags disabled on steady-state API/worker/beat replicas.
+   - Keep those flags disabled on worker and beat replicas.
 
 3. If lockout errors persist after stack recreation, clear Redis auth lock keys (or remove Redis volume):
 
@@ -155,13 +166,12 @@ docker compose exec redis sh -lc \
 docker compose logs -f api
 docker compose logs -f worker
 docker compose logs -f beat
-docker compose logs -f bootstrap
 ```
 
 ### Trigger feed refresh
 
 ```bash
-curl -X POST http://localhost:8000/feeds/<feed_id>/refresh \
+curl -X POST http://localhost:3000/api/feeds/<feed_id>/refresh \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -185,8 +195,7 @@ docker build -q -f web/Dockerfile web
 - Runtime smoke:
 
 ```bash
-docker compose up -d --build bootstrap api worker beat web
-curl http://localhost:8000/health/ready
+docker compose up -d --build api worker beat web
 curl http://localhost:3000/api/health/ready
 ```
 
@@ -195,16 +204,16 @@ curl http://localhost:3000/api/health/ready
 Log in and capture a JWT:
 
 ```bash
-TOKEN=$(curl -sS http://localhost:8000/auth/login \
+TOKEN=$(curl -sS http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"admin123"}' \
+  -d '{"email":"admin@example.com","password":"<admin-password>"}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
 ```
 
 Preview an alert before saving it:
 
 ```bash
-curl -X POST http://localhost:8000/alerts/preview \
+curl -X POST http://localhost:3000/api/alerts/preview \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -218,14 +227,14 @@ curl -X POST http://localhost:8000/alerts/preview \
 Create a webhook notification for new RSS items:
 
 ```bash
-curl -X POST http://localhost:8000/notifications/webhooks \
+curl -X POST http://localhost:3000/api/notifications/webhooks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Gotify",
+    "name": "Webhook Endpoint",
     "enabled": true,
     "event_type": "rss_item_new",
-    "url_template": "http://gotify.local/message?token=abc123",
+    "url_template": "https://hooks.example.com/threatlens?token=replace-me",
     "method": "POST",
     "feed_scope": "all",
     "feed_ids": [],
@@ -241,14 +250,14 @@ curl -X POST http://localhost:8000/notifications/webhooks \
 Queue a Daily Brief after AI is configured:
 
 ```bash
-curl -X POST http://localhost:8000/ai/daily-brief/queue \
+curl -X POST http://localhost:3000/api/ai/daily-brief/queue \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 Preview a custom tagging rule before creating it:
 
 ```bash
-curl -X POST http://localhost:8000/tagging/rules/preview \
+curl -X POST http://localhost:3000/api/tagging/rules/preview \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -288,7 +297,7 @@ curl -X POST http://localhost:8000/tagging/rules/preview \
 Create a token:
 
 ```bash
-curl -X POST http://localhost:8000/tokens \
+curl -X POST http://localhost:3000/api/tokens \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
@@ -297,14 +306,14 @@ curl -X POST http://localhost:8000/tokens \
 Use it:
 
 ```bash
-curl http://localhost:8000/feeds \
+curl http://localhost:3000/api/feeds \
   -H "Authorization: Bearer <token>"
 ```
 
 Revoke it:
 
 ```bash
-curl -X DELETE http://localhost:8000/tokens/<token_id> \
+curl -X DELETE http://localhost:3000/api/tokens/<token_id> \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -320,7 +329,7 @@ Notes:
 Create a user:
 
 ```bash
-curl -X POST http://localhost:8000/users \
+curl -X POST http://localhost:3000/api/users \
   -H "Authorization: Bearer <admin_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst"}'
@@ -329,7 +338,7 @@ curl -X POST http://localhost:8000/users \
 Update a user:
 
 ```bash
-curl -X PATCH http://localhost:8000/users/<user_id> \
+curl -X PATCH http://localhost:3000/api/users/<user_id> \
   -H "Authorization: Bearer <admin_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"role":"viewer","is_active":false}'
@@ -340,14 +349,14 @@ curl -X PATCH http://localhost:8000/users/<user_id> \
 Fetch logs:
 
 ```bash
-curl "http://localhost:8000/audit-logs?page=1&page_size=50" \
+curl "http://localhost:3000/api/audit-logs?page=1&page_size=50" \
   -H "Authorization: Bearer <admin_jwt>"
 ```
 
 Filter by action:
 
 ```bash
-curl "http://localhost:8000/audit-logs?action=feeds.create" \
+curl "http://localhost:3000/api/audit-logs?action=feeds.create" \
   -H "Authorization: Bearer <admin_jwt>"
 ```
 
@@ -362,10 +371,15 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
+Optional one-time startup helper:
+
+```bash
+RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true ./scripts/start-api.sh
+```
+
 Run workers:
 
 ```bash
-RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true /app/scripts/bootstrap.sh
 celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
 celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 ```

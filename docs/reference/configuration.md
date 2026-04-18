@@ -6,15 +6,14 @@
 
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
-- `bootstrap`: one-shot migrations/admin-seeding job
-- `api`: FastAPI (`8000`)
+- `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker
 - `beat`: Celery beat scheduler
-- `web`: Nginx serving Vite build (`3000`)
+- `web`: Nginx serving Vite build (`3000`) and reverse proxying `/api/*` to `api`
 
 ## Backend Settings (`backend/app/core/config.py`)
 
-`Settings` is loaded from process environment first, then `.env` (via `pydantic-settings`), with these defaults:
+`Settings` is loaded from process environment first, then `.env` (via `pydantic-settings`), with these code defaults. The shipped `.env.example` deliberately overrides some of them with more production-oriented values for the default compose stack.
 
 | Variable | Default | Purpose |
 |---|---:|---|
@@ -40,6 +39,7 @@
 | `ARTICLE_READ_TIMEOUT_SECONDS` (`article_read_timeout_seconds`) | `20` | Article HTTP read timeout. |
 | `ARTICLE_MAX_BYTES` (`article_max_bytes`) | `4000000` | Max article response size before rejection. |
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
+| `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
@@ -50,6 +50,8 @@
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to provide `X-Forwarded-For`. |
 | `AUTH_COOKIE_NAME` (`auth_cookie_name`) | `threatlens_session` | HttpOnly auth cookie name for browser sessions. |
+| `AUTH_COOKIE_DOMAIN` (`auth_cookie_domain`) | _(empty)_ | Optional cookie domain override for browser session and CSRF cookies. |
+| `AUTH_COOKIE_PATH` (`auth_cookie_path`) | `/` | Cookie path applied to browser session and CSRF cookies. |
 | `AUTH_COOKIE_SECURE` (`auth_cookie_secure`) | `false` | Require HTTPS for session cookie. Must be `true` in production. |
 | `AUTH_COOKIE_SAMESITE` (`auth_cookie_samesite`) | `lax` | SameSite mode for auth and CSRF cookies. |
 | `AUTH_CSRF_COOKIE_NAME` (`auth_csrf_cookie_name`) | `threatlens_csrf` | CSRF cookie name. |
@@ -59,14 +61,18 @@
 | `PROBE_FEED_METADATA_ON_IMPORT` (`probe_feed_metadata_on_import`) | `false` | Optional synchronous metadata probing during feed import. |
 | `MAX_METADATA_BACKFILL_TASKS_PER_REQUEST` (`max_metadata_backfill_tasks_per_request`) | `100` | Cap for metadata backfill tasks queued per request. |
 | `DISPATCH_DUE_FEEDS_BATCH_SIZE` (`dispatch_due_feeds_batch_size`) | `500` | Max due feeds queued each beat cycle. |
+| `DISPATCH_FEED_CLAIM_SECONDS` (`dispatch_feed_claim_seconds`) | `900` | How long a due-feed dispatch claim is held before another dispatcher may reclaim it. |
+| `DISPATCH_ITEMS_MISSING_ARTICLES_BATCH_SIZE` (`dispatch_items_missing_articles_batch_size`) | `200` | Max repairable article-fetch items queued each beat cycle. |
+| `DISPATCH_ITEMS_MISSING_ARTICLES_AFTER_SECONDS` (`dispatch_items_missing_articles_after_seconds`) | `300` | Grace period before missing or retryable article fetches are eligible for repair dispatch. |
 | `DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE` (`dispatch_unclassified_items_batch_size`) | `200` | Max unclassified items queued each beat cycle. |
 | `DISPATCH_ITEMS_MISSING_IOCS_BATCH_SIZE` (`dispatch_items_missing_iocs_batch_size`) | `200` | Max IOC-backfill items queued each beat cycle. |
 | `DISPATCH_FEED_METADATA_SCAN_LIMIT` (`dispatch_feed_metadata_scan_limit`) | `250` | Feed scan cap for metadata backfill beat cycle. |
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
+| `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
-| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; keep disabled on steady-state replicas and enable only in bootstrap/init jobs. |
-| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`; keep disabled on steady-state replicas and enable only in bootstrap/init jobs. |
+| `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; the default compose overrides this to `true` for the API container. |
+| `SEED_ADMIN_ON_STARTUP` (`seed_admin_on_startup`) | `false` | Controls automatic admin seeding in `start-api.sh`; the default compose passes this through to the API container and keeps it disabled on worker/beat. |
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. |
@@ -76,6 +82,10 @@
 | `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for beat heartbeat key. |
 | `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for beat heartbeat before `/health/beat` fails. |
 | `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
+| `NOTIFICATION_DELIVERY_ENQUEUE_BATCH_SIZE` (`notification_delivery_enqueue_batch_size`) | `100` | Delivery batch size when queueing webhook deliveries. |
+| `NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE` (`notification_delivery_recovery_batch_size`) | `100` | Delivery batch size when retrying stale webhook deliveries. |
+| `NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS` (`notification_delivery_sending_stale_after_seconds`) | `120` | Age after which in-flight webhook sends are treated as stale. |
+| `NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER_SECONDS` (`notification_delivery_queue_degraded_after_seconds`) | `300` | Age after which queued webhook deliveries are surfaced as degraded. |
 
 ## Production Validation Rules
 
@@ -88,10 +98,12 @@ When `APP_ENV` is `production` or `prod`:
 
 ## Compose Notes
 
-- `docker-compose.yml` runs migrations/admin seeding in the one-shot `bootstrap` service before steady-state services start.
-- `api`, `worker`, and `beat` depend on `bootstrap` completing successfully, plus healthy DB/Redis.
+- `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
+- `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
+- `worker` and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- The same compose injects `TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128,172.16.0.0/12` by default for local reverse-proxy deployments.
+- The API is not published on a host port by default; use the web service at `http://localhost:3000/api/*` or place the stack behind your own reverse proxy.
+- The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `TRUSTED_PROXY_CIDRS` when those values are omitted.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
 
@@ -121,7 +133,7 @@ When `APP_ENV` is `production` or `prod`:
   - `dark-forest`
   - `dark-solarized`
 
-## Web Proxy Behavior (`web/nginx/default.conf`)
+## Web Proxy Behavior (`web/nginx/default.conf.template`)
 
 - `/api/*` is reverse proxied to `http://api:8000/`.
 - All other paths fall back to `/index.html` for SPA routing.

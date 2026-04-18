@@ -8,28 +8,16 @@ Centralized account, token, and admin operations.
 
 Always visible:
 
-- Overview
 - Account
 - Notifications
 - API Tokens
 
 Admin-only:
 
+- AI
 - Tagging
 - Users
 - Audit Logs
-
-Related top-level admin section:
-
-- AI (`/ai`) when AI is enabled
-
-## Overview
-
-Role capabilities reference cards:
-
-- Admin
-- Analyst
-- Viewer
 
 ## Account Page
 
@@ -142,4 +130,4 @@ Role capabilities reference cards:
 - Protected by authenticated route guard.
 - Notifications are available to all authenticated users for their own webhooks.
 - Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
-- AI is a separate admin-only top-nav section rather than a nested Settings page.
+- AI is a nested admin-only settings page at `/settings/ai`, with `/ai` redirecting there for backward compatibility.
