@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
+import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import {
   AIDailyBrief,
   AlertInterest,
@@ -398,7 +399,6 @@ export function DashboardPage() {
   const [importViewsError, setImportViewsError] = useState('')
   const [importViewsResult, setImportViewsResult] = useState('')
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
-  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [isEditMode, setIsEditMode] = useState(false)
   const [viewSaveError, setViewSaveError] = useState('')
 
@@ -409,8 +409,8 @@ export function DashboardPage() {
   const [renameWindowDraft, setRenameWindowDraft] = useState('')
   const [relativeTimeAnchorMs, setRelativeTimeAnchorMs] = useState(() => getRelativeTimeAnchorMs())
 
-  const [expandedItemId, setExpandedItemId] = useState<string>('')
-  const [noteDraft, setNoteDraft] = useState('')
+  const [expandedItemIdsByWindowId, setExpandedItemIdsByWindowId] = useState<Record<string, string>>({})
+  const [noteDraftsByItemId, setNoteDraftsByItemId] = useState<Record<string, string>>({})
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -531,6 +531,8 @@ export function DashboardPage() {
       setWindows([createWindowLayout('rss', 1, 1380, 760, 'full')])
       setWindowSeenAt({})
       setRssLastOpenedAt('')
+      setExpandedItemIdsByWindowId({})
+      setNoteDraftsByItemId({})
       return
     }
 
@@ -778,10 +780,15 @@ export function DashboardPage() {
         method: 'POST',
         body: JSON.stringify({ note: payload.note }),
       }),
-    onSuccess: (_data, variables) =>
+    onSuccess: (_data, variables) => {
+      setNoteDraftsByItemId((current) => ({
+        ...current,
+        [variables.itemId]: variables.note ?? '',
+      }))
       syncItemStateInCache(queryClient, variables.itemId, {
         note: variables.note,
-      }),
+      })
+    },
   })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
 
@@ -910,21 +917,79 @@ export function DashboardPage() {
   )
 
   useEffect(() => {
-    if (!expandedItemId) {
-      return
-    }
+    const rssWindowIds = new Set(rssWindows.map((windowLayout) => windowLayout.id))
+    setExpandedItemIdsByWindowId((current) => {
+      const next = { ...current }
+      let changed = false
 
-    const selectedExists = rssWindowQueries.some((query) => (query.data?.items ?? []).some((item) => item.id === expandedItemId))
-    if (!selectedExists) {
-      setExpandedItemId('')
-    }
-  }, [expandedItemId, rssWindowQueries])
+      for (const windowId of Object.keys(next)) {
+        if (rssWindowIds.has(windowId)) {
+          continue
+        }
+        delete next[windowId]
+        changed = true
+      }
 
-  const detailQuery = useQuery({
-    queryKey: ['item', expandedItemId],
-    enabled: Boolean(expandedItemId),
-    queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
+      for (const windowLayout of rssWindows) {
+        const selectedItemId = current[windowLayout.id]
+        if (!selectedItemId) {
+          continue
+        }
+        const windowItems = rssQueriesByWindowId[windowLayout.id]?.data?.items
+        if (!windowItems) {
+          continue
+        }
+        if (windowItems.some((item) => item.id === selectedItemId)) {
+          continue
+        }
+        delete next[windowLayout.id]
+        changed = true
+      }
+
+      return changed ? next : current
+    })
+  }, [rssQueriesByWindowId, rssWindows])
+
+  const detailQueries = useQueries({
+    queries: rssWindows.map((windowLayout) => {
+      const expandedItemId = expandedItemIdsByWindowId[windowLayout.id] ?? ''
+      return {
+        queryKey: ['item', expandedItemId],
+        enabled: Boolean(expandedItemId),
+        queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
+      }
+    }),
   })
+
+  const detailQueriesByWindowId = useMemo(
+    () =>
+      Object.fromEntries(rssWindows.map((windowLayout, index) => [windowLayout.id, detailQueries[index] ?? null])) as Record<
+        string,
+        (typeof detailQueries)[number] | null
+      >,
+    [detailQueries, rssWindows],
+  )
+
+  useEffect(() => {
+    setNoteDraftsByItemId((current) => {
+      let changed = false
+      const next = { ...current }
+
+      for (const query of detailQueries) {
+        const detail = query.data
+        if (!detail) {
+          continue
+        }
+        if (next[detail.id] !== undefined) {
+          continue
+        }
+        next[detail.id] = detail.state.note ?? ''
+        changed = true
+      }
+
+      return changed ? next : current
+    })
+  }, [detailQueries])
 
   const dailyBriefHistoryQuery = useQuery({
     queryKey: ['ai', 'daily-briefs'],
@@ -942,10 +1007,6 @@ export function DashboardPage() {
     },
   })
 
-  useEffect(() => {
-    setNoteDraft(detailQuery.data?.state.note ?? '')
-  }, [detailQuery.data?.state.note])
-
   const availableAlertCategories = useMemo(() => {
     const categories = new Set<string>()
     for (const alert of alertInterestsQuery.data ?? []) {
@@ -954,13 +1015,18 @@ export function DashboardPage() {
     return Array.from(categories).sort()
   }, [alertInterestsQuery.data])
 
-  const handleToggleItem = (itemId: string, isRead: boolean) => {
-    if (expandedItemId === itemId) {
-      setExpandedItemId('')
-      return
-    }
-
-    setExpandedItemId(itemId)
+  const handleToggleItem = (windowId: string, itemId: string, isRead: boolean) => {
+    setExpandedItemIdsByWindowId((current) => {
+      if (current[windowId] === itemId) {
+        const next = { ...current }
+        delete next[windowId]
+        return next
+      }
+      return {
+        ...current,
+        [windowId]: itemId,
+      }
+    })
     if (!isRead && canManage) {
       updateRead.mutate({ itemId, isRead: true })
     }
@@ -1233,6 +1299,7 @@ export function DashboardPage() {
     setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
     setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
     setDashboardRollingDays(nextDashboardRollingDays)
+    setExpandedItemIdsByWindowId({})
     setWindows(parsed.windows)
     setActiveSavedViewId(view.id)
   }
@@ -1534,7 +1601,7 @@ export function DashboardPage() {
   }
 
   const applyGlobalSearch = (query: string) => {
-    setGlobalSearchQuery(query)
+    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.type === 'rss') {
@@ -1561,6 +1628,8 @@ export function DashboardPage() {
       }),
     )
   }
+
+  const globalSearchState = useMemo(() => summarizeGlobalSearchAcrossWindows(windows), [windows])
 
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
@@ -1594,9 +1663,13 @@ export function DashboardPage() {
           className={`${mobileDashboardViewsOpen ? 'flex' : 'hidden'} flex-col gap-1.5 sm:flex sm:flex-row sm:flex-wrap sm:items-center lg:flex-nowrap`}
         >
           <input
-            value={globalSearchQuery}
+            value={globalSearchState.value}
             onChange={(event) => applyGlobalSearch(event.target.value)}
-            placeholder="Search across all panels..."
+            placeholder={
+              globalSearchState.isMixed
+                ? 'Panels have different searches. Type here to overwrite all panel searches...'
+                : 'Search across all panels...'
+            }
             className="h-8 w-full min-w-[180px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:flex-1 dark:border-cyan-900/40 dark:bg-[#041612]"
           />
           <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
@@ -2219,8 +2292,9 @@ export function DashboardPage() {
                   <div className="flex-1 overflow-auto p-3">
                     <div className="space-y-2">
                       {rssWindowItems.map((item) => {
-                        const expanded = expandedItemId === item.id
-                        const detail = expanded ? detailQuery.data : null
+                        const expanded = expandedItemIdsByWindowId[windowLayout.id] === item.id
+                        const detailQuery = detailQueriesByWindowId[windowLayout.id]
+                        const detail = expanded ? detailQuery?.data : null
                         const compact = rssFilters.view_mode === 'compact'
                         const itemHref = sanitizeHref(item.canonical_url || item.url)
                         const detailHref = sanitizeHref(detail?.article?.final_url || detail?.url || null)
@@ -2256,7 +2330,7 @@ export function DashboardPage() {
                               <button
                                 type="button"
                                 className="mt-1 w-full text-left text-slate-900 dark:text-slate-100"
-                                onClick={() => handleToggleItem(item.id, item.is_read)}
+                                onClick={() => handleToggleItem(windowLayout.id, item.id, item.is_read)}
                               >
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
                                   <span>Published {formatPublishedAt(item.published_at)}</span>
@@ -2292,8 +2366,8 @@ export function DashboardPage() {
 
                             {expanded && (
                               <div className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
-                                {detailQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
-                                {detailQuery.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
+                                {detailQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
+                                {detailQuery?.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
 
                                 {detail && detail.id === item.id && (
                                   <>
@@ -2411,14 +2485,24 @@ export function DashboardPage() {
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                                        value={noteDraft}
-                                        onChange={(event) => setNoteDraft(event.target.value)}
+                                        value={noteDraftsByItemId[detail.id] ?? detail.state.note ?? ''}
+                                        onChange={(event) =>
+                                          setNoteDraftsByItemId((current) => ({
+                                            ...current,
+                                            [detail.id]: event.target.value,
+                                          }))
+                                        }
                                         disabled={!canManage}
                                       />
                                       <div className="mt-2 flex items-center gap-2">
                                         <button
                                           className="rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
-                                          onClick={() => updateNote.mutate({ itemId: detail.id, note: noteDraft || null })}
+                                          onClick={() =>
+                                            updateNote.mutate({
+                                              itemId: detail.id,
+                                              note: (noteDraftsByItemId[detail.id] ?? detail.state.note ?? '') || null,
+                                            })
+                                          }
                                           disabled={!canManage}
                                         >
                                           Save Notes

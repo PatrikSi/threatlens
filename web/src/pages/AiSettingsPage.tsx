@@ -5,6 +5,7 @@ import { apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
+import { resolveVisibleRunSelection } from './aiRunSelection'
 import {
   AIAuditEntryResponse,
   AIDailyBriefSourceItemResponse,
@@ -270,9 +271,9 @@ export function AiSettingsPage() {
   }, [settingsQuery.data])
 
   useEffect(() => {
-    const firstRunId = runsQuery.data?.items[0]?.id ?? null
-    if (!selectedRunId && firstRunId) {
-      setSelectedRunId(firstRunId)
+    const nextSelectedRunId = resolveVisibleRunSelection(runsQuery.data?.items, selectedRunId)
+    if (nextSelectedRunId !== selectedRunId) {
+      setSelectedRunId(nextSelectedRunId)
     }
   }, [runsQuery.data, selectedRunId])
 
@@ -2163,7 +2164,6 @@ function ConfigurationTab({
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.base_url}
                 onChange={(event) => updateDraft(setDraft, 'base_url', event.target.value)}
-                placeholder="http://localhost:11434/v1"
               />
             </Field>
             <Field label="Model">
@@ -2171,7 +2171,6 @@ function ConfigurationTab({
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.model}
                 onChange={(event) => updateDraft(setDraft, 'model', event.target.value)}
-                placeholder="local-threat-model"
               />
             </Field>
             <Field label="Temperature">
@@ -2316,17 +2315,16 @@ function ConfigurationTab({
                 onChange={(event) => updateDraft(setDraft, 'company_industry', event.target.value)}
               />
             </Field>
-            <TextAreaList label="Regions" value={draft.company_regions} placeholder="US&#10;EU" onChange={(value) => updateDraft(setDraft, 'company_regions', value)} />
-            <TextAreaList label="Technology Stack" value={draft.company_stack} placeholder="Fortinet&#10;Microsoft 365&#10;Okta" onChange={(value) => updateDraft(setDraft, 'company_stack', value)} />
-            <TextAreaList label="Priority Topics" value={draft.company_priority_topics} placeholder="edge security&#10;identity" onChange={(value) => updateDraft(setDraft, 'company_priority_topics', value)} />
-            <TextAreaList label="Keywords" value={draft.company_keywords} placeholder="vpn&#10;sso&#10;exchange" onChange={(value) => updateDraft(setDraft, 'company_keywords', value)} />
-            <TextAreaList label="Exclusions" value={draft.company_exclusions} placeholder="consumer scams&#10;gaming malware" onChange={(value) => updateDraft(setDraft, 'company_exclusions', value)} />
+            <TextAreaList label="Regions" value={draft.company_regions} onChange={(value) => updateDraft(setDraft, 'company_regions', value)} />
+            <TextAreaList label="Technology Stack" value={draft.company_stack} onChange={(value) => updateDraft(setDraft, 'company_stack', value)} />
+            <TextAreaList label="Priority Topics" value={draft.company_priority_topics} onChange={(value) => updateDraft(setDraft, 'company_priority_topics', value)} />
+            <TextAreaList label="Keywords" value={draft.company_keywords} onChange={(value) => updateDraft(setDraft, 'company_keywords', value)} />
+            <TextAreaList label="Exclusions" value={draft.company_exclusions} onChange={(value) => updateDraft(setDraft, 'company_exclusions', value)} />
             <Field label="Additional Company Context" className="md:col-span-2">
               <textarea
                 className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.company_profile_text}
                 onChange={(event) => updateDraft(setDraft, 'company_profile_text', event.target.value)}
-                placeholder="Describe the defended environment, the systems you care about, and what should be treated as especially relevant."
               />
             </Field>
           </div>
@@ -2334,12 +2332,12 @@ function ConfigurationTab({
 
         <Panel title="Prompt Tuning" subtitle="Built-in defaults stay visible here, but you can edit and save them directly.">
           <div className="grid gap-3">
-            <PromptArea label="Item Enrichment System Prompt" value={draft.item_enrichment_system_prompt} onChange={(value) => updateDraft(setDraft, 'item_enrichment_system_prompt', value)} placeholder="Base system prompt for article summaries and relevance scoring." />
-            <PromptArea label="Daily Brief System Prompt" value={draft.daily_brief_system_prompt} onChange={(value) => updateDraft(setDraft, 'daily_brief_system_prompt', value)} placeholder="Base system prompt for daily brief generation." />
-            <PromptArea label="Global Instructions" value={draft.global_instructions} onChange={(value) => updateDraft(setDraft, 'global_instructions', value)} placeholder="Instructions applied to every AI request." />
-            <PromptArea label="Item Summary Instructions" value={draft.item_summary_instructions} onChange={(value) => updateDraft(setDraft, 'item_summary_instructions', value)} placeholder="Guide the style and focus of article summaries." />
-            <PromptArea label="Relevance Instructions" value={draft.relevance_instructions} onChange={(value) => updateDraft(setDraft, 'relevance_instructions', value)} placeholder="Explain how relevance should be interpreted for this environment." />
-            <PromptArea label="Daily Brief Instructions" value={draft.daily_brief_instructions} onChange={(value) => updateDraft(setDraft, 'daily_brief_instructions', value)} placeholder="Guide the tone and structure of the daily brief." />
+            <PromptArea label="Item Enrichment System Prompt" value={draft.item_enrichment_system_prompt} onChange={(value) => updateDraft(setDraft, 'item_enrichment_system_prompt', value)} />
+            <PromptArea label="Daily Brief System Prompt" value={draft.daily_brief_system_prompt} onChange={(value) => updateDraft(setDraft, 'daily_brief_system_prompt', value)} />
+            <PromptArea label="Global Instructions" value={draft.global_instructions} onChange={(value) => updateDraft(setDraft, 'global_instructions', value)} />
+            <PromptArea label="Item Summary Instructions" value={draft.item_summary_instructions} onChange={(value) => updateDraft(setDraft, 'item_summary_instructions', value)} />
+            <PromptArea label="Relevance Instructions" value={draft.relevance_instructions} onChange={(value) => updateDraft(setDraft, 'relevance_instructions', value)} />
+            <PromptArea label="Daily Brief Instructions" value={draft.daily_brief_instructions} onChange={(value) => updateDraft(setDraft, 'daily_brief_instructions', value)} />
           </div>
         </Panel>
 
@@ -2617,12 +2615,10 @@ function CheckboxRow({
 function TextAreaList({
   label,
   value,
-  placeholder,
   onChange,
 }: {
   label: string
   value: string
-  placeholder: string
   onChange: (value: string) => void
 }) {
   return (
@@ -2631,7 +2627,6 @@ function TextAreaList({
         className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
       />
     </Field>
   )
@@ -2641,12 +2636,10 @@ function PromptArea({
   label,
   value,
   onChange,
-  placeholder,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
-  placeholder: string
 }) {
   return (
     <Field label={label}>
@@ -2654,7 +2647,6 @@ function PromptArea({
         className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
       />
     </Field>
   )

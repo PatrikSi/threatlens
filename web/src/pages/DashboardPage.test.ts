@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './DashboardPage'
+import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 
 function createLocalStorageMock() {
   const store = new Map<string, string>()
@@ -75,5 +76,47 @@ describe('migrateLegacyDashboardStorage', () => {
     expect(localStorageMock.getItem(keys.windows)).toBe(JSON.stringify([{ id: 'scoped-window' }]))
     expect(localStorageMock.getItem(keys.windowSeenAt)).toBe(JSON.stringify({ 'scoped-window': '2026-04-11T02:00:00.000Z' }))
     expect(localStorageMock.getItem(keys.lastOpenedAt)).toBe('2026-04-11T03:00:00.000Z')
+  })
+})
+
+describe('summarizeGlobalSearchAcrossWindows', () => {
+  it('returns a shared query when every searchable panel is aligned', () => {
+    expect(
+      summarizeGlobalSearchAcrossWindows([
+        {
+          type: 'rss',
+          rss_filters: { q: 'cve' },
+          alert_filters: null,
+        },
+        {
+          type: 'alerts',
+          rss_filters: null,
+          alert_filters: { q: 'cve' },
+        },
+      ]),
+    ).toEqual({
+      value: 'cve',
+      isMixed: false,
+    })
+  })
+
+  it('marks the toolbar as mixed when panels diverge', () => {
+    expect(
+      summarizeGlobalSearchAcrossWindows([
+        {
+          type: 'rss',
+          rss_filters: { q: 'cve' },
+          alert_filters: null,
+        },
+        {
+          type: 'alerts',
+          rss_filters: null,
+          alert_filters: { q: 'ransomware' },
+        },
+      ]),
+    ).toEqual({
+      value: '',
+      isMixed: true,
+    })
   })
 })
