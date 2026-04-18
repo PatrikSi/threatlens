@@ -174,6 +174,7 @@ API calls:
 - `POST /items/{id}/read`
 - `POST /items/{id}/star`
 - `POST /items/{id}/note`
+- `POST /items/{id}/retry-article-fetch`
 - `GET /items?...`
 - `GET /alerts/matches?...`
 - `GET /items/{id}`
@@ -185,6 +186,7 @@ AI-enhanced dashboard behavior:
   - AI summary text
   - AI relevance label and score
   - AI reasons or error state
+- RSS item detail exposes an inline article retry action when extraction is missing or errored
 - Item expansion state and unsaved note drafts are isolated per dashboard window.
 - Daily Brief windows show retained brief history and per-window brief selection
 

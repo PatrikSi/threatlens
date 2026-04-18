@@ -208,6 +208,13 @@ curl -X POST http://localhost:8000/auth/login \
 - Body (`NoteUpdateRequest`): `note` string or null
 - Response: `{ "status": "ok" }`
 
+### `POST /items/{item_id}/retry-article-fetch`
+
+- Auth: role `admin|analyst`, scope `write:items`
+- Response: `{ "status": "queued" }`
+- Failure mode:
+  - Returns `503` with `Task queue is temporarily unavailable. Try again later.` when Celery enqueue is unavailable.
+
 ### `POST /items/{item_id}/tags`
 
 - Auth: role `admin|analyst`, scope `write:items`

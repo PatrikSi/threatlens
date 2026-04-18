@@ -82,6 +82,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Mark read/unread
 - Star/unstar
 - Edit note
+- Retry article fetch when extraction is missing or errored
 - Rendered summary/article with sanitized rich text
 - Optional AI insight block:
   - AI summary text

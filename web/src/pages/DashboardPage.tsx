@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
+import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import {
   AIDailyBrief,
@@ -411,6 +412,9 @@ export function DashboardPage() {
 
   const [expandedItemIdsByWindowId, setExpandedItemIdsByWindowId] = useState<Record<string, string>>({})
   const [noteDraftsByWindowId, setNoteDraftsByWindowId] = useState<Record<string, Record<string, string>>>({})
+  const [articleRetryFeedbackByItemId, setArticleRetryFeedbackByItemId] = useState<
+    Record<string, { tone: 'success' | 'error'; message: string }>
+  >({})
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -791,6 +795,45 @@ export function DashboardPage() {
       syncItemStateInCache(queryClient, variables.itemId, {
         note: variables.note,
       })
+    },
+  })
+
+  const retryArticleFetch = useMutation({
+    mutationFn: (payload: { itemId: string }) =>
+      apiFetch<{ status: 'queued' }>(`/items/${payload.itemId}/retry-article-fetch`, {
+        method: 'POST',
+      }),
+    onMutate: ({ itemId }) => {
+      setArticleRetryFeedbackByItemId((current) => {
+        const next = { ...current }
+        delete next[itemId]
+        return next
+      })
+    },
+    onSuccess: async (_data, variables) => {
+      setArticleRetryFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'success',
+          message: 'Article fetch queued. Check back in a moment for refreshed content.',
+        },
+      }))
+      await queryClient.invalidateQueries({ queryKey: ['item', variables.itemId] })
+    },
+    onError: (error, variables) => {
+      const message =
+        error instanceof ApiError && error.message.trim()
+          ? error.message
+          : error instanceof Error && error.message.trim()
+            ? error.message
+            : 'Unable to queue article fetch right now.'
+      setArticleRetryFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'error',
+          message,
+        },
+      }))
     },
   })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
@@ -2488,6 +2531,38 @@ export function DashboardPage() {
                                       {detail.article?.error && (
                                         <p className="mt-2 text-sm text-red-600">Extraction error: {detail.article.error}</p>
                                       )}
+                                      {(!detail.article?.text || detail.article?.error) && (
+                                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                                          <button
+                                            className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40 disabled:opacity-50"
+                                            disabled={
+                                              !canManage ||
+                                              (retryArticleFetch.isPending && retryArticleFetch.variables?.itemId === detail.id)
+                                            }
+                                            onClick={() => retryArticleFetch.mutate({ itemId: detail.id })}
+                                          >
+                                            {retryArticleFetch.isPending && retryArticleFetch.variables?.itemId === detail.id
+                                              ? 'Queueing...'
+                                              : detail.article?.error
+                                                ? 'Retry Article Fetch'
+                                                : 'Queue Article Fetch'}
+                                          </button>
+                                          {articleRetryFeedbackByItemId[detail.id] && (
+                                            <span
+                                              className={`text-xs ${
+                                                articleRetryFeedbackByItemId[detail.id]?.tone === 'success'
+                                                  ? 'text-emerald-700 dark:text-emerald-300'
+                                                  : 'text-red-600 dark:text-red-300'
+                                              }`}
+                                            >
+                                              {articleRetryFeedbackByItemId[detail.id]?.message}
+                                            </span>
+                                          )}
+                                          {!canManage && (
+                                            <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
@@ -3996,13 +4071,6 @@ function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] {
   return entries
 }
 
-type ArticleBlock =
-  | { kind: 'heading'; text: string }
-  | { kind: 'paragraph'; text: string }
-  | { kind: 'bullet-list'; items: string[] }
-  | { kind: 'numbered-list'; items: string[] }
-  | { kind: 'quote'; text: string }
-
 function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {
   const trimmed = content.trim()
   if (!trimmed) {
@@ -4063,263 +4131,6 @@ function renderArticleBlocks(text: string, itemId: string) {
 
     return <p key={`${itemId}-paragraph-${index}`}>{block.text}</p>
   })
-}
-
-function parseArticleBlocks(text: string): ArticleBlock[] {
-  const lines = text.replace(/\r/g, '').split('\n')
-  const blocks: ArticleBlock[] = []
-  const nonEmptyCount = lines.filter((line) => line.trim()).length
-  const blankCount = lines.length - nonEmptyCount
-  const useLineOrientedMode = nonEmptyCount >= 10 && blankCount <= Math.ceil(nonEmptyCount * 0.12)
-
-  let index = 0
-  while (index < lines.length) {
-    const raw = lines[index]
-    const line = raw.trim()
-
-    if (!line) {
-      index += 1
-      continue
-    }
-
-    if (isHeadingLine(line)) {
-      blocks.push({ kind: 'heading', text: cleanHeading(line) })
-      index += 1
-      continue
-    }
-
-    if (looksLikeSectionHeading(line)) {
-      blocks.push({ kind: 'heading', text: line })
-      index += 1
-      continue
-    }
-
-    if (isBulletLine(line)) {
-      const items: string[] = []
-      while (index < lines.length && isBulletLine(lines[index].trim())) {
-        items.push(cleanBullet(lines[index].trim()))
-        index += 1
-      }
-      if (items.length) {
-        blocks.push({ kind: 'bullet-list', items })
-      }
-      continue
-    }
-
-    if (line.includes(' • ')) {
-      const items: string[] = []
-      while (index < lines.length) {
-        const bulletLine = lines[index].trim()
-        if (!bulletLine || !bulletLine.includes(' • ')) {
-          break
-        }
-        items.push(bulletLine)
-        index += 1
-      }
-      if (items.length) {
-        blocks.push({ kind: 'bullet-list', items })
-      }
-      continue
-    }
-
-    if (isNumberedLine(line)) {
-      const items: string[] = []
-      while (index < lines.length && isNumberedLine(lines[index].trim())) {
-        items.push(cleanNumbered(lines[index].trim()))
-        index += 1
-      }
-      if (items.length) {
-        blocks.push({ kind: 'numbered-list', items })
-      }
-      continue
-    }
-
-    if (line.startsWith('>')) {
-      const quoteLines: string[] = []
-      while (index < lines.length && lines[index].trim().startsWith('>')) {
-        quoteLines.push(lines[index].trim().replace(/^>\s*/, ''))
-        index += 1
-      }
-      const quoteText = quoteLines.join(' ').replace(/\s{2,}/g, ' ').trim()
-      if (quoteText) {
-        blocks.push({ kind: 'quote', text: quoteText })
-      }
-      continue
-    }
-
-    if (useLineOrientedMode) {
-      blocks.push({ kind: 'paragraph', text: line })
-      index += 1
-      continue
-    }
-
-    const paragraphLines: string[] = []
-    while (index < lines.length) {
-      const paragraphLine = lines[index].trim()
-      if (!paragraphLine || isHeadingLine(paragraphLine) || isBulletLine(paragraphLine) || isNumberedLine(paragraphLine) || paragraphLine.startsWith('>')) {
-        break
-      }
-      paragraphLines.push(paragraphLine)
-      index += 1
-    }
-
-    if (paragraphLines.length) {
-      blocks.push({
-        kind: 'paragraph',
-        text: paragraphLines.join(' ').replace(/\s{2,}/g, ' ').trim(),
-      })
-      continue
-    }
-
-    index += 1
-  }
-
-  return blocks
-}
-
-function isHeadingLine(line: string): boolean {
-  if (/^#{1,4}\s+/.test(line)) {
-    return true
-  }
-
-  return /^[A-Z][A-Z0-9\s\-:]{8,}$/.test(line) && line === line.toUpperCase()
-}
-
-function cleanHeading(line: string): string {
-  return line.replace(/^#{1,4}\s*/, '').trim()
-}
-
-function isBulletLine(line: string): boolean {
-  return /^[-*•]\s+/.test(line)
-}
-
-function cleanBullet(line: string): string {
-  return line.replace(/^[-*•]\s+/, '').trim()
-}
-
-function isNumberedLine(line: string): boolean {
-  return /^\d+[.)]\s+/.test(line)
-}
-
-function cleanNumbered(line: string): string {
-  return line.replace(/^\d+[.)]\s+/, '').trim()
-}
-
-function looksLikeSectionHeading(line: string): boolean {
-  if (line.length < 3 || line.length > 72) return false
-  if (/^https?:\/\//i.test(line)) return false
-  if (line.includes(' • ')) return false
-  if (/[.!?]$/.test(line)) return false
-
-  const words = line.split(/\s+/)
-  if (words.length > 10) return false
-  if (words.every((word) => word.length <= 2)) return false
-
-  return true
-}
-
-const ALLOWED_HTML_TAGS = new Set([
-  'a',
-  'b',
-  'blockquote',
-  'br',
-  'code',
-  'em',
-  'h1',
-  'h2',
-  'h3',
-  'h4',
-  'h5',
-  'h6',
-  'hr',
-  'i',
-  'li',
-  'ol',
-  'p',
-  'pre',
-  'strong',
-  'u',
-  'ul',
-])
-
-function looksLikeHtml(value: string): boolean {
-  return /<([a-z][a-z0-9]*)\b[^>]*>/i.test(value)
-}
-
-function sanitizeHtmlFragment(html: string): string {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  const parser = new DOMParser()
-  const document = parser.parseFromString(html, 'text/html')
-  const sanitized = Array.from(document.body.childNodes)
-    .map((node) => sanitizeNode(node))
-    .join('')
-    .trim()
-
-  return sanitized
-}
-
-function sanitizeNode(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) {
-    return escapeHtml(node.textContent ?? '')
-  }
-
-  if (node.nodeType !== Node.ELEMENT_NODE) {
-    return ''
-  }
-
-  const element = node as HTMLElement
-  const tag = element.tagName.toLowerCase()
-  const children = Array.from(element.childNodes)
-    .map((child) => sanitizeNode(child))
-    .join('')
-
-  if (!ALLOWED_HTML_TAGS.has(tag)) {
-    return children
-  }
-
-  if (tag === 'br' || tag === 'hr') {
-    return `<${tag}>`
-  }
-
-  if (tag === 'a') {
-    const href = sanitizeHref(element.getAttribute('href'))
-    if (!href) {
-      return children
-    }
-    return `<a href="${escapeAttribute(href)}" target="_blank" rel="noopener noreferrer">${children}</a>`
-  }
-
-  return `<${tag}>${children}</${tag}>`
-}
-
-function sanitizeHref(rawHref: string | null): string | null {
-  if (!rawHref) return null
-  const href = rawHref.trim()
-  if (/^https?:\/\//i.test(href)) return href
-  return null
-}
-
-function stripHtml(value: string): string {
-  if (typeof window === 'undefined') return value
-  const parser = new DOMParser()
-  const document = parser.parseFromString(value, 'text/html')
-  return document.body.textContent?.trim() ?? ''
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
-
-function escapeAttribute(value: string): string {
-  return escapeHtml(value)
 }
 
 function parsePanelRectCandidate(value: unknown): PanelRect | null {

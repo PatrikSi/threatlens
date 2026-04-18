@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './DashboardPage'
+import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 
 function createLocalStorageMock() {
@@ -118,5 +119,35 @@ describe('summarizeGlobalSearchAcrossWindows', () => {
       value: '',
       isMixed: true,
     })
+  })
+})
+
+describe('parseArticleBlocks', () => {
+  it('preserves headings, lists, quotes, and paragraphs from analyst-facing article text', () => {
+    expect(
+      parseArticleBlocks(`# Summary
+
+Threat actors targeted edge systems.
+- Reset credentials
+- Review VPN exposure
+1. Validate logs
+2. Rotate tokens
+> Capture affected hosts first`),
+    ).toEqual([
+      { kind: 'heading', text: 'Summary' },
+      { kind: 'paragraph', text: 'Threat actors targeted edge systems.' },
+      { kind: 'bullet-list', items: ['Reset credentials', 'Review VPN exposure'] },
+      { kind: 'numbered-list', items: ['Validate logs', 'Rotate tokens'] },
+      { kind: 'quote', text: 'Capture affected hosts first' },
+    ])
+  })
+})
+
+describe('sanitizeHref', () => {
+  it('allows only http and https links for rendered article HTML', () => {
+    expect(sanitizeHref('https://example.com/report')).toBe('https://example.com/report')
+    expect(sanitizeHref('http://example.com/report')).toBe('http://example.com/report')
+    expect(sanitizeHref('mailto:ops@example.com')).toBeNull()
+    expect(sanitizeHref('javascript:alert(1)')).toBeNull()
   })
 })
