@@ -227,6 +227,7 @@ class RenderedNotificationRequest:
 class NotificationWebhookDeliveryAttempt:
     result: NotificationWebhookTestResponse
     delivery: NotificationWebhookDelivery
+    claimed: bool = True
 
 
 @dataclass(frozen=True)
@@ -987,12 +988,16 @@ def process_notification_webhook_delivery(
         current = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == delivery_id))
         if current is None:
             raise ValueError("Webhook delivery not found")
-        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(current), delivery=current)
+        return NotificationWebhookDeliveryAttempt(
+            result=_delivery_result_from_model(current),
+            delivery=current,
+            claimed=False,
+        )
 
     rendered = _rendered_request_from_delivery(delivery)
     result = _send_rendered_notification_request(rendered)
     finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
-    return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized)
+    return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized, claimed=True)
 
 
 def list_recoverable_notification_delivery_ids(
@@ -1007,7 +1012,10 @@ def list_recoverable_notification_delivery_ids(
             select(NotificationWebhookDelivery.id)
             .where(
                 or_(
-                    NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
+                    and_(
+                        NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
+                        NotificationWebhookDelivery.attempted_at < claim_cutoff,
+                    ),
                     and_(
                         NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING,
                         or_(

@@ -122,6 +122,13 @@ def _process_reserved_notification_deliveries(
 
     for delivery_id in delivery_ids:
         attempt = process_notification_webhook_delivery(db, delivery_id=delivery_id)
+        if not getattr(attempt, "claimed", True):
+            logger.info(
+                "notification_webhook_delivery_already_claimed delivery_id=%s state=%s",
+                delivery_id,
+                getattr(attempt.delivery, "delivery_state", "unknown"),
+            )
+            continue
         if attempt.result.success:
             delivered += 1
             continue
@@ -373,6 +380,48 @@ def _queue_item_ai_enrichment_run(
     if task_id:
         _update_task_run_celery_id(run_id, task_id)
     return run_id
+
+
+def _safe_enqueue_item_iocs(item_id: uuid.UUID) -> bool:
+    try:
+        extract_item_iocs.delay(str(item_id))
+    except Exception as exc:
+        logger.exception("item_ioc_enqueue_failed item_id=%s error=%s", item_id, exc)
+        return False
+    return True
+
+
+def _safe_queue_item_ai_enrichment_run(
+    *,
+    item_id: uuid.UUID,
+    trigger_source: str,
+    reason: str | None,
+    actor_user_id: uuid.UUID | None = None,
+    parent_run_id: uuid.UUID | None = None,
+    force: bool = False,
+    model: str | None = None,
+    metadata: dict[str, object] | None = None,
+) -> bool:
+    try:
+        _queue_item_ai_enrichment_run(
+            item_id=item_id,
+            trigger_source=trigger_source,
+            reason=reason,
+            actor_user_id=actor_user_id,
+            parent_run_id=parent_run_id,
+            force=force,
+            model=model,
+            metadata=metadata,
+        )
+    except Exception as exc:
+        logger.exception(
+            "item_ai_enrichment_enqueue_failed item_id=%s parent_run_id=%s error=%s",
+            item_id,
+            parent_run_id,
+            exc,
+        )
+        return False
+    return True
 
 
 def _record_skipped_item_ai_enrichment_run(
@@ -1254,9 +1303,16 @@ def fetch_article(self, item_id: str):
         except ValueError:
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
-        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        item = db.scalar(
+            select(Item)
+            .where(Item.id == parsed_item_id)
+            .with_for_update(skip_locked=True)
+        )
         if item is None:
-            return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+            unlocked_item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+            if unlocked_item is None:
+                return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+            return {"status": "skipped", "reason": "concurrent_fetch_in_progress", "item_id": item_id}
 
         existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
         if existing_article is not None and item.status == "content_fetched":
@@ -1592,10 +1648,16 @@ def classify_item(item_id: str):
                     feed=feed,
                 ).delivery_ids
             db.commit()
-            enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-            extract_item_iocs.delay(item_id)
+            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
+            if alert_delivery_ids and not notification_enqueue_ok:
+                logger.warning(
+                    "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+                    parsed_item_id,
+                    len(alert_delivery_ids),
+                )
+            ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
             if queue_ai_enrichment:
-                _queue_item_ai_enrichment_run(
+                ai_enqueue_ok = _safe_queue_item_ai_enrichment_run(
                     item_id=parsed_item_id,
                     trigger_source=AI_TRIGGER_AUTO,
                     reason=None,
@@ -1603,6 +1665,7 @@ def classify_item(item_id: str):
                     metadata={"category": row.primary_category, "feed_name": feed_name, "force": False},
                 )
             else:
+                ai_enqueue_ok = True
                 _record_skipped_item_ai_enrichment_run(
                     item_id=parsed_item_id,
                     trigger_source=AI_TRIGGER_AUTO,
@@ -1610,7 +1673,15 @@ def classify_item(item_id: str):
                     model=getattr(active_ai_settings, "model", None),
                     metadata={"category": row.primary_category, "feed_name": feed_name},
                 )
-            return {"status": "skipped", "reason": "up_to_date", "item_id": item_id, "category": row.primary_category}
+            return {
+                "status": "skipped",
+                "reason": "up_to_date",
+                "item_id": item_id,
+                "category": row.primary_category,
+                "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
+                "ioc_enqueue_failed": not ioc_enqueue_ok,
+                "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
+            }
 
         if row is None:
             row = ItemClassification(item_id=parsed_item_id)
@@ -1651,10 +1722,16 @@ def classify_item(item_id: str):
             ).delivery_ids
         db.commit()
 
-    enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-    extract_item_iocs.delay(item_id)
+    notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
+    if alert_delivery_ids and not notification_enqueue_ok:
+        logger.warning(
+            "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+            parsed_item_id,
+            len(alert_delivery_ids),
+        )
+    ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
     if queue_ai_enrichment:
-        _queue_item_ai_enrichment_run(
+        ai_enqueue_ok = _safe_queue_item_ai_enrichment_run(
             item_id=parsed_item_id,
             trigger_source=AI_TRIGGER_AUTO,
             reason=None,
@@ -1662,6 +1739,7 @@ def classify_item(item_id: str):
             metadata={"category": result.primary_category, "feed_name": feed_name, "force": False},
         )
     else:
+        ai_enqueue_ok = True
         _record_skipped_item_ai_enrichment_run(
             item_id=parsed_item_id,
             trigger_source=AI_TRIGGER_AUTO,
@@ -1669,7 +1747,14 @@ def classify_item(item_id: str):
             model=getattr(active_ai_settings, "model", None),
             metadata={"category": result.primary_category, "feed_name": feed_name},
         )
-    return {"status": "ok", "item_id": item_id, "category": result.primary_category}
+    return {
+        "status": "ok",
+        "item_id": item_id,
+        "category": result.primary_category,
+        "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
+        "ioc_enqueue_failed": not ioc_enqueue_ok,
+        "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
+    }
 
 
 @celery_app.task(
@@ -1928,8 +2013,9 @@ def reprocess_recent_ai_items(
             return {"queued": 0, "reason": "no_items"}
 
     queued = 0
+    queue_errors = 0
     for item_id_value in item_ids:
-        _queue_item_ai_enrichment_run(
+        queued_ok = _safe_queue_item_ai_enrichment_run(
             item_id=item_id_value,
             trigger_source=AI_TRIGGER_MANUAL,
             reason=None,
@@ -1947,17 +2033,20 @@ def reprocess_recent_ai_items(
                 "explicit_item_count": len(parsed_item_ids),
             },
         )
-        queued += 1
+        if queued_ok:
+            queued += 1
+        else:
+            queue_errors += 1
     if parsed_run_id:
         with db_session() as db:
             record_ai_task_event(
                 db,
                 run_id=parsed_run_id,
                 event_type="children_queued",
-                payload={"queued": queued},
+                payload={"queued": queued, "queue_errors": queue_errors},
             )
             db.commit()
-    return {"queued": queued, "run_id": task_run_id}
+    return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id}
 
 
 @celery_app.task(

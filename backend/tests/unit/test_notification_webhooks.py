@@ -21,6 +21,8 @@ from app.services.notification_webhooks import (
     RedirectError,
     build_alert_match_context_for_item,
     get_notification_analytics,
+    list_recoverable_notification_delivery_ids,
+    process_notification_webhook_delivery,
     render_notification_request,
     retry_notification_webhook_delivery,
     send_notification_webhook_for_item,
@@ -72,6 +74,186 @@ def test_notification_webhook_write_extracts_query_params_from_url_template():
         ("token", "abc123"),
         ("source", "{{ feed.name }}"),
     ]
+
+
+def test_list_recoverable_notification_delivery_ids_only_returns_stale_pending_or_sending(db_session):
+    now = datetime(2026, 4, 18, 21, 45, tzinfo=timezone.utc)
+    user = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Analytics",
+        url_template="https://example.com/hooks",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    stale_pending = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=10),
+        delivery_state="pending",
+        attempt_count=0,
+    )
+    fresh_pending = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=1),
+        delivery_state="pending",
+        attempt_count=0,
+    )
+    stale_sending = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=10),
+        claimed_at=now - timedelta(minutes=10),
+        delivery_state="sending",
+        attempt_count=1,
+    )
+    fresh_sending = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=1),
+        claimed_at=now - timedelta(minutes=1),
+        delivery_state="sending",
+        attempt_count=1,
+    )
+
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, stale_pending, fresh_pending, stale_sending, fresh_sending)
+    db_session.commit()
+
+    recoverable = list_recoverable_notification_delivery_ids(db_session, now=now)
+
+    assert recoverable == [stale_pending.id, stale_sending.id]
+
+
+def test_process_notification_webhook_delivery_marks_unclaimed_attempts(db_session):
+    now = datetime.now(timezone.utc)
+    user = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Analytics",
+        url_template="https://example.com/hooks",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now,
+        claimed_at=now,
+        delivery_state="sending",
+        attempt_count=1,
+    )
+
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, delivery)
+    db_session.commit()
+
+    attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
+
+    assert attempt.claimed is False
+    assert attempt.delivery.id == delivery.id
+    assert attempt.delivery.delivery_state == "sending"
 
 
 def test_render_notification_request_expands_templates_into_json_body():
@@ -1307,7 +1489,7 @@ def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows
         rendered_body=None,
         response_body_preview=None,
         error=None,
-        attempted_at=datetime.now(timezone.utc),
+        attempted_at=datetime.now(timezone.utc) - timedelta(minutes=10),
     )
     _persist_rows(db_session, user)
     _persist_rows(db_session, webhook)

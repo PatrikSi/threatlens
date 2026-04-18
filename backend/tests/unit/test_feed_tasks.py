@@ -783,6 +783,151 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     assert captured["task_run_id"]
 
 
+def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ioc-enqueue-item",
+        url="https://example.com/articles/ioc-enqueue-item",
+        canonical_url="https://example.com/articles/ioc-enqueue-item",
+        title="Fortinet exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ioc-enqueue-item",
+        content_hash="2" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed Fortinet exploitation in the wild.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "ActiveAISettings",
+            (),
+            {
+                "ai_enabled": True,
+                "ai_configured": True,
+                "auto_enrich_new_items": True,
+                "model": "local-threat-model",
+            },
+        )(),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_item_iocs.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ioc broker down")),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda item_id, force=False, task_run_id=None: captured.update(
+            {"item_id": item_id, "force": str(force), "task_run_id": str(task_run_id or "")}
+        ),
+    )
+
+    result = classify_item.run(str(item.id))
+
+    assert result["status"] == "ok"
+    assert result["ioc_enqueue_failed"] is True
+    assert result["ai_enqueue_failed"] is False
+    assert captured["item_id"] == str(item.id)
+    assert captured["task_run_id"]
+
+
+def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-enqueue-item",
+        url="https://example.com/articles/ai-enqueue-item",
+        canonical_url="https://example.com/articles/ai-enqueue-item",
+        title="Fortinet exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ai-enqueue-item",
+        content_hash="3" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed Fortinet exploitation in the wild.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "ActiveAISettings",
+            (),
+            {
+                "ai_enabled": True,
+                "ai_configured": True,
+                "auto_enrich_new_items": True,
+                "model": "local-threat-model",
+            },
+        )(),
+    )
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("ai broker down")),
+    )
+
+    result = classify_item.run(str(item.id))
+
+    child_runs = db_session.scalars(
+        select(AITaskRun)
+        .where(AITaskRun.item_id == item.id, AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT)
+        .order_by(AITaskRun.created_at.asc())
+    ).all()
+
+    assert result["status"] == "ok"
+    assert result["ai_enqueue_failed"] is True
+    assert len(child_runs) == 1
+    assert child_runs[0].status == "error"
+    assert child_runs[0].reason == "enqueue_failed"
+
+
 def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -1003,6 +1148,140 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
     assert refreshed_parent.success_count == 2
     assert refreshed_parent.error_count == 0
     assert refreshed_parent.status == "ready"
+    get_settings.cache_clear()
+
+
+def test_reprocess_recent_ai_items_continues_after_enqueue_failure(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    item_ids: list[uuid.UUID] = []
+    for index in range(2):
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"reprocess-enqueue-{index}",
+            url=f"https://example.com/articles/reprocess-enqueue-{index}",
+            canonical_url=f"https://example.com/articles/reprocess-enqueue-{index}",
+            title=f"Reprocess enqueue target {index}",
+            summary="Summary",
+            published_at=datetime.now(timezone.utc),
+            first_seen_at=datetime.now(timezone.utc),
+            dedupe_key=f"reprocess-enqueue-{index}",
+            content_hash=str(index + 5) * 64,
+            status="content_fetched",
+        )
+        article = Article(
+            item_id=item.id,
+            final_url=item.url,
+            http_status=200,
+            text="Researchers observed Fortinet exploitation in the wild.",
+            extraction_method="readable",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(article)
+        item_ids.append(item.id)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json",
+        lambda active, *, messages: AICompletionResult(
+            payload={
+                "summary_text": "AI summary.",
+                "relevance_score": 0.9,
+                "relevance_reasons": ["Mentions Fortinet"],
+            },
+            provider=active.provider_type,
+            model=active.model,
+            latency_ms=25,
+            prompt_tokens=30,
+            completion_tokens=10,
+            total_tokens=40,
+        ),
+    )
+
+    class _FakeTask:
+        def __init__(self, task_id: str):
+            self.id = task_id
+
+    queue_calls: list[str] = []
+
+    def _fake_delay(item_id: str, force: bool = False, task_run_id: str | None = None):
+        _ = force
+        _ = task_run_id
+        queue_calls.append(item_id)
+        if item_id == str(item_ids[0]):
+            raise RuntimeError("broker down")
+        return _FakeTask(f"child-{len(queue_calls)}")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 2},
+    )
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(7, 2, task_run_id=str(parent_run.id))
+
+    child_runs = db_session.scalars(
+        select(AITaskRun)
+        .where(AITaskRun.parent_run_id == parent_run.id, AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT)
+        .order_by(AITaskRun.created_at.asc())
+    ).all()
+
+    assert result["queued"] == 1
+    assert result["queue_errors"] == 1
+    assert len(queue_calls) == 2
+    assert set(queue_calls) == {str(item_ids[0]), str(item_ids[1])}
+    assert len(child_runs) == 2
+    assert {run.status for run in child_runs} == {"queued", "error"}
+
+    queued_child = next(run for run in child_runs if run.status == "queued")
+    generate_item_ai_enrichment_task.run(str(queued_child.item_id), force=True, task_run_id=str(queued_child.id))
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert refreshed_parent is not None
+    assert refreshed_parent.target_count == 2
+    assert refreshed_parent.processed_count == 2
+    assert refreshed_parent.error_count == 1
+    assert refreshed_parent.status == "error"
     get_settings.cache_clear()
 
 
