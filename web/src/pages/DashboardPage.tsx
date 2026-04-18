@@ -410,7 +410,7 @@ export function DashboardPage() {
   const [relativeTimeAnchorMs, setRelativeTimeAnchorMs] = useState(() => getRelativeTimeAnchorMs())
 
   const [expandedItemIdsByWindowId, setExpandedItemIdsByWindowId] = useState<Record<string, string>>({})
-  const [noteDraftsByItemId, setNoteDraftsByItemId] = useState<Record<string, string>>({})
+  const [noteDraftsByWindowId, setNoteDraftsByWindowId] = useState<Record<string, Record<string, string>>>({})
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -532,7 +532,7 @@ export function DashboardPage() {
       setWindowSeenAt({})
       setRssLastOpenedAt('')
       setExpandedItemIdsByWindowId({})
-      setNoteDraftsByItemId({})
+      setNoteDraftsByWindowId({})
       return
     }
 
@@ -775,15 +775,18 @@ export function DashboardPage() {
   })
 
   const updateNote = useMutation({
-    mutationFn: (payload: { itemId: string; note: string | null }) =>
+    mutationFn: (payload: { itemId: string; note: string | null; windowId: string }) =>
       apiFetch(`/items/${payload.itemId}/note`, {
         method: 'POST',
         body: JSON.stringify({ note: payload.note }),
       }),
     onSuccess: (_data, variables) => {
-      setNoteDraftsByItemId((current) => ({
+      setNoteDraftsByWindowId((current) => ({
         ...current,
-        [variables.itemId]: variables.note ?? '',
+        [variables.windowId]: {
+          ...(current[variables.windowId] ?? {}),
+          [variables.itemId]: variables.note ?? '',
+        },
       }))
       syncItemStateInCache(queryClient, variables.itemId, {
         note: variables.note,
@@ -971,25 +974,31 @@ export function DashboardPage() {
   )
 
   useEffect(() => {
-    setNoteDraftsByItemId((current) => {
+    setNoteDraftsByWindowId((current) => {
       let changed = false
       const next = { ...current }
 
-      for (const query of detailQueries) {
-        const detail = query.data
+      for (const windowLayout of rssWindows) {
+        const detail = detailQueriesByWindowId[windowLayout.id]?.data
         if (!detail) {
           continue
         }
-        if (next[detail.id] !== undefined) {
+
+        const currentWindowDrafts = next[windowLayout.id] ?? {}
+        if (currentWindowDrafts[detail.id] !== undefined) {
           continue
         }
-        next[detail.id] = detail.state.note ?? ''
+
+        next[windowLayout.id] = {
+          ...currentWindowDrafts,
+          [detail.id]: detail.state.note ?? '',
+        }
         changed = true
       }
 
       return changed ? next : current
     })
-  }, [detailQueries])
+  }, [detailQueriesByWindowId, rssWindows])
 
   const dailyBriefHistoryQuery = useQuery({
     queryKey: ['ai', 'daily-briefs'],
@@ -2485,11 +2494,14 @@ export function DashboardPage() {
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                                        value={noteDraftsByItemId[detail.id] ?? detail.state.note ?? ''}
+                                        value={noteDraftsByWindowId[windowLayout.id]?.[detail.id] ?? detail.state.note ?? ''}
                                         onChange={(event) =>
-                                          setNoteDraftsByItemId((current) => ({
+                                          setNoteDraftsByWindowId((current) => ({
                                             ...current,
-                                            [detail.id]: event.target.value,
+                                            [windowLayout.id]: {
+                                              ...(current[windowLayout.id] ?? {}),
+                                              [detail.id]: event.target.value,
+                                            },
                                           }))
                                         }
                                         disabled={!canManage}
@@ -2500,7 +2512,8 @@ export function DashboardPage() {
                                           onClick={() =>
                                             updateNote.mutate({
                                               itemId: detail.id,
-                                              note: (noteDraftsByItemId[detail.id] ?? detail.state.note ?? '') || null,
+                                              note: (noteDraftsByWindowId[windowLayout.id]?.[detail.id] ?? detail.state.note ?? '') || null,
+                                              windowId: windowLayout.id,
                                             })
                                           }
                                           disabled={!canManage}
