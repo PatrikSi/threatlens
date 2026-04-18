@@ -141,7 +141,7 @@ Window behaviors:
 - Scratch note persistence for notes windows
 - RSS and alerts filter state is isolated per window and preserved in saved views
 - The toolbar search reflects a shared cross-panel search only when searchable panels are aligned; otherwise it shows a mixed-state placeholder
-- RSS expanded item detail and note drafts are panel-scoped rather than shared globally
+- RSS expanded item detail stays panel-scoped, while note drafts follow the item across panels until saved
 - Daily Brief window selection is isolated per window and preserved in saved views
 
 RSS filter values:
@@ -161,7 +161,7 @@ Alerts filter values (dashboard window):
 HTML sanitation values for rich article rendering:
 
 - Allowed tags: `a,b,blockquote,br,code,em,h1,h2,h3,h4,h5,h6,hr,i,li,ol,p,pre,strong,u,ul`
-- Allowed `href` protocols: `http`, `https`, `mailto`
+- Allowed `href` protocols: `http`, `https`
 
 API calls:
 
@@ -187,7 +187,8 @@ AI-enhanced dashboard behavior:
   - AI relevance label and score
   - AI reasons or error state
 - RSS item detail exposes an inline article retry action when extraction is missing or errored
-- Item expansion state and unsaved note drafts are isolated per dashboard window.
+- Item expansion state is isolated per dashboard window.
+- Unsaved note drafts stay aligned per item across dashboard panels.
 - Daily Brief windows show retained brief history and per-window brief selection
 
 ### `AiSettingsPage`

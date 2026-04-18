@@ -8,10 +8,12 @@ ThreatLens currently supports the latest code on `main`. Security fixes may not 
 
 Please do not open public issues for suspected vulnerabilities.
 
+ThreatLens should not be released publicly until at least one concrete private reporting channel is enabled.
+
 Use one of these private channels instead:
 
-- GitHub private vulnerability reporting or a private security advisory, if enabled for the repository
-- Direct contact with the repository maintainers through the private contact method listed on the project hosting profile
+- GitHub private vulnerability reporting or a private security advisory
+- A dedicated security contact published in the repository profile, README, or project website
 
 Include:
 
@@ -30,3 +32,8 @@ Include:
 
 - Give maintainers a reasonable window to investigate and ship a fix before public disclosure.
 - Avoid testing against systems you do not own or have permission to assess.
+
+## Maintainer Checklist
+
+- Enable GitHub private vulnerability reporting before public release.
+- Publish a dedicated maintainer security contact if GitHub private reporting is unavailable.

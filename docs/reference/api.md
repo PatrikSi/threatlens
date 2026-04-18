@@ -43,7 +43,7 @@ Example:
 ```bash
 curl -X POST http://localhost:8000/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@example.com","password":"admin123"}'
+  -d '{"email":"admin@example.com","password":"<admin-password>"}'
 ```
 
 ### `GET /auth/me`

@@ -152,4 +152,5 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - `POST /items/{id}/read`
 - `POST /items/{id}/star`
 - `POST /items/{id}/note`
+- `POST /items/{id}/retry-article-fetch`
 - `GET /alerts/matches?...`

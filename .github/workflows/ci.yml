@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches:
@@ -42,4 +45,36 @@ jobs:
         working-directory: web
       - name: Build frontend
         run: npm run build
+        working-directory: web
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v4
+
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install backend audit tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+      - name: Install frontend dependencies
+        run: npm ci --no-fund
+        working-directory: web
+      - name: Audit backend dependencies
+        run: pip-audit -r backend/requirements.txt
+      - name: Audit frontend production dependencies
+        run: npm audit --omit=dev --audit-level=high
         working-directory: web
