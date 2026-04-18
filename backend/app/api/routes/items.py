@@ -39,6 +39,7 @@ from app.schemas.item import (
 from app.services.algorithm_tags import build_tag_candidates
 from app.services.audit import record_audit
 from app.services.tag_feedback import load_feedback_adjustments, record_feedback_events
+from app.tasks.feed_tasks import fetch_article
 
 router = APIRouter(prefix="/items", tags=["items"])
 SUGGESTION_CONFIDENCE_MIN = 0.25
@@ -887,6 +888,47 @@ def set_item_note(
     )
     db.commit()
     return {"status": "ok"}
+
+
+@router.post("/{item_id}/retry-article-fetch", status_code=status.HTTP_202_ACCEPTED)
+def retry_item_article_fetch(
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_ITEMS)),
+):
+    item = db.scalar(select(Item.id).where(Item.id == item_id))
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    try:
+        task = fetch_article.delay(str(item_id))
+    except Exception as exc:
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="items.retry_article_fetch",
+            resource_type="item",
+            resource_id=str(item_id),
+            success=False,
+            metadata={"error": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue is temporarily unavailable. Try again later.",
+        ) from exc
+
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="items.retry_article_fetch",
+        resource_type="item",
+        resource_id=str(item_id),
+        metadata={"task_id": getattr(task, "id", None)},
+    )
+    db.commit()
+    return {"status": "queued"}
 
 
 @router.post("/{item_id}/tags", status_code=status.HTTP_200_OK)

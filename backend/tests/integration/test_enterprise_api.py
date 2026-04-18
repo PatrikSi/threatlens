@@ -524,6 +524,114 @@ def test_refresh_feed_queues_force_fetch(client: TestClient, auth_headers, db_se
     }
 
 
+def test_refresh_feed_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Refreshable Feed",
+        url="https://example.com/refresh.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.api.routes.feeds.celery_app.send_task",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    response = client.post(
+        f"/feeds/{feed.id}/refresh",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+
+
+def test_retry_article_fetch_queues_manual_repair(client: TestClient, auth_headers, db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Retry Feed",
+        url="https://example.com/retry.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="retry-article-item",
+        url="https://example.com/articles/retry-article-item",
+        canonical_url="https://example.com/articles/retry-article-item",
+        title="Retry article",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="retry-article-item",
+        content_hash="9" * 64,
+        status="error",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    captured: list[str] = []
+
+    class _FakeTask:
+        id = "article-retry-123"
+
+    def _fake_delay(item_id: str):
+        captured.append(item_id)
+        return _FakeTask()
+
+    monkeypatch.setattr("app.api.routes.items.fetch_article.delay", _fake_delay)
+
+    response = client.post(
+        f"/items/{item.id}/retry-article-fetch",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {"status": "queued"}
+    assert captured == [str(item.id)]
+
+
+def test_retry_article_fetch_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Retry Feed",
+        url="https://example.com/retry.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="retry-article-fail-item",
+        url="https://example.com/articles/retry-article-fail-item",
+        canonical_url="https://example.com/articles/retry-article-fail-item",
+        title="Retry article",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="retry-article-fail-item",
+        content_hash="a" * 64,
+        status="error",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.api.routes.items.fetch_article.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    response = client.post(
+        f"/items/{item.id}/retry-article-fetch",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+
+
 def test_admin_can_list_users_for_user_directory(client: TestClient, auth_headers):
     response = client.get("/users", headers=auth_headers["admin"])
     assert response.status_code == 200

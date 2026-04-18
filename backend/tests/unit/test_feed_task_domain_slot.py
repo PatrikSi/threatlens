@@ -36,8 +36,9 @@ class _SaturatedRedis:
 def test_domain_slot_raises_when_redis_unavailable(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(feed_tasks, "redis_client", _UnavailableRedis())
 
-    with feed_tasks.domain_slot("example.com"):
-        pass
+    with pytest.raises(feed_tasks.CoordinationUnavailableError, match="domain slot unavailable"):
+        with feed_tasks.domain_slot("example.com"):
+            pass
 
 
 def test_domain_slot_still_times_out_under_sustained_contention(monkeypatch: pytest.MonkeyPatch):
@@ -52,5 +53,6 @@ def test_domain_slot_still_times_out_under_sustained_contention(monkeypatch: pyt
 def test_feed_lock_allows_best_effort_progress_when_redis_is_unavailable(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(feed_tasks, "redis_client", _UnavailableRedis())
 
-    with feed_tasks.feed_lock("feed-1") as acquired:
-        assert acquired is True
+    with pytest.raises(feed_tasks.CoordinationUnavailableError, match="feed lock unavailable"):
+        with feed_tasks.feed_lock("feed-1") as acquired:
+            assert acquired is True

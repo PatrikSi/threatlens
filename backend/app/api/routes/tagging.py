@@ -202,7 +202,22 @@ def queue_tagging_reapply(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
 ):
-    task = reapply_recent_item_tags.delay(payload.days, payload.limit)
+    try:
+        task = reapply_recent_item_tags.delay(payload.days, payload.limit)
+    except Exception as exc:
+        record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="tagging.reapply.queue",
+            resource_type="tagging_settings",
+            success=False,
+            metadata={"days": payload.days, "limit": payload.limit, "error": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue is temporarily unavailable. Try again later.",
+        ) from exc
     record_audit(
         db,
         actor_user_id=admin.id,

@@ -25,6 +25,7 @@ from app.tasks.feed_tasks import (
     _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
     classify_item,
+    dispatch_due_feeds,
     dispatch_items_missing_articles,
     enqueue_notification_webhook_delivery_processing,
     fetch_article,
@@ -140,6 +141,70 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
     result = fetch_feed.run(str(feed.id), force=True)
 
     assert result == {"status": "not_modified", "feed_id": str(feed.id)}
+
+
+def test_dispatch_due_feeds_claims_due_feed_until_worker_clears_it(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Claimed Feed",
+        url="https://example.com/claim.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        last_fetch_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    queued_feed_ids: list[str] = []
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.fetch_feed.delay", lambda feed_id: queued_feed_ids.append(feed_id))
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_due_feeds_batch_size", 10)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_feed_claim_seconds", 900)
+
+    first = dispatch_due_feeds.run()
+    second = dispatch_due_feeds.run()
+
+    assert first == {"queued": 1}
+    assert second == {"queued": 0}
+    assert queued_feed_ids == [str(feed.id)]
+    db_session.refresh(feed)
+    assert feed.dispatch_claimed_at is not None
+    assert feed.dispatch_backoff_until is not None
+
+
+def test_dispatch_due_feeds_releases_claim_when_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Enqueue Failure Feed",
+        url="https://example.com/failure.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        last_fetch_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.fetch_feed.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    result = dispatch_due_feeds.run()
+
+    assert result == {"queued": 0}
+    db_session.refresh(feed)
+    assert feed.dispatch_claimed_at is None
+    assert feed.dispatch_backoff_until is None
 
 
 def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
@@ -447,9 +512,33 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         http_status=200,
         content_type="text/html",
     )
-    db_session.add_all([feed, old_item, recent_item, fetched_item])
+    failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="failed-item",
+        url="https://example.com/articles/failed",
+        canonical_url="https://example.com/articles/failed",
+        title="Failed item",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        first_seen_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        dedupe_key="failed-item",
+        content_hash="5" * 64,
+        status="error",
+    )
+    failed_article = Article(
+        item_id=failed_item.id,
+        final_url=failed_item.url,
+        http_status=503,
+        content_type="text/html",
+        retrieved_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        error="network_or_rate_limit_error:gateway timeout",
+        text=None,
+        extraction_method="none",
+    )
+    db_session.add_all([feed, old_item, recent_item, fetched_item, failed_item])
     db_session.flush()
-    db_session.add(fetched_article)
+    db_session.add_all([fetched_article, failed_article])
     db_session.commit()
 
     queued_item_ids: list[str] = []
@@ -468,8 +557,8 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
 
     result = dispatch_items_missing_articles.run()
 
-    assert result == {"queued": 1}
-    assert queued_item_ids == [str(old_item.id)]
+    assert result == {"queued": 2}
+    assert queued_item_ids == [str(failed_item.id), str(old_item.id)]
 
 
 def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):

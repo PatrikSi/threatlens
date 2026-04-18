@@ -142,3 +142,19 @@ def test_admin_can_queue_tagging_reapply(client: TestClient, auth_headers, monke
     assert response.status_code == 200
     assert response.json() == {"task_id": "retag-task-123", "queued": True}
     assert captured == {"days": 14, "limit": 250}
+
+
+def test_tagging_reapply_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.tagging.reapply_recent_item_tags.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    response = client.post(
+        "/tagging/reapply",
+        json={"days": 14, "limit": 250},
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."

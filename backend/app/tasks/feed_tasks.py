@@ -11,7 +11,7 @@ import redis
 from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
 import feedparser
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -93,6 +93,11 @@ class CoordinationUnavailableError(RuntimeError):
 
 
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
+RETRYABLE_ARTICLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
+RETRYABLE_ARTICLE_ERROR_PREFIXES = (
+    "coordination_unavailable:",
+    "network_or_rate_limit_error:",
+)
 
 
 @contextmanager
@@ -184,6 +189,45 @@ def _article_fetch_repair_cutoff(now: datetime | None = None) -> datetime:
     return current_time - timedelta(seconds=max(0, int(settings.dispatch_items_missing_articles_after_seconds)))
 
 
+def _article_retryable_error_filter():
+    retryable_http_errors = [f"http_status:{status_code}" for status_code in sorted(RETRYABLE_ARTICLE_HTTP_STATUSES)]
+    return or_(
+        Article.error.in_(retryable_http_errors),
+        *[Article.error.like(f"{prefix}%") for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES],
+    )
+
+
+def _feed_dispatch_claim_expiry(now: datetime) -> datetime:
+    return now + timedelta(seconds=max(60, int(settings.dispatch_feed_claim_seconds)))
+
+
+def _clear_feed_dispatch_claim(feed: Feed) -> None:
+    feed.dispatch_claimed_at = None
+    feed.dispatch_backoff_until = None
+
+
+def _claim_feed_for_dispatch(db: Session, *, feed_id: uuid.UUID, now: datetime) -> bool:
+    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
+    if feed is None or not feed.enabled:
+        return False
+
+    backoff_until = feed.dispatch_backoff_until
+    if backoff_until is not None:
+        if backoff_until.tzinfo is None:
+            backoff_until = backoff_until.replace(tzinfo=timezone.utc)
+        if backoff_until > now:
+            return False
+
+    if not _is_feed_due(feed, now):
+        return False
+
+    feed.dispatch_claimed_at = now
+    feed.dispatch_backoff_until = _feed_dispatch_claim_expiry(now)
+    db.add(feed)
+    db.flush()
+    return True
+
+
 def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | None = None) -> list[uuid.UUID]:
     repair_cutoff = _article_fetch_repair_cutoff(now)
     return list(
@@ -191,8 +235,16 @@ def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | 
             select(Item.id)
             .outerjoin(Article, Article.item_id == Item.id)
             .where(
-                Article.item_id.is_(None),
                 Item.first_seen_at <= repair_cutoff,
+                or_(
+                    Article.item_id.is_(None),
+                    and_(
+                        Article.text.is_(None),
+                        Article.retrieved_at.is_not(None),
+                        Article.retrieved_at <= repair_cutoff,
+                        _article_retryable_error_filter(),
+                    ),
+                ),
             )
             .order_by(Item.first_seen_at.asc())
             .limit(limit)
@@ -215,18 +267,14 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
             current = redis_client.incr(key)
             redis_client.expire(key, 30)
         except redis.RedisError as exc:
-            logger.warning("domain_slot_unavailable domain=%s error=%s", domain, exc)
-            yield
-            return
+            raise CoordinationUnavailableError("domain slot unavailable") from exc
         if current <= settings.per_domain_concurrency:
             acquired = True
             break
         try:
             redis_client.decr(key)
         except redis.RedisError as exc:
-            logger.warning("domain_slot_counter_unavailable domain=%s error=%s", domain, exc)
-            yield
-            return
+            raise CoordinationUnavailableError("domain slot unavailable") from exc
         time.sleep(0.2)
 
     if not acquired:
@@ -365,9 +413,7 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
     try:
         acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
     except redis.RedisError as exc:
-        logger.warning("feed_lock_unavailable feed_id=%s error=%s", feed_id, exc)
-        yield True
-        return
+        raise CoordinationUnavailableError("feed lock unavailable") from exc
 
     if not acquired:
         yield False
@@ -475,13 +521,25 @@ def dispatch_due_feeds():
     queued = 0
 
     with db_session() as db:
-        feeds = db.scalars(select(Feed).where(Feed.enabled.is_(True))).all()
-        for feed in feeds:
+        feed_ids = db.scalars(select(Feed.id).where(Feed.enabled.is_(True)).order_by(Feed.created_at.asc())).all()
+        for feed_id in feed_ids:
             if queued >= settings.dispatch_due_feeds_batch_size:
                 break
-            if _is_feed_due(feed, now):
-                fetch_feed.delay(str(feed.id))
-                queued += 1
+            if not _claim_feed_for_dispatch(db, feed_id=feed_id, now=now):
+                db.rollback()
+                continue
+            db.commit()
+            try:
+                fetch_feed.delay(str(feed_id))
+            except Exception as exc:
+                logger.exception("feed_dispatch_enqueue_failed feed_id=%s error=%s", feed_id, exc)
+                claimed_feed = db.scalar(select(Feed).where(Feed.id == feed_id))
+                if claimed_feed is not None:
+                    _clear_feed_dispatch_claim(claimed_feed)
+                    db.add(claimed_feed)
+                db.commit()
+                continue
+            queued += 1
 
     return {"queued": queued}
 
@@ -1091,8 +1149,15 @@ def fetch_feed(self, feed_id: str, force: bool = False):
 
                 feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
                 if feed is None or not feed.enabled:
+                    if feed is not None:
+                        _clear_feed_dispatch_claim(feed)
+                        db.add(feed)
+                        db.commit()
                     return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
                 if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
+                    _clear_feed_dispatch_claim(feed)
+                    db.add(feed)
+                    db.commit()
                     return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
 
                 headers: dict[str, str] = {}
@@ -1135,6 +1200,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                                 feed.last_success_at = now
                                 feed.error_count = 0
                                 feed.last_error = None
+                                _clear_feed_dispatch_claim(feed)
                                 db.add(feed)
                                 db.commit()
                                 return {"status": "not_modified", "feed_id": feed_id}
@@ -1201,6 +1267,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 feed.last_fetch_at = now
                 feed.error_count = 0
                 feed.last_error = None
+                _clear_feed_dispatch_claim(feed)
 
                 db.add(feed)
                 db.commit()
@@ -2261,6 +2328,7 @@ def _mark_feed_failure(db: Session, feed: Feed, error: str):
     feed.last_fetch_at = datetime.now(timezone.utc)
     feed.error_count += 1
     feed.last_error = error
+    _clear_feed_dispatch_claim(feed)
     db.add(feed)
     db.flush()
     return feed.error_count

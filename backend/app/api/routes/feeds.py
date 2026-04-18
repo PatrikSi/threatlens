@@ -312,7 +312,23 @@ def refresh_feed(
     if feed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
 
-    celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)], kwargs={"force": True})
+    try:
+        celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)], kwargs={"force": True})
+    except Exception as exc:
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="feeds.refresh",
+            resource_type="feed",
+            resource_id=str(feed_id),
+            success=False,
+            metadata={"error": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue is temporarily unavailable. Try again later.",
+        ) from exc
     record_audit(
         db,
         actor_user_id=user.id,

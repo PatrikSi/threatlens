@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     probe_feed_metadata_on_import: bool = False
     max_metadata_backfill_tasks_per_request: int = 100
     dispatch_due_feeds_batch_size: int = 500
+    dispatch_feed_claim_seconds: int = 900
     dispatch_items_missing_articles_batch_size: int = 200
     dispatch_items_missing_articles_after_seconds: int = 300
     dispatch_unclassified_items_batch_size: int = 200
