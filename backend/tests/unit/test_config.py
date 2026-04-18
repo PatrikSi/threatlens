@@ -25,9 +25,25 @@ def test_production_requires_strong_jwt_secret():
         Settings(app_env="production", jwt_secret="change-me")
 
 
+def test_production_requires_dedicated_data_encryption_key():
+    with pytest.raises(ValueError):
+        Settings(
+            app_env="production",
+            jwt_secret="x" * 48,
+            admin_password="StrongPass123!",
+            auth_cookie_secure=True,
+            auth_require_csrf=True,
+        )
+
+
 def test_production_rejects_default_admin_password():
     with pytest.raises(ValueError):
-        Settings(app_env="production", jwt_secret="x" * 48, admin_password="admin123")
+        Settings(
+            app_env="production",
+            jwt_secret="x" * 48,
+            app_data_encryption_key="y" * 48,
+            admin_password="admin123",
+        )
 
 
 def test_admin_seeding_rejects_default_admin_password():
@@ -40,6 +56,7 @@ def test_production_requires_secure_auth_cookie():
         Settings(
             app_env="production",
             jwt_secret="x" * 48,
+            app_data_encryption_key="y" * 48,
             admin_password="StrongPass123!",
             auth_cookie_secure=False,
         )
@@ -50,6 +67,7 @@ def test_production_requires_csrf_for_cookie_auth():
         Settings(
             app_env="production",
             jwt_secret="x" * 48,
+            app_data_encryption_key="y" * 48,
             admin_password="StrongPass123!",
             auth_cookie_secure=True,
             auth_require_csrf=False,
@@ -61,6 +79,7 @@ def test_production_rejects_legacy_unscoped_token_bypass():
         Settings(
             app_env="production",
             jwt_secret="x" * 48,
+            app_data_encryption_key="y" * 48,
             admin_password="StrongPass123!",
             auth_cookie_secure=True,
             auth_require_csrf=True,

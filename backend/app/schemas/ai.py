@@ -125,6 +125,10 @@ class AISettingsUpdate(BaseModel):
             raise ValueError("base_url must use http or https")
         if parsed.scheme.lower() != "https" and not allow_private_network:
             raise ValueError("base_url must use https unless ALLOW_PRIVATE_NETWORK_AI is enabled")
+        if parsed.scheme.lower() == "http" and allow_private_network and is_fetchable_url(base_url, allow_private_network=False):
+            raise ValueError(
+                "base_url must use https for publicly routable hosts; plain http is only allowed for private-network AI endpoints"
+            )
         if parsed.username or parsed.password:
             raise ValueError("base_url must not include embedded credentials")
         if parsed.query or parsed.fragment:

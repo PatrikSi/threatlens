@@ -21,6 +21,8 @@
 | `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. |
 | `JWT_SECRET` (`jwt_secret`) | `change-me` | JWT signing key. |
+| `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. |
+| `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. |
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
@@ -39,7 +41,7 @@
 | `ARTICLE_READ_TIMEOUT_SECONDS` (`article_read_timeout_seconds`) | `20` | Article HTTP read timeout. |
 | `ARTICLE_MAX_BYTES` (`article_max_bytes`) | `4000000` | Max article response size before rejection. |
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
-| `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. |
+| `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
@@ -92,6 +94,7 @@
 When `APP_ENV` is `production` or `prod`:
 
 - `JWT_SECRET` must not be `change-me` and must be at least 32 chars.
+- `APP_DATA_ENCRYPTION_KEY` must be set and be at least 32 chars.
 - `ADMIN_PASSWORD` must not remain `admin123`.
 - `AUTH_COOKIE_SECURE` must be `true`.
 - `/docs`, `/redoc`, and `/openapi.json` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.

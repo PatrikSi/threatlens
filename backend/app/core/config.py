@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
     redis_url: str = "redis://redis:6379/0"
     jwt_secret: str = "change-me"
+    app_data_encryption_key: str | None = None
+    app_data_encryption_previous_keys: Annotated[list[str], NoDecode] = []
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24
     allow_legacy_unscoped_tokens: bool = False
@@ -84,7 +86,7 @@ class Settings(BaseSettings):
     notification_delivery_queue_degraded_after_seconds: int = 300
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    @field_validator("cors_origins", "trusted_proxy_cidrs", mode="before")
+    @field_validator("cors_origins", "trusted_proxy_cidrs", "app_data_encryption_previous_keys", mode="before")
     @classmethod
     def _parse_csv_list(cls, value):
         if isinstance(value, str):
@@ -109,11 +111,21 @@ class Settings(BaseSettings):
     def _normalize_log_level(cls, value):
         return str(value).strip().upper() or "INFO"
 
+    @field_validator("app_data_encryption_key", mode="before")
+    @classmethod
+    def _normalize_optional_secret(cls, value):
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized or None
+
     @model_validator(mode="after")
     def _validate_production_security(self):
         if self.app_env.lower() in {"production", "prod"}:
             if self.jwt_secret == "change-me" or len(self.jwt_secret) < 32:
                 raise ValueError("jwt_secret must be set and at least 32 characters in production")
+            if not self.app_data_encryption_key or len(self.app_data_encryption_key) < 32:
+                raise ValueError("app_data_encryption_key must be set and at least 32 characters in production")
             if self.admin_password == "admin123":
                 raise ValueError("admin_password default is not allowed in production")
             if not self.auth_cookie_secure:

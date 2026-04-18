@@ -6,6 +6,7 @@ def test_build_openapi_visibility_kwargs_hides_docs_in_production_by_default():
     settings = Settings(
         app_env="production",
         jwt_secret="x" * 48,
+        app_data_encryption_key="y" * 48,
         admin_password="StrongPass123!",
         auth_cookie_secure=True,
     )
@@ -21,6 +22,7 @@ def test_build_openapi_visibility_kwargs_allows_opt_in_docs_in_production():
     settings = Settings(
         app_env="production",
         jwt_secret="x" * 48,
+        app_data_encryption_key="y" * 48,
         admin_password="StrongPass123!",
         auth_cookie_secure=True,
         expose_api_docs_in_production=True,

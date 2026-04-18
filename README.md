@@ -44,8 +44,11 @@ You'll need to configure at least:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_SECRET`
+- `APP_DATA_ENCRYPTION_KEY`
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
+
+Use a distinct `APP_DATA_ENCRYPTION_KEY` for webhook/request encryption at rest instead of reusing `JWT_SECRET`. If you are upgrading an existing install and want older encrypted rows to remain readable during key rotation, keep the old encryption input in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` until the stored secrets have been rewritten.
 
 Secure defaults in the shipped template:
 

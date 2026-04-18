@@ -16,7 +16,7 @@ _ENCRYPTED_TEXT_PREFIX = "enc:v1:"
 def encrypt_text(value: str | None) -> str | None:
     if value is None:
         return None
-    token = _fernet().encrypt(value.encode("utf-8")).decode("utf-8")
+    token = _encryption_fernet().encrypt(value.encode("utf-8")).decode("utf-8")
     return f"{_ENCRYPTED_TEXT_PREFIX}{token}"
 
 
@@ -26,10 +26,12 @@ def decrypt_text(value: str | None) -> str | None:
     if not value.startswith(_ENCRYPTED_TEXT_PREFIX):
         return value
     token = value[len(_ENCRYPTED_TEXT_PREFIX) :]
-    try:
-        return _fernet().decrypt(token.encode("utf-8")).decode("utf-8")
-    except InvalidToken as exc:
-        raise ValueError("Unable to decrypt stored data") from exc
+    for fernet in _decryption_fernets():
+        try:
+            return fernet.decrypt(token.encode("utf-8")).decode("utf-8")
+        except InvalidToken:
+            continue
+    raise ValueError("Unable to decrypt stored data")
 
 
 def encrypt_json(value: Any) -> dict[str, str]:
@@ -57,7 +59,32 @@ def _is_encrypted_json(value: Any) -> bool:
     return isinstance(value, dict) and set(value.keys()) == {_ENCRYPTED_JSON_KEY} and isinstance(value[_ENCRYPTED_JSON_KEY], str)
 
 
-def _fernet() -> Fernet:
-    secret = (get_settings().jwt_secret or "change-me").encode("utf-8")
-    key = base64.urlsafe_b64encode(hashlib.sha256(secret).digest())
+def _encryption_fernet() -> Fernet:
+    settings = get_settings()
+    secret = settings.app_data_encryption_key or settings.jwt_secret or "change-me"
+    return _build_fernet(secret)
+
+
+def _decryption_fernets() -> list[Fernet]:
+    settings = get_settings()
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def _append(secret: str | None) -> None:
+        normalized = (secret or "").strip()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        candidates.append(normalized)
+
+    _append(settings.app_data_encryption_key)
+    for previous_key in settings.app_data_encryption_previous_keys:
+        _append(previous_key)
+    _append(settings.jwt_secret or "change-me")
+
+    return [_build_fernet(secret) for secret in candidates]
+
+
+def _build_fernet(secret: str) -> Fernet:
+    key = base64.urlsafe_b64encode(hashlib.sha256(secret.encode("utf-8")).digest())
     return Fernet(key)
