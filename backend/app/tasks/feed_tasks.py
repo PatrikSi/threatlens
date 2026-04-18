@@ -10,7 +10,6 @@ import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
-import feedparser
 from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -53,6 +52,11 @@ from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
+from app.services.feed_metadata import (
+    apply_probe_metadata as _apply_probe_metadata,
+    backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
+    needs_metadata_backfill as _needs_metadata_backfill,
+)
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
 from app.services.notification_webhooks import (
@@ -1062,70 +1066,6 @@ def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
     if next_run.tzinfo is None:
         next_run = next_run.replace(tzinfo=timezone.utc)
     return next_run <= now
-
-
-def _needs_metadata_backfill(feed: Feed) -> bool:
-    placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
-    return placeholder_name or not feed.site_url
-
-
-def _apply_probe_metadata(feed: Feed, metadata) -> bool:
-    changed = False
-    is_placeholder_name = not feed.name.strip() or feed.name.strip() == feed.url.strip()
-
-    if is_placeholder_name and metadata.name:
-        feed.name = metadata.name
-        changed = True
-    if not feed.description and metadata.description:
-        feed.description = metadata.description
-        changed = True
-    if not feed.site_url and metadata.site_url:
-        feed.site_url = metadata.site_url
-        changed = True
-    if not feed.language and metadata.language:
-        feed.language = metadata.language
-        changed = True
-    if not feed.etag and metadata.etag:
-        feed.etag = metadata.etag
-        changed = True
-    if not feed.last_modified and metadata.last_modified:
-        feed.last_modified = metadata.last_modified
-        changed = True
-
-    return changed
-
-
-def _backfill_feed_metadata_from_body(feed: Feed, body: bytes) -> bool:
-    parsed = feedparser.parse(body)
-    metadata = parsed.feed if hasattr(parsed, "feed") else {}
-
-    changed = False
-    feed_title = _clean_text(metadata.get("title"))
-    description = _clean_text(metadata.get("subtitle") or metadata.get("description"))
-    site_url = _clean_text(metadata.get("link"))
-    language = _clean_text(metadata.get("language"))
-
-    if (not feed.name.strip() or feed.name.strip() == feed.url.strip()) and feed_title:
-        feed.name = feed_title
-        changed = True
-    if not feed.description and description:
-        feed.description = description
-        changed = True
-    if not feed.site_url and site_url:
-        feed.site_url = site_url
-        changed = True
-    if not feed.language and language:
-        feed.language = language
-        changed = True
-
-    return changed
-
-
-def _clean_text(value: object) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 @celery_app.task(
