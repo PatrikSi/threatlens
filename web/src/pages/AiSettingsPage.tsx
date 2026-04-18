@@ -1,7 +1,7 @@
 import { Dispatch, RefObject, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { apiFetch } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
@@ -36,6 +36,11 @@ type RunFilters = {
   onlyFailures: boolean
 }
 
+type NoticeState = {
+  tone: 'success' | 'error'
+  message: string
+}
+
 const RUN_PAGE_SIZE = 20
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
@@ -50,7 +55,7 @@ export function AiSettingsPage() {
   const [activeTab, setActiveTab] = useState<AiTab>('overview')
   const [days, setDays] = useState(30)
   const [draft, setDraft] = useState<AISettingsDraft>(DEFAULT_DRAFT)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<NoticeState | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
   const [reprocessDays, setReprocessDays] = useState('7')
   const [reprocessLimit, setReprocessLimit] = useState('100')
@@ -206,11 +211,24 @@ export function AiSettingsPage() {
   }, [settingsQuery.data])
 
   useEffect(() => {
+    if (!runsQuery.data) {
+      return
+    }
     const nextSelectedRunId = resolveVisibleRunSelection(runsQuery.data?.items, selectedRunId)
     if (nextSelectedRunId !== selectedRunId) {
       setSelectedRunId(nextSelectedRunId)
     }
   }, [runsQuery.data, selectedRunId])
+
+  const showActionError = (error: unknown, fallback: string) => {
+    const message =
+      error instanceof ApiError && error.message.trim()
+        ? error.message
+        : error instanceof Error && error.message.trim()
+          ? error.message
+          : fallback
+    setNotice({ tone: 'error', message })
+  }
 
   const saveMutation = useMutation({
     mutationFn: (payload: AISettingsUpdateRequest) =>
@@ -220,10 +238,13 @@ export function AiSettingsPage() {
       }),
     onSuccess: (saved) => {
       setDraft(createDraftFromSettings(saved))
-      setNotice('AI settings saved.')
+      setNotice({ tone: 'success', message: 'AI settings saved.' })
       setTestResult(null)
       invalidateAiQueries(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+    },
+    onError: (error) => {
+      showActionError(error, 'Failed to save AI settings.')
     },
   })
 
@@ -234,8 +255,15 @@ export function AiSettingsPage() {
       }),
     onSuccess: (result) => {
       setTestResult(result)
-      setNotice(result.success ? 'AI connection test succeeded.' : 'AI connection test failed.')
+      setNotice({
+        tone: result.success ? 'success' : 'error',
+        message: result.success ? 'AI connection test succeeded.' : 'AI connection test failed.',
+      })
       invalidateAiQueries(queryClient)
+    },
+    onError: (error) => {
+      setTestResult(null)
+      showActionError(error, 'Failed to test the AI connection.')
     },
   })
 
@@ -245,9 +273,12 @@ export function AiSettingsPage() {
         method: 'POST',
       }),
     onSuccess: (result) => {
-      setNotice(`Queued daily brief task ${result.task_id}.`)
+      setNotice({ tone: 'success', message: `Queued daily brief task ${result.task_id}.` })
       invalidateAiQueries(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+    },
+    onError: (error) => {
+      showActionError(error, 'Failed to queue a daily brief.')
     },
   })
 
@@ -267,8 +298,11 @@ export function AiSettingsPage() {
         }),
       }),
     onSuccess: (result) => {
-      setNotice(`Queued AI reprocessing task ${result.task_id}.`)
+      setNotice({ tone: 'success', message: `Queued AI reprocessing task ${result.task_id}.` })
       invalidateAiQueries(queryClient)
+    },
+    onError: (error) => {
+      showActionError(error, 'Failed to queue AI reprocessing.')
     },
   })
 
@@ -281,12 +315,15 @@ export function AiSettingsPage() {
       setCancelingRunId(runId)
     },
     onSuccess: (run) => {
-      setNotice(`${formatTaskTypeLabel(run.task_type)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`)
+      setNotice({
+        tone: 'success',
+        message: `${formatTaskTypeLabel(run.task_type)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`,
+      })
       setPendingCancelRun(null)
       invalidateAiQueries(queryClient)
     },
     onError: (error) => {
-      setNotice(error instanceof Error && error.message ? error.message : 'Failed to cancel the AI task.')
+      showActionError(error, 'Failed to cancel the AI task.')
     },
     onSettled: () => {
       setCancelingRunId(null)
@@ -441,8 +478,14 @@ export function AiSettingsPage() {
         </div>
       </section>
       {notice && (
-        <p className="rounded border border-cyan/20 bg-cyan/10 px-3 py-2 text-sm text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100">
-          {notice}
+        <p
+          className={`rounded px-3 py-2 text-sm ${
+            notice.tone === 'success'
+              ? 'border border-cyan/20 bg-cyan/10 text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100'
+              : 'border border-red-500/20 bg-red-500/10 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200'
+          }`}
+        >
+          {notice.message}
         </p>
       )}
 
@@ -481,7 +524,18 @@ export function AiSettingsPage() {
               isLoading={overviewQuery.isLoading}
               isError={overviewQuery.isError}
               errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
-              onShowFailure={() => setActiveTab('activity')}
+              onShowFailure={(failure) => {
+                setActiveTab('activity')
+                setRunPage(0)
+                setSelectedRunId(null)
+                setSelectedModel(failure.model || 'all')
+                setRunFilters((current) => ({
+                  ...current,
+                  taskType: failure.task_type || '',
+                  status: 'error',
+                  onlyFailures: true,
+                }))
+              }}
               days={days}
               setDays={setDays}
               onRefresh={() => invalidateAiQueries(queryClient)}
@@ -552,6 +606,8 @@ export function AiSettingsPage() {
                 setSelectedRunId={setSelectedRunId}
                 runDetailQuery={runDetailQuery}
                 briefSources={briefSourcesQuery.data ?? []}
+                briefSourcesLoading={briefSourcesQuery.isLoading}
+                briefSourcesErrorMessage={(briefSourcesQuery.error as Error | undefined)?.message ?? ''}
                 selectedRunSectionRef={selectedRunSectionRef}
               />
             </div>
@@ -628,7 +684,7 @@ function OverviewTab({
   isLoading: boolean
   isError: boolean
   errorMessage: string
-  onShowFailure: () => void
+  onShowFailure: (failure: AIOpsOverviewResponse['failures'][number]) => void
   days: number
   setDays: Dispatch<SetStateAction<number>>
   onRefresh: () => void
@@ -734,7 +790,7 @@ function OverviewTab({
                   key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
                   type="button"
                   className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
-                  onClick={onShowFailure}
+                  onClick={() => onShowFailure(failure)}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -1512,6 +1568,8 @@ function ActivityTab({
   setSelectedRunId,
   runDetailQuery,
   briefSources,
+  briefSourcesLoading,
+  briefSourcesErrorMessage,
   selectedRunSectionRef,
   onCancelRun,
   cancelingRunId,
@@ -1560,6 +1618,8 @@ function ActivityTab({
   setSelectedRunId: Dispatch<SetStateAction<string | null>>
   runDetailQuery: ReturnType<typeof useQuery<AITaskRunDetailResponse>>
   briefSources: AIDailyBriefSourceItemResponse[]
+  briefSourcesLoading: boolean
+  briefSourcesErrorMessage: string
   selectedRunSectionRef: RefObject<HTMLDivElement | null>
   onCancelRun: (run: AITaskRunResponse) => void
   cancelingRunId: string | null
@@ -1996,6 +2056,10 @@ function ActivityTab({
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Daily Brief Source Items</p>
                   <div className="mt-2 space-y-2">
+                    {briefSourcesLoading && <EmptyInline>Loading source log for this brief...</EmptyInline>}
+                    {!briefSourcesLoading && briefSourcesErrorMessage && (
+                      <p className="text-sm text-red-600">Failed to load the source log. {briefSourcesErrorMessage}</p>
+                    )}
                     {briefSources.map((source) => (
                       <div key={source.id} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
                         <div className="flex items-start justify-between gap-3">
@@ -2013,7 +2077,9 @@ function ActivityTab({
                         )}
                       </div>
                     ))}
-                    {!briefSources.length && <EmptyInline>No source log recorded for this brief.</EmptyInline>}
+                    {!briefSourcesLoading && !briefSourcesErrorMessage && !briefSources.length && (
+                      <EmptyInline>No source log recorded for this brief.</EmptyInline>
+                    )}
                   </div>
                 </div>
               )}

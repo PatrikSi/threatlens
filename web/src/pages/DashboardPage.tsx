@@ -1,4 +1,4 @@
-import { ChangeEvent, ReactNode, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, Dispatch, ReactNode, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -411,7 +411,10 @@ export function DashboardPage() {
   const [relativeTimeAnchorMs, setRelativeTimeAnchorMs] = useState(() => getRelativeTimeAnchorMs())
 
   const [expandedItemIdsByWindowId, setExpandedItemIdsByWindowId] = useState<Record<string, string>>({})
-  const [noteDraftsByWindowId, setNoteDraftsByWindowId] = useState<Record<string, Record<string, string>>>({})
+  const [noteDraftsByItemId, setNoteDraftsByItemId] = useState<Record<string, string>>({})
+  const [itemActionFeedbackByItemId, setItemActionFeedbackByItemId] = useState<
+    Record<string, { tone: 'success' | 'error'; message: string }>
+  >({})
   const [articleRetryFeedbackByItemId, setArticleRetryFeedbackByItemId] = useState<
     Record<string, { tone: 'success' | 'error'; message: string }>
   >({})
@@ -536,7 +539,8 @@ export function DashboardPage() {
       setWindowSeenAt({})
       setRssLastOpenedAt('')
       setExpandedItemIdsByWindowId({})
-      setNoteDraftsByWindowId({})
+      setNoteDraftsByItemId({})
+      setItemActionFeedbackByItemId({})
       return
     }
 
@@ -760,10 +764,30 @@ export function DashboardPage() {
         method: 'POST',
         body: JSON.stringify({ is_read: payload.isRead }),
       }),
-    onSuccess: (_data, variables) =>
+    onMutate: ({ itemId }) => {
+      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
+    },
+    onSuccess: (_data, variables) => {
       syncItemStateInCache(queryClient, variables.itemId, {
         isRead: variables.isRead,
-      }),
+      })
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'success',
+          message: variables.isRead ? 'Marked article as read.' : 'Marked article as unread.',
+        },
+      }))
+    },
+    onError: (error, variables) => {
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'error',
+          message: resolveItemActionError(error, 'Unable to update read status right now.'),
+        },
+      }))
+    },
   })
 
   const updateStar = useMutation({
@@ -772,29 +796,65 @@ export function DashboardPage() {
         method: 'POST',
         body: JSON.stringify({ is_starred: payload.isStarred }),
       }),
-    onSuccess: (_data, variables) =>
+    onMutate: ({ itemId }) => {
+      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
+    },
+    onSuccess: (_data, variables) => {
       syncItemStateInCache(queryClient, variables.itemId, {
         isStarred: variables.isStarred,
-      }),
+      })
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'success',
+          message: variables.isStarred ? 'Starred article.' : 'Removed star from article.',
+        },
+      }))
+    },
+    onError: (error, variables) => {
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'error',
+          message: resolveItemActionError(error, 'Unable to update star status right now.'),
+        },
+      }))
+    },
   })
 
   const updateNote = useMutation({
-    mutationFn: (payload: { itemId: string; note: string | null; windowId: string }) =>
+    mutationFn: (payload: { itemId: string; note: string | null }) =>
       apiFetch(`/items/${payload.itemId}/note`, {
         method: 'POST',
         body: JSON.stringify({ note: payload.note }),
       }),
+    onMutate: ({ itemId }) => {
+      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
+    },
     onSuccess: (_data, variables) => {
-      setNoteDraftsByWindowId((current) => ({
+      setNoteDraftsByItemId((current) => ({
         ...current,
-        [variables.windowId]: {
-          ...(current[variables.windowId] ?? {}),
-          [variables.itemId]: variables.note ?? '',
-        },
+        [variables.itemId]: variables.note ?? '',
       }))
       syncItemStateInCache(queryClient, variables.itemId, {
         note: variables.note,
       })
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'success',
+          message: 'Saved analyst notes.',
+        },
+      }))
+    },
+    onError: (error, variables) => {
+      setItemActionFeedbackByItemId((current) => ({
+        ...current,
+        [variables.itemId]: {
+          tone: 'error',
+          message: resolveItemActionError(error, 'Unable to save notes right now.'),
+        },
+      }))
     },
   })
 
@@ -1017,7 +1077,7 @@ export function DashboardPage() {
   )
 
   useEffect(() => {
-    setNoteDraftsByWindowId((current) => {
+    setNoteDraftsByItemId((current) => {
       let changed = false
       const next = { ...current }
 
@@ -1027,15 +1087,11 @@ export function DashboardPage() {
           continue
         }
 
-        const currentWindowDrafts = next[windowLayout.id] ?? {}
-        if (currentWindowDrafts[detail.id] !== undefined) {
+        if (next[detail.id] !== undefined) {
           continue
         }
 
-        next[windowLayout.id] = {
-          ...currentWindowDrafts,
-          [detail.id]: detail.state.note ?? '',
-        }
+        next[detail.id] = detail.state.note ?? ''
         changed = true
       }
 
@@ -2440,7 +2496,7 @@ export function DashboardPage() {
                                       )}
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage}
+                                        disabled={!canManage || (updateRead.isPending && updateRead.variables?.itemId === detail.id)}
                                         onClick={() =>
                                           updateRead.mutate({
                                             itemId: detail.id,
@@ -2448,11 +2504,15 @@ export function DashboardPage() {
                                           })
                                         }
                                       >
-                                        {detail.state.is_read ? 'Mark Unread' : 'Mark Read'}
+                                        {updateRead.isPending && updateRead.variables?.itemId === detail.id
+                                          ? 'Saving...'
+                                          : detail.state.is_read
+                                            ? 'Mark Unread'
+                                            : 'Mark Read'}
                                       </button>
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage}
+                                        disabled={!canManage || (updateStar.isPending && updateStar.variables?.itemId === detail.id)}
                                         onClick={() =>
                                           updateStar.mutate({
                                             itemId: detail.id,
@@ -2460,10 +2520,25 @@ export function DashboardPage() {
                                           })
                                         }
                                       >
-                                        {detail.state.is_starred ? 'Unstar' : 'Star'}
+                                        {updateStar.isPending && updateStar.variables?.itemId === detail.id
+                                          ? 'Saving...'
+                                          : detail.state.is_starred
+                                            ? 'Unstar'
+                                            : 'Star'}
                                       </button>
                                       {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
                                     </div>
+                                    {itemActionFeedbackByItemId[detail.id] && (
+                                      <p
+                                        className={`mt-2 text-xs ${
+                                          itemActionFeedbackByItemId[detail.id]?.tone === 'success'
+                                            ? 'text-emerald-700 dark:text-emerald-300'
+                                            : 'text-red-600 dark:text-red-300'
+                                        }`}
+                                      >
+                                        {itemActionFeedbackByItemId[detail.id]?.message}
+                                      </p>
+                                    )}
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
                                       <p className="text-xs font-medium text-slate dark:text-slate-300">RSS summary</p>
@@ -2569,14 +2644,11 @@ export function DashboardPage() {
                                       <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                                        value={noteDraftsByWindowId[windowLayout.id]?.[detail.id] ?? detail.state.note ?? ''}
+                                        value={noteDraftsByItemId[detail.id] ?? detail.state.note ?? ''}
                                         onChange={(event) =>
-                                          setNoteDraftsByWindowId((current) => ({
+                                          setNoteDraftsByItemId((current) => ({
                                             ...current,
-                                            [windowLayout.id]: {
-                                              ...(current[windowLayout.id] ?? {}),
-                                              [detail.id]: event.target.value,
-                                            },
+                                            [detail.id]: event.target.value,
                                           }))
                                         }
                                         disabled={!canManage}
@@ -2587,13 +2659,12 @@ export function DashboardPage() {
                                           onClick={() =>
                                             updateNote.mutate({
                                               itemId: detail.id,
-                                              note: (noteDraftsByWindowId[windowLayout.id]?.[detail.id] ?? detail.state.note ?? '') || null,
-                                              windowId: windowLayout.id,
+                                              note: (noteDraftsByItemId[detail.id] ?? detail.state.note ?? '') || null,
                                             })
                                           }
-                                          disabled={!canManage}
+                                          disabled={!canManage || (updateNote.isPending && updateNote.variables?.itemId === detail.id)}
                                         >
-                                          Save Notes
+                                          {updateNote.isPending && updateNote.variables?.itemId === detail.id ? 'Saving...' : 'Save Notes'}
                                         </button>
                                         {!canManage && <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>}
                                       </div>
@@ -3352,6 +3423,30 @@ type ItemCachePatch = {
   isRead?: boolean
   isStarred?: boolean
   note?: string | null
+}
+
+function resolveItemActionError(error: unknown, fallback: string) {
+  if (error instanceof ApiError && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return fallback
+}
+
+function clearItemFeedback(
+  setter: Dispatch<SetStateAction<Record<string, { tone: 'success' | 'error'; message: string }>>>,
+  itemId: string,
+) {
+  setter((current) => {
+    if (!(itemId in current)) {
+      return current
+    }
+    const next = { ...current }
+    delete next[itemId]
+    return next
+  })
 }
 
 function syncItemStateInCache(queryClient: ReturnType<typeof useQueryClient>, itemId: string, patch: ItemCachePatch) {

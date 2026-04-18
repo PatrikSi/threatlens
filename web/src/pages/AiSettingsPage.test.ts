@@ -16,7 +16,7 @@ describe('resolveVisibleRunSelection', () => {
     ).toBe('run-2')
   })
 
-  it('falls back to the first visible run when filters remove the current selection', () => {
+  it('keeps the current selection pinned when filters remove it from the visible page', () => {
     expect(
       resolveVisibleRunSelection(
         [
@@ -24,6 +24,18 @@ describe('resolveVisibleRunSelection', () => {
           { id: 'run-4' },
         ],
         'run-2',
+      ),
+    ).toBe('run-2')
+  })
+
+  it('auto-selects the first visible run when nothing is selected yet', () => {
+    expect(
+      resolveVisibleRunSelection(
+        [
+          { id: 'run-3' },
+          { id: 'run-4' },
+        ],
+        null,
       ),
     ).toBe('run-3')
   })
