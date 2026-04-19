@@ -20,7 +20,9 @@ from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPROCESS, AI_TRIGGER_MANUAL, queue_ai_task_run
 from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
+from app.schemas.notification import NotificationWebhookTestResponse
 from app.tasks.feed_tasks import (
+    _process_reserved_notification_deliveries,
     _scheduled_daily_ai_brief_due,
     _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
@@ -31,6 +33,7 @@ from app.tasks.feed_tasks import (
     fetch_article,
     fetch_feed,
     generate_item_ai_enrichment_task,
+    reconcile_ai_task_runs,
     reprocess_recent_ai_items,
 )
 
@@ -1459,6 +1462,365 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
     assert refreshed_parent is not None
     assert refreshed_parent.target_count == 2
     get_settings.cache_clear()
+
+
+def test_reprocess_recent_ai_items_caps_explicit_item_ids_to_effective_limit(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    monkeypatch.setenv("DISPATCH_AI_REPROCESS_BATCH_SIZE", "2")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    item_ids: list[uuid.UUID] = []
+    for index in range(3):
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"capped-specific-{index}",
+            url=f"https://example.com/articles/capped-specific-{index}",
+            canonical_url=f"https://example.com/articles/capped-specific-{index}",
+            title=f"Capped targeted article {index}",
+            summary="Summary",
+            published_at=datetime.now(timezone.utc),
+            first_seen_at=datetime.now(timezone.utc),
+            dedupe_key=f"capped-specific-{index}",
+            content_hash=str(index + 7) * 64,
+            status="content_fetched",
+        )
+        article = Article(
+            item_id=item.id,
+            final_url=item.url,
+            http_status=200,
+            text="Researchers observed Fortinet exploitation in the wild.",
+            extraction_method="readable",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(article)
+        item_ids.append(item.id)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    scheduled: list[tuple[str, bool, str | None]] = []
+
+    class _FakeTask:
+        def __init__(self, task_id: str):
+            self.id = task_id
+
+    def _fake_delay(item_id: str, force: bool = False, task_run_id: str | None = None):
+        scheduled.append((item_id, force, task_run_id))
+        return _FakeTask(f"child-{len(scheduled)}")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": None, "limit": 100},
+    )
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(
+        None,
+        100,
+        None,
+        None,
+        None,
+        [str(item_ids[2]), str(item_ids[0]), str(item_ids[1])],
+        task_run_id=str(parent_run.id),
+    )
+
+    assert result["queued"] == 2
+    assert [scheduled_item_id for scheduled_item_id, _force, _task_run_id in scheduled] == [
+        str(item_ids[2]),
+        str(item_ids[0]),
+    ]
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert refreshed_parent is not None
+    assert refreshed_parent.target_count == 2
+    assert refreshed_parent.metadata_json["truncated_item_count"] == 1
+    get_settings.cache_clear()
+
+
+def test_reprocess_recent_ai_items_stops_queueing_after_cancel(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    item_ids: list[uuid.UUID] = []
+    for index in range(3):
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"cancel-reprocess-{index}",
+            url=f"https://example.com/articles/cancel-reprocess-{index}",
+            canonical_url=f"https://example.com/articles/cancel-reprocess-{index}",
+            title=f"Cancelable article {index}",
+            summary="Summary",
+            published_at=datetime.now(timezone.utc),
+            first_seen_at=datetime.now(timezone.utc),
+            dedupe_key=f"cancel-reprocess-{index}",
+            content_hash=str(index + 1) * 64,
+            status="content_fetched",
+        )
+        article = Article(
+            item_id=item.id,
+            final_url=item.url,
+            http_status=200,
+            text="Researchers observed Fortinet exploitation in the wild.",
+            extraction_method="readable",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(article)
+        item_ids.append(item.id)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    queued_item_ids: list[str] = []
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": None, "limit": 100},
+    )
+    db_session.commit()
+
+    def _fake_safe_queue(*, item_id, **_kwargs):
+        queued_item_ids.append(str(item_id))
+        if len(queued_item_ids) == 1:
+            parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+            assert parent is not None
+            parent.status = "skipped"
+            parent.reason = "canceled"
+            parent.finished_at = datetime.now(timezone.utc)
+            db_session.add(parent)
+            db_session.commit()
+        return True
+
+    monkeypatch.setattr("app.tasks.feed_tasks._safe_queue_item_ai_enrichment_run", _fake_safe_queue)
+
+    result = reprocess_recent_ai_items.run(
+        None,
+        100,
+        None,
+        None,
+        None,
+        [str(item_id) for item_id in item_ids],
+        task_run_id=str(parent_run.id),
+    )
+
+    assert result["reason"] == "canceled"
+    assert queued_item_ids == [str(item_ids[0])]
+    get_settings.cache_clear()
+
+
+def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_session, monkeypatch):
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=uuid.uuid4(),
+        source_guid="stale-reconcile-task",
+        url="https://example.com/articles/stale-reconcile-task",
+        canonical_url="https://example.com/articles/stale-reconcile-task",
+        title="Stale reconcile target",
+        dedupe_key="stale-reconcile-task",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
+    feed = Feed(
+        id=item.feed_id,
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    run.status = "running"
+    run.celery_task_id = "stale-task-id"
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run.started_at = stale_time
+    run.queued_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    result = reconcile_ai_task_runs.run()
+
+    db_session.expire_all()
+    refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert result["reconciled"] == 1
+    assert refreshed_run is not None
+    assert refreshed_run.status == "error"
+    assert refreshed_run.reason == "stale_task_lost"
+
+
+def test_process_reserved_notification_deliveries_schedules_retryable_failures(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="notify@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Retrying webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="pending",
+        attempt_count=0,
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhooks._send_rendered_notification_request",
+        lambda _rendered: NotificationWebhookTestResponse(
+            success=False,
+            status_code=503,
+            duration_ms=25,
+            rendered_url="https://hooks.example.com/retry",
+            rendered_method="POST",
+            rendered_headers=[],
+            rendered_query_params=[],
+            rendered_body=None,
+            response_body_preview="busy",
+            error="HTTP 503",
+        ),
+    )
+
+    captured: dict[str, object] = {}
+
+    def _fake_enqueue(delivery_ids: list[uuid.UUID], *, countdown: int | None = None):
+        captured["delivery_ids"] = delivery_ids
+        captured["countdown"] = countdown
+        return True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", _fake_enqueue)
+
+    delivered, failed = _process_reserved_notification_deliveries(db_session, [delivery.id])
+
+    retry_deliveries = db_session.scalars(
+        select(NotificationWebhookDelivery)
+        .where(NotificationWebhookDelivery.source_delivery_id == delivery.id)
+        .order_by(NotificationWebhookDelivery.attempted_at.asc())
+    ).all()
+
+    assert delivered == 0
+    assert failed == 1
+    assert len(retry_deliveries) == 1
+    assert retry_deliveries[0].delivery_kind == "retry"
+    assert retry_deliveries[0].delivery_state == "pending"
+    assert captured["delivery_ids"] == [retry_deliveries[0].id]
+    assert captured["countdown"] == max(1, int(get_settings().notification_delivery_retry_backoff_seconds))
 
 
 def test_scheduled_daily_ai_brief_due_respects_configured_time(db_session, monkeypatch):

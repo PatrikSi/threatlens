@@ -856,7 +856,7 @@ def _reconcile_stale_ai_runs(
     active_tasks: list[AILiveTaskResponse] | None = None,
     reserved_tasks: list[AILiveTaskResponse] | None = None,
     scheduled_tasks: list[AILiveTaskResponse] | None = None,
-) -> None:
+) -> int:
     if workers is None or active_tasks is None or reserved_tasks is None or scheduled_tasks is None:
         snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _normalize_live_task_snapshot(
             _load_live_task_snapshot()
@@ -865,7 +865,7 @@ def _reconcile_stale_ai_runs(
         snapshot_available = True
 
     if not snapshot_available:
-        return
+        return 0
 
     _ = workers
     live_task_ids = {
@@ -875,6 +875,7 @@ def _reconcile_stale_ai_runs(
     }
     stale_before = datetime.now(timezone.utc) - STALE_AI_RUN_GRACE_PERIOD
     changed = False
+    reconciled_count = 0
 
     stale_child_runs = list(
         db.scalars(
@@ -901,6 +902,7 @@ def _reconcile_stale_ai_runs(
             metadata_updates={"stale_reconciled": True},
         )
         changed = True
+        reconciled_count += 1
 
     stale_parent_runs = list(
         db.scalars(
@@ -939,6 +941,7 @@ def _reconcile_stale_ai_runs(
                 metadata_updates={"stale_reconciled": True},
             )
             changed = True
+            reconciled_count += 1
             continue
         if unfinished_child_count > 0 or not _is_stale_unfinished_run(run, live_task_ids, stale_before):
             continue
@@ -953,9 +956,11 @@ def _reconcile_stale_ai_runs(
             metadata_updates={"stale_reconciled": True},
         )
         changed = True
+        reconciled_count += 1
 
     if changed:
         db.commit()
+    return reconciled_count
 
 
 def _flatten_live_tasks(raw_tasks: dict[str, list[dict[str, Any]]], *, state: str) -> list[AILiveTaskResponse]:

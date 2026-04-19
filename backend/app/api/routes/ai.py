@@ -81,6 +81,11 @@ def _hash_prompt(value: str | None) -> str | None:
     return sha256(value.encode("utf-8", errors="ignore")).hexdigest()
 
 
+def _effective_reprocess_limit(limit: int) -> int:
+    settings = get_settings()
+    return max(1, min(int(limit), int(settings.dispatch_ai_reprocess_batch_size)))
+
+
 @router.get("/settings", response_model=AISettingsResponse, dependencies=[Depends(require_ai_enabled)])
 def get_ai_settings_route(
     db: Session = Depends(get_db),
@@ -418,6 +423,13 @@ def reprocess_ai_for_recent_items_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
+    effective_limit = _effective_reprocess_limit(payload.limit)
+    if payload.item_ids and len(payload.item_ids) > effective_limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"item_ids exceeds the effective batch limit of {effective_limit}",
+        )
+
     settings = get_or_create_ai_settings(db)
     run = queue_ai_task_run(
         db,
@@ -428,6 +440,7 @@ def reprocess_ai_for_recent_items_route(
         metadata={
             "days": payload.days,
             "limit": payload.limit,
+            "effective_limit": effective_limit,
             "start_time": payload.start_time.isoformat() if payload.start_time else None,
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
@@ -459,6 +472,7 @@ def reprocess_ai_for_recent_items_route(
         metadata={
             "days": payload.days,
             "limit": payload.limit,
+            "effective_limit": effective_limit,
             "start_time": payload.start_time.isoformat() if payload.start_time else None,
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],

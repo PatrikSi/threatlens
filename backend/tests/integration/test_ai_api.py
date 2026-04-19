@@ -365,6 +365,30 @@ def test_reprocess_queue_marks_run_error_when_broker_publish_fails(
     assert run.error == "broker down"
 
 
+def test_reprocess_rejects_explicit_item_ids_above_effective_batch_limit(
+    client: TestClient,
+    auth_headers,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("DISPATCH_AI_REPROCESS_BATCH_SIZE", "2")
+    get_settings.cache_clear()
+    try:
+        response = client.post(
+            "/ai/reprocess",
+            json={
+                "limit": 250,
+                "item_ids": [str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())],
+            },
+            headers=auth_headers["admin"],
+        )
+    finally:
+        get_settings.cache_clear()
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "item_ids exceeds the effective batch limit of 2"
+
+
 def test_generate_daily_brief_without_items_returns_clean_422(
     client: TestClient,
     auth_headers,

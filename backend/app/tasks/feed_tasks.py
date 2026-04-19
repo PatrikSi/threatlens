@@ -44,6 +44,7 @@ from app.services.ai_ops import (
     finish_ai_task_run,
     queue_ai_task_run,
     record_ai_task_event,
+    _reconcile_stale_ai_runs,
     start_ai_task_run,
     update_ai_task_run_celery,
 )
@@ -67,6 +68,7 @@ from app.services.notification_webhooks import (
     has_recent_notification_delivery,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
+    reserve_retryable_notification_webhook_delivery,
     reserve_alert_match_notification_deliveries,
     reserve_feed_failing_notification_deliveries,
     reserve_new_item_notification_deliveries,
@@ -134,6 +136,33 @@ def _process_reserved_notification_deliveries(
             continue
 
         failed += 1
+        source_webhook = db.scalar(
+            select(NotificationWebhook).where(NotificationWebhook.id == attempt.delivery.webhook_id)
+        )
+        retry_reservation = (
+            reserve_retryable_notification_webhook_delivery(
+                db,
+                webhook=source_webhook,
+                delivery=attempt.delivery,
+            )
+            if source_webhook is not None and attempt.delivery.event_type_snapshot != "webhook_failed"
+            else None
+        )
+        if retry_reservation is not None:
+            if retry_reservation.created:
+                db.commit()
+                enqueue_notification_webhook_delivery_processing(
+                    [retry_reservation.delivery.id],
+                    countdown=retry_reservation.countdown_seconds,
+                )
+                logger.warning(
+                    "notification_webhook_delivery_retry_scheduled webhook_id=%s delivery_id=%s retry_delivery_id=%s countdown_seconds=%s",
+                    attempt.delivery.webhook_id,
+                    attempt.delivery.id,
+                    retry_reservation.delivery.id,
+                    retry_reservation.countdown_seconds,
+                )
+            continue
         if attempt.delivery.event_type_snapshot != "webhook_failed":
             failed_delivery_reservations = reserve_webhook_failed_notification_deliveries(
                 db,
@@ -153,7 +182,11 @@ def _process_reserved_notification_deliveries(
     return delivered, failed
 
 
-def enqueue_notification_webhook_delivery_processing(delivery_ids: list[uuid.UUID]) -> bool:
+def enqueue_notification_webhook_delivery_processing(
+    delivery_ids: list[uuid.UUID],
+    *,
+    countdown: int | None = None,
+) -> bool:
     if not delivery_ids:
         return True
 
@@ -166,7 +199,10 @@ def enqueue_notification_webhook_delivery_processing(delivery_ids: list[uuid.UUI
     for delivery_id_chunk in delivery_id_chunks:
         serialized_ids = [str(delivery_id) for delivery_id in delivery_id_chunk]
         try:
-            process_notification_webhook_deliveries.delay(serialized_ids)
+            if countdown is not None and int(countdown) > 0:
+                process_notification_webhook_deliveries.apply_async(args=[serialized_ids], countdown=int(countdown))
+            else:
+                process_notification_webhook_deliveries.delay(serialized_ids)
         except Exception as exc:
             all_enqueued = False
             logger.exception(
@@ -422,6 +458,16 @@ def _safe_queue_item_ai_enrichment_run(
         )
         return False
     return True
+
+
+def _is_canceled_ai_run(run_id: uuid.UUID | None) -> bool:
+    if run_id is None:
+        return False
+    with db_session() as db:
+        run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+        if run is None:
+            return False
+        return bool(run.finished_at is not None or run.reason == "canceled" or run.status == AI_STATUS_SKIPPED)
 
 
 def _record_skipped_item_ai_enrichment_run(
@@ -904,6 +950,17 @@ def dispatch_pending_notification_webhook_deliveries():
             "delivered": delivered,
             "failed": failed,
         }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.reconcile_ai_task_runs",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def reconcile_ai_task_runs():
+    with db_session() as db:
+        reconciled = _reconcile_stale_ai_runs(db)
+        return {"status": "ok", "reconciled": reconciled}
 
 
 @celery_app.task(
@@ -1902,6 +1959,9 @@ def reprocess_recent_ai_items(
     parsed_end_time = _parse_datetime_text(end_time)
     parsed_feed_ids = _parse_uuid_text_list(feed_ids)
     parsed_item_ids = _parse_uuid_text_list(item_ids)
+    requested_item_count = len(parsed_item_ids)
+    if requested_item_count > effective_limit:
+        parsed_item_ids = parsed_item_ids[:effective_limit]
     cutoff = None
     if parsed_start_time is None and parsed_end_time is None and not parsed_item_ids:
         cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days or 7)))
@@ -1933,6 +1993,7 @@ def reprocess_recent_ai_items(
                     "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
                     "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                     "explicit_item_count": len(parsed_item_ids),
+                    "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
                 },
             )
             db.commit()
@@ -1963,13 +2024,11 @@ def reprocess_recent_ai_items(
                 db.commit()
             return {"queued": 0, "reason": "ai_not_configured"}
 
-        selection_query = (
-            select(Item.id)
-            .join(Article, Article.item_id == Item.id)
-            .where(Article.text.is_not(None))
-        )
+        selection_query = select(Item.id).join(Article, Article.item_id == Item.id).where(Article.text.is_not(None))
         if parsed_item_ids:
             selection_query = selection_query.where(Item.id.in_(parsed_item_ids))
+            selected_item_ids = set(db.scalars(selection_query).all())
+            item_ids = [item_id for item_id in parsed_item_ids if item_id in selected_item_ids]
         else:
             if cutoff is not None:
                 selection_query = selection_query.where(Item.first_seen_at >= cutoff)
@@ -1980,8 +2039,7 @@ def reprocess_recent_ai_items(
             if parsed_feed_ids:
                 selection_query = selection_query.where(Item.feed_id.in_(parsed_feed_ids))
             selection_query = selection_query.limit(effective_limit)
-
-        item_ids = db.scalars(selection_query.order_by(Item.first_seen_at.desc())).all()
+            item_ids = db.scalars(selection_query.order_by(Item.first_seen_at.desc())).all()
 
         if parsed_run_id:
             run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
@@ -2001,6 +2059,7 @@ def reprocess_recent_ai_items(
                         "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
                         "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                         "explicit_item_count": len(parsed_item_ids),
+                        "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
                     },
                 )
                 db.commit()
@@ -2019,6 +2078,7 @@ def reprocess_recent_ai_items(
                         "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
                         "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                         "explicit_item_count": len(parsed_item_ids),
+                        "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
                     },
                 )
                 db.commit()
@@ -2027,6 +2087,17 @@ def reprocess_recent_ai_items(
     queued = 0
     queue_errors = 0
     for item_id_value in item_ids:
+        if _is_canceled_ai_run(parsed_run_id):
+            if parsed_run_id:
+                with db_session() as db:
+                    record_ai_task_event(
+                        db,
+                        run_id=parsed_run_id,
+                        event_type="queueing_stopped",
+                        payload={"reason": "canceled", "queued": queued, "queue_errors": queue_errors},
+                    )
+                    db.commit()
+            return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id, "reason": "canceled"}
         queued_ok = _safe_queue_item_ai_enrichment_run(
             item_id=item_id_value,
             trigger_source=AI_TRIGGER_MANUAL,

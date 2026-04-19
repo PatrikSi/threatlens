@@ -231,6 +231,13 @@ class NotificationWebhookDeliveryAttempt:
 
 
 @dataclass(frozen=True)
+class NotificationWebhookRetryReservation:
+    delivery: NotificationWebhookDelivery
+    created: bool
+    countdown_seconds: int | None = None
+
+
+@dataclass(frozen=True)
 class NotificationDeliveryReservationBatch:
     delivery_ids: list[uuid.UUID]
     matched_webhooks: int
@@ -1099,9 +1106,40 @@ def retry_notification_webhook_delivery(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookDelivery:
+    reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+    if reusable_retry is not None:
+        return reusable_retry
     retried = reserve_notification_webhook_delivery_from_saved_request(db, webhook=webhook, delivery=delivery)
     db.commit()
     return process_notification_webhook_delivery(db, delivery_id=retried.id).delivery
+
+
+def reserve_retryable_notification_webhook_delivery(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookRetryReservation | None:
+    if delivery.success or not _is_retryable_notification_delivery(delivery):
+        return None
+
+    retry_root_id = _notification_delivery_retry_root_id(delivery)
+    chain_attempt_count = _notification_delivery_chain_attempt_count(db, retry_root_id=retry_root_id)
+    max_attempts = max(1, int(settings.notification_delivery_retry_max_attempts))
+    if chain_attempt_count >= max_attempts:
+        return None
+
+    reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+    if reusable_retry is not None:
+        return NotificationWebhookRetryReservation(delivery=reusable_retry, created=False, countdown_seconds=None)
+
+    retried = reserve_notification_webhook_delivery_from_saved_request(db, webhook=webhook, delivery=delivery)
+    countdown_seconds = _notification_delivery_retry_delay_seconds(chain_attempt_count)
+    return NotificationWebhookRetryReservation(
+        delivery=retried,
+        created=True,
+        countdown_seconds=countdown_seconds,
+    )
 
 
 def _resolve_sample_feed_and_item(
@@ -1883,6 +1921,63 @@ def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> Notifi
         rendered_body=_decrypt_notification_text(delivery.rendered_body),
         response_body_preview=_decrypt_notification_text(delivery.response_body_preview),
         error=delivery.error,
+    )
+
+
+def _is_retryable_notification_delivery(delivery: NotificationWebhookDelivery) -> bool:
+    status_code = delivery.status_code
+    if status_code is None:
+        return True
+    if status_code in {408, 425, 429}:
+        return True
+    return 500 <= int(status_code) <= 599
+
+
+def _notification_delivery_retry_root_id(delivery: NotificationWebhookDelivery) -> uuid.UUID:
+    return delivery.source_delivery_id or delivery.id
+
+
+def _notification_delivery_chain_attempt_count(db: Session, *, retry_root_id: uuid.UUID) -> int:
+    return int(
+        db.scalar(
+            select(func.count())
+            .select_from(NotificationWebhookDelivery)
+            .where(
+                or_(
+                    NotificationWebhookDelivery.id == retry_root_id,
+                    NotificationWebhookDelivery.source_delivery_id == retry_root_id,
+                )
+            )
+        )
+        or 0
+    )
+
+
+def _notification_delivery_retry_delay_seconds(chain_attempt_count: int) -> int:
+    base_delay = max(1, int(settings.notification_delivery_retry_backoff_seconds))
+    retry_number = max(1, int(chain_attempt_count))
+    return min(base_delay * (2 ** (retry_number - 1)), 3600)
+
+
+def _find_notification_webhook_retry_reuse_candidate(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookDelivery | None:
+    retry_root_id = _notification_delivery_retry_root_id(delivery)
+    return db.scalar(
+        select(NotificationWebhookDelivery)
+        .where(
+            NotificationWebhookDelivery.webhook_id == webhook.id,
+            NotificationWebhookDelivery.delivery_kind == "retry",
+            NotificationWebhookDelivery.source_delivery_id == retry_root_id,
+            NotificationWebhookDelivery.delivery_state.in_(
+                [NOTIFICATION_DELIVERY_PENDING, NOTIFICATION_DELIVERY_SENDING, NOTIFICATION_DELIVERY_SUCCEEDED]
+            ),
+        )
+        .order_by(NotificationWebhookDelivery.attempted_at.desc(), NotificationWebhookDelivery.id.desc())
+        .limit(1)
     )
 
 

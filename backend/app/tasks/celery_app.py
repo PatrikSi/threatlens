@@ -50,6 +50,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
             "schedule": 300.0,
         },
+        "reconcile-ai-task-runs": {
+            "task": "app.tasks.feed_tasks.reconcile_ai_task_runs",
+            "schedule": 300.0,
+        },
         "record-beat-heartbeat": {
             "task": "app.tasks.feed_tasks.record_beat_heartbeat",
             "schedule": float(settings.beat_heartbeat_interval_seconds),
