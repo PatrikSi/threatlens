@@ -91,7 +91,13 @@ def has_required_scope(granted_scopes: set[str], required_scope: str) -> bool:
         return True
 
     # Write permission implies read for the same resource.
-    if action == "read" and f"write:{resource}" in granted_scopes:
+    if action == "read" and (f"write:{resource}" in granted_scopes or SCOPE_WRITE_ALL in granted_scopes):
         return True
 
     return False
+
+
+def missing_delegable_scopes(granted_scopes: Iterable[str], requested_scopes: Iterable[str]) -> list[str]:
+    granted = set(normalize_token_scopes(granted_scopes))
+    requested = normalize_token_scopes(requested_scopes)
+    return [scope for scope in requested if not has_required_scope(granted, scope)]

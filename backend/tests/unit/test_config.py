@@ -51,6 +51,28 @@ def test_admin_seeding_rejects_default_admin_password():
         Settings(seed_admin_on_startup=True, admin_password="admin123")
 
 
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("jwt_secret", "replace-with-long-random-secret"),
+        ("app_data_encryption_key", "replace-with-separate-long-random-secret"),
+        ("admin_password", "replace-with-strong-admin-password"),
+    ],
+)
+def test_production_rejects_placeholder_secret_values(field_name: str, field_value: str):
+    kwargs = {
+        "app_env": "production",
+        "jwt_secret": "x" * 48,
+        "app_data_encryption_key": "y" * 48,
+        "admin_password": "StrongPass123!",
+        "auth_cookie_secure": True,
+        "auth_require_csrf": True,
+    }
+    kwargs[field_name] = field_value
+    with pytest.raises(ValueError):
+        Settings(**kwargs)
+
+
 def test_production_requires_secure_auth_cookie():
     with pytest.raises(ValueError):
         Settings(

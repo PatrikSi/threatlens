@@ -154,6 +154,7 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
 
 def _resolve_authenticated_user(request: Request, db: Session, token: str | None) -> tuple[User | None, bool]:
     request.state.token_scopes = None
+    request.state.auth_via_api_token = False
     token_source = "header"
 
     if not token:
@@ -177,6 +178,7 @@ def _resolve_authenticated_user(request: Request, db: Session, token: str | None
     user, scopes = token_result
     _ensure_user_can_authenticate(user)
     request.state.token_scopes = scopes
+    request.state.auth_via_api_token = True
     return user, True
 
 
@@ -222,15 +224,16 @@ def resolve_client_ip(request: Request) -> str:
     if not forwarded_for:
         return remote_ip
 
-    first_hop = forwarded_for.split(",")[0].strip()
-    if not first_hop:
-        return remote_ip
-
-    try:
-        ip_address(first_hop)
-    except ValueError:
-        return remote_ip
-    return first_hop
+    for raw_hop in reversed(forwarded_for.split(",")):
+        candidate = raw_hop.strip()
+        if not candidate:
+            continue
+        try:
+            ip_address(candidate)
+        except ValueError:
+            continue
+        return candidate
+    return remote_ip
 
 
 def _is_trusted_proxy(remote_ip: str, trusted_proxy_cidrs: list[str]) -> bool:

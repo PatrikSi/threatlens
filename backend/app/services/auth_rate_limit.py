@@ -201,18 +201,22 @@ def _normalize_ip(ip: str) -> str:
 
 
 def _failure_keys(email: str, ip: str) -> list[str]:
-    normalized_email = _normalize_email(email)
+    email_ip_bucket = _normalized_email_ip_bucket(email, ip)
     normalized_ip = _normalize_ip(ip)
     return [
-        f"threatlens:auth:fail:email:{normalized_email}",
+        f"threatlens:auth:fail:email_ip:{email_ip_bucket}",
         f"threatlens:auth:fail:ip:{normalized_ip}",
     ]
 
 
 def _lock_keys(email: str, ip: str) -> list[str]:
-    normalized_email = _normalize_email(email)
+    email_ip_bucket = _normalized_email_ip_bucket(email, ip)
     normalized_ip = _normalize_ip(ip)
     return [
-        f"threatlens:auth:lock:email:{normalized_email}",
+        f"threatlens:auth:lock:email_ip:{email_ip_bucket}",
         f"threatlens:auth:lock:ip:{normalized_ip}",
     ]
+
+
+def _normalized_email_ip_bucket(email: str, ip: str) -> str:
+    return f"{_normalize_email(email)}:{_normalize_ip(ip)}"

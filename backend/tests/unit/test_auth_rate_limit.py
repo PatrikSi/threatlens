@@ -147,6 +147,23 @@ def test_clear_login_failures_removes_existing_locks(monkeypatch):
     assert cleared_state.blocked is False
 
 
+def test_login_throttle_email_lock_is_scoped_to_source_ip(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
+    auth_rate_limit.record_login_failure("admin@example.com", "203.0.113.10")
+
+    blocked_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+    other_ip_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.11")
+
+    assert blocked_state.blocked is True
+    assert other_ip_state.blocked is False
+
+
 def test_successful_login_clear_removes_local_emergency_state(monkeypatch):
     monkeypatch.setattr(auth_rate_limit, "redis_client", _UnavailableRedis())
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 2)

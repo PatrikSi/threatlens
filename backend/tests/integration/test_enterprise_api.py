@@ -1598,6 +1598,45 @@ def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
     assert denied_response.json()["detail"] == "Insufficient token scope"
 
 
+def test_api_token_cannot_delegate_broader_scopes_than_parent_token(client: TestClient, auth_headers):
+    parent_response = client.post(
+        "/tokens",
+        json={"name": "token-delegator", "expires_in_days": 30, "scopes": ["write:tokens"]},
+        headers=auth_headers["admin"],
+    )
+    assert parent_response.status_code == 201
+    parent_token = parent_response.json()["token"]
+
+    escalated_response = client.post(
+        "/tokens",
+        json={"name": "escalated-admin", "expires_in_days": 30, "scopes": ["admin:*"]},
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+    assert escalated_response.status_code == 403
+    assert "subset of their own scopes" in escalated_response.json()["detail"]
+
+
+def test_api_token_can_delegate_subset_of_parent_scopes(client: TestClient, auth_headers):
+    parent_response = client.post(
+        "/tokens",
+        json={"name": "token-delegator", "expires_in_days": 30, "scopes": ["write:tokens", "read:feeds"]},
+        headers=auth_headers["admin"],
+    )
+    assert parent_response.status_code == 201
+    parent_token = parent_response.json()["token"]
+
+    child_response = client.post(
+        "/tokens",
+        json={"name": "feed-reader-child", "expires_in_days": 30, "scopes": ["read:feeds"]},
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+    assert child_response.status_code == 201
+
+    child_token = child_response.json()["token"]
+    access_response = client.get("/feeds", headers={"Authorization": f"Bearer {child_token}"})
+    assert access_response.status_code == 200
+
+
 def test_api_token_auth_rejects_unapproved_user(client: TestClient, auth_headers, db_session):
     viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
     assert viewer is not None

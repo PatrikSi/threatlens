@@ -3,11 +3,6 @@ server {
     server_name _;
     resolver 127.0.0.11 valid=30s ipv6=off;
 
-    # If TLS is terminated by an upstream reverse proxy, force HTTPS externally.
-    if ($http_x_forwarded_proto = "http") {
-        return 308 https://$host$request_uri;
-    }
-
     root /usr/share/nginx/html;
     index index.html;
 
@@ -22,9 +17,9 @@ server {
         rewrite ^/api/?(.*)$ /$1 break;
         proxy_pass $api_upstream;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_set_header Host $proxy_host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 

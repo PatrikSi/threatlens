@@ -4,6 +4,19 @@ from typing import Annotated
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+_PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change-me", "changeme", "placeholder", "example-", "your-")
+
+
+def _looks_like_placeholder_secret(value: str | None) -> bool:
+    if value is None:
+        return False
+    normalized = value.strip().lower()
+    if not normalized:
+        return False
+    if normalized == "admin123":
+        return True
+    return any(normalized.startswith(prefix) for prefix in _PLACEHOLDER_SECRET_PREFIXES)
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -122,20 +135,24 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_production_security(self):
         if self.app_env.lower() in {"production", "prod"}:
-            if self.jwt_secret == "change-me" or len(self.jwt_secret) < 32:
+            if _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
                 raise ValueError("jwt_secret must be set and at least 32 characters in production")
-            if not self.app_data_encryption_key or len(self.app_data_encryption_key) < 32:
+            if (
+                not self.app_data_encryption_key
+                or _looks_like_placeholder_secret(self.app_data_encryption_key)
+                or len(self.app_data_encryption_key) < 32
+            ):
                 raise ValueError("app_data_encryption_key must be set and at least 32 characters in production")
-            if self.admin_password == "admin123":
-                raise ValueError("admin_password default is not allowed in production")
+            if _looks_like_placeholder_secret(self.admin_password):
+                raise ValueError("admin_password must not use a default or placeholder value in production")
             if not self.auth_cookie_secure:
                 raise ValueError("auth_cookie_secure must be true in production")
             if not self.auth_require_csrf:
                 raise ValueError("auth_require_csrf must be true in production")
             if self.allow_legacy_unscoped_tokens:
                 raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
-        if self.seed_admin_on_startup and self.admin_password == "admin123":
-            raise ValueError("admin_password default is not allowed when seed_admin_on_startup is enabled")
+        if self.seed_admin_on_startup and _looks_like_placeholder_secret(self.admin_password):
+            raise ValueError("admin_password must not use a default or placeholder value when seed_admin_on_startup is enabled")
         return self
 
 
