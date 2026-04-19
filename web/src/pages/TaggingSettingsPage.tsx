@@ -441,7 +441,6 @@ export function TaggingSettingsPage() {
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={ruleDraft.name}
                   onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Fortinet vendor tagging"
                 />
               </div>
               <div>
@@ -450,7 +449,6 @@ export function TaggingSettingsPage() {
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={ruleDraft.tag_name}
                   onChange={(event) => setRuleDraft((current) => ({ ...current, tag_name: event.target.value }))}
-                  placeholder="vendor:fortinet"
                 />
               </div>
               <div>
@@ -479,7 +477,6 @@ export function TaggingSettingsPage() {
                   step={0.01}
                   value={ruleDraft.min_classification_confidence}
                   onChange={(event) => setRuleDraft((current) => ({ ...current, min_classification_confidence: event.target.value }))}
-                  placeholder="Optional"
                 />
               </div>
             </div>
@@ -490,7 +487,6 @@ export function TaggingSettingsPage() {
                 className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={ruleDraft.pattern}
                 onChange={(event) => setRuleDraft((current) => ({ ...current, pattern: event.target.value }))}
-                placeholder={ruleDraft.match_type === 'regex' ? 'fortinet|fortios|fortigate' : 'fortinet'}
               />
               <label className="mt-2 flex items-center gap-2 text-sm">
                 <input
