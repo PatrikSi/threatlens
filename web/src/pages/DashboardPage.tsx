@@ -116,6 +116,12 @@ interface DashboardSavedViewState {
   }
 }
 
+interface DashboardEditSessionSnapshot {
+  activeSavedViewId: string | null
+  savedViewName: string
+  state: DashboardSavedViewState
+}
+
 interface ImportedSavedViewEntry {
   name: string
   query_json: Record<string, unknown>
@@ -405,6 +411,7 @@ export function DashboardPage() {
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
   const [showSaveAsNew, setShowSaveAsNew] = useState(false)
+  const [editSessionSnapshot, setEditSessionSnapshot] = useState<DashboardEditSessionSnapshot | null>(null)
   const [, setOpenWindowMenuId] = useState<string | null>(null)
   const [renamingWindowId, setRenamingWindowId] = useState<string | null>(null)
   const [renameWindowDraft, setRenameWindowDraft] = useState('')
@@ -701,6 +708,7 @@ export function DashboardPage() {
     onSuccess: (view) => {
       setSavedViewName('')
       setActiveSavedViewId(view.id)
+      setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
       setOpenWindowMenuId(null)
@@ -719,6 +727,7 @@ export function DashboardPage() {
       }),
     onSuccess: () => {
       setActiveSavedViewId(null)
+      setEditSessionSnapshot(null)
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
@@ -747,6 +756,7 @@ export function DashboardPage() {
     },
     onSuccess: (view) => {
       setActiveSavedViewId(view.id)
+      setEditSessionSnapshot(null)
       setIsEditMode(false)
       setShowAddWindowMenu(false)
       setOpenWindowMenuId(null)
@@ -897,6 +907,40 @@ export function DashboardPage() {
     },
   })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
+
+  const captureCurrentDashboardViewState = () =>
+    buildDashboardSavedViewState(windows, {
+      time_range: dashboardTimeRange,
+      custom_since_date: dashboardCustomSinceDate,
+      custom_until_date: dashboardCustomUntilDate,
+      rolling_days: dashboardRollingDays,
+    })
+
+  const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null) => {
+    const nextDashboardTimeRange =
+      state.rss_filters.time_range !== 'all' ||
+      state.rss_filters.custom_since_date ||
+      state.rss_filters.custom_until_date ||
+      state.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
+        ? state.rss_filters.time_range
+        : state.alert_filters.time_range
+    const nextDashboardCustomSinceDate =
+      state.rss_filters.custom_since_date || state.alert_filters.custom_since_date || ''
+    const nextDashboardCustomUntilDate =
+      state.rss_filters.custom_until_date || state.alert_filters.custom_until_date || ''
+    const nextDashboardRollingDays =
+      state.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
+        ? state.rss_filters.rolling_days
+        : state.alert_filters.rolling_days || DEFAULT_ROLLING_DAYS
+
+    setDashboardTimeRange(nextDashboardTimeRange)
+    setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
+    setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
+    setDashboardRollingDays(nextDashboardRollingDays)
+    setExpandedItemIdsByWindowId({})
+    setWindows(state.windows)
+    setActiveSavedViewId(nextActiveSavedViewId)
+  }
 
   const rssWindowQueries = useQueries({
     queries: rssWindows.map((windowLayout) => {
@@ -1146,7 +1190,6 @@ export function DashboardPage() {
     if (!isWideLayout) return
     const { width, height } = getWindowContainerDimensions(rootRef.current)
 
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId) return window
@@ -1169,7 +1212,6 @@ export function DashboardPage() {
 
   const addWindow = (type: DashboardWindowType) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setActiveSavedViewId(null)
     setWindows((current) => {
       const nextIndex = current.filter((window) => window.type === type).length + 1
       return [...current, createWindowLayout(type, nextIndex, width, height)]
@@ -1205,7 +1247,6 @@ export function DashboardPage() {
       return
     }
 
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => (window.id === renamingWindowId ? { ...window, title: normalized } : window)),
     )
@@ -1214,7 +1255,6 @@ export function DashboardPage() {
   }
 
   const toggleWindowControls = (windowId: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) =>
         window.id === windowId ? { ...window, controls_collapsed: !window.controls_collapsed } : window,
@@ -1223,7 +1263,6 @@ export function DashboardPage() {
   }
 
   const updateWindowScratchNote = (windowId: string, scratchNote: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => (window.id === windowId ? { ...window, scratch_note: scratchNote } : window)),
     )
@@ -1263,8 +1302,6 @@ export function DashboardPage() {
       const maxY = Math.max(0, rootBounds.height - startRect.height)
       const candidateX = clamp(startRect.x + deltaX, 0, maxX)
       const candidateY = clamp(startRect.y + deltaY, 0, maxY)
-      setActiveSavedViewId(null)
-
       setWindows((current) => {
         const otherRects = current
           .filter((layout) => layout.id !== windowId)
@@ -1331,8 +1368,6 @@ export function DashboardPage() {
 
       const maxWidth = rootBounds.width - startRect.x
       const maxHeight = rootBounds.height - startRect.y
-      setActiveSavedViewId(null)
-
       setWindows((current) =>
         current.map((window) => {
           if (window.id !== windowId) return window
@@ -1363,12 +1398,7 @@ export function DashboardPage() {
 
     saveView.mutate({
       name,
-      query: buildDashboardSavedViewState(windows, {
-        time_range: dashboardTimeRange,
-        custom_since_date: dashboardCustomSinceDate,
-        custom_until_date: dashboardCustomUntilDate,
-        rolling_days: dashboardRollingDays,
-      }),
+      query: captureCurrentDashboardViewState(),
     })
   }
 
@@ -1377,41 +1407,19 @@ export function DashboardPage() {
 
     updateExistingView.mutate({
       viewId: activeSavedViewId,
-      query: buildDashboardSavedViewState(windows, {
-        time_range: dashboardTimeRange,
-        custom_since_date: dashboardCustomSinceDate,
-        custom_until_date: dashboardCustomUntilDate,
-        rolling_days: dashboardRollingDays,
-      }),
+      query: captureCurrentDashboardViewState(),
     })
   }
 
   const applySavedView = (view: SavedView) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
-    const nextDashboardTimeRange =
-      parsed.rss_filters.time_range !== 'all' ||
-      parsed.rss_filters.custom_since_date ||
-      parsed.rss_filters.custom_until_date ||
-      parsed.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
-        ? parsed.rss_filters.time_range
-        : parsed.alert_filters.time_range
-    const nextDashboardCustomSinceDate =
-      parsed.rss_filters.custom_since_date || parsed.alert_filters.custom_since_date || ''
-    const nextDashboardCustomUntilDate =
-      parsed.rss_filters.custom_until_date || parsed.alert_filters.custom_until_date || ''
-    const nextDashboardRollingDays =
-      parsed.rss_filters.rolling_days !== DEFAULT_ROLLING_DAYS
-        ? parsed.rss_filters.rolling_days
-        : parsed.alert_filters.rolling_days || DEFAULT_ROLLING_DAYS
-
-    setDashboardTimeRange(nextDashboardTimeRange)
-    setDashboardCustomSinceDate(nextDashboardCustomSinceDate)
-    setDashboardCustomUntilDate(nextDashboardCustomUntilDate)
-    setDashboardRollingDays(nextDashboardRollingDays)
-    setExpandedItemIdsByWindowId({})
-    setWindows(parsed.windows)
-    setActiveSavedViewId(view.id)
+    setEditSessionSnapshot(null)
+    setIsEditMode(false)
+    setShowAddWindowMenu(false)
+    setShowSaveAsNew(false)
+    setViewSaveError('')
+    applyDashboardSavedViewState(parsed, view.id)
   }
 
   const exportAllViews = () => {
@@ -1483,7 +1491,6 @@ export function DashboardPage() {
     updater: (current: DashboardRssWindowFilters) => DashboardRssWindowFilters,
     resetPage = true,
   ) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type !== 'rss') {
@@ -1507,7 +1514,6 @@ export function DashboardPage() {
     updater: (current: DashboardAlertWindowFilters) => DashboardAlertWindowFilters,
     resetPage = true,
   ) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type !== 'alerts') {
@@ -1527,7 +1533,6 @@ export function DashboardPage() {
   }
 
   const updateWindowDailyBriefSelection = (windowId: string, selectedDailyBriefId: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) =>
         window.id === windowId && window.type === 'daily_brief'
@@ -1573,32 +1578,27 @@ export function DashboardPage() {
   }
 
   const updateDashboardTimeRange = (nextRange: TimeRangeFilter) => {
-    setActiveSavedViewId(null)
     resetAllWindowPages()
     setDashboardTimeRange(nextRange)
   }
 
   const updateDashboardCustomSinceDate = (nextDate: string) => {
-    setActiveSavedViewId(null)
     resetAllWindowPages()
     setDashboardCustomSinceDate(nextDate)
   }
 
   const updateDashboardCustomUntilDate = (nextDate: string) => {
-    setActiveSavedViewId(null)
     resetAllWindowPages()
     setDashboardCustomUntilDate(nextDate)
   }
 
   const updateDashboardRollingDaysValue = (nextValue: string) => {
-    setActiveSavedViewId(null)
     resetAllWindowPages()
     setDashboardTimeRange('days')
     setDashboardRollingDays(normalizeRollingDaysInput(nextValue))
   }
 
   const updateWindowTimeRange = (windowId: string, nextValue: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
@@ -1642,7 +1642,6 @@ export function DashboardPage() {
   }
 
   const updateWindowCustomTimeDate = (windowId: string, key: 'custom_since_date' | 'custom_until_date', value: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
@@ -1677,7 +1676,6 @@ export function DashboardPage() {
 
   const updateWindowRollingDays = (windowId: string, value: string) => {
     const normalized = normalizeRollingDaysInput(value)
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
@@ -1711,7 +1709,6 @@ export function DashboardPage() {
   }
 
   const applyGlobalSearch = (query: string) => {
-    setActiveSavedViewId(null)
     setWindows((current) =>
       current.map((window) => {
         if (window.type === 'rss') {
@@ -1838,6 +1835,7 @@ export function DashboardPage() {
               const value = event.target.value
               if (!value) {
                 setActiveSavedViewId(null)
+                setEditSessionSnapshot(null)
                 return
               }
               const selected = viewsQuery.data?.find((view) => view.id === value)
@@ -1865,6 +1863,11 @@ export function DashboardPage() {
               type="button"
               className="h-8 w-full rounded border border-slate/20 px-3 text-xs font-semibold sm:w-auto dark:border-cyan-900/40"
               onClick={() => {
+                setEditSessionSnapshot({
+                  activeSavedViewId,
+                  savedViewName,
+                  state: captureCurrentDashboardViewState(),
+                })
                 setIsEditMode(true)
                 setShowSaveAsNew(false)
                 setSavedViewName('')
@@ -1990,10 +1993,15 @@ export function DashboardPage() {
                 className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
                 disabled={viewSavePending}
                 onClick={() => {
+                  if (editSessionSnapshot) {
+                    applyDashboardSavedViewState(editSessionSnapshot.state, editSessionSnapshot.activeSavedViewId)
+                    setSavedViewName(editSessionSnapshot.savedViewName)
+                  }
                   setIsEditMode(false)
                   setShowAddWindowMenu(false)
                   setOpenWindowMenuId(null)
                   setShowSaveAsNew(false)
+                  setEditSessionSnapshot(null)
                   setViewSaveError('')
                 }}
               >

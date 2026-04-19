@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
   Feed,
@@ -97,6 +98,26 @@ export function TaggingSettingsPage() {
     () => bundleQuery.data?.rules.find((rule) => rule.id === selectedRuleId) ?? null,
     [bundleQuery.data, selectedRuleId],
   )
+  const baselineSettingsDraft: TaggingSettingsDraft = bundleQuery.data
+    ? {
+        enabled_categories: [...bundleQuery.data.settings.enabled_categories],
+        min_auto_tag_confidence: String(bundleQuery.data.settings.min_auto_tag_confidence),
+        secondary_tag_limit: String(bundleQuery.data.settings.secondary_tag_limit),
+      }
+    : {
+        enabled_categories: [...BUILTIN_CATEGORIES],
+        min_auto_tag_confidence: '0.45',
+        secondary_tag_limit: '2',
+      }
+  const baselineRuleDraft = selectedRule ? createDraftFromRule(selectedRule) : createDefaultRuleDraft()
+  const hasUnsavedTaggingChanges =
+    JSON.stringify(settingsDraft) !== JSON.stringify(baselineSettingsDraft) ||
+    JSON.stringify(ruleDraft) !== JSON.stringify(baselineRuleDraft)
+  const hasUnsavedRuleDraftChanges = JSON.stringify(ruleDraft) !== JSON.stringify(baselineRuleDraft)
+  const confirmDiscardUnsavedTaggingChanges = useUnsavedChangesWarning(
+    hasUnsavedTaggingChanges,
+    'Discard unsaved tagging changes?',
+  )
 
   const saveSettings = useMutation({
     mutationFn: () =>
@@ -186,6 +207,9 @@ export function TaggingSettingsPage() {
   const ruleValidationError = getRuleDraftValidationError(ruleDraft)
 
   const onSelectRule = (rule: TaggingRule) => {
+    if (rule.id !== selectedRuleId && hasUnsavedRuleDraftChanges && !confirmDiscardUnsavedTaggingChanges()) {
+      return
+    }
     setSelectedRuleId(rule.id)
     setRuleDraft(createDraftFromRule(rule))
     setPreviewResult(null)
@@ -193,6 +217,9 @@ export function TaggingSettingsPage() {
   }
 
   const onCreateNewRule = () => {
+    if (hasUnsavedRuleDraftChanges && !confirmDiscardUnsavedTaggingChanges()) {
+      return
+    }
     setSelectedRuleId(null)
     setRuleDraft(createDefaultRuleDraft())
     setPreviewResult(null)
@@ -250,8 +277,11 @@ export function TaggingSettingsPage() {
 
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <div>
-              <label className="text-sm font-semibold">Minimum Auto-Tag Confidence</label>
+              <label htmlFor="tagging-auto-confidence" className="text-sm font-semibold">
+                Minimum Auto-Tag Confidence
+              </label>
               <input
+                id="tagging-auto-confidence"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 type="number"
                 min={0.05}
@@ -262,8 +292,11 @@ export function TaggingSettingsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-semibold">Secondary Tag Limit</label>
+              <label htmlFor="tagging-secondary-tag-limit" className="text-sm font-semibold">
+                Secondary Tag Limit
+              </label>
               <select
+                id="tagging-secondary-tag-limit"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={settingsDraft.secondary_tag_limit}
                 onChange={(event) => setSettingsDraft((current) => ({ ...current, secondary_tag_limit: event.target.value }))}
@@ -319,8 +352,11 @@ export function TaggingSettingsPage() {
 
           <div className="mt-4 space-y-3">
             <div>
-              <label className="text-sm font-semibold">Days Back</label>
+              <label htmlFor="tagging-reapply-days" className="text-sm font-semibold">
+                Days Back
+              </label>
               <input
+                id="tagging-reapply-days"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 type="number"
                 min={1}
@@ -330,8 +366,11 @@ export function TaggingSettingsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-semibold">Limit</label>
+              <label htmlFor="tagging-reapply-limit" className="text-sm font-semibold">
+                Limit
+              </label>
               <input
+                id="tagging-reapply-limit"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 type="number"
                 min={0}
@@ -436,24 +475,33 @@ export function TaggingSettingsPage() {
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
-                <label className="text-sm font-semibold">Rule Name</label>
+                <label htmlFor="tagging-rule-name" className="text-sm font-semibold">
+                  Rule Name
+                </label>
                 <input
+                  id="tagging-rule-name"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={ruleDraft.name}
                   onChange={(event) => setRuleDraft((current) => ({ ...current, name: event.target.value }))}
                 />
               </div>
               <div>
-                <label className="text-sm font-semibold">Tag Name</label>
+                <label htmlFor="tagging-rule-tag-name" className="text-sm font-semibold">
+                  Tag Name
+                </label>
                 <input
+                  id="tagging-rule-tag-name"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={ruleDraft.tag_name}
                   onChange={(event) => setRuleDraft((current) => ({ ...current, tag_name: event.target.value }))}
                 />
               </div>
               <div>
-                <label className="text-sm font-semibold">Match Type</label>
+                <label htmlFor="tagging-rule-match-type" className="text-sm font-semibold">
+                  Match Type
+                </label>
                 <select
+                  id="tagging-rule-match-type"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={ruleDraft.match_type}
                   onChange={(event) =>
@@ -468,8 +516,11 @@ export function TaggingSettingsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-semibold">Minimum Classification Confidence</label>
+                <label htmlFor="tagging-rule-min-confidence" className="text-sm font-semibold">
+                  Minimum Classification Confidence
+                </label>
                 <input
+                  id="tagging-rule-min-confidence"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   type="number"
                   min={0}
@@ -482,8 +533,11 @@ export function TaggingSettingsPage() {
             </div>
 
             <div className="mt-4">
-              <label className="text-sm font-semibold">Pattern</label>
+              <label htmlFor="tagging-rule-pattern" className="text-sm font-semibold">
+                Pattern
+              </label>
               <textarea
+                id="tagging-rule-pattern"
                 className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={ruleDraft.pattern}
                 onChange={(event) => setRuleDraft((current) => ({ ...current, pattern: event.target.value }))}

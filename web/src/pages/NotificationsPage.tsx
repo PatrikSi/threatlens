@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
   Feed,
@@ -188,6 +189,13 @@ export function NotificationsPage() {
   const variables = variablesQuery.data ?? []
   const analytics = analyticsQuery.data
   const testableFeeds = draft.feed_scope === 'selected' ? feeds.filter((feed) => draft.feed_ids.includes(feed.id)) : feeds
+  const selectedWebhook = webhooks.find((webhook) => webhook.id === selectedWebhookId) ?? null
+  const baselineDraft = selectedWebhook ? createDraftFromWebhook(selectedWebhook) : createDefaultDraft()
+  const hasUnsavedWebhookDraftChanges = JSON.stringify(draft) !== JSON.stringify(baselineDraft)
+  const confirmDiscardUnsavedWebhookChanges = useUnsavedChangesWarning(
+    hasUnsavedWebhookDraftChanges,
+    'Discard unsaved webhook changes?',
+  )
 
   useEffect(() => {
     if (!sampleFeedId) {
@@ -200,6 +208,9 @@ export function NotificationsPage() {
   }, [sampleFeedId, testableFeeds])
 
   const onSelectWebhook = (webhook: NotificationWebhook) => {
+    if (webhook.id !== selectedWebhookId && !confirmDiscardUnsavedWebhookChanges()) {
+      return
+    }
     setSelectedWebhookId(webhook.id)
     setDraft(createDraftFromWebhook(webhook))
     setSampleFeedId('')
@@ -209,6 +220,9 @@ export function NotificationsPage() {
   }
 
   const onCreateNewWebhook = () => {
+    if (!confirmDiscardUnsavedWebhookChanges()) {
+      return
+    }
     setSelectedWebhookId(null)
     setDraft(createDefaultDraft())
     setSampleFeedId('')
@@ -432,8 +446,11 @@ export function NotificationsPage() {
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <div>
-                <label className="text-sm font-semibold">Name</label>
+                <label htmlFor="notification-webhook-name" className="text-sm font-semibold">
+                  Name
+                </label>
                 <input
+                  id="notification-webhook-name"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
@@ -441,8 +458,11 @@ export function NotificationsPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-semibold">Event Type</label>
+                <label htmlFor="notification-webhook-event-type" className="text-sm font-semibold">
+                  Event Type
+                </label>
                 <select
+                  id="notification-webhook-event-type"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.event_type}
                   onChange={(event) =>
@@ -458,8 +478,11 @@ export function NotificationsPage() {
                 <p className="mt-1 text-xs text-slate dark:text-white/60">{describeEventDescription(draft.event_type)}</p>
               </div>
               <div>
-                <label className="text-sm font-semibold">HTTP Method</label>
+                <label htmlFor="notification-webhook-method" className="text-sm font-semibold">
+                  HTTP Method
+                </label>
                 <select
+                  id="notification-webhook-method"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.method}
                   onChange={(event) =>
@@ -477,8 +500,11 @@ export function NotificationsPage() {
                 </select>
               </div>
               <div className="md:col-span-2">
-                <label className="text-sm font-semibold">Webhook URL</label>
+                <label htmlFor="notification-webhook-url" className="text-sm font-semibold">
+                  Webhook URL
+                </label>
                 <input
+                  id="notification-webhook-url"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.url_template}
                   onChange={(event) => setDraft((current) => ({ ...current, url_template: event.target.value }))}
@@ -490,8 +516,11 @@ export function NotificationsPage() {
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold">Timeout (seconds)</label>
+                <label htmlFor="notification-webhook-timeout" className="text-sm font-semibold">
+                  Timeout (seconds)
+                </label>
                 <input
+                  id="notification-webhook-timeout"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   type="number"
                   min={1}
@@ -506,8 +535,11 @@ export function NotificationsPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-semibold">Body Mode</label>
+                <label htmlFor="notification-webhook-body-mode" className="text-sm font-semibold">
+                  Body Mode
+                </label>
                 <select
+                  id="notification-webhook-body-mode"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.body_mode}
                   onChange={(event) => setDraft((current) => applyBodyMode(current, event.target.value as NotificationWebhookDraft['body_mode']))}
@@ -519,8 +551,11 @@ export function NotificationsPage() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-semibold">Content Type</label>
+                <label htmlFor="notification-webhook-content-type" className="text-sm font-semibold">
+                  Content Type
+                </label>
                 <input
+                  id="notification-webhook-content-type"
                   className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                   list="notification-content-types"
                   value={draft.content_type}
@@ -633,8 +668,11 @@ export function NotificationsPage() {
 
             {draft.body_mode === 'raw' && (
               <div className="mt-4">
-                <label className="text-sm font-semibold">Raw Body Template</label>
+                <label htmlFor="notification-webhook-raw-body" className="text-sm font-semibold">
+                  Raw Body Template
+                </label>
                 <textarea
+                  id="notification-webhook-raw-body"
                   className="mt-1 h-40 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.body_template}
                   onChange={(event) => setDraft((current) => ({ ...current, body_template: event.target.value }))}

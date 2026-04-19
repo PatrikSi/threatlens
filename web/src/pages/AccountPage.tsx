@@ -56,8 +56,11 @@ export function AccountPage() {
         <h2 className="font-display text-xl">Change Password</h2>
         <form className="mt-3 space-y-3" onSubmit={onSubmit}>
           <div>
-            <label className="text-sm font-semibold">Current password</label>
+            <label htmlFor="account-current-password" className="text-sm font-semibold">
+              Current password
+            </label>
             <input
+              id="account-current-password"
               type="password"
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
@@ -66,8 +69,11 @@ export function AccountPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold">New password</label>
+            <label htmlFor="account-new-password" className="text-sm font-semibold">
+              New password
+            </label>
             <input
+              id="account-new-password"
               type="password"
               minLength={8}
               value={newPassword}

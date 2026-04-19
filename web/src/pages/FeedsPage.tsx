@@ -23,6 +23,14 @@ type FeedSaveState = {
   message?: string
 }
 
+type DetectedFeedMetadata = {
+  sourceUrl: string
+  name: string
+  description: string
+  siteUrl: string
+  language: string
+}
+
 const FEED_AUTOSAVE_DELAY_MS = 700
 const DEFAULT_SCHEDULE_CRON = '0 * * * *'
 
@@ -55,6 +63,7 @@ export function FeedsPage() {
   const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<Feed[] | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
+  const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const autosaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
   const feedsQuery = useQuery({
@@ -68,7 +77,15 @@ export function FeedsPage() {
         method: 'POST',
         body: JSON.stringify({ url: feedUrl }),
       }),
-    onSuccess: (metadata) => {
+    onSuccess: (metadata, feedUrl) => {
+      const nextDetectedMetadata: DetectedFeedMetadata = {
+        sourceUrl: feedUrl.trim(),
+        name: metadata.name?.trim() ?? '',
+        description: metadata.description?.trim() ?? '',
+        siteUrl: metadata.site_url?.trim() ?? '',
+        language: metadata.language?.trim() ?? '',
+      }
+      setDetectedMetadata(nextDetectedMetadata)
       if (!name.trim() && metadata.name) {
         setName(metadata.name)
       }
@@ -109,6 +126,7 @@ export function FeedsPage() {
       setFetchMode('interval')
       setInterval(1800)
       setScheduleCron('0 * * * *')
+      setDetectedMetadata(null)
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
@@ -285,6 +303,31 @@ export function FeedsPage() {
       return next
     })
   }, [feedsQuery.data])
+
+  useEffect(() => {
+    if (!detectedMetadata) {
+      return
+    }
+
+    const trimmedUrl = url.trim()
+    if (!trimmedUrl || trimmedUrl === detectedMetadata.sourceUrl) {
+      return
+    }
+
+    if (name === detectedMetadata.name) {
+      setName('')
+    }
+    if (description === detectedMetadata.description) {
+      setDescription('')
+    }
+    if (siteUrl === detectedMetadata.siteUrl) {
+      setSiteUrl('')
+    }
+    if (language === detectedMetadata.language) {
+      setLanguage('')
+    }
+    setDetectedMetadata(null)
+  }, [description, detectedMetadata, language, name, siteUrl, url])
 
   const onSubmit = (event: FormEvent) => {
     event.preventDefault()

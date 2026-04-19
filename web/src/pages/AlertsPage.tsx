@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { AlertInterest, AlertMatchListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -83,7 +84,7 @@ export function AlertsPage() {
       })
     },
     onSuccess: () => {
-      resetForm()
+      resetForm(true)
       void queryClient.invalidateQueries({ queryKey: ['alerts'] })
     },
   })
@@ -104,7 +105,7 @@ export function AlertsPage() {
       }),
     onSuccess: (_, deletedId) => {
       if (editingAlertId === deletedId) {
-        resetForm()
+        resetForm(true)
       }
       void queryClient.invalidateQueries({ queryKey: ['alerts'] })
     },
@@ -129,6 +130,19 @@ export function AlertsPage() {
     return groups
   }, [alertsQuery.data])
 
+  const editingAlert = useMemo(
+    () => (alertsQuery.data ?? []).find((alert) => alert.id === editingAlertId) ?? null,
+    [alertsQuery.data, editingAlertId],
+  )
+  const hasUnsavedAlertDraftChanges =
+    name !== (editingAlert?.name ?? '') ||
+    category !== (editingAlert?.category ?? ALERT_CATEGORIES[0].value) ||
+    keywordsText !== (editingAlert?.keywords.join(', ') ?? '')
+  const confirmDiscardUnsavedAlertChanges = useUnsavedChangesWarning(
+    hasUnsavedAlertDraftChanges,
+    'Discard unsaved alert changes?',
+  )
+
   const onSave = (event: FormEvent) => {
     event.preventDefault()
     if (!name.trim() || parsedKeywords.length === 0) {
@@ -144,13 +158,19 @@ export function AlertsPage() {
   }
 
   const onEdit = (alert: AlertInterest) => {
+    if (alert.id !== editingAlertId && !confirmDiscardUnsavedAlertChanges()) {
+      return
+    }
     setEditingAlertId(alert.id)
     setName(alert.name)
     setCategory(alert.category)
     setKeywordsText(alert.keywords.join(', '))
   }
 
-  function resetForm() {
+  function resetForm(force = false) {
+    if (!force && !confirmDiscardUnsavedAlertChanges()) {
+      return
+    }
     setEditingAlertId(null)
     setName('')
     setCategory(ALERT_CATEGORIES[0].value)
@@ -171,7 +191,7 @@ export function AlertsPage() {
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
-              onClick={resetForm}
+              onClick={() => resetForm()}
             >
               Cancel edit
             </button>
@@ -180,8 +200,11 @@ export function AlertsPage() {
 
         <form className="mt-4 space-y-3" onSubmit={onSave}>
           <div>
-            <label className="text-sm font-semibold">Interest Name</label>
+            <label htmlFor="alert-interest-name" className="text-sm font-semibold">
+              Interest Name
+            </label>
             <input
+              id="alert-interest-name"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -191,8 +214,11 @@ export function AlertsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold">Category</label>
+            <label htmlFor="alert-interest-category" className="text-sm font-semibold">
+              Category
+            </label>
             <select
+              id="alert-interest-category"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={category}
               onChange={(event) => setCategory(event.target.value)}
@@ -206,8 +232,11 @@ export function AlertsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold">Keywords (comma-separated)</label>
+            <label htmlFor="alert-interest-keywords" className="text-sm font-semibold">
+              Keywords (comma-separated)
+            </label>
             <textarea
+              id="alert-interest-keywords"
               className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={keywordsText}
               onChange={(event) => setKeywordsText(event.target.value)}
@@ -228,7 +257,7 @@ export function AlertsPage() {
               <button
                 className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
                 type="button"
-                onClick={resetForm}
+                onClick={() => resetForm()}
               >
                 Reset
               </button>
