@@ -7,6 +7,7 @@ Operational analytics for ingestion, extraction, and feed contribution.
 ## Filters
 
 - Time window selector: `7`, `30`, `90`, `180` days
+- Selected windows are aligned to UTC day boundaries: today plus the previous `n-1` calendar days
 - Feed multi-select
 - `All feeds` reset
 - `Select all` shortcut
@@ -36,7 +37,7 @@ Operational analytics for ingestion, extraction, and feed contribution.
 - Hover crosshair line
 - Hover legend sorted by count descending
 - Date range labels at chart edges
-- Daily buckets use item `published_at` (publication date), not ingestion timestamp
+- Daily buckets use item `published_at`, falling back to `first_seen_at` when publication time is missing
 
 ## API Calls
 

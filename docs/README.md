@@ -9,6 +9,7 @@ This documentation covers:
 - Runtime configuration values and defaults.
 - Roles, token scopes, and authorization behavior.
 - Backend API endpoints, request/response contracts, and query parameters.
+- Generated OpenAPI and release-contract artifacts.
 - Database and schema field-level contracts.
 - Frontend pages, UI elements, local state values, constants, storage keys, and API calls.
 - AI configuration, daily briefing, enrichment, and admin operations surfaces.
@@ -19,9 +20,11 @@ This documentation covers:
 - [Configuration and Deployment](./reference/configuration.md)
 - [Auth, RBAC, and Token Scopes](./reference/auth-rbac.md)
 - [Backend API Reference](./reference/api.md)
+- [OpenAPI Schema](./reference/openapi.json)
 - [Data Models and Contracts](./reference/data-models.md)
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
+- [Third-Party Notices](../THIRD_PARTY_NOTICES.md)
 
 ## Page Guides
 

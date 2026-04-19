@@ -2,8 +2,7 @@ import logging
 import time
 import uuid
 
-from fastapi import FastAPI
-from fastapi import Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import Settings, get_settings
@@ -13,16 +12,51 @@ settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
 logger = logging.getLogger("threatlens.api")
 _REQUEST_ID_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+API_VERSION = "v1"
+API_SERVICE_PREFIX = f"/{API_VERSION}"
+WEB_PROXY_API_PREFIX = f"/api/{API_VERSION}"
+API_SERVICE_ROOT = "/"
+WEB_PROXY_ROOT = "/api"
+OPENAPI_PROXY_PATH = "/api/openapi.json"
+API_ROUTERS: tuple[APIRouter, ...] = (
+    auth.router,
+    feeds.router,
+    items.router,
+    tags.router,
+    tagging.router,
+    views.router,
+    alerts.router,
+    tokens.router,
+    users.router,
+    audit.router,
+    notifications.router,
+    ai.router,
+    stats.router,
+    health.router,
+)
 
 
 def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str | None]:
     is_production = active_settings.app_env.lower() in {"production", "prod"}
     if is_production and not active_settings.expose_api_docs_in_production:
-        return {"docs_url": None, "redoc_url": None, "openapi_url": None}
+        return {"docs_url": None, "redoc_url": None}
     return {}
 
 
-app = FastAPI(title="ThreatLens API", version="0.1.0", **_build_openapi_visibility_kwargs(settings))
+app = FastAPI(
+    title="ThreatLens API",
+    version="0.1.0",
+    summary="ThreatLens API contract.",
+    description=(
+        "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the web proxy. "
+        "Legacy unversioned routes remain available for compatibility but are intentionally excluded from the OpenAPI schema."
+    ),
+    servers=[
+        {"url": API_SERVICE_ROOT, "description": "Backend service root"},
+        {"url": WEB_PROXY_ROOT, "description": "Web reverse proxy root"},
+    ],
+    **_build_openapi_visibility_kwargs(settings),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,17 +112,11 @@ def _normalize_request_id(raw_request_id: str | None) -> str:
 
     return sanitized[:128]
 
-app.include_router(auth.router)
-app.include_router(feeds.router)
-app.include_router(items.router)
-app.include_router(tags.router)
-app.include_router(tagging.router)
-app.include_router(views.router)
-app.include_router(alerts.router)
-app.include_router(tokens.router)
-app.include_router(users.router)
-app.include_router(audit.router)
-app.include_router(notifications.router)
-app.include_router(ai.router)
-app.include_router(stats.router)
-app.include_router(health.router)
+
+def _mount_api_routers(application: FastAPI) -> None:
+    for router in API_ROUTERS:
+        application.include_router(router, prefix=API_SERVICE_PREFIX)
+        application.include_router(router, include_in_schema=False)
+
+
+_mount_api_routers(app)

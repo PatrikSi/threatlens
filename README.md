@@ -67,6 +67,12 @@ Admin startup behavior:
 
 There are a number of additional flags for auth hardening, rate limiting, and feed handling - check `.env.example` for full details.
 
+Release-contract artifacts shipped in the repo:
+
+- Generated API reference: `docs/reference/api.md`
+- OpenAPI schema snapshot: `docs/reference/openapi.json`
+- Third-party notices: `THIRD_PARTY_NOTICES.md`
+
 ## Running with Docker
 
 Start everything:
@@ -82,6 +88,7 @@ Startup flow for `docker-compose.yml`:
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
 - `worker` and `beat` keep schema/admin startup mutations disabled.
 - Only the `web` service is published by default. The API stays internal to the compose network and is reached through `/api`.
+  The published API contract is versioned at `/api/v1`; legacy unversioned paths remain available for compatibility.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -96,11 +103,11 @@ docker compose ps
 Endpoints:
 
 - UI: `http://localhost:3000`
-- API health: `http://localhost:3000/api/health`
-- Readiness: `http://localhost:3000/api/health/ready`
-- Worker: `http://localhost:3000/api/health/worker`
-- Beat: `http://localhost:3000/api/health/beat`
-- Interactive API docs: `http://localhost:3000/api/docs` when docs are enabled
+- OpenAPI schema: `http://localhost:3000/api/openapi.json`
+- API health: `http://localhost:3000/api/v1/health`
+- Readiness: `http://localhost:3000/api/v1/health/ready`
+- Worker: `http://localhost:3000/api/v1/health/worker`
+- Beat: `http://localhost:3000/api/v1/health/beat`
 
 Stop:
 
@@ -174,7 +181,7 @@ docker compose logs -f beat
 ### Trigger feed refresh
 
 ```bash
-curl -X POST http://localhost:3000/api/feeds/<feed_id>/refresh \
+curl -X POST http://localhost:3000/api/v1/feeds/<feed_id>/refresh \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -189,7 +196,7 @@ curl -X POST http://localhost:3000/api/feeds/<feed_id>/refresh \
 - Frontend production build:
 
 ```bash
-# Uses `/api` as the default production API base.
+# Uses `/api/v1` as the default production API base.
 # For non-proxied deployments, also set `THREATLENS_CSP_CONNECT_SRC` on the web container
 # to include the external API origin, e.g. `THREATLENS_CSP_CONNECT_SRC="'self' https://api.example.com"`.
 docker build -q -f web/Dockerfile web
@@ -199,7 +206,7 @@ docker build -q -f web/Dockerfile web
 
 ```bash
 docker compose up -d --build api worker beat web
-curl http://localhost:3000/api/health/ready
+curl http://localhost:3000/api/v1/health/ready
 ```
 
 ## API Examples
@@ -207,7 +214,7 @@ curl http://localhost:3000/api/health/ready
 Log in and capture a JWT:
 
 ```bash
-TOKEN=$(curl -sS http://localhost:3000/api/auth/login \
+TOKEN=$(curl -sS http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"<admin-password>"}' \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
@@ -216,7 +223,7 @@ TOKEN=$(curl -sS http://localhost:3000/api/auth/login \
 Preview an alert before saving it:
 
 ```bash
-curl -X POST http://localhost:3000/api/alerts/preview \
+curl -X POST http://localhost:3000/api/v1/alerts/preview \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -230,7 +237,7 @@ curl -X POST http://localhost:3000/api/alerts/preview \
 Create a webhook notification for new RSS items:
 
 ```bash
-curl -X POST http://localhost:3000/api/notifications/webhooks \
+curl -X POST http://localhost:3000/api/v1/notifications/webhooks \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -253,14 +260,14 @@ curl -X POST http://localhost:3000/api/notifications/webhooks \
 Queue a Daily Brief after AI is configured:
 
 ```bash
-curl -X POST http://localhost:3000/api/ai/daily-brief/queue \
+curl -X POST http://localhost:3000/api/v1/ai/daily-brief/queue \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 Preview a custom tagging rule before creating it:
 
 ```bash
-curl -X POST http://localhost:3000/api/tagging/rules/preview \
+curl -X POST http://localhost:3000/api/v1/tagging/rules/preview \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -300,7 +307,7 @@ curl -X POST http://localhost:3000/api/tagging/rules/preview \
 Create a token:
 
 ```bash
-curl -X POST http://localhost:3000/api/tokens \
+curl -X POST http://localhost:3000/api/v1/tokens \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
@@ -309,14 +316,14 @@ curl -X POST http://localhost:3000/api/tokens \
 Use it:
 
 ```bash
-curl http://localhost:3000/api/feeds \
+curl http://localhost:3000/api/v1/feeds \
   -H "Authorization: Bearer <token>"
 ```
 
 Revoke it:
 
 ```bash
-curl -X DELETE http://localhost:3000/api/tokens/<token_id> \
+curl -X DELETE http://localhost:3000/api/v1/tokens/<token_id> \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -332,7 +339,7 @@ Notes:
 Create a user:
 
 ```bash
-curl -X POST http://localhost:3000/api/users \
+curl -X POST http://localhost:3000/api/v1/users \
   -H "Authorization: Bearer <admin_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst"}'
@@ -341,7 +348,7 @@ curl -X POST http://localhost:3000/api/users \
 Update a user:
 
 ```bash
-curl -X PATCH http://localhost:3000/api/users/<user_id> \
+curl -X PATCH http://localhost:3000/api/v1/users/<user_id> \
   -H "Authorization: Bearer <admin_jwt>" \
   -H "Content-Type: application/json" \
   -d '{"role":"viewer","is_active":false}'
@@ -352,14 +359,14 @@ curl -X PATCH http://localhost:3000/api/users/<user_id> \
 Fetch logs:
 
 ```bash
-curl "http://localhost:3000/api/audit-logs?page=1&page_size=50" \
+curl "http://localhost:3000/api/v1/audit-logs?page=1&page_size=50" \
   -H "Authorization: Bearer <admin_jwt>"
 ```
 
 Filter by action:
 
 ```bash
-curl "http://localhost:3000/api/audit-logs?action=feeds.create" \
+curl "http://localhost:3000/api/v1/audit-logs?action=feeds.create" \
   -H "Authorization: Bearer <admin_jwt>"
 ```
 

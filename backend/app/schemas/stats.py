@@ -53,9 +53,14 @@ class DerivedSummary(BaseModel):
     avg_items_per_day_window: float
 
 
-class StatsOverviewResponse(BaseModel):
+class WindowedStatsResponse(BaseModel):
     generated_at: datetime
     window_days: int
+    window_start_at: datetime
+    window_end_at: datetime
+
+
+class StatsOverviewResponse(WindowedStatsResponse):
     totals: TotalsSummary
     activity: ActivitySummary
     derived: DerivedSummary
@@ -76,9 +81,7 @@ class FeedTimeSeriesSeries(BaseModel):
     points: list[FeedTimeSeriesPoint]
 
 
-class FeedTimeSeriesResponse(BaseModel):
-    generated_at: datetime
-    window_days: int
+class FeedTimeSeriesResponse(WindowedStatsResponse):
     series: list[FeedTimeSeriesSeries]
 
 
@@ -87,9 +90,7 @@ class ActivityHeatmapDayRow(BaseModel):
     counts: list[int]
 
 
-class ActivityHeatmapResponse(BaseModel):
-    generated_at: datetime
-    window_days: int
+class ActivityHeatmapResponse(WindowedStatsResponse):
     bucket_unit: Literal["hour", "day"]
     bucket_labels: list[str]
     rows: list[ActivityHeatmapDayRow]
@@ -102,9 +103,7 @@ class SignalRadarAxisPoint(BaseModel):
     pct: float
 
 
-class SignalRadarResponse(BaseModel):
-    generated_at: datetime
-    window_days: int
+class SignalRadarResponse(WindowedStatsResponse):
     total: int
     max_count: int
     axes: list[SignalRadarAxisPoint]

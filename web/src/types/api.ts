@@ -150,6 +150,8 @@ export interface StatsDomainPoint {
 export interface StatsOverviewResponse {
   generated_at: string
   window_days: number
+  window_start_at: string
+  window_end_at: string
   totals: StatsTotalsSummary
   activity: StatsActivitySummary
   derived: StatsDerivedSummary
@@ -173,6 +175,8 @@ export interface StatsFeedTimeSeriesSeries {
 export interface StatsFeedTimeSeriesResponse {
   generated_at: string
   window_days: number
+  window_start_at: string
+  window_end_at: string
   series: StatsFeedTimeSeriesSeries[]
 }
 
@@ -184,6 +188,8 @@ export interface StatsActivityHeatmapDayRow {
 export interface StatsActivityHeatmapResponse {
   generated_at: string
   window_days: number
+  window_start_at: string
+  window_end_at: string
   bucket_unit: 'hour' | 'day'
   bucket_labels: string[]
   rows: StatsActivityHeatmapDayRow[]
@@ -199,6 +205,8 @@ export interface StatsSignalRadarAxisPoint {
 export interface StatsSignalRadarResponse {
   generated_at: string
   window_days: number
+  window_start_at: string
+  window_end_at: string
   total: number
   max_count: number
   axes: StatsSignalRadarAxisPoint[]

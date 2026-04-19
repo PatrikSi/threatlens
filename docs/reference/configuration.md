@@ -30,7 +30,7 @@
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
 | `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
-| `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs`, `/redoc`, and `/openapi.json` disabled by default in production unless explicitly re-enabled. |
+| `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. The OpenAPI schema remains available at `/openapi.json`. |
 | `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. |
 | `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
@@ -97,7 +97,8 @@ When `APP_ENV` is `production` or `prod`:
 - `APP_DATA_ENCRYPTION_KEY` must be set and be at least 32 chars.
 - `ADMIN_PASSWORD` must not remain `admin123`.
 - `AUTH_COOKIE_SECURE` must be `true`.
-- `/docs`, `/redoc`, and `/openapi.json` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
+- `/docs` and `/redoc` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
+- `/openapi.json` remains available so the machine-readable API contract is always published.
 
 ## Compose Notes
 
@@ -105,14 +106,15 @@ When `APP_ENV` is `production` or `prod`:
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - `worker` and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- The API is not published on a host port by default; use the web service at `http://localhost:3000/api/*` or place the stack behind your own reverse proxy.
+- The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
+- The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `TRUSTED_PROXY_CIDRS` when those values are omitted.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
 
 | Key | Value | Purpose |
 |---|---|---|
-| `DEFAULT_API_BASE_URL` | Dev: `http(s)://<host>:8000`; Prod: `/api` | API base URL fallback. |
+| `DEFAULT_API_BASE_URL` | Dev: `http(s)://<host>:8000/v1`; Prod: `/api/v1` | API base URL fallback. |
 | `API_BASE_URL` | `VITE_API_BASE_URL` or fallback | Effective API base URL. |
 | `REQUEST_TIMEOUT_MS` | `VITE_API_TIMEOUT_MS` or `15000` | Fetch timeout in milliseconds. |
 | `CSRF_COOKIE_NAME` | `VITE_CSRF_COOKIE_NAME` or `threatlens_csrf` | CSRF cookie key used by frontend fetch wrapper. |
@@ -139,6 +141,7 @@ When `APP_ENV` is `production` or `prod`:
 ## Web Proxy Behavior (`web/nginx/default.conf.template`)
 
 - `/api/*` is reverse proxied to `http://api:8000/`.
+- The published API contract is versioned at `/api/v1/*`; `/api/openapi.json` serves the live OpenAPI schema.
 - All other paths fall back to `/index.html` for SPA routing.
 - `THREATLENS_CSP_CONNECT_SRC` defaults to `'self'` in the web container image.
 - For non-proxied deployments, override `THREATLENS_CSP_CONNECT_SRC` to include the external API origin used by `VITE_API_BASE_URL`.

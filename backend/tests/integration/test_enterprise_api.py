@@ -2449,6 +2449,80 @@ def test_stats_signal_radar_endpoint(client: TestClient, auth_headers, db_sessio
     assert by_category["vulnerability"]["pct"] > by_category["apt_campaign"]["pct"]
 
 
+def test_stats_widgets_share_the_same_day_aligned_window(client: TestClient, auth_headers, db_session):
+    feed_response = client.post(
+        "/feeds",
+        json={
+            "name": "Boundary Feed",
+            "url": "https://example.com/boundary.xml",
+            "fetch_interval_seconds": 1800,
+            "enabled": True,
+        },
+        headers=auth_headers["admin"],
+    )
+    assert feed_response.status_code == 201
+    feed_id = uuid.UUID(feed_response.json()["id"])
+
+    now = datetime.now(timezone.utc)
+    outside_day_aligned_window = now - timedelta(days=30) + timedelta(hours=1)
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed_id,
+        source_guid="boundary-window-item",
+        url="https://example.com/boundary/item",
+        canonical_url="https://example.com/boundary/item",
+        title="Boundary item",
+        summary="Should stay outside the selected 30-day UTC calendar window.",
+        published_at=outside_day_aligned_window,
+        first_seen_at=outside_day_aligned_window,
+        dedupe_key="test:boundary-window-item",
+        content_hash="6" * 64,
+        status="content_fetched",
+    )
+    db_session.add(item)
+    db_session.flush()
+    db_session.add(
+        ItemClassification(
+            item_id=item.id,
+            primary_category="vulnerability",
+            secondary_categories=[],
+            confidence=0.91,
+            scores_json={"vulnerability": 9.1},
+            matched_terms_json={"vulnerability": ["title:boundary"]},
+            source_hash="7" * 64,
+        )
+    )
+    db_session.commit()
+
+    overview = client.get(f"/stats/overview?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    feed_timeseries = client.get(f"/stats/feed-timeseries?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    heatmap = client.get(f"/stats/activity-heatmap?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+    radar = client.get(f"/stats/signal-radar?days=30&feed_ids={feed_id}", headers=auth_headers["viewer"])
+
+    assert overview.status_code == 200
+    assert feed_timeseries.status_code == 200
+    assert heatmap.status_code == 200
+    assert radar.status_code == 200
+
+    overview_payload = overview.json()
+    feed_timeseries_payload = feed_timeseries.json()
+    heatmap_payload = heatmap.json()
+    radar_payload = radar.json()
+
+    assert overview_payload["window_start_at"] == feed_timeseries_payload["window_start_at"]
+    assert overview_payload["window_start_at"] == heatmap_payload["window_start_at"]
+    assert overview_payload["window_start_at"] == radar_payload["window_start_at"]
+    assert overview_payload["window_end_at"] >= overview_payload["window_start_at"]
+    assert feed_timeseries_payload["window_end_at"] >= feed_timeseries_payload["window_start_at"]
+    assert heatmap_payload["window_end_at"] >= heatmap_payload["window_start_at"]
+    assert radar_payload["window_end_at"] >= radar_payload["window_start_at"]
+    assert sum(point["count"] for point in overview_payload["daily_volume"]) == 0
+    assert overview_payload["feed_breakdown"][0]["items_in_window"] == 0
+    assert sum(point["count"] for point in feed_timeseries_payload["series"][0]["points"]) == 0
+    assert sum(sum(day["counts"]) for day in heatmap_payload["rows"]) == 0
+    assert radar_payload["total"] == 0
+
+
 def test_items_support_multi_feed_filters(client: TestClient, auth_headers, db_session):
     feed_one_response = client.post(
         "/feeds",

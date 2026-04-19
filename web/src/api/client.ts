@@ -1,8 +1,8 @@
 const DEFAULT_API_BASE_URL = import.meta.env.DEV
   ? typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:8000`
-    : 'http://localhost:8000'
-  : '/api'
+    ? `${window.location.protocol}//${window.location.hostname}:8000/v1`
+    : 'http://localhost:8000/v1'
+  : '/api/v1'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
 const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 15000)
 const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_csrf'

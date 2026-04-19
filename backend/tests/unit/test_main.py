@@ -1,8 +1,10 @@
+from fastapi.testclient import TestClient
+
 from app.core.config import Settings
-from app.main import _build_openapi_visibility_kwargs
+from app.main import app, _build_openapi_visibility_kwargs
 
 
-def test_build_openapi_visibility_kwargs_hides_docs_in_production_by_default():
+def test_build_openapi_visibility_kwargs_hides_docs_ui_in_production_by_default():
     settings = Settings(
         app_env="production",
         jwt_secret="x" * 48,
@@ -14,7 +16,6 @@ def test_build_openapi_visibility_kwargs_hides_docs_in_production_by_default():
     assert _build_openapi_visibility_kwargs(settings) == {
         "docs_url": None,
         "redoc_url": None,
-        "openapi_url": None,
     }
 
 
@@ -35,3 +36,18 @@ def test_build_openapi_visibility_kwargs_keeps_docs_in_development():
     settings = Settings(app_env="development")
 
     assert _build_openapi_visibility_kwargs(settings) == {}
+
+
+def test_versioned_routes_are_published_while_legacy_routes_remain_available():
+    client = TestClient(app)
+
+    versioned = client.get("/v1/health/live")
+    legacy = client.get("/health/live")
+    schema = client.get("/openapi.json")
+
+    assert versioned.status_code == 200
+    assert legacy.status_code == 200
+    assert schema.status_code == 200
+    payload = schema.json()
+    assert "/v1/health/live" in payload["paths"]
+    assert "/health/live" not in payload["paths"]

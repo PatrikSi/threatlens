@@ -1,6 +1,7 @@
 import uuid
 from collections import Counter
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -38,6 +39,20 @@ from app.schemas.stats import (
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
+@dataclass(frozen=True)
+class StatsWindow:
+    generated_at: datetime
+    start_at: datetime
+    start_date: date
+
+
+def _build_stats_window(days: int) -> StatsWindow:
+    generated_at = datetime.now(timezone.utc)
+    window_start_date = (generated_at - timedelta(days=days - 1)).date()
+    start_at = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
+    return StatsWindow(generated_at=generated_at, start_at=start_at, start_date=window_start_date)
+
+
 def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
     if not feed_ids:
         return []
@@ -70,8 +85,7 @@ def get_stats_overview(
 ):
     settings = get_settings()
     selected_feed_ids = _parse_feed_ids(feed_ids)
-    now = datetime.now(timezone.utc)
-    window_start = now - timedelta(days=days)
+    window = _build_stats_window(days)
     timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
 
     feed_filters = [Feed.id.in_(selected_feed_ids)] if selected_feed_ids else []
@@ -93,9 +107,9 @@ def get_stats_overview(
         func.sum(case((Item.status == "new", 1), else_=0)).label("items_new"),
         func.sum(case((Item.status == "content_fetched", 1), else_=0)).label("items_content_fetched"),
         func.sum(case((Item.status == "error", 1), else_=0)).label("items_error"),
-        func.sum(case((Item.first_seen_at >= now - timedelta(hours=24), 1), else_=0)).label("items_last_24h"),
-        func.sum(case((Item.first_seen_at >= now - timedelta(days=7), 1), else_=0)).label("items_last_7d"),
-        func.sum(case((Item.first_seen_at >= now - timedelta(days=30), 1), else_=0)).label("items_last_30d"),
+        func.sum(case((Item.first_seen_at >= window.generated_at - timedelta(hours=24), 1), else_=0)).label("items_last_24h"),
+        func.sum(case((Item.first_seen_at >= window.generated_at - timedelta(days=7), 1), else_=0)).label("items_last_7d"),
+        func.sum(case((Item.first_seen_at >= window.generated_at - timedelta(days=30), 1), else_=0)).label("items_last_30d"),
     )
     if item_filters:
         item_counts_query = item_counts_query.where(*item_filters)
@@ -122,7 +136,7 @@ def get_stats_overview(
 
     volume_query = (
         select(func.date(timeline_at).label("date_key"), func.count(Item.id).label("count"))
-        .where(timeline_at >= window_start)
+        .where(timeline_at >= window.start_at)
         .group_by(func.date(timeline_at))
         .order_by(func.date(timeline_at).asc())
     )
@@ -136,7 +150,7 @@ def get_stats_overview(
             Feed.id,
             Feed.name,
             func.count(Item.id).label("total_items"),
-            func.sum(case((timeline_at >= window_start, 1), else_=0)).label("items_in_window"),
+            func.sum(case((timeline_at >= window.start_at, 1), else_=0)).label("items_in_window"),
             func.sum(case((Item.status == "error", 1), else_=0)).label("error_items"),
             func.sum(case((Item.status == "content_fetched", 1), else_=0)).label("content_fetched_items"),
             func.max(Item.published_at).label("last_published_at"),
@@ -175,7 +189,8 @@ def get_stats_overview(
 
     top_domains = _load_top_domains(
         db,
-        window_start=window_start,
+        window_start=window.start_at,
+        timeline_at=timeline_at,
         item_filters=item_filters,
         limit=settings.stats_top_domains_limit,
     )
@@ -185,8 +200,10 @@ def get_stats_overview(
     avg_items_per_day_window = (sum(point.count for point in daily_volume) / days) if days else 0.0
 
     return StatsOverviewResponse(
-        generated_at=now,
+        generated_at=window.generated_at,
         window_days=days,
+        window_start_at=window.start_at,
+        window_end_at=window.generated_at,
         totals=TotalsSummary(
             feeds_total=int(feeds_total),
             feeds_enabled=int(feeds_enabled),
@@ -223,16 +240,14 @@ def get_feed_timeseries(
     _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
-    now = datetime.now(timezone.utc)
-    window_start_date = (now - timedelta(days=days - 1)).date()
-    window_start = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
+    window = _build_stats_window(days)
     timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
 
     target_feed_ids = selected_feed_ids
     if not target_feed_ids:
         target_feed_rows_query = (
             select(Item.feed_id, func.count(Item.id).label("count"))
-            .where(timeline_at >= window_start)
+            .where(timeline_at >= window.start_at)
             .group_by(Item.feed_id)
             .order_by(func.count(Item.id).desc())
         )
@@ -242,7 +257,13 @@ def get_feed_timeseries(
         target_feed_ids = [feed_id for feed_id, _count in target_feed_rows]
 
     if not target_feed_ids:
-        return FeedTimeSeriesResponse(generated_at=now, window_days=days, series=[])
+        return FeedTimeSeriesResponse(
+            generated_at=window.generated_at,
+            window_days=days,
+            window_start_at=window.start_at,
+            window_end_at=window.generated_at,
+            series=[],
+        )
 
     feed_rows = db.execute(select(Feed.id, Feed.name).where(Feed.id.in_(target_feed_ids))).all()
     feed_name_by_id = {feed_id: feed_name for feed_id, feed_name in feed_rows}
@@ -253,7 +274,7 @@ def get_feed_timeseries(
             func.date(timeline_at).label("date_key"),
             func.count(Item.id).label("count"),
         )
-        .where(Item.feed_id.in_(target_feed_ids), timeline_at >= window_start)
+        .where(Item.feed_id.in_(target_feed_ids), timeline_at >= window.start_at)
         .group_by(Item.feed_id, func.date(timeline_at))
         .order_by(func.date(timeline_at).asc())
     ).all()
@@ -264,7 +285,7 @@ def get_feed_timeseries(
             continue
         counts_by_feed_and_date.setdefault(feed_id, {})[str(date_key)] = int(count or 0)
 
-    date_axis = [(window_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+    date_axis = [(window.start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
     series = [
         FeedTimeSeriesSeries(
             feed_id=str(feed_id),
@@ -277,7 +298,13 @@ def get_feed_timeseries(
         for feed_id in target_feed_ids
     ]
 
-    return FeedTimeSeriesResponse(generated_at=now, window_days=days, series=series)
+    return FeedTimeSeriesResponse(
+        generated_at=window.generated_at,
+        window_days=days,
+        window_start_at=window.start_at,
+        window_end_at=window.generated_at,
+        series=series,
+    )
 
 
 @router.get("/activity-heatmap", response_model=ActivityHeatmapResponse)
@@ -288,11 +315,10 @@ def get_activity_heatmap(
     _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
-    now = datetime.now(timezone.utc)
-    window_start_date = (now - timedelta(days=days - 1)).date()
-    window_start = datetime.combine(window_start_date, datetime.min.time(), tzinfo=timezone.utc)
+    window = _build_stats_window(days)
+    timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
 
-    day_axis = [(window_start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
+    day_axis = [(window.start_date + timedelta(days=offset)).isoformat() for offset in range(days)]
     bucket_unit = "hour" if days <= 7 else "day"
     bucket_labels = [f"{hour:02d}:00" for hour in range(24)] if bucket_unit == "hour" else ["Daily"]
     bucket_size = len(bucket_labels)
@@ -301,12 +327,12 @@ def get_activity_heatmap(
     if bucket_unit == "hour":
         heatmap_query = (
             select(
-                func.date(Item.published_at).label("day_key"),
-                cast(func.extract("hour", Item.published_at), Integer).label("hour_key"),
+                func.date(timeline_at).label("day_key"),
+                cast(func.extract("hour", timeline_at), Integer).label("hour_key"),
                 func.count(Item.id).label("count"),
             )
-            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
-            .group_by(func.date(Item.published_at), cast(func.extract("hour", Item.published_at), Integer))
+            .where(timeline_at >= window.start_at)
+            .group_by(func.date(timeline_at), cast(func.extract("hour", timeline_at), Integer))
         )
         if selected_feed_ids:
             heatmap_query = heatmap_query.where(Item.feed_id.in_(selected_feed_ids))
@@ -320,9 +346,9 @@ def get_activity_heatmap(
                 counts_by_day[day_key_str][hour_index] = int(count or 0)
     else:
         heatmap_query = (
-            select(func.date(Item.published_at).label("day_key"), func.count(Item.id).label("count"))
-            .where(Item.published_at.is_not(None), Item.published_at >= window_start)
-            .group_by(func.date(Item.published_at))
+            select(func.date(timeline_at).label("day_key"), func.count(Item.id).label("count"))
+            .where(timeline_at >= window.start_at)
+            .group_by(func.date(timeline_at))
         )
         if selected_feed_ids:
             heatmap_query = heatmap_query.where(Item.feed_id.in_(selected_feed_ids))
@@ -338,8 +364,10 @@ def get_activity_heatmap(
     max_count = max((count for row in rows for count in row.counts), default=0)
 
     return ActivityHeatmapResponse(
-        generated_at=now,
+        generated_at=window.generated_at,
         window_days=days,
+        window_start_at=window.start_at,
+        window_end_at=window.generated_at,
         bucket_unit=bucket_unit,
         bucket_labels=bucket_labels,
         rows=rows,
@@ -355,13 +383,12 @@ def get_signal_radar(
     _user: User = Depends(require_token_scopes(SCOPE_READ_STATS)),
 ):
     selected_feed_ids = _parse_feed_ids(feed_ids)
-    now = datetime.now(timezone.utc)
-    window_start = now - timedelta(days=days)
+    window = _build_stats_window(days)
 
     query = (
         select(ItemClassification.primary_category, func.count(ItemClassification.item_id))
         .join(Item, Item.id == ItemClassification.item_id)
-        .where(func.coalesce(Item.published_at, Item.first_seen_at) >= window_start)
+        .where(func.coalesce(Item.published_at, Item.first_seen_at) >= window.start_at)
     )
     if selected_feed_ids:
         query = query.where(Item.feed_id.in_(selected_feed_ids))
@@ -384,8 +411,10 @@ def get_signal_radar(
     ]
 
     return SignalRadarResponse(
-        generated_at=now,
+        generated_at=window.generated_at,
         window_days=days,
+        window_start_at=window.start_at,
+        window_end_at=window.generated_at,
         total=total,
         max_count=max_count,
         axes=axes,
@@ -414,6 +443,7 @@ def _load_top_domains(
     db: Session,
     *,
     window_start: datetime,
+    timeline_at,
     item_filters: list,
     limit: int,
 ) -> list[DomainPoint]:
@@ -429,7 +459,7 @@ def _load_top_domains(
         query = (
             select(host.label("domain"), func.count(Item.id).label("count"))
             .where(
-                Item.first_seen_at >= window_start,
+                timeline_at >= window_start,
                 Item.status == "content_fetched",
                 host.is_not(None),
                 host != "",
@@ -444,7 +474,7 @@ def _load_top_domains(
 
     # SQLite test environment fallback.
     domain_query = select(Item.canonical_url, Item.url).where(
-        Item.first_seen_at >= window_start,
+        timeline_at >= window_start,
         Item.status == "content_fetched",
     )
     if item_filters:
