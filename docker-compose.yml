@@ -122,7 +122,7 @@ services:
     build:
       context: ./web
       args:
-        VITE_API_BASE_URL: /api
+        VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}
     restart: unless-stopped
     depends_on:
       api:

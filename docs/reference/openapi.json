@@ -3,7 +3,7 @@
   "info": {
     "title": "ThreatLens API",
     "summary": "ThreatLens API contract.",
-    "description": "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the web proxy. Legacy unversioned routes remain available for compatibility but are intentionally excluded from the OpenAPI schema.",
+    "description": "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the web proxy. Authorization bearer credentials are scoped API tokens, while browser logins establish HttpOnly cookie sessions through `/v1/auth/login`. Legacy unversioned routes remain available for compatibility but are intentionally excluded from the OpenAPI schema.",
     "version": "0.1.0"
   },
   "servers": [
@@ -85,6 +85,7 @@
           "auth"
         ],
         "summary": "Login",
+        "description": "Create a browser session cookie and return the same session token for compatibility.\n\nScoped API access should use dedicated API tokens in the `Authorization` header.\nBrowser clients should rely on the HttpOnly session cookie set by this route.",
         "operationId": "login_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -141,7 +142,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -185,7 +189,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -234,7 +241,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -278,7 +288,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -324,7 +337,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -350,7 +366,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -396,7 +415,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -410,7 +432,10 @@
         "operationId": "update_feed_v1_feeds__feed_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -466,7 +491,10 @@
         "operationId": "delete_feed_v1_feeds__feed_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -507,7 +535,10 @@
         "operationId": "refresh_feed_v1_feeds__feed_id__refresh_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -553,7 +584,10 @@
         "operationId": "list_items_v1_items_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -783,7 +817,10 @@
         "operationId": "get_item_v1_items__item_id__get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -831,7 +868,10 @@
         "operationId": "get_item_graph_v1_items__item_id__graph_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -931,7 +971,10 @@
         "operationId": "set_item_read_v1_items__item_id__read_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -987,7 +1030,10 @@
         "operationId": "set_item_star_v1_items__item_id__star_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1043,7 +1089,10 @@
         "operationId": "set_item_note_v1_items__item_id__note_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1099,7 +1148,10 @@
         "operationId": "retry_item_article_fetch_v1_items__item_id__retry_article_fetch_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1145,7 +1197,10 @@
         "operationId": "set_item_tags_v1_items__item_id__tags_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1201,7 +1256,10 @@
         "operationId": "get_item_tag_suggestions_v1_items__item_id__tag_suggestions_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1265,7 +1323,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -1309,7 +1370,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1335,7 +1399,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -1379,7 +1446,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1425,7 +1495,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1439,7 +1512,10 @@
         "operationId": "update_tagging_rule_v1_tagging_rules__rule_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1495,7 +1571,10 @@
         "operationId": "delete_tagging_rule_v1_tagging_rules__rule_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1568,7 +1647,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1614,7 +1696,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1644,7 +1729,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -1688,7 +1776,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -1702,7 +1793,10 @@
         "operationId": "update_view_v1_views__view_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1758,7 +1852,10 @@
         "operationId": "delete_view_v1_views__view_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1799,7 +1896,10 @@
         "operationId": "list_alert_interests_v1_alerts_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1849,7 +1949,10 @@
         "operationId": "create_alert_interest_v1_alerts_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "requestBody": {
@@ -1895,7 +1998,10 @@
         "operationId": "update_alert_interest_v1_alerts__alert_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -1951,7 +2057,10 @@
         "operationId": "delete_alert_interest_v1_alerts__alert_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2024,7 +2133,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -2038,7 +2150,10 @@
         "operationId": "list_alert_matches_v1_alerts_matches_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2233,7 +2348,10 @@
         "operationId": "list_tokens_v1_tokens_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2290,7 +2408,10 @@
         "operationId": "create_token_v1_tokens_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "requestBody": {
@@ -2336,7 +2457,10 @@
         "operationId": "revoke_token_v1_tokens__token_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2393,7 +2517,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -2437,7 +2564,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -2451,7 +2581,10 @@
         "operationId": "update_user_v1_users__user_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2509,7 +2642,10 @@
         "operationId": "list_audit_logs_v1_audit_logs_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2603,7 +2739,10 @@
         "operationId": "export_audit_logs_v1_audit_logs_export_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2702,7 +2841,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -2728,7 +2870,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -2758,7 +2903,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -2802,7 +2950,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -2816,7 +2967,10 @@
         "operationId": "update_notification_webhook_v1_notifications_webhooks__webhook_id__patch",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2872,7 +3026,10 @@
         "operationId": "delete_notification_webhook_v1_notifications_webhooks__webhook_id__delete",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2913,7 +3070,10 @@
         "operationId": "list_notification_webhook_deliveries_v1_notifications_webhooks__webhook_id__deliveries_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -2981,7 +3141,10 @@
         "operationId": "retry_notification_webhook_delivery_route_v1_notifications_webhooks__webhook_id__deliveries__delivery_id__retry_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3071,7 +3234,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3097,7 +3263,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       },
@@ -3141,7 +3310,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3167,7 +3339,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3193,7 +3368,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3219,7 +3397,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3233,7 +3414,10 @@
         "operationId": "list_daily_briefs_route_v1_ai_daily_briefs_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3305,7 +3489,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3331,7 +3518,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3377,7 +3567,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3391,7 +3584,10 @@
         "operationId": "get_ai_ops_overview_route_v1_ai_ops_overview_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3453,7 +3649,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -3467,7 +3666,10 @@
         "operationId": "list_ai_ops_runs_route_v1_ai_ops_runs_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3637,7 +3839,10 @@
         "operationId": "get_ai_ops_run_detail_route_v1_ai_ops_runs__run_id__get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3685,7 +3890,10 @@
         "operationId": "cancel_ai_ops_run_route_v1_ai_ops_runs__run_id__cancel_post",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3733,7 +3941,10 @@
         "operationId": "list_ai_ops_manual_actions_route_v1_ai_ops_manual_actions_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3787,7 +3998,10 @@
         "operationId": "list_ai_ops_prompt_history_route_v1_ai_ops_prompt_history_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3841,7 +4055,10 @@
         "operationId": "list_daily_brief_sources_route_v1_ai_daily_briefs__brief_id__sources_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3921,7 +4138,10 @@
         "operationId": "get_stats_overview_v1_stats_overview_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -3987,7 +4207,10 @@
         "operationId": "get_feed_timeseries_v1_stats_feed_timeseries_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -4071,7 +4294,10 @@
         "operationId": "get_activity_heatmap_v1_stats_activity_heatmap_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -4137,7 +4363,10 @@
         "operationId": "get_signal_radar_v1_stats_signal_radar_get",
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ],
         "parameters": [
@@ -4270,7 +4499,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -4294,7 +4526,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -4318,7 +4553,10 @@
         },
         "security": [
           {
-            "OAuth2PasswordBearer": []
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
           }
         ]
       }
@@ -10790,6 +11028,91 @@
         ],
         "title": "RegistrationSettingsResponse"
       },
+      "SavedViewAlertFilters": {
+        "properties": {
+          "selected_alert_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Alert Ids"
+          },
+          "selected_categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Categories"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q",
+            "default": ""
+          },
+          "view_mode": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "expanded"
+            ],
+            "title": "View Mode",
+            "default": "expanded"
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Page Size",
+            "default": 25
+          },
+          "time_range": {
+            "type": "string",
+            "enum": [
+              "all",
+              "24h",
+              "7d",
+              "30d",
+              "days",
+              "custom"
+            ],
+            "title": "Time Range",
+            "default": "all"
+          },
+          "custom_since_date": {
+            "type": "string",
+            "title": "Custom Since Date",
+            "default": ""
+          },
+          "custom_until_date": {
+            "type": "string",
+            "title": "Custom Until Date",
+            "default": ""
+          },
+          "rolling_days": {
+            "type": "string",
+            "title": "Rolling Days",
+            "default": "7"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewAlertFilters"
+      },
       "SavedViewCreate": {
         "properties": {
           "name": {
@@ -10799,9 +11122,7 @@
             "title": "Name"
           },
           "query_json": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Query Json"
+            "$ref": "#/components/schemas/SavedViewQueryPayload-Input"
           }
         },
         "type": "object",
@@ -10810,6 +11131,121 @@
           "query_json"
         ],
         "title": "SavedViewCreate"
+      },
+      "SavedViewPanelRect": {
+        "properties": {
+          "x": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "X"
+          },
+          "y": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Y"
+          },
+          "width": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Width"
+          },
+          "height": {
+            "type": "integer",
+            "exclusiveMinimum": 0.0,
+            "title": "Height"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "SavedViewPanelRect"
+      },
+      "SavedViewQueryPayload-Input": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "default": 6
+          },
+          "rss_filters": {
+            "$ref": "#/components/schemas/SavedViewRssFilters"
+          },
+          "alert_filters": {
+            "$ref": "#/components/schemas/SavedViewAlertFilters"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/SavedViewWindow"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Windows"
+          },
+          "ui": {
+            "$ref": "#/components/schemas/SavedViewUiState"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rss_filters",
+          "alert_filters",
+          "windows"
+        ],
+        "title": "SavedViewQueryPayload"
+      },
+      "SavedViewQueryPayload-Output": {
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1,
+            "title": "Schema Version",
+            "default": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Version",
+            "default": 6
+          },
+          "rss_filters": {
+            "$ref": "#/components/schemas/SavedViewRssFilters"
+          },
+          "alert_filters": {
+            "$ref": "#/components/schemas/SavedViewAlertFilters"
+          },
+          "windows": {
+            "items": {
+              "$ref": "#/components/schemas/SavedViewWindow"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Windows"
+          },
+          "ui": {
+            "$ref": "#/components/schemas/SavedViewUiState"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rss_filters",
+          "alert_filters",
+          "windows"
+        ],
+        "title": "SavedViewQueryPayload"
       },
       "SavedViewResponse": {
         "properties": {
@@ -10828,9 +11264,7 @@
             "title": "Name"
           },
           "query_json": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Query Json"
+            "$ref": "#/components/schemas/SavedViewQueryPayload-Output"
           },
           "created_at": {
             "type": "string",
@@ -10847,6 +11281,123 @@
           "created_at"
         ],
         "title": "SavedViewResponse"
+      },
+      "SavedViewRssFilters": {
+        "properties": {
+          "selected_feed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Feed Ids"
+          },
+          "selected_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Tags"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q",
+            "default": ""
+          },
+          "read_status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "read",
+              "unread"
+            ],
+            "title": "Read Status",
+            "default": "all"
+          },
+          "star_status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "starred",
+              "unstarred"
+            ],
+            "title": "Star Status",
+            "default": "all"
+          },
+          "view_mode": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "expanded"
+            ],
+            "title": "View Mode",
+            "default": "compact"
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Page Size",
+            "default": 25
+          },
+          "time_range": {
+            "type": "string",
+            "enum": [
+              "all",
+              "24h",
+              "7d",
+              "30d",
+              "days",
+              "custom"
+            ],
+            "title": "Time Range",
+            "default": "all"
+          },
+          "custom_since_date": {
+            "type": "string",
+            "title": "Custom Since Date",
+            "default": ""
+          },
+          "custom_until_date": {
+            "type": "string",
+            "title": "Custom Until Date",
+            "default": ""
+          },
+          "rolling_days": {
+            "type": "string",
+            "title": "Rolling Days",
+            "default": "7"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewRssFilters"
+      },
+      "SavedViewUiState": {
+        "properties": {
+          "show_advanced_filters": {
+            "type": "boolean",
+            "title": "Show Advanced Filters",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewUiState"
       },
       "SavedViewUpdate": {
         "properties": {
@@ -10866,18 +11417,306 @@
           "query_json": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/SavedViewQueryPayload-Input"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "SavedViewUpdate"
+      },
+      "SavedViewWindow": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "rss",
+              "alerts",
+              "notes",
+              "daily_brief"
+            ],
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "snap": {
+            "type": "string",
+            "enum": [
+              "free",
+              "full",
+              "left",
+              "right",
+              "top_left",
+              "top_right",
+              "bottom_left",
+              "bottom_right"
+            ],
+            "title": "Snap"
+          },
+          "rect": {
+            "$ref": "#/components/schemas/SavedViewPanelRect"
+          },
+          "controls_collapsed": {
+            "type": "boolean",
+            "title": "Controls Collapsed",
+            "default": false
+          },
+          "scratch_note": {
+            "type": "string",
+            "title": "Scratch Note",
+            "default": ""
+          },
+          "time_override": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewWindowTimeFilter"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rss_filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewWindowRssFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "alert_filters": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SavedViewWindowAlertFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "selected_daily_brief_id": {
+            "anyOf": [
+              {
+                "type": "string"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Query Json"
+            "title": "Selected Daily Brief Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
-        "title": "SavedViewUpdate"
+        "required": [
+          "id",
+          "type",
+          "title",
+          "snap",
+          "rect"
+        ],
+        "title": "SavedViewWindow"
+      },
+      "SavedViewWindowAlertFilters": {
+        "properties": {
+          "selected_alert_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Alert Ids"
+          },
+          "selected_categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Categories"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q",
+            "default": ""
+          },
+          "view_mode": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "expanded"
+            ],
+            "title": "View Mode",
+            "default": "expanded"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Page Size",
+            "default": 25
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewWindowAlertFilters"
+      },
+      "SavedViewWindowRssFilters": {
+        "properties": {
+          "selected_feed_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Feed Ids"
+          },
+          "selected_tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selected Tags"
+          },
+          "q": {
+            "type": "string",
+            "title": "Q",
+            "default": ""
+          },
+          "read_status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "read",
+              "unread"
+            ],
+            "title": "Read Status",
+            "default": "all"
+          },
+          "star_status": {
+            "type": "string",
+            "enum": [
+              "all",
+              "starred",
+              "unstarred"
+            ],
+            "title": "Star Status",
+            "default": "all"
+          },
+          "view_mode": {
+            "type": "string",
+            "enum": [
+              "compact",
+              "expanded"
+            ],
+            "title": "View Mode",
+            "default": "compact"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page",
+            "default": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "enum": [
+              10,
+              25,
+              50,
+              100
+            ],
+            "title": "Page Size",
+            "default": 25
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          },
+          "show_advanced_filters": {
+            "type": "boolean",
+            "title": "Show Advanced Filters",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewWindowRssFilters"
+      },
+      "SavedViewWindowTimeFilter": {
+        "properties": {
+          "time_range": {
+            "type": "string",
+            "enum": [
+              "all",
+              "24h",
+              "7d",
+              "30d",
+              "days",
+              "custom"
+            ],
+            "title": "Time Range",
+            "default": "all"
+          },
+          "custom_since_date": {
+            "type": "string",
+            "title": "Custom Since Date",
+            "default": ""
+          },
+          "custom_until_date": {
+            "type": "string",
+            "title": "Custom Until Date",
+            "default": ""
+          },
+          "rolling_days": {
+            "type": "string",
+            "title": "Rolling Days",
+            "default": "7"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SavedViewWindowTimeFilter"
       },
       "SignalRadarAxisPoint": {
         "properties": {
@@ -11942,14 +12781,17 @@
       }
     },
     "securitySchemes": {
-      "OAuth2PasswordBearer": {
-        "type": "oauth2",
-        "flows": {
-          "password": {
-            "scopes": {},
-            "tokenUrl": "/auth/login"
-          }
-        }
+      "ApiTokenBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API token",
+        "description": "Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser login responses also return a session JWT for compatibility, but that value is not a supported bearer API credential."
+      },
+      "SessionCookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "threatlens_session",
+        "description": "HttpOnly browser session cookie established by `/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`. Cookie-authenticated mutating requests must also send the CSRF header."
       }
     }
   }

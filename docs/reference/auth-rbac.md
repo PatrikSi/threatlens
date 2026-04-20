@@ -1,14 +1,37 @@
 # Auth, RBAC, and Token Scopes
 
-## Authentication Modes
+## Published Paths
 
-`backend/app/api/deps.py` resolves users in this order:
+- Public/browser-facing API paths are versioned under `/api/v1/*`
+- The backend service exposes the same routers internally under `/v1/*`
+- Legacy unversioned backend routes still exist for compatibility, but they are not part of the published contract or OpenAPI schema
 
-1. Bearer JWT (`/auth/login` issued token)
-2. Cookie JWT (`AUTH_COOKIE_NAME`)
-3. Personal API token (`tlp_<public_id>_<secret>` format)
+## Credential Resolution Order
 
-If neither resolves, the request fails with `401`.
+`backend/app/api/deps.py` resolves credentials like this:
+
+1. If an `Authorization: Bearer ...` header is present, ThreatLens treats it as a scoped personal API token
+2. If no bearer header is present, ThreatLens reads the browser auth cookie (`AUTH_COOKIE_NAME`)
+3. If neither header nor cookie resolves to an active, approved user, the request fails with `401`
+
+Important contract details:
+
+- A bearer header suppresses cookie fallback. If a request sends both and the header is invalid, the cookie is ignored.
+- The session JWT mirrored in the `/auth/login` JSON response is not a supported bearer API credential.
+- Approved and active account status is enforced after credential validation for both browser sessions and API tokens.
+
+## Browser Session Contract
+
+- `POST /api/v1/auth/login` accepts email/password, returns a JSON body (`access_token`, `token_type`, `csrf_token`), and sets:
+  - an HttpOnly session cookie (`AUTH_COOKIE_NAME`)
+  - a JS-readable CSRF cookie (`AUTH_CSRF_COOKIE_NAME`)
+- The shipped React frontend uses the cookie session and does not persist the returned JWT in browser storage.
+- The returned `access_token` mirrors the cookie-backed session for compatibility, but CLI and automation callers should mint personal API tokens for bearer auth.
+- CSRF checks apply only when authentication comes from the session cookie and the method is `POST`, `PUT`, `PATCH`, or `DELETE`.
+- Cookie-authenticated mutating requests must send `AUTH_CSRF_HEADER_NAME` with the same value as the CSRF cookie.
+- `POST /api/v1/auth/logout` also enforces CSRF when a session cookie is present.
+- `GET /api/v1/auth/registration-settings` is anonymous and exposes whether self-registration is enabled.
+- `POST /api/v1/auth/register` is anonymous when `ALLOW_SELF_REGISTRATION=true`, creates a user record, and leaves the new user pending approval.
 
 ## JWT Behavior
 
@@ -21,10 +44,8 @@ Defined in `backend/app/core/security.py`:
   - `ver` (user auth-token version)
 - Expiry: `JWT_EXPIRES_MINUTES` (default 1440)
 - Password changes increment the user's auth-token version, which invalidates previously issued JWTs and cookie-backed sessions.
-- Browser flow sets:
-  - HttpOnly auth cookie (`AUTH_COOKIE_NAME`)
-  - CSRF cookie (`AUTH_CSRF_COOKIE_NAME`)
-  - Mutating cookie-auth requests must provide CSRF header (`AUTH_CSRF_HEADER_NAME`)
+- Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
+- Role changes and email changes do not rotate tokens by themselves.
 
 ## API Token Behavior
 
@@ -33,11 +54,16 @@ Token format and handling:
 - Marker constant: `API_TOKEN_MARKER = "tlp"`
 - Stored: SHA-256 token hash, token prefix, scopes, expiry, revocation state
 - Last usage timestamp (`last_used_at`) is updated on successful auth
+- Creation endpoint: `POST /api/v1/tokens` only creates tokens for the currently authenticated user
+- Admins can list another user's tokens with `GET /api/v1/tokens?user_id=<uuid>` and can revoke any user's token
+- Omitting the `scopes` field applies `DEFAULT_API_TOKEN_SCOPES`; sending an explicit empty list is rejected
+- Tokens created while already authenticated with an API token can only delegate a subset of the parent token's scopes
 
 Revocation/expiry checks:
 
 - `revoked_at` must be `null`
 - `expires_at` must be absent or in the future
+- Password changes and admin auth-state changes revoke all active API tokens for that user
 
 ## Role Model
 
@@ -94,6 +120,8 @@ Evaluation rules:
 
 ## Endpoint Auth Summary
 
+Paths below are relative to the published `/api/v1` base.
+
 | Endpoint group | Role requirement | Scope requirement |
 |---|---|---|
 | `/auth/me`, `/auth/change-password` | authenticated user | none |
@@ -105,7 +133,8 @@ Evaluation rules:
 | `/alerts` mutate | authenticated user | `write:alerts` |
 | `/alerts/preview` | authenticated user | `read:alerts` and `read:items` |
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
-| `/notifications/*` | authenticated user | `read:notifications` / `write:notifications` |
+| `/notifications/template-variables`, `/notifications/analytics`, `/notifications/webhooks`, `/notifications/webhooks/{id}/deliveries` | authenticated user | `read:notifications` |
+| `/notifications/webhooks` mutate/test/retry | `admin` or `analyst` | `write:notifications` |
 | `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
@@ -118,3 +147,9 @@ Evaluation rules:
 | `/audit-logs/export` | `admin` | `read:audit` |
 | `/stats/*` | authenticated user | `read:stats` |
 | `/health` | none | none |
+
+## Practical Trust Notes
+
+- Cookie sessions are the primary browser contract. Token scopes only apply when the caller is authenticated via a personal API token.
+- `write:<resource>` implies `read:<resource>` during scope checks.
+- `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.

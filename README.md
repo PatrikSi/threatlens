@@ -16,7 +16,7 @@ The project is split into a few core services:
 ## Features
 
 - Multi-user support with role-based access control (`admin`, `analyst`, `viewer`)
-- JWT authentication, browser session cookies, and personal API tokens
+- JWT-backed browser session cookies and personal API tokens
 - Audit logging for security-relevant actions
 - Multi-window dashboard with RSS, alerts, and notes panes
 - Optional AI workspace for admin-managed endpoint configuration, task operations, usage stats, and prompt/profile tuning
@@ -72,6 +72,8 @@ Release-contract artifacts shipped in the repo:
 - Generated API reference: `docs/reference/api.md`
 - OpenAPI schema snapshot: `docs/reference/openapi.json`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
+- Bundled license texts: `docs/licenses/`
+- Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
 
 ## Running with Docker
 
@@ -87,8 +89,10 @@ Startup flow for `docker-compose.yml`:
 - `worker` and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
 - `worker` and `beat` keep schema/admin startup mutations disabled.
-- Only the `web` service is published by default. The API stays internal to the compose network and is reached through `/api`.
-  The published API contract is versioned at `/api/v1`; legacy unversioned paths remain available for compatibility.
+- Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
+- `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
+- The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
+- Legacy unversioned backend routes remain available for compatibility, but they are not the documented or shipped runtime contract.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -108,6 +112,12 @@ Endpoints:
 - Readiness: `http://localhost:3000/api/v1/health/ready`
 - Worker: `http://localhost:3000/api/v1/health/worker`
 - Beat: `http://localhost:3000/api/v1/health/beat`
+
+Published path summary:
+
+- Browser/API base: `/api/v1`
+- OpenAPI schema: `/api/openapi.json`
+- Internal backend versioned base: `/v1`
 
 Stop:
 
@@ -182,7 +192,7 @@ docker compose logs -f beat
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/feeds/<feed_id>/refresh \
-  -H "Authorization: Bearer <jwt>"
+  -H "Authorization: Bearer <api_token>"
 ```
 
 ## Local Validation
@@ -209,16 +219,43 @@ docker compose up -d --build api worker beat web
 curl http://localhost:3000/api/v1/health/ready
 ```
 
+## Auth Model
+
+- `POST /api/v1/auth/login` returns JSON containing `access_token`, `token_type`, and `csrf_token`, and also sets the browser session cookies.
+- The shipped React app uses the cookie session (`AUTH_COOKIE_NAME`) and does not store the JWT in local storage.
+- The returned `access_token` mirrors the cookie-backed browser session for compatibility, but it is not a supported bearer API credential.
+- CLI and automation callers should mint personal API tokens from `/api/v1/tokens` and use those as `Authorization: Bearer <token>`.
+- Cookie-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests must echo the CSRF cookie value in `AUTH_CSRF_HEADER_NAME`.
+- If a request sends both an `Authorization` header and the session cookie, the header wins. An invalid header does not fall back to the cookie.
+
+## Trust Boundaries
+
+- ThreatLens is a self-hosted, single-deployment application for one team or organization. It does not implement tenant isolation between separate customers.
+- The platform makes outbound requests to configured feed/article URLs, an optional AI endpoint, and user-configured webhook destinations. Private-network access is disabled by default and controlled separately for fetch, AI, and webhook traffic.
+- Browser dashboard layouts, read state, and scratch notes are stored in local browser storage per user. Session credentials remain in cookies rather than browser storage.
+- Webhook templates and delivery snapshots are encrypted at rest with `APP_DATA_ENCRYPTION_KEY`, but authorized users can still view decrypted previews through the application.
+- AI summaries, daily briefs, and usage history are stored in the application database. Provider-exchange inspection stores sanitized request/response metadata, not full raw provider transcripts.
+
 ## API Examples
 
-Log in and capture a JWT:
+Log in and mint a scoped API token for CLI use:
 
 ```bash
-TOKEN=$(curl -sS http://localhost:3000/api/v1/auth/login \
+COOKIE_JAR=$(mktemp)
+CSRF=$(curl -sS -c "$COOKIE_JAR" http://localhost:3000/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"admin@example.com","password":"<admin-password>"}' \
-  | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["csrf_token"])')
+TOKEN=$(curl -sS -b "$COOKIE_JAR" \
+  -H "X-CSRF-Token: $CSRF" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"admin-demo-token","expires_in_days":30,"scopes":["*:*"]}' \
+  http://localhost:3000/api/v1/tokens \
+  | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+rm -f "$COOKIE_JAR"
 ```
+
+The example token above is intentionally broad so the later admin/operator examples work as written. For real automation, mint narrower scopes.
 
 Preview an alert before saving it:
 
@@ -308,7 +345,7 @@ Create a token:
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/tokens \
-  -H "Authorization: Bearer <jwt>" \
+  -H "Authorization: Bearer <api_token>" \
   -H "Content-Type: application/json" \
   -d '{"name":"ci-agent","expires_in_days":30,"scopes":["read:feeds"]}'
 ```
@@ -324,15 +361,22 @@ Revoke it:
 
 ```bash
 curl -X DELETE http://localhost:3000/api/v1/tokens/<token_id> \
-  -H "Authorization: Bearer <jwt>"
+  -H "Authorization: Bearer <api_token>"
 ```
 
 Notes:
 
-- Default scopes are read-only if none are provided
+- Omit `scopes` to get the default read-only token scopes; an explicit empty list is rejected
 - `write:*` implies `read:*`
 - Wildcards are supported (`read:*`, `admin:*`)
+- Tokens created while already authenticated with an API token can only delegate a subset of the parent token's scopes
 - Legacy unscoped tokens are disabled by default
+
+## Redistribution Notes
+
+- `THIRD_PARTY_NOTICES.md` lists the bundled assets and direct runtime dependencies used by the shipped source tree and container images.
+- `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
+- `docs/licenses/LGPL-3.0.txt` and `docs/licenses/GPL-3.0.txt` are shipped for the `psycopg[binary]` backend dependency. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
 
 ## User Management (admin only)
 
@@ -340,7 +384,7 @@ Create a user:
 
 ```bash
 curl -X POST http://localhost:3000/api/v1/users \
-  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Authorization: Bearer <admin_api_token>" \
   -H "Content-Type: application/json" \
   -d '{"email":"analyst@example.com","password":"StrongPass123!","role":"analyst"}'
 ```
@@ -349,7 +393,7 @@ Update a user:
 
 ```bash
 curl -X PATCH http://localhost:3000/api/v1/users/<user_id> \
-  -H "Authorization: Bearer <admin_jwt>" \
+  -H "Authorization: Bearer <admin_api_token>" \
   -H "Content-Type: application/json" \
   -d '{"role":"viewer","is_active":false}'
 ```
@@ -360,14 +404,14 @@ Fetch logs:
 
 ```bash
 curl "http://localhost:3000/api/v1/audit-logs?page=1&page_size=50" \
-  -H "Authorization: Bearer <admin_jwt>"
+  -H "Authorization: Bearer <admin_api_token>"
 ```
 
 Filter by action:
 
 ```bash
 curl "http://localhost:3000/api/v1/audit-logs?action=feeds.create" \
-  -H "Authorization: Bearer <admin_jwt>"
+  -H "Authorization: Bearer <admin_api_token>"
 ```
 
 ## Local Development

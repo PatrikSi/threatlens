@@ -7,14 +7,20 @@ For full dependency resolution, see:
 - `backend/requirements.txt`
 - `web/package-lock.json`
 
+Bundled license texts shipped in this repository:
+
+- `docs/licenses/OFL-1.1.txt`
+- `docs/licenses/LGPL-3.0.txt`
+- `docs/licenses/GPL-3.0.txt`
+
 ## Bundled Frontend Assets
 
 These files are committed directly in this repository:
 
-| Component | Files | License |
+| Component | Files | License | Notes |
 |---|---|---|
-| Source Sans 3 | `web/public/fonts/source-sans-3-400.ttf`, `source-sans-3-600.ttf`, `source-sans-3-700.ttf` | SIL Open Font License 1.1 |
-| Space Grotesk | `web/public/fonts/space-grotesk-500.ttf`, `space-grotesk-700.ttf` | SIL Open Font License 1.1 |
+| Source Sans 3 | `web/public/fonts/source-sans-3-400.ttf`, `source-sans-3-600.ttf`, `source-sans-3-700.ttf` | SIL Open Font License 1.1 | Copyright 2010-2024 Adobe; Reserved Font Name `Source` |
+| Space Grotesk | `web/public/fonts/space-grotesk-500.ttf`, `space-grotesk-700.ttf` | SIL Open Font License 1.1 | Copyright 2020 The Space Grotesk Project Authors |
 
 ## Direct Backend Runtime Dependencies
 
@@ -23,7 +29,8 @@ These files are committed directly in this repository:
 | fastapi | 0.116.1 | MIT |
 | uvicorn | 0.35.0 | BSD |
 | SQLAlchemy | 2.0.42 | MIT |
-| psycopg | 3.2.9 | LGPL-3.0-only |
+| psycopg | 3.2.9 | GNU Lesser General Public License v3 (LGPLv3) |
+| psycopg-binary | 3.2.9 | GNU Lesser General Public License v3 (LGPLv3) |
 | alembic | 1.16.4 | MIT |
 | pydantic-settings | 2.10.1 | MIT |
 | python-jose | 3.5.0 | MIT |
@@ -54,4 +61,5 @@ These files are committed directly in this repository:
 
 - Built web bundles include code from the frontend runtime dependencies listed above.
 - Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles.
+- The backend dependency spec installs `psycopg[binary]`, which pulls in both `psycopg` and `psycopg-binary`. Redistributors should preserve the shipped license texts and review whether a locally linked psycopg build better matches their compliance program.
 - If you redistribute ThreatLens images or other packaged artifacts, preserve this notice file and comply with the licenses of bundled and transitive dependencies.

@@ -4,6 +4,8 @@
 
 Admin-only control plane for ThreatLens AI configuration, daily briefing, reprocessing, task operations, usage analytics, and audit history.
 
+All API paths on this page are relative to the published `/api/v1` base.
+
 ## Access and Visibility
 
 - Route: `/ai`
@@ -75,6 +77,13 @@ Admin-only control plane for ThreatLens AI configuration, daily briefing, reproc
 
 - The dashboard can add a `Daily Brief` window when AI daily briefing is enabled.
 - RSS item detail can render AI summary + relevance insight blocks when enrichment is available.
+
+## Trust Boundary Notes
+
+- ThreatLens sends selected item/article text, prompt instructions, and company profile context to the configured AI base URL when AI features are enabled.
+- The AI endpoint base URL and model are stored in ThreatLens settings; the bearer credential comes from the server-side `AI_API_KEY` environment variable and is never sent to the browser.
+- Provider-exchange inspection stores sanitized request/response metadata and token counts, while generated summaries, relevance results, and daily briefs are stored in the application database.
+- Private-network AI egress is disabled by default unless `ALLOW_PRIVATE_NETWORK_AI=true`.
 
 ## API Calls
 

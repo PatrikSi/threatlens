@@ -2,6 +2,12 @@
 
 This page documents worker behavior, processing stages, and internal value sets used by the backend pipeline.
 
+## Trust Boundaries and External I/O
+
+- Feed polling and article extraction are untrusted-input boundaries. ThreatLens applies SSRF-aware URL validation, redirect caps, byte caps, and content-type checks before processing remote content.
+- Notification webhooks are a separate outbound boundary. User-configured request templates are rendered server-side, stored encrypted at rest, and retried from the saved rendered request snapshot.
+- AI enrichment and daily-brief generation are an admin-controlled outbound boundary. ThreatLens records usage data and sanitized provider-exchange metadata for those calls.
+
 ## Celery Tasks
 
 Defined in `backend/app/tasks/feed_tasks.py`:
@@ -126,6 +132,7 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - body
   - response preview
   - error/status metadata
+- Saved delivery snapshots and webhook templates are encrypted at rest with `APP_DATA_ENCRYPTION_KEY`; user-facing previews are decrypted/redacted on read.
 - Retries replay the stored rendered delivery snapshot instead of re-rendering from current item/feed data.
 
 ## AI Enrichment and Daily Briefing

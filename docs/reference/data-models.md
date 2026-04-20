@@ -310,7 +310,7 @@ Primary key on `item_id`:
 - `RegisterRequest`: `email`, `password(8..256)`
 - `ChangePasswordRequest`: `current_password`, `new_password(8..256)`
 - `TokenResponse`: `access_token`, `token_type`, `csrf_token`
-- `RegistrationSettingsResponse`: `allow_self_registration`
+- `RegistrationSettingsResponse`: `allow_self_registration`, `ai_enabled`
 - `UserResponse`: `id`, `email`, `role`, `is_active`, `is_approved`, `approved_at`, `created_at`
 
 ### Feed Schemas
@@ -351,7 +351,8 @@ Primary key on `item_id`:
   - `TaggingRuleWrite`, `TaggingRuleResponse`
   - `TaggingRulePreviewRequest`, `TaggingRulePreviewItem`, `TaggingRulePreviewResponse`
   - `TaggingReapplyRequest`, `TaggingReapplyResponse`
-- `SavedViewCreate`, `SavedViewResponse`
+- `SavedViewCreate`, `SavedViewUpdate`, `SavedViewResponse`
+  - `query_json` is a typed saved-view payload with `schema_version`, `version`, `rss_filters`, `alert_filters`, `windows`, and `ui`
 - `ApiTokenCreateRequest`, `ApiTokenCreateResponse`, `ApiTokenResponse`
 - `UserCreateRequest`, `UserUpdateRequest`, `UserAdminResponse`
 - `AuditLogResponse`, `AuditLogListResponse`

@@ -4,6 +4,8 @@
 
 Unified triage workspace combining RSS intelligence, alert matches, and persistent notes in a multi-window layout.
 
+All API paths on this page are relative to the published `/api/v1` base. Dashboard layout state, read markers, and scratch notes are stored in the browser's local storage per user and are not encrypted on the workstation.
+
 ## Top Bar Controls
 
 - Add window dropdown:
@@ -132,6 +134,7 @@ Unified triage workspace combining RSS intelligence, alert matches, and persiste
 - Local storage key: `threatlens.dashboard.windows.v2`
 - Local storage key: `threatlens.dashboard.window-seen.v1`
 - Local storage key: `threatlens.user-last-open.v1`
+- Session authentication itself remains cookie-based; dashboard storage does not contain the session JWT
 - Saved view payload includes:
   - per-window RSS filter state
   - per-window alerts filter state

@@ -2,6 +2,8 @@
 
 This page documents app routes, components, constants, UI elements, and every backend API call issued by the web client.
 
+Unless noted otherwise, endpoint paths on this page are relative to the published API base `/api/v1`. The schema endpoint remains a separate path at `/api/openapi.json`.
+
 ## App Composition (`web/src/App.tsx`)
 
 Providers (outer to inner):
@@ -39,12 +41,15 @@ Route tree:
 
 ### API client (`web/src/api/client.ts`)
 
+- Production fallback base URL is `/api/v1`; development fallback base URL is `http(s)://<host>:8000/v1`.
+- `VITE_API_BASE_URL` overrides the fallback, and the shipped compose stack passes it from `WEB_VITE_API_BASE_URL` (default `/api/v1`).
 - Adds `Content-Type: application/json` for requests.
 - Sends browser credentials (`credentials: include`) for cookie-based session auth.
 - Adds CSRF header (`x-csrf-token` by default) on mutating requests when `auth=true`.
 - Uses `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`).
 - Throws textual API error body when `response.ok` is false.
 - Returns `undefined` for `204` responses.
+- `LoginPage` and self-registration calls pass `auth=false`; after login the app relies on the server-set session cookies rather than persisting the returned JWT.
 
 ### Browser storage keys
 
@@ -53,6 +58,7 @@ Route tree:
 - Dashboard alert seen timestamps: `threatlens.dashboard.window-seen.v1:<userId>`
 - User RSS last-open timestamps: `threatlens.user-last-open.v1:<userId>`
 - Legacy unscoped dashboard storage keys are migrated into the user-scoped keys on first load
+- No auth token is stored in local storage or session storage by the shipped frontend
 
 ## Theme System (`ThemeContext.tsx`)
 
@@ -420,6 +426,7 @@ API calls:
 UI elements:
 
 - Create token form: name, expiry days, scopes CSV
+- Leave scopes blank to get the default read-only scopes; an explicit empty list is rejected by the API
 - One-time token reveal panel
 - Token inventory
 - Admin-only `user_id` filter input

@@ -2,10 +2,13 @@
 
 This folder is a code-level reference for the current ThreatLens implementation.
 
+Unless a page says otherwise, narrative docs use the published web-facing paths under `/api/v1`. The internal backend service also serves the same routers at `/v1`. The generated API reference is rendered from the backend schema and therefore lists `/v1/*` operation paths while also calling out the published `/api/v1` proxy base. The OpenAPI schema is intentionally published separately at `/api/openapi.json`.
+
 ## Coverage
 
 This documentation covers:
 
+- The published versioned API base path and deployment/runtime behavior.
 - Runtime configuration values and defaults.
 - Roles, token scopes, and authorization behavior.
 - Backend API endpoints, request/response contracts, and query parameters.
@@ -25,6 +28,13 @@ This documentation covers:
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
 - [Third-Party Notices](../THIRD_PARTY_NOTICES.md)
+- [Contributing](../CONTRIBUTING.md)
+- [Security Policy](../SECURITY.md)
+- [Code of Conduct](../CODE_OF_CONDUCT.md)
+- [Changelog](../CHANGELOG.md)
+- [Bundled OFL Text](./licenses/OFL-1.1.txt)
+- [Bundled LGPL Text](./licenses/LGPL-3.0.txt)
+- [Bundled GPL Text](./licenses/GPL-3.0.txt)
 
 ## Page Guides
 

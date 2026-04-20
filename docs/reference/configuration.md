@@ -9,7 +9,14 @@
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker
 - `beat`: Celery beat scheduler
-- `web`: Nginx serving Vite build (`3000`) and reverse proxying `/api/*` to `api`
+- `web`: Nginx serving Vite build (`3000`) and reverse proxying `/api/*` to `api`, with the published browser API rooted at `/api/v1`
+
+## Published HTTP Paths
+
+- Browser/API base through the bundled web proxy: `/api/v1`
+- OpenAPI schema through the bundled web proxy: `/api/openapi.json`
+- Internal backend service versioned base: `/v1`
+- Legacy unversioned backend routes remain available for compatibility but are intentionally outside the published contract and OpenAPI schema
 
 ## Backend Settings (`backend/app/core/config.py`)
 
@@ -20,8 +27,8 @@
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
 | `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. |
-| `JWT_SECRET` (`jwt_secret`) | `change-me` | JWT signing key. |
-| `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. |
+| `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values are replaced with a runtime-generated secret; production requires an explicit strong value. |
+| `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values are replaced with a runtime-generated key; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. |
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
@@ -109,6 +116,7 @@ When `APP_ENV` is `production` or `prod`:
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `TRUSTED_PROXY_CIDRS` when those values are omitted.
+- `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
 
@@ -119,6 +127,12 @@ When `APP_ENV` is `production` or `prod`:
 | `REQUEST_TIMEOUT_MS` | `VITE_API_TIMEOUT_MS` or `15000` | Fetch timeout in milliseconds. |
 | `CSRF_COOKIE_NAME` | `VITE_CSRF_COOKIE_NAME` or `threatlens_csrf` | CSRF cookie key used by frontend fetch wrapper. |
 | `CSRF_HEADER_NAME` | `VITE_CSRF_HEADER_NAME` or `x-csrf-token` | CSRF header sent on mutating requests. |
+
+## Trust and Egress Notes
+
+- Feed/article fetches, AI calls, and notification webhooks are separate outbound trust boundaries with separate private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`).
+- `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists.
+- `APP_DATA_ENCRYPTION_KEY` protects stored webhook templates and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET`.
 
 ## Theme Storage
 
