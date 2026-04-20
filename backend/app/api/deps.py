@@ -15,7 +15,18 @@ from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
+AUTH_SESSION_BEARER = "session_bearer"
+AUTH_SESSION_COOKIE = "session_cookie"
+AUTH_API_TOKEN = "api_token"
+
+oauth2_scheme = OAuth2PasswordBearer(
+    tokenUrl="/v1/auth/login",
+    auto_error=False,
+    description=(
+        "Use a scoped API token in the Authorization header. Browser sign-in sessions are created at "
+        "`/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`, and carried by HttpOnly cookies."
+    ),
+)
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 
@@ -27,6 +38,12 @@ def get_current_user(
 ) -> User:
     user, credentials_present = _resolve_authenticated_user(request, db, token)
     if user is None:
+        if getattr(request.state, "auth_credential_kind", None) == AUTH_SESSION_BEARER:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Bearer auth requires a scoped API token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         detail = "Invalid credentials" if credentials_present else "Not authenticated"
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
     return user
@@ -69,6 +86,12 @@ def require_token_scopes(*required_scopes: str):
     def _checker(request: Request, user: User = Depends(get_current_user)) -> User:
         token_scopes = getattr(request.state, "token_scopes", None)
         if token_scopes is None:
+            if getattr(request.state, "auth_credential_kind", None) == AUTH_SESSION_BEARER:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Bearer auth requires a scoped API token",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
             return user
 
         granted = set(token_scopes)
@@ -155,6 +178,7 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
 def _resolve_authenticated_user(request: Request, db: Session, token: str | None) -> tuple[User | None, bool]:
     request.state.token_scopes = None
     request.state.auth_via_api_token = False
+    request.state.auth_credential_kind = None
     token_source = "header"
 
     if not token:
@@ -165,11 +189,17 @@ def _resolve_authenticated_user(request: Request, db: Session, token: str | None
 
     if token_source == "cookie":
         _enforce_csrf_if_needed(request)
-
-    user = _resolve_jwt_user(db, token)
-    if user is not None:
+        user = _resolve_jwt_user(db, token)
+        if user is None:
+            return None, True
         _ensure_user_can_authenticate(user)
+        request.state.auth_credential_kind = AUTH_SESSION_COOKIE
         return user, True
+
+    session_user = _resolve_jwt_user(db, token)
+    if session_user is not None:
+        request.state.auth_credential_kind = AUTH_SESSION_BEARER
+        return None, True
 
     token_result = _resolve_api_token_user(db, token)
     if token_result is None:
@@ -179,6 +209,7 @@ def _resolve_authenticated_user(request: Request, db: Session, token: str | None
     _ensure_user_can_authenticate(user)
     request.state.token_scopes = scopes
     request.state.auth_via_api_token = True
+    request.state.auth_credential_kind = AUTH_API_TOKEN
     return user, True
 
 

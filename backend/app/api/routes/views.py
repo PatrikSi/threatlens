@@ -15,6 +15,10 @@ from app.services.audit import record_audit
 router = APIRouter(prefix="/views", tags=["views"])
 
 
+def _serialize_saved_view(view: SavedView) -> SavedViewResponse:
+    return SavedViewResponse.model_validate(view)
+
+
 @router.get("", response_model=list[SavedViewResponse])
 def list_views(
     db: Session = Depends(get_db),
@@ -25,7 +29,7 @@ def list_views(
         .where(SavedView.user_id == user.id)
         .order_by(SavedView.created_at.desc())
     ).all()
-    return list(views)
+    return [_serialize_saved_view(view) for view in views]
 
 
 @router.post("", response_model=SavedViewResponse, status_code=status.HTTP_201_CREATED)
@@ -34,7 +38,11 @@ def create_view(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
 ):
-    view = SavedView(user_id=user.id, name=payload.name, query_json=payload.query_json)
+    view = SavedView(
+        user_id=user.id,
+        name=payload.name,
+        query_json=payload.query_json.model_dump(mode="python"),
+    )
     db.add(view)
     db.flush()
     record_audit(
@@ -47,7 +55,7 @@ def create_view(
     )
     db.commit()
     db.refresh(view)
-    return view
+    return _serialize_saved_view(view)
 
 
 @router.patch("/{view_id}", response_model=SavedViewResponse)
@@ -64,7 +72,7 @@ def update_view(
     if payload.name is not None:
         view.name = payload.name
     if payload.query_json is not None:
-        view.query_json = payload.query_json
+        view.query_json = payload.query_json.model_dump(mode="python")
 
     record_audit(
         db,
@@ -76,7 +84,7 @@ def update_view(
     )
     db.commit()
     db.refresh(view)
-    return view
+    return _serialize_saved_view(view)
 
 
 @router.delete("/{view_id}", status_code=status.HTTP_204_NO_CONTENT)

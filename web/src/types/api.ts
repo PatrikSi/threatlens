@@ -90,11 +90,117 @@ export interface AuditLogExportResponse {
   logs: AuditLog[]
 }
 
+export type SavedViewTimeRange = 'all' | '24h' | '7d' | '30d' | 'days' | 'custom'
+export type SavedViewReadStatus = 'all' | 'read' | 'unread'
+export type SavedViewStarStatus = 'all' | 'starred' | 'unstarred'
+export type SavedViewSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
+export type SavedViewMode = 'expanded' | 'compact'
+export type SavedViewWindowType = 'rss' | 'alerts' | 'notes' | 'daily_brief'
+export type SavedViewWindowSnap =
+  | 'free'
+  | 'full'
+  | 'left'
+  | 'right'
+  | 'top_left'
+  | 'top_right'
+  | 'bottom_left'
+  | 'bottom_right'
+
+export interface SavedViewWindowTimeFilter {
+  time_range: SavedViewTimeRange
+  custom_since_date: string
+  custom_until_date: string
+  rolling_days: string
+}
+
+export interface SavedViewRssFilters {
+  selected_feed_ids: string[]
+  selected_tags: string[]
+  q: string
+  read_status: SavedViewReadStatus
+  star_status: SavedViewStarStatus
+  view_mode: SavedViewMode
+  page_size: 10 | 25 | 50 | 100
+  time_range: SavedViewTimeRange
+  custom_since_date: string
+  custom_until_date: string
+  rolling_days: string
+  sort: SavedViewSort
+}
+
+export interface SavedViewAlertFilters {
+  selected_alert_ids: string[]
+  selected_categories: string[]
+  q: string
+  view_mode: SavedViewMode
+  page_size: 10 | 25 | 50 | 100
+  time_range: SavedViewTimeRange
+  custom_since_date: string
+  custom_until_date: string
+  rolling_days: string
+  sort: SavedViewSort
+}
+
+export interface SavedViewWindowRssFilters {
+  selected_feed_ids: string[]
+  selected_tags: string[]
+  q: string
+  read_status: SavedViewReadStatus
+  star_status: SavedViewStarStatus
+  view_mode: SavedViewMode
+  page: number
+  page_size: 10 | 25 | 50 | 100
+  sort: SavedViewSort
+  show_advanced_filters: boolean
+}
+
+export interface SavedViewWindowAlertFilters {
+  selected_alert_ids: string[]
+  selected_categories: string[]
+  q: string
+  view_mode: SavedViewMode
+  page: number
+  page_size: 10 | 25 | 50 | 100
+  sort: SavedViewSort
+}
+
+export interface SavedViewPanelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface SavedViewWindow {
+  id: string
+  type: SavedViewWindowType
+  title: string
+  snap: SavedViewWindowSnap
+  rect: SavedViewPanelRect
+  controls_collapsed: boolean
+  scratch_note: string
+  time_override: SavedViewWindowTimeFilter | null
+  rss_filters: SavedViewWindowRssFilters | null
+  alert_filters: SavedViewWindowAlertFilters | null
+  selected_daily_brief_id: string | null
+}
+
+export interface SavedViewQueryPayload {
+  schema_version: 1
+  version: number
+  rss_filters: SavedViewRssFilters
+  alert_filters: SavedViewAlertFilters
+  windows: SavedViewWindow[]
+  ui: {
+    show_advanced_filters: boolean
+  }
+}
+
 export interface SavedView {
   id: string
   user_id: string
   name: string
-  query_json: Record<string, unknown>
+  query_json: SavedViewQueryPayload
   created_at: string
 }
 

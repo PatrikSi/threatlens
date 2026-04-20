@@ -61,7 +61,9 @@ def _is_encrypted_json(value: Any) -> bool:
 
 def _encryption_fernet() -> Fernet:
     settings = get_settings()
-    secret = settings.app_data_encryption_key or settings.jwt_secret or "change-me"
+    secret = settings.app_data_encryption_key
+    if not secret:
+        raise ValueError("app_data_encryption_key must be configured before encrypting stored data")
     return _build_fernet(secret)
 
 
@@ -80,7 +82,6 @@ def _decryption_fernets() -> list[Fernet]:
     _append(settings.app_data_encryption_key)
     for previous_key in settings.app_data_encryption_previous_keys:
         _append(previous_key)
-    _append(settings.jwt_secret or "change-me")
 
     return [_build_fernet(secret) for secret in candidates]
 

@@ -4,15 +4,16 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
 type FeedFetchMode = 'interval' | 'schedule'
-type FeedSaveStatus = 'idle' | 'pending' | 'saving' | 'saved' | 'error'
+type FeedSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
-type FeedScheduleDraft = {
+export type FeedScheduleDraft = {
   fetchMode: FeedFetchMode
   intervalSeconds: string
   scheduleCron: string
@@ -31,7 +32,7 @@ type DetectedFeedMetadata = {
   language: string
 }
 
-const FEED_AUTOSAVE_DELAY_MS = 700
+const FEED_SCHEDULE_DRAFT_STORAGE_KEY = 'threatlens.feed-schedule-drafts.v1'
 const DEFAULT_SCHEDULE_CRON = '0 * * * *'
 
 export function FeedsPage() {
@@ -39,6 +40,10 @@ export function FeedsPage() {
   const meQuery = useCurrentUser()
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const canDelete = meQuery.data?.role === 'admin'
+  const initialPersistedFeedDrafts = useMemo(
+    () => (typeof window === 'undefined' ? {} : readPersistedFeedScheduleDrafts(window.sessionStorage)),
+    [],
+  )
 
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -64,7 +69,7 @@ export function FeedsPage() {
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
-  const autosaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+  const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>(initialPersistedFeedDrafts)
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -266,29 +271,14 @@ export function FeedsPage() {
   }, [feedsQuery.data])
 
   useEffect(() => {
-    const autosaveTimers = autosaveTimersRef.current
-    return () => {
-      for (const timer of Object.values(autosaveTimers)) {
-        clearTimeout(timer)
-      }
-    }
-  }, [])
-
-  useEffect(() => {
     const feeds = feedsQuery.data ?? []
     const validIds = new Set(feeds.map((feed) => feed.id))
-
-    for (const [feedId, timer] of Object.entries(autosaveTimersRef.current)) {
-      if (!validIds.has(feedId)) {
-        clearTimeout(timer)
-        delete autosaveTimersRef.current[feedId]
-      }
-    }
 
     setFeedDrafts((previous) => {
       const next: Record<string, FeedScheduleDraft> = {}
       for (const feed of feeds) {
-        next[feed.id] = previous[feed.id] ?? feedToScheduleDraft(feed)
+        const draft = previous[feed.id] ?? persistedFeedDraftsRef.current[feed.id]
+        next[feed.id] = draft && isFeedScheduleDraftDirty(feed, draft) ? draft : feedToScheduleDraft(feed)
       }
       return next
     })
@@ -303,6 +293,28 @@ export function FeedsPage() {
       return next
     })
   }, [feedsQuery.data])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    if (!feedsQuery.data) {
+      return
+    }
+
+    const dirtyDrafts = collectDirtyFeedScheduleDrafts(feedsQuery.data, feedDrafts)
+    persistedFeedDraftsRef.current = dirtyDrafts
+
+    try {
+      if (Object.keys(dirtyDrafts).length > 0) {
+        window.sessionStorage.setItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY, JSON.stringify(dirtyDrafts))
+      } else {
+        window.sessionStorage.removeItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY)
+      }
+    } catch {
+      // Ignore storage write failures and keep editing in memory.
+    }
+  }, [feedDrafts, feedsQuery.data])
 
   useEffect(() => {
     if (!detectedMetadata) {
@@ -392,53 +404,42 @@ export function FeedsPage() {
     const feed = (feedsQuery.data ?? []).find((entry) => entry.id === feedId)
     if (!feed) return
 
-    const body: Record<string, unknown> = { fetch_mode: draft.fetchMode }
-    if (draft.fetchMode === 'interval') {
-      const parsed = Number(draft.intervalSeconds)
-      if (!Number.isFinite(parsed) || parsed < 60) {
-        setFeedSaveState((previous) => ({
-          ...previous,
-          [feedId]: { status: 'error', message: 'Interval must be at least 60 seconds.' },
-        }))
-        return
-      }
-      const intervalSeconds = Math.floor(parsed)
-      body.fetch_interval_seconds = intervalSeconds
-
-      if (feed.fetch_mode === 'interval' && feed.fetch_interval_seconds === intervalSeconds) {
-        setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
-        return
-      }
-
-      setFeedDrafts((previous) => ({
+    const validationError = validateFeedScheduleDraft(draft)
+    if (validationError) {
+      setFeedSaveState((previous) => ({
         ...previous,
-        [feedId]: { ...draft, intervalSeconds: String(intervalSeconds) },
+        [feedId]: { status: 'error', message: validationError },
       }))
+      return
+    }
+
+    const normalizedDraft = normalizeFeedScheduleDraft(draft)
+    const body: Record<string, unknown> = { fetch_mode: normalizedDraft.fetchMode }
+    if (normalizedDraft.fetchMode === 'interval') {
+      body.fetch_interval_seconds = Number(normalizedDraft.intervalSeconds)
     } else {
-      const scheduleCron = draft.scheduleCron.trim()
-      if (!scheduleCron) {
-        setFeedSaveState((previous) => ({
-          ...previous,
-          [feedId]: { status: 'error', message: 'Schedule cannot be empty.' },
-        }))
-        return
-      }
-      body.schedule_cron = scheduleCron
-      if (feed.fetch_mode === 'schedule' && (feed.schedule_cron || '') === scheduleCron) {
-        setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
-        return
-      }
-      setFeedDrafts((previous) => ({
-        ...previous,
-        [feedId]: { ...draft, scheduleCron },
-      }))
+      body.schedule_cron = normalizedDraft.scheduleCron
+    }
+
+    setFeedDrafts((previous) => ({
+      ...previous,
+      [feedId]: normalizedDraft,
+    }))
+
+    if (!isFeedScheduleDraftDirty(feed, normalizedDraft)) {
+      setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
+      return
     }
 
     setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saving' } }))
 
     try {
-      await updateFeed.mutateAsync({ id: feedId, body })
+      await apiFetch<Feed>(`/feeds/${feedId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
       setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
+      await queryClient.invalidateQueries({ queryKey: ['feeds'] })
     } catch (error) {
       setFeedSaveState((previous) => ({
         ...previous,
@@ -447,28 +448,25 @@ export function FeedsPage() {
     }
   }
 
-  const queueFeedAutosave = (feedId: string, draft: FeedScheduleDraft) => {
-    const existing = autosaveTimersRef.current[feedId]
-    if (existing) {
-      clearTimeout(existing)
-    }
-
-    setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'pending' } }))
-    autosaveTimersRef.current[feedId] = window.setTimeout(() => {
-      void persistFeedSchedule(feedId, draft)
-    }, FEED_AUTOSAVE_DELAY_MS)
-  }
-
   const updateFeedDraft = (feed: Feed, patch: Partial<FeedScheduleDraft>) => {
     const currentDraft = feedDrafts[feed.id] ?? feedToScheduleDraft(feed)
     const nextDraft = { ...currentDraft, ...patch }
     setFeedDrafts((previous) => ({ ...previous, [feed.id]: nextDraft }))
-    queueFeedAutosave(feed.id, nextDraft)
+    setFeedSaveState((previous) => ({ ...previous, [feed.id]: { status: 'idle' } }))
+  }
+
+  const resetFeedDraft = (feed: Feed) => {
+    setFeedDrafts((previous) => ({ ...previous, [feed.id]: feedToScheduleDraft(feed) }))
+    setFeedSaveState((previous) => ({ ...previous, [feed.id]: { status: 'idle' } }))
   }
 
   const visibleFeedIds = filteredFeeds.map((feed) => feed.id)
   const visibleDisabledFeedIds = filteredFeeds.filter((feed) => !feed.enabled).map((feed) => feed.id)
   const visibleEnabledFeedIds = filteredFeeds.filter((feed) => feed.enabled).map((feed) => feed.id)
+  const hasUnsavedFeedScheduleChanges = (feedsQuery.data ?? []).some((feed) =>
+    isFeedScheduleDraftDirty(feed, feedDrafts[feed.id] ?? feedToScheduleDraft(feed)),
+  )
+  useUnsavedChangesWarning(hasUnsavedFeedScheduleChanges, 'You have unsaved feed schedule changes. Leave without saving?')
 
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
@@ -749,12 +747,23 @@ export function FeedsPage() {
             const draft = feedDrafts[feed.id] ?? feedToScheduleDraft(feed)
             const saveState = feedSaveState[feed.id]?.status ?? 'idle'
             const saveMessage = feedSaveState[feed.id]?.message
+            const validationMessage = validateFeedScheduleDraft(draft)
+            const isDirty = isFeedScheduleDraftDirty(feed, draft)
+            const scheduleNotice =
+              validationMessage ||
+              saveMessage ||
+              (isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : saveState !== 'idle' ? feedSaveStatusText(saveState) : null)
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold">{feed.name}</p>
+                    {isDirty && (
+                      <span className="rounded-full border border-amber-300/70 bg-amber-100/80 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
+                        Unsaved schedule
+                      </span>
+                    )}
                     <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${feedHealthBadgeClass(health.status)}`}>
                       {health.label}
                     </span>
@@ -824,6 +833,12 @@ export function FeedsPage() {
                       onChange={(event) => {
                         updateFeedDraft(feed, { fetchMode: 'interval', intervalSeconds: event.target.value })
                       }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && canManage && isDirty && !validationMessage && saveState !== 'saving') {
+                          event.preventDefault()
+                          void persistFeedSchedule(feed.id, draft)
+                        }
+                      }}
                       disabled={!canManage}
                     />
                     <span className="text-xs text-slate dark:text-slate-300">seconds</span>
@@ -835,14 +850,41 @@ export function FeedsPage() {
                     onChange={(event) => {
                       updateFeedDraft(feed, { fetchMode: 'schedule', scheduleCron: event.target.value })
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && canManage && isDirty && !validationMessage && saveState !== 'saving') {
+                        event.preventDefault()
+                        void persistFeedSchedule(feed.id, draft)
+                      }
+                    }}
                     disabled={!canManage}
                   />
                 )}
               </div>
 
-              {canManage && saveState !== 'idle' && (
-                <p className={`mt-1 text-[11px] ${feedSaveStatusClass(saveState)}`}>
-                  {saveMessage || feedSaveStatusText(saveState)}
+              {canManage && (
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded border border-slate/30 px-3 py-1 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+                    disabled={!isDirty || saveState === 'saving' || Boolean(validationMessage)}
+                    onClick={() => void persistFeedSchedule(feed.id, draft)}
+                  >
+                    Save schedule
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/30 px-3 py-1 text-xs disabled:opacity-50 dark:border-cyan-900/40"
+                    disabled={!isDirty && saveState === 'idle'}
+                    onClick={() => resetFeedDraft(feed)}
+                  >
+                    Reset draft
+                  </button>
+                </div>
+              )}
+
+              {canManage && scheduleNotice && (
+                <p className={`mt-1 text-[11px] ${validationMessage ? 'text-red-600' : feedSaveStatusClass(saveState, isDirty)}`}>
+                  {scheduleNotice}
                 </p>
               )}
 
@@ -914,7 +956,7 @@ type BulkSummary = {
   failed: number
 }
 
-function feedToScheduleDraft(feed: Feed): FeedScheduleDraft {
+export function feedToScheduleDraft(feed: Feed): FeedScheduleDraft {
   return {
     fetchMode: feed.fetch_mode,
     intervalSeconds: String(feed.fetch_interval_seconds || 1800),
@@ -922,16 +964,75 @@ function feedToScheduleDraft(feed: Feed): FeedScheduleDraft {
   }
 }
 
+export function normalizeFeedScheduleDraft(draft: FeedScheduleDraft): FeedScheduleDraft {
+  const trimmedInterval = draft.intervalSeconds.trim()
+  const parsedInterval = Number(trimmedInterval)
+
+  return {
+    fetchMode: draft.fetchMode,
+    intervalSeconds: Number.isFinite(parsedInterval) ? String(Math.floor(parsedInterval)) : trimmedInterval,
+    scheduleCron: draft.scheduleCron.trim(),
+  }
+}
+
+export function validateFeedScheduleDraft(draft: FeedScheduleDraft): string | null {
+  if (draft.fetchMode === 'interval') {
+    const trimmedInterval = draft.intervalSeconds.trim()
+    const parsedInterval = Number(trimmedInterval)
+    if (!trimmedInterval) {
+      return 'Interval is required.'
+    }
+    if (!Number.isFinite(parsedInterval) || parsedInterval < 60) {
+      return 'Interval must be at least 60 seconds.'
+    }
+    return null
+  }
+
+  return draft.scheduleCron.trim() ? null : 'Schedule cannot be empty.'
+}
+
+export function isFeedScheduleDraftDirty(feed: Feed, draft: FeedScheduleDraft): boolean {
+  const persistedDraft = feedToScheduleDraft(feed)
+  const normalizedDraft = normalizeFeedScheduleDraft(draft)
+
+  if (normalizedDraft.fetchMode !== persistedDraft.fetchMode) {
+    return true
+  }
+
+  if (normalizedDraft.fetchMode === 'interval') {
+    return normalizedDraft.intervalSeconds !== persistedDraft.intervalSeconds
+  }
+
+  return normalizedDraft.scheduleCron !== persistedDraft.scheduleCron
+}
+
+export function collectDirtyFeedScheduleDrafts(
+  feeds: Feed[],
+  drafts: Record<string, FeedScheduleDraft>,
+): Record<string, FeedScheduleDraft> {
+  const dirtyDrafts: Record<string, FeedScheduleDraft> = {}
+
+  for (const feed of feeds) {
+    const draft = drafts[feed.id]
+    if (!draft || !isFeedScheduleDraftDirty(feed, draft)) {
+      continue
+    }
+    dirtyDrafts[feed.id] = draft
+  }
+
+  return dirtyDrafts
+}
+
 function feedSaveStatusText(status: FeedSaveStatus): string {
-  if (status === 'pending') return 'Unsaved changes. Autosaving...'
   if (status === 'saving') return 'Saving...'
   if (status === 'saved') return 'Saved.'
   return 'Save failed.'
 }
 
-function feedSaveStatusClass(status: FeedSaveStatus): string {
+function feedSaveStatusClass(status: FeedSaveStatus, isDirty: boolean): string {
   if (status === 'error') return 'text-red-600'
   if (status === 'saved') return 'text-emerald-700 dark:text-emerald-300'
+  if (isDirty) return 'text-amber-700 dark:text-amber-300'
   return 'text-slate dark:text-slate-300'
 }
 
@@ -1010,6 +1111,48 @@ function findDuplicateUrls(entries: FeedImportEntry[]): string[] {
   return Array.from(counts.entries())
     .filter(([, count]) => count > 1)
     .map(([url]) => url)
+}
+
+function readPersistedFeedScheduleDrafts(storage: Pick<Storage, 'getItem'>): Record<string, FeedScheduleDraft> {
+  try {
+    const raw = storage.getItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY)
+    if (!raw) {
+      return {}
+    }
+
+    const parsed = JSON.parse(raw) as unknown
+    if (typeof parsed !== 'object' || parsed === null) {
+      return {}
+    }
+
+    const next: Record<string, FeedScheduleDraft> = {}
+    for (const [feedId, entry] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof entry !== 'object' || entry === null) {
+        continue
+      }
+
+      const draft = entry as Record<string, unknown>
+      const fetchMode = draft.fetchMode
+      const intervalSeconds = draft.intervalSeconds
+      const scheduleCron = draft.scheduleCron
+      if (fetchMode !== 'interval' && fetchMode !== 'schedule') {
+        continue
+      }
+      if (typeof intervalSeconds !== 'string' || typeof scheduleCron !== 'string') {
+        continue
+      }
+
+      next[feedId] = {
+        fetchMode,
+        intervalSeconds,
+        scheduleCron,
+      }
+    }
+
+    return next
+  } catch {
+    return {}
+  }
 }
 
 function resolveMutationError(error: unknown): string {

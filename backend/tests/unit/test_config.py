@@ -114,3 +114,25 @@ def test_bootstrap_mutation_flags_default_off():
 
     assert settings.run_migrations_on_startup is False
     assert settings.seed_admin_on_startup is False
+
+
+def test_development_generates_runtime_secrets_when_not_configured():
+    settings = Settings()
+
+    assert settings.jwt_secret
+    assert settings.app_data_encryption_key
+    assert settings.jwt_secret != settings.app_data_encryption_key
+    assert settings.jwt_secret != "change-me"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value"),
+    [
+        ("jwt_secret", "change-me"),
+        ("app_data_encryption_key", "change-me"),
+    ],
+)
+def test_placeholder_runtime_secrets_are_replaced_outside_production(field_name: str, field_value: str):
+    kwargs = {field_name: field_value}
+    settings = Settings(**kwargs)
+    assert getattr(settings, field_name) != field_value

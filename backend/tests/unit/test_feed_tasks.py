@@ -228,6 +228,58 @@ def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
     assert result == {"status": "skipped", "reason": "invalid_feed_id", "feed_id": "not-a-uuid"}
 
 
+def test_fetch_feed_marks_non_feed_http_200_response_as_failure(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    class _Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+        url = "https://example.com/feed.xml"
+
+        def iter_bytes(self):
+            yield b"<html><body>not a feed</body></html>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+
+    result = fetch_feed.run(str(feed.id), force=True)
+
+    db_session.refresh(feed)
+    assert result == {"status": "error", "feed_id": str(feed.id)}
+    assert feed.error_count == 1
+    assert feed.last_error == "invalid_feed_content"
+
+
 def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),

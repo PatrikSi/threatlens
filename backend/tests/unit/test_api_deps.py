@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 from starlette.requests import Request
 
 from app.api import deps
@@ -39,3 +40,40 @@ def test_resolve_client_ip_ignores_forwarded_header_from_untrusted_peer(monkeypa
     )
     request = _make_request(client_host="198.51.100.7", forwarded_for="203.0.113.10")
     assert deps.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_require_token_scopes_rejects_session_jwt_used_in_authorization_header():
+    checker = deps.require_token_scopes("read:feeds")
+    request = _make_request(client_host="127.0.0.1")
+    request.state.token_scopes = None
+    request.state.auth_credential_kind = deps.AUTH_SESSION_BEARER
+
+    with pytest.raises(deps.HTTPException) as excinfo:
+        checker(request=request, user=object())
+
+    assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == "Bearer auth requires a scoped API token"
+    assert excinfo.value.headers == {"WWW-Authenticate": "Bearer"}
+
+
+def test_require_token_scopes_allows_cookie_session_without_api_token_scopes():
+    checker = deps.require_token_scopes("read:feeds")
+    request = _make_request(client_host="127.0.0.1")
+    request.state.token_scopes = None
+    request.state.auth_credential_kind = deps.AUTH_SESSION_COOKIE
+    user = object()
+
+    assert checker(request=request, user=user) is user
+
+
+def test_require_token_scopes_enforces_missing_api_token_scope():
+    checker = deps.require_token_scopes("write:feeds")
+    request = _make_request(client_host="127.0.0.1")
+    request.state.token_scopes = ["read:feeds"]
+    request.state.auth_credential_kind = deps.AUTH_API_TOKEN
+
+    with pytest.raises(deps.HTTPException) as excinfo:
+        checker(request=request, user=object())
+
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.detail == "Insufficient token scope"

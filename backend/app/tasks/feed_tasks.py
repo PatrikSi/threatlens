@@ -48,7 +48,7 @@ from app.services.ai_ops import (
     start_ai_task_run,
     update_ai_task_run_celery,
 )
-from app.services.connectors.rss import RSSConnector
+from app.services.connectors.rss import RSSConnector, RSSFeedParseError
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
 from app.services.dedupe import content_hash, dedupe_key
@@ -1293,7 +1293,12 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     return {"status": "error", "feed_id": feed_id}
 
                 connector = RSSConnector()
-                parsed_items, _ = connector.poll({"body": body_bytes}, None)
+                try:
+                    parsed_items, _ = connector.poll({"body": body_bytes}, None)
+                except RSSFeedParseError as exc:
+                    logger.warning("feed_fetch_invalid_content feed_id=%s error=%s", feed_id, exc)
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, str(exc))
+                    return {"status": "error", "feed_id": feed_id}
                 _backfill_feed_metadata_from_body(feed, body_bytes)
 
                 changed_item_ids: list[uuid.UUID] = []

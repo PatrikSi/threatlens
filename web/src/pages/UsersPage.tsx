@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -34,6 +35,84 @@ const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilitie
     ],
   },
 ]
+
+type UserSettingsDraft = {
+  role: User['role']
+  isActive: boolean
+  isApproved: boolean
+}
+
+type UserConfirmationState = {
+  title: string
+  description: string
+  confirmLabel: string
+  confirmTone: 'danger' | 'primary'
+  details: string[]
+  payload: UserUpdateRequest
+}
+
+export function buildUserSettingsConfirmation(user: User, draft: UserSettingsDraft): UserConfirmationState | null {
+  const payload: UserUpdateRequest = {}
+  const details: string[] = []
+
+  if (draft.role !== user.role) {
+    payload.role = draft.role
+    details.push(`Role will change from ${user.role} to ${draft.role}.`)
+    if (draft.role === 'admin') {
+      details.push('This grants full administrative access across user management, global settings, and operational controls.')
+    } else if (user.role === 'admin') {
+      details.push('This removes administrative access to user management, audit logs, and global settings.')
+    }
+  }
+
+  if (draft.isActive !== user.is_active) {
+    payload.is_active = draft.isActive
+    details.push(
+      draft.isActive ? 'Sign-in will be re-enabled for this account.' : 'Sign-in will be blocked until the account is reactivated.',
+    )
+  }
+
+  if (draft.isApproved !== user.is_approved) {
+    payload.is_approved = draft.isApproved
+    details.push(
+      draft.isApproved ? 'The account will move out of pending approval.' : 'The account will return to pending approval.',
+    )
+  }
+
+  if (!details.length) {
+    return null
+  }
+
+  return {
+    title: 'Apply privileged user changes?',
+    description: 'Review the account changes below before they are applied.',
+    confirmLabel: 'Apply user changes',
+    confirmTone: 'primary',
+    details,
+    payload,
+  }
+}
+
+export function buildPasswordResetConfirmation(user: User, nextPassword: string): UserConfirmationState | null {
+  const trimmedPassword = nextPassword.trim()
+  if (trimmedPassword.length < 8) {
+    return null
+  }
+
+  return {
+    title: 'Reset user password?',
+    description: `This immediately replaces the current password for ${user.email}.`,
+    confirmLabel: 'Reset password',
+    confirmTone: 'primary',
+    details: [
+      `You are updating credentials for ${user.email}.`,
+      'The current password will stop working as soon as you confirm.',
+      `The new password meets the minimum length requirement with ${trimmedPassword.length} characters.`,
+      'Share the new password through a secure channel.',
+    ],
+    payload: { password: trimmedPassword },
+  }
+}
 
 export function UsersPage() {
   const queryClient = useQueryClient()
@@ -247,7 +326,15 @@ function UserRow({
   const [isActive, setIsActive] = useState(user.is_active)
   const [isApproved, setIsApproved] = useState(user.is_approved)
   const [resetPassword, setResetPassword] = useState('')
-  const trimmedPassword = resetPassword.trim()
+  const settingsConfirmation = buildUserSettingsConfirmation(user, { role, isActive, isApproved })
+  const passwordConfirmation = buildPasswordResetConfirmation(user, resetPassword)
+  const [pendingConfirmationAction, setPendingConfirmationAction] = useState<'settings' | 'password' | null>(null)
+  const pendingConfirmation =
+    pendingConfirmationAction === 'password'
+      ? passwordConfirmation
+      : pendingConfirmationAction === 'settings'
+        ? settingsConfirmation
+        : null
 
   useEffect(() => {
     setRole(user.role)
@@ -261,71 +348,115 @@ function UserRow({
     }
   }, [notice])
 
+  useEffect(() => {
+    if (pendingConfirmationAction && !pendingConfirmation) {
+      setPendingConfirmationAction(null)
+    }
+  }, [pendingConfirmation, pendingConfirmationAction])
+
+  const confirmPendingChange = () => {
+    if (!pendingConfirmation) {
+      return
+    }
+
+    const payload = pendingConfirmation.payload
+    setPendingConfirmationAction(null)
+    onSave(payload)
+  }
+
   return (
-    <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="font-semibold">{user.email}</p>
-          <p className="text-xs text-slate dark:text-slate-300">
-            Created {formatDateTime(user.created_at)}
-            {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}
-          </p>
-          {!user.is_approved && (
-            <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
-              Pending approval
+    <>
+      <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="font-semibold">{user.email}</p>
+            <p className="text-xs text-slate dark:text-slate-300">
+              Created {formatDateTime(user.created_at)}
+              {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}
             </p>
-          )}
+            {!user.is_approved && (
+              <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+                Pending approval
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={role}
+              onChange={(event) => setRole(event.target.value as User['role'])}
+              className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            >
+              <option value="viewer">viewer</option>
+              <option value="analyst">analyst</option>
+              <option value="admin">admin</option>
+            </select>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+              Active
+            </label>
+            <label className="flex items-center gap-1 text-sm">
+              <input type="checkbox" checked={isApproved} onChange={(event) => setIsApproved(event.target.checked)} />
+              Approved
+            </label>
+            <button
+              className="rounded border border-slate/30 px-3 py-1 text-sm font-semibold dark:border-cyan-900/40"
+              disabled={saving || !settingsConfirmation}
+              onClick={() => setPendingConfirmationAction('settings')}
+            >
+              Review user changes
+            </button>
+          </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select
-            value={role}
-            onChange={(event) => setRole(event.target.value as User['role'])}
-            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-          >
-            <option value="viewer">viewer</option>
-            <option value="analyst">analyst</option>
-            <option value="admin">admin</option>
-          </select>
-          <label className="flex items-center gap-1 text-sm">
-            <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
-            Active
-          </label>
-          <label className="flex items-center gap-1 text-sm">
-            <input type="checkbox" checked={isApproved} onChange={(event) => setIsApproved(event.target.checked)} />
-            Approved
-          </label>
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <input
+            type="password"
+            placeholder="New password (min 8 chars)"
+            value={resetPassword}
+            onChange={(event) => setResetPassword(event.target.value)}
+            className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
+          />
           <button
-            className="rounded border border-slate/30 px-3 py-1 text-sm font-semibold dark:border-cyan-900/40"
-            disabled={saving}
-            onClick={() => onSave({ role, is_active: isActive, is_approved: isApproved })}
+            className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
+            disabled={saving || !passwordConfirmation}
+            onClick={() => setPendingConfirmationAction('password')}
           >
-            Save user settings
+            Review password reset
           </button>
         </div>
+        {notice && (
+          <p className={`mt-2 text-sm ${notice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
+            {notice.message}
+          </p>
+        )}
       </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <input
-          type="password"
-          placeholder="New password (min 8 chars)"
-          value={resetPassword}
-          onChange={(event) => setResetPassword(event.target.value)}
-          className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
-        />
-        <button
-          className="rounded border border-slate/30 px-3 py-1 text-sm dark:border-cyan-900/40"
-          disabled={saving || trimmedPassword.length < 8}
-          onClick={() => onSave({ password: trimmedPassword })}
-        >
-          Save password
-        </button>
-      </div>
-      {notice && (
-        <p className={`mt-2 text-sm ${notice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
-          {notice.message}
-        </p>
-      )}
-    </div>
+      <ConfirmDialog
+        open={Boolean(pendingConfirmation)}
+        title={pendingConfirmation?.title ?? 'Review user change'}
+        description={pendingConfirmation?.description}
+        confirmLabel={pendingConfirmation?.confirmLabel ?? 'Confirm'}
+        confirmTone={pendingConfirmation?.confirmTone ?? 'primary'}
+        onCancel={() => setPendingConfirmationAction(null)}
+        onConfirm={confirmPendingChange}
+        confirmDisabled={!pendingConfirmation}
+        isConfirming={saving}
+      >
+        {pendingConfirmation && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-semibold text-ink dark:text-white">{user.email}</p>
+              <p className="text-xs text-slate dark:text-white/70">Role: {user.role}</p>
+            </div>
+            <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-white/80">
+              {pendingConfirmation.details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </ConfirmDialog>
+    </>
   )
 }
 

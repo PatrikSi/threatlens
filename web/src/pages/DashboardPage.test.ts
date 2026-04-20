@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './DashboardPage'
+import {
+  buildDashboardSavedViewState,
+  getDashboardStorageKeys,
+  migrateLegacyDashboardStorage,
+  parseDashboardSavedView,
+  resolveSavedViewSelectionChange,
+} from './DashboardPage'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 
@@ -118,6 +124,122 @@ describe('summarizeGlobalSearchAcrossWindows', () => {
     ).toEqual({
       value: '',
       isMixed: true,
+    })
+  })
+})
+
+describe('saved view payloads', () => {
+  it('builds a versioned payload that round-trips through the parser', () => {
+    const built = buildDashboardSavedViewState(
+      [
+        {
+          id: 'rss-1',
+          type: 'rss',
+          title: 'RSS Panel 1',
+          snap: 'full',
+          rect: { x: 0, y: 0, width: 1200, height: 720 },
+          controls_collapsed: false,
+          scratch_note: '',
+          time_override: null,
+          rss_filters: {
+            selected_feed_ids: ['feed-1'],
+            selected_tags: ['vendor:microsoft'],
+            q: 'exchange',
+            read_status: 'unread',
+            star_status: 'all',
+            view_mode: 'compact',
+            page: 3,
+            page_size: 50,
+            sort: 'published_at_desc',
+            show_advanced_filters: true,
+          },
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+        {
+          id: 'notes-1',
+          type: 'notes',
+          title: 'Notes Panel 1',
+          snap: 'free',
+          rect: { x: 24, y: 24, width: 480, height: 360 },
+          controls_collapsed: false,
+          scratch_note: 'Track exposed assets.',
+          time_override: null,
+          rss_filters: null,
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+      ],
+      {
+        time_range: '7d',
+        custom_since_date: '',
+        custom_until_date: '',
+        rolling_days: '7',
+      },
+    )
+
+    expect(built.schema_version).toBe(1)
+    expect(built.windows[0].rss_filters?.page).toBe(1)
+
+    const parsed = parseDashboardSavedView(built as unknown as Record<string, unknown>, 1380, 760)
+
+    expect(parsed.schema_version).toBe(1)
+    expect(parsed.rss_filters.q).toBe('exchange')
+    expect(parsed.windows[0].rss_filters?.page).toBe(1)
+    expect(parsed.windows[1].scratch_note).toBe('Track exposed assets.')
+  })
+
+  it('migrates legacy saved views into the current schema', () => {
+    const parsed = parseDashboardSavedView(
+      {
+        filters: {
+          selected_feed_ids: ['feed-2'],
+          q: 'legacy-search',
+          read_status: 'read',
+        },
+        panel_rect: {
+          x: 40,
+          y: 30,
+          width: 640,
+          height: 420,
+        },
+      },
+      1380,
+      760,
+    )
+
+    expect(parsed.schema_version).toBe(1)
+    expect(parsed.rss_filters.selected_feed_ids).toEqual(['feed-2'])
+    expect(parsed.rss_filters.q).toBe('legacy-search')
+    expect(parsed.windows).toHaveLength(1)
+    expect(parsed.windows[0].type).toBe('rss')
+    expect(parsed.windows[0].rect.width).toBeGreaterThan(0)
+  })
+})
+
+describe('resolveSavedViewSelectionChange', () => {
+  it('requires confirmation before loading another view during a protected edit session', () => {
+    expect(
+      resolveSavedViewSelectionChange({
+        currentActiveSavedViewId: 'view-1',
+        nextValue: 'view-2',
+        hasProtectedEditSession: true,
+      }),
+    ).toEqual({
+      kind: 'confirm_load',
+      viewId: 'view-2',
+    })
+  })
+
+  it('allows clearing the active view without discarding the edit snapshot', () => {
+    expect(
+      resolveSavedViewSelectionChange({
+        currentActiveSavedViewId: 'view-1',
+        nextValue: '',
+        hasProtectedEditSession: true,
+      }),
+    ).toEqual({
+      kind: 'clear',
     })
   })
 })

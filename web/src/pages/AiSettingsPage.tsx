@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import { AISettingsDraft, createDraftFromSettings, createRequestFromDraft, DEFAULT_DRAFT } from './aiSettingsDraft'
 import { resolveVisibleRunSelection } from './aiRunSelection'
@@ -79,6 +80,7 @@ export function AiSettingsPage() {
     setDraftDirty(true)
     setDraftState(value)
   }
+  useUnsavedChangesWarning(draftDirty, 'You have unsaved AI settings changes. Leave without saving?')
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())

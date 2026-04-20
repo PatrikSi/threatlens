@@ -683,6 +683,84 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (rendered_headers or []))
 
 
+def test_process_notification_webhook_delivery_preserves_original_request_snapshot(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    user = User(
+        id=uuid.uuid4(),
+        email="notify@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Retry webhook",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=webhook.user_id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=12,
+        rendered_url="https://example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[{"key": "Content-Type", "value": "application/json"}],
+        rendered_query_params_json=[{"key": "token", "value": "abc"}],
+        rendered_body='{"title":"ThreatLens"}',
+        response_body_preview=None,
+        error=None,
+        delivery_state="pending",
+        attempt_count=0,
+        attempted_at=now,
+    )
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, delivery)
+    db_session.commit()
+
+    def _fake_send(rendered):
+        assert rendered.url == "https://example.com/hook"
+        assert rendered.query_param_pairs == [("token", "abc")]
+        return NotificationWebhookTestResponse(
+            success=False,
+            status_code=500,
+            duration_ms=11,
+            rendered_url="https://example.com/final?server=1",
+            rendered_method="GET",
+            rendered_headers=[NotificationWebhookField(key="X-Redirected", value="1")],
+            rendered_query_params=[],
+            rendered_body=None,
+            response_body_preview="server error",
+            error="HTTP 500",
+        )
+
+    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+
+    attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
+
+    assert attempt.result.success is False
+    assert decrypt_text(attempt.delivery.rendered_url) == "https://example.com/hook"
+    assert decrypt_json(attempt.delivery.rendered_query_params_json) == [{"key": "token", "value": "abc"}]
+    assert decrypt_text(attempt.delivery.rendered_body) == '{"title":"ThreatLens"}'
+    assert attempt.delivery.status_code == 500
+    assert decrypt_text(attempt.delivery.response_body_preview) == "server error"
+
+
 def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_session, monkeypatch):
     user = User(
         id=uuid.uuid4(),
@@ -777,8 +855,8 @@ def test_retry_notification_webhook_delivery_reuses_saved_rendered_request(db_se
 
     retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
 
-    assert captured["url"] == "https://example.com/hook?token=abc"
-    assert captured["query_param_pairs"] == []
+    assert captured["url"] == "https://example.com/hook"
+    assert captured["query_param_pairs"] == [("token", "abc")]
     assert captured["raw_body"] == b'{"title":"ThreatLens"}'
     assert captured["timeout_seconds"] == 12
     assert retried.delivery_kind == "retry"

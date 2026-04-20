@@ -1,9 +1,12 @@
 import { useEffect } from 'react'
+import { useBlocker } from 'react-router-dom'
 
 export function useUnsavedChangesWarning(
   isDirty: boolean,
   message = 'You have unsaved changes. Leave without saving?',
 ) {
+  const blocker = useBlocker(isDirty)
+
   useEffect(() => {
     if (!isDirty) {
       return
@@ -18,6 +21,19 @@ export function useUnsavedChangesWarning(
     window.addEventListener('beforeunload', onBeforeUnload)
     return () => window.removeEventListener('beforeunload', onBeforeUnload)
   }, [isDirty, message])
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') {
+      return
+    }
+
+    if (window.confirm(message)) {
+      blocker.proceed()
+      return
+    }
+
+    blocker.reset()
+  }, [blocker, message])
 
   return () => {
     if (!isDirty) {

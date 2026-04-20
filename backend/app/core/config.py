@@ -1,3 +1,4 @@
+import secrets
 from functools import lru_cache
 from typing import Annotated
 
@@ -18,13 +19,17 @@ def _looks_like_placeholder_secret(value: str | None) -> bool:
     return any(normalized.startswith(prefix) for prefix in _PLACEHOLDER_SECRET_PREFIXES)
 
 
+def _generate_runtime_secret() -> str:
+    return secrets.token_urlsafe(48)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
     redis_url: str = "redis://redis:6379/0"
-    jwt_secret: str = "change-me"
+    jwt_secret: str = ""
     app_data_encryption_key: str | None = None
     app_data_encryption_previous_keys: Annotated[list[str], NoDecode] = []
     jwt_algorithm: str = "HS256"
@@ -136,7 +141,23 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_production_security(self):
-        if self.app_env.lower() in {"production", "prod"}:
+        is_production = self.app_env.lower() in {"production", "prod"}
+
+        if not self.jwt_secret or _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
+            if is_production:
+                raise ValueError("jwt_secret must be explicitly set in production")
+            self.jwt_secret = _generate_runtime_secret()
+
+        if (
+            not self.app_data_encryption_key
+            or _looks_like_placeholder_secret(self.app_data_encryption_key)
+            or len(self.app_data_encryption_key) < 32
+        ):
+            if is_production:
+                raise ValueError("app_data_encryption_key must be explicitly set in production")
+            self.app_data_encryption_key = _generate_runtime_secret()
+
+        if is_production:
             if _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
                 raise ValueError("jwt_secret must be set and at least 32 characters in production")
             if (

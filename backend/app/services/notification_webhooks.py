@@ -1890,6 +1890,23 @@ def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
     return urlunsplit((split.scheme, split.netloc, split.path, merged_query, split.fragment))
 
 
+def _restore_saved_request_target(
+    saved_url: str,
+    rendered_query_params: list[NotificationWebhookField],
+) -> tuple[str, list[tuple[str, str]]]:
+    query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
+    if not query_param_pairs:
+        return saved_url, []
+
+    split = urlsplit(saved_url)
+    saved_query_pairs = parse_qsl(split.query, keep_blank_values=True)
+    if not saved_query_pairs:
+        return saved_url, query_param_pairs
+    if saved_query_pairs == query_param_pairs:
+        return urlunsplit((split.scheme, split.netloc, split.path, "", split.fragment)), query_param_pairs
+    return saved_url, []
+
+
 def _origin_tuple(url: str) -> tuple[str, str, int | None]:
     split = urlsplit(url)
     try:
@@ -2142,11 +2159,6 @@ def _finalize_notification_webhook_delivery(
     delivery.success = result.success
     delivery.status_code = result.status_code
     delivery.duration_ms = result.duration_ms
-    delivery.rendered_url = _encrypt_notification_text(result.rendered_url) or ""
-    delivery.rendered_method = result.rendered_method
-    delivery.rendered_headers_json = _notification_fields_to_storage(result.rendered_headers)
-    delivery.rendered_query_params_json = _notification_fields_to_storage(result.rendered_query_params)
-    delivery.rendered_body = _encrypt_notification_text(result.rendered_body)
     delivery.response_body_preview = _encrypt_notification_text(result.response_body_preview)
     delivery.error = result.error
     delivery.attempted_at = datetime.now(timezone.utc)
@@ -2159,18 +2171,20 @@ def _finalize_notification_webhook_delivery(
 def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> RenderedNotificationRequest:
     rendered_headers = _notification_fields_from_storage(delivery.rendered_headers_json)
     rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
+    saved_url = _decrypt_notification_text(delivery.rendered_url) or ""
+    replay_url, query_param_pairs = _restore_saved_request_target(saved_url, rendered_query_params)
     headers_dict = _canonicalize_headers(rendered_headers)
     headers_dict.setdefault(THREATLENS_DELIVERY_ID_HEADER, str(delivery.source_delivery_id or delivery.id))
     rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
     body_text = _decrypt_notification_text(delivery.rendered_body)
     return RenderedNotificationRequest(
         method=delivery.rendered_method,
-        url=_decrypt_notification_text(delivery.rendered_url) or "",
+        url=replay_url,
         headers=rendered_headers,
         query_params=rendered_query_params,
         body=body_text,
         headers_dict=headers_dict,
-        query_param_pairs=[],
+        query_param_pairs=query_param_pairs,
         json_body=None,
         form_body=None,
         raw_body=body_text.encode("utf-8") if body_text is not None else None,

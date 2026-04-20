@@ -7,6 +7,7 @@ import subprocess
 import time
 import uuid
 import warnings
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import psycopg
@@ -21,10 +22,11 @@ from sqlalchemy.orm import Session, sessionmaker
 import app.db.session as db_session_module
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
-from app.core.security import get_password_hash
+from app.core.security import generate_api_token, get_password_hash
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
+from app.models.api_token import ApiToken
 from app.models.user import User
 from app.services import auth_rate_limit
 from app.tasks import feed_tasks
@@ -392,9 +394,24 @@ def _login(client: TestClient, email: str, password: str) -> str:
 
 
 @pytest.fixture()
-def auth_headers(client: TestClient, seed_users):
+def auth_headers(db_session: Session, seed_users):
+    def _issue_auth_token(user: User) -> str:
+        token_value, token_prefix, token_hash = generate_api_token()
+        db_session.add(
+            ApiToken(
+                user_id=user.id,
+                name=f"pytest-auth-{user.email}",
+                token_prefix=token_prefix,
+                token_hash=token_hash,
+                scopes=["*:*"],
+                expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+            )
+        )
+        db_session.flush()
+        return token_value
+
     return {
-        "admin": {"Authorization": f"Bearer {_login(client, 'admin@example.com', 'AdminPass123!')}"},
-        "analyst": {"Authorization": f"Bearer {_login(client, 'analyst@example.com', 'AnalystPass123!')}"},
-        "viewer": {"Authorization": f"Bearer {_login(client, 'viewer@example.com', 'ViewerPass123!')}"},
+        "admin": {"Authorization": f"Bearer {_issue_auth_token(seed_users['admin'])}"},
+        "analyst": {"Authorization": f"Bearer {_issue_auth_token(seed_users['analyst'])}"},
+        "viewer": {"Authorization": f"Bearer {_issue_auth_token(seed_users['viewer'])}"},
     }

@@ -23,9 +23,11 @@ class LoginThrottleState:
 
 
 _EMERGENCY_MAX_ENTRIES = 10_000
+_ACCOUNT_SPRAY_IP_THRESHOLD = 3
 _emergency_lock = threading.Lock()
 _emergency_failures: dict[str, tuple[int, float]] = {}
 _emergency_locks: dict[str, float] = {}
+_emergency_account_ip_sets: dict[str, tuple[set[str], float]] = {}
 _pending_redis_clears: set[tuple[str, ...]] = set()
 
 
@@ -51,27 +53,33 @@ def check_login_throttle(email: str, ip: str) -> LoginThrottleState:
 
 def record_login_failure(email: str, ip: str) -> None:
     failure_keys = _failure_keys(email, ip)
-    lock_keys = _lock_keys(email, ip)
+    email_ip_failure_key = _email_ip_failure_key(email, ip)
+    ip_failure_key = _ip_failure_key(ip)
+    account_failure_key = _account_failure_key(email)
 
     try:
         _flush_pending_redis_clears()
-        counts: list[int] = []
+        counts: dict[str, int] = {}
         for key in failure_keys:
             count = int(redis_client.incr(key))
             if count == 1:
-                redis_client.expire(key, settings.auth_login_window_seconds)
-            counts.append(count)
+                redis_client.expire(key, _failure_window_seconds())
+            counts[key] = count
 
-        if any(count >= settings.auth_login_max_attempts for count in counts):
-            for key in lock_keys:
-                redis_client.set(key, "1", ex=settings.auth_login_lockout_seconds, nx=True)
+        distinct_ip_count = _record_account_ip_failure(email, ip)
+        if counts[email_ip_failure_key] >= _max_attempts():
+            redis_client.set(_email_ip_lock_key(email, ip), "1", ex=_lockout_seconds(), nx=True)
+        if counts[ip_failure_key] >= _max_attempts():
+            redis_client.set(_ip_lock_key(ip), "1", ex=_lockout_seconds(), nx=True)
+        if _should_lock_account(counts[account_failure_key], distinct_ip_count):
+            redis_client.set(_account_lock_key(email), "1", ex=_lockout_seconds(), nx=True)
     except redis.RedisError as exc:
         logger.warning("login_failure_not_recorded email=%s ip=%s error=%s", _normalize_email(email), _normalize_ip(ip), exc)
         _emergency_record_login_failure(email, ip)
 
 
 def clear_login_failures(email: str, ip: str) -> None:
-    keys = [*_failure_keys(email, ip), *_lock_keys(email, ip)]
+    keys = [*_failure_keys(email, ip), *_lock_keys(email, ip), _account_ip_set_key(email)]
     try:
         _flush_pending_redis_clears()
         redis_client.delete(*keys)
@@ -106,15 +114,17 @@ def _emergency_check_login_throttle(email: str, ip: str) -> LoginThrottleState:
 
 def _emergency_record_login_failure(email: str, ip: str) -> None:
     failure_keys = _failure_keys(email, ip)
-    lock_keys = _lock_keys(email, ip)
     now = time.monotonic()
-    window_seconds = max(1, int(settings.auth_login_window_seconds))
-    lockout_seconds = max(1, int(settings.auth_login_lockout_seconds))
-    max_attempts = max(1, int(settings.auth_login_max_attempts))
+    window_seconds = _failure_window_seconds()
+    lockout_seconds = _lockout_seconds()
+    max_attempts = _max_attempts()
+    email_ip_failure_key = _email_ip_failure_key(email, ip)
+    ip_failure_key = _ip_failure_key(ip)
+    account_failure_key = _account_failure_key(email)
 
     with _emergency_lock:
         _emergency_cleanup(now)
-        counts: list[int] = []
+        counts: dict[str, int] = {}
         for key in failure_keys:
             count, started_at = _emergency_failures.get(key, (0, now))
             if now - started_at >= window_seconds:
@@ -122,30 +132,47 @@ def _emergency_record_login_failure(email: str, ip: str) -> None:
                 started_at = now
             count += 1
             _emergency_failures[key] = (count, started_at)
-            counts.append(count)
+            counts[key] = count
 
-        if any(count >= max_attempts for count in counts):
+        distinct_ip_count = _emergency_record_account_ip_failure(email, ip, now)
+
+        if counts[email_ip_failure_key] >= max_attempts:
             lock_until = now + lockout_seconds
-            for key in lock_keys:
-                existing_lock_until = _emergency_locks.get(key, 0.0)
-                _emergency_locks[key] = max(existing_lock_until, lock_until)
+            existing_lock_until = _emergency_locks.get(_email_ip_lock_key(email, ip), 0.0)
+            _emergency_locks[_email_ip_lock_key(email, ip)] = max(existing_lock_until, lock_until)
+        if counts[ip_failure_key] >= max_attempts:
+            lock_until = now + lockout_seconds
+            existing_lock_until = _emergency_locks.get(_ip_lock_key(ip), 0.0)
+            _emergency_locks[_ip_lock_key(ip)] = max(existing_lock_until, lock_until)
+        if _should_lock_account(counts[account_failure_key], distinct_ip_count):
+            lock_until = now + lockout_seconds
+            existing_lock_until = _emergency_locks.get(_account_lock_key(email), 0.0)
+            _emergency_locks[_account_lock_key(email)] = max(existing_lock_until, lock_until)
         _emergency_trim_to_limit(_emergency_failures)
         _emergency_trim_to_limit(_emergency_locks)
+        _emergency_trim_to_limit(_emergency_account_ip_sets)
 
 
 def _emergency_clear_login_failures(email: str, ip: str) -> None:
-    keys = [*_failure_keys(email, ip), *_lock_keys(email, ip)]
+    keys = [*_failure_keys(email, ip), *_lock_keys(email, ip), _account_ip_set_key(email)]
     with _emergency_lock:
         for key in keys:
             _emergency_failures.pop(key, None)
             _emergency_locks.pop(key, None)
+            _emergency_account_ip_sets.pop(key, None)
 
 
 def _emergency_cleanup(now: float) -> None:
-    window_seconds = max(1, int(settings.auth_login_window_seconds))
+    window_seconds = _failure_window_seconds()
     stale_failure_keys = [key for key, (_count, started_at) in _emergency_failures.items() if now - started_at >= window_seconds]
     for key in stale_failure_keys:
         _emergency_failures.pop(key, None)
+
+    stale_account_ip_keys = [
+        key for key, (_ips, started_at) in _emergency_account_ip_sets.items() if now - started_at >= window_seconds
+    ]
+    for key in stale_account_ip_keys:
+        _emergency_account_ip_sets.pop(key, None)
 
     stale_lock_keys = [key for key, lock_until in _emergency_locks.items() if lock_until <= now]
     for key in stale_lock_keys:
@@ -201,22 +228,92 @@ def _normalize_ip(ip: str) -> str:
 
 
 def _failure_keys(email: str, ip: str) -> list[str]:
-    email_ip_bucket = _normalized_email_ip_bucket(email, ip)
-    normalized_ip = _normalize_ip(ip)
     return [
-        f"threatlens:auth:fail:email_ip:{email_ip_bucket}",
-        f"threatlens:auth:fail:ip:{normalized_ip}",
+        _email_ip_failure_key(email, ip),
+        _ip_failure_key(ip),
+        _account_failure_key(email),
     ]
 
 
 def _lock_keys(email: str, ip: str) -> list[str]:
-    email_ip_bucket = _normalized_email_ip_bucket(email, ip)
-    normalized_ip = _normalize_ip(ip)
     return [
-        f"threatlens:auth:lock:email_ip:{email_ip_bucket}",
-        f"threatlens:auth:lock:ip:{normalized_ip}",
+        _email_ip_lock_key(email, ip),
+        _ip_lock_key(ip),
+        _account_lock_key(email),
     ]
 
 
 def _normalized_email_ip_bucket(email: str, ip: str) -> str:
     return f"{_normalize_email(email)}:{_normalize_ip(ip)}"
+
+
+def _max_attempts() -> int:
+    return max(1, int(settings.auth_login_max_attempts))
+
+
+def _failure_window_seconds() -> int:
+    return max(1, int(settings.auth_login_window_seconds))
+
+
+def _lockout_seconds() -> int:
+    return max(1, int(settings.auth_login_lockout_seconds))
+
+
+def _account_failure_threshold() -> int:
+    return _max_attempts() * _ACCOUNT_SPRAY_IP_THRESHOLD
+
+
+def _should_lock_account(account_failures: int, distinct_ip_count: int) -> bool:
+    return account_failures >= _account_failure_threshold() and distinct_ip_count >= _ACCOUNT_SPRAY_IP_THRESHOLD
+
+
+def _record_account_ip_failure(email: str, ip: str) -> int:
+    sadd = getattr(redis_client, "sadd", None)
+    scard = getattr(redis_client, "scard", None)
+    if not callable(sadd) or not callable(scard):
+        return 1
+
+    key = _account_ip_set_key(email)
+    sadd(key, _normalize_ip(ip))
+    if redis_client.ttl(key) <= 0:
+        redis_client.expire(key, _failure_window_seconds())
+    return int(scard(key))
+
+
+def _emergency_record_account_ip_failure(email: str, ip: str, now: float) -> int:
+    key = _account_ip_set_key(email)
+    current_ips, started_at = _emergency_account_ip_sets.get(key, (set(), now))
+    if now - started_at >= _failure_window_seconds():
+        current_ips = set()
+        started_at = now
+    current_ips.add(_normalize_ip(ip))
+    _emergency_account_ip_sets[key] = (current_ips, started_at)
+    return len(current_ips)
+
+
+def _email_ip_failure_key(email: str, ip: str) -> str:
+    return f"threatlens:auth:fail:email_ip:{_normalized_email_ip_bucket(email, ip)}"
+
+
+def _ip_failure_key(ip: str) -> str:
+    return f"threatlens:auth:fail:ip:{_normalize_ip(ip)}"
+
+
+def _account_failure_key(email: str) -> str:
+    return f"threatlens:auth:fail:email:{_normalize_email(email)}"
+
+
+def _email_ip_lock_key(email: str, ip: str) -> str:
+    return f"threatlens:auth:lock:email_ip:{_normalized_email_ip_bucket(email, ip)}"
+
+
+def _ip_lock_key(ip: str) -> str:
+    return f"threatlens:auth:lock:ip:{_normalize_ip(ip)}"
+
+
+def _account_lock_key(email: str) -> str:
+    return f"threatlens:auth:lock:email:{_normalize_email(email)}"
+
+
+def _account_ip_set_key(email: str) -> str:
+    return f"threatlens:auth:fail:email_ips:{_normalize_email(email)}"

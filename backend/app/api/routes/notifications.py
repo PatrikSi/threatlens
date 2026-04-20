@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import get_operator_user, require_token_scopes
 from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -71,7 +71,8 @@ def list_notification_webhooks(
 def create_notification_webhook(
     payload: NotificationWebhookWrite,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
     _validate_payload(db, payload)
     webhook = build_notification_webhook(user.id, payload)
@@ -95,7 +96,8 @@ def update_notification_webhook(
     webhook_id: uuid.UUID,
     payload: NotificationWebhookWrite,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
     webhook = db.scalar(
         select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
@@ -123,7 +125,8 @@ def update_notification_webhook(
 def delete_notification_webhook(
     webhook_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
     webhook = db.scalar(
         select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
@@ -181,7 +184,8 @@ def retry_notification_webhook_delivery_route(
     webhook_id: uuid.UUID,
     delivery_id: uuid.UUID,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
     webhook = db.scalar(
         select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
@@ -239,7 +243,8 @@ def retry_notification_webhook_delivery_route(
 def test_notification_webhook_route(
     payload: NotificationWebhookTestRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
+    user: User = Depends(get_operator_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
     _validate_payload(db, payload.webhook)
     try:

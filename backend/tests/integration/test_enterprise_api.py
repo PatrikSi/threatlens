@@ -14,6 +14,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.core.security import get_password_hash
@@ -55,6 +56,68 @@ class _UnavailableRedis:
         raise auth_rate_limit.redis.RedisError("redis unavailable")
 
 
+def _saved_view_query_payload(*, query: str = "exchange") -> dict:
+    return {
+        "schema_version": 1,
+        "version": 6,
+        "rss_filters": {
+            "selected_feed_ids": ["feed-1"],
+            "selected_tags": ["vendor:microsoft"],
+            "q": query,
+            "read_status": "unread",
+            "star_status": "all",
+            "view_mode": "compact",
+            "page_size": 25,
+            "time_range": "7d",
+            "custom_since_date": "",
+            "custom_until_date": "",
+            "rolling_days": "7",
+            "sort": "published_at_desc",
+        },
+        "alert_filters": {
+            "selected_alert_ids": [],
+            "selected_categories": [],
+            "q": "",
+            "view_mode": "expanded",
+            "page_size": 25,
+            "time_range": "7d",
+            "custom_since_date": "",
+            "custom_until_date": "",
+            "rolling_days": "7",
+            "sort": "published_at_desc",
+        },
+        "windows": [
+            {
+                "id": "rss-1",
+                "type": "rss",
+                "title": "RSS Panel 1",
+                "snap": "full",
+                "rect": {"x": 0, "y": 0, "width": 1120, "height": 680},
+                "controls_collapsed": False,
+                "scratch_note": "",
+                "time_override": None,
+                "rss_filters": {
+                    "selected_feed_ids": ["feed-1"],
+                    "selected_tags": ["vendor:microsoft"],
+                    "q": query,
+                    "read_status": "unread",
+                    "star_status": "all",
+                    "view_mode": "compact",
+                    "page": 1,
+                    "page_size": 25,
+                    "sort": "published_at_desc",
+                    "show_advanced_filters": True,
+                },
+                "alert_filters": None,
+                "selected_daily_brief_id": None,
+            }
+        ],
+        "ui": {
+            "show_advanced_filters": True,
+        },
+    }
+
+
 def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
     response = client.post(
         "/feeds",
@@ -67,6 +130,88 @@ def test_viewer_cannot_manage_feeds(client: TestClient, auth_headers):
         headers=auth_headers["viewer"],
     )
     assert response.status_code == 403
+
+
+def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, auth_headers, db_session, seed_users):
+    _ = seed_users
+
+    create_response = client.post(
+        "/views",
+        json={
+            "name": "Ops layout",
+            "query_json": _saved_view_query_payload(query="exchange"),
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["query_json"]["schema_version"] == 1
+    assert created["query_json"]["rss_filters"]["q"] == "exchange"
+    assert created["query_json"]["windows"][0]["rss_filters"]["show_advanced_filters"] is True
+
+    stored = db_session.get(SavedView, uuid.UUID(created["id"]))
+    assert stored is not None
+    assert stored.query_json["schema_version"] == 1
+
+    update_response = client.patch(
+        f"/views/{created['id']}",
+        json={
+            "query_json": _saved_view_query_payload(query="cve-2026"),
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["query_json"]["rss_filters"]["q"] == "cve-2026"
+
+    invalid_update = client.patch(
+        f"/views/{created['id']}",
+        json={
+            "query_json": {
+                "schema_version": 1,
+                "version": 6,
+                "rss_filters": {},
+                "alert_filters": {},
+                "windows": [],
+                "ui": {"show_advanced_filters": False},
+            }
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert invalid_update.status_code == 422
+
+
+def test_saved_view_listing_normalizes_legacy_payloads(client: TestClient, auth_headers, db_session, seed_users):
+    viewer = seed_users["viewer"]
+    legacy_view = SavedView(
+        user_id=viewer.id,
+        name="Legacy layout",
+        query_json={
+            "filters": {
+                "selected_feed_ids": ["feed-legacy"],
+                "q": "legacy-search",
+                "read_status": "read",
+            },
+            "panel_rect": {
+                "x": 10,
+                "y": 20,
+                "width": 620,
+                "height": 420,
+            },
+        },
+    )
+    db_session.add(legacy_view)
+    db_session.commit()
+
+    response = client.get("/views", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+
+    payload = next(entry for entry in response.json() if entry["id"] == str(legacy_view.id))
+    assert payload["query_json"]["schema_version"] == 1
+    assert payload["query_json"]["rss_filters"]["selected_feed_ids"] == ["feed-legacy"]
+    assert payload["query_json"]["rss_filters"]["q"] == "legacy-search"
+    assert payload["query_json"]["windows"][0]["type"] == "rss"
+    assert payload["query_json"]["windows"][0]["rect"]["width"] == 620
 
 
 def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
@@ -229,7 +374,7 @@ def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient
         json={"email": "admin@example.com", "password": "AdminPass123!"},
     )
     assert login_response.status_code == 200
-    token = login_response.json()["access_token"]
+    csrf_token = login_response.json()["csrf_token"]
 
     user = db_session.scalar(select(User).where(User.email == "admin@example.com"))
     assert user is not None
@@ -240,29 +385,29 @@ def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient
     response = client.post(
         "/auth/change-password",
         json={"current_password": "AdminPass123!", "new_password": "AdminPass456!"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"x-csrf-token": csrf_token},
     )
     assert response.status_code == 400
     assert response.json()["detail"] == "Current password is incorrect"
 
 
-def test_change_password_invalidates_existing_jwt_sessions(client: TestClient, seed_users):
+def test_change_password_invalidates_existing_cookie_sessions(client: TestClient, seed_users):
     _ = seed_users
     login_response = client.post(
         "/auth/login",
         json={"email": "admin@example.com", "password": "AdminPass123!"},
     )
     assert login_response.status_code == 200
-    token = login_response.json()["access_token"]
+    csrf_token = login_response.json()["csrf_token"]
 
     change_response = client.post(
         "/auth/change-password",
         json={"current_password": "AdminPass123!", "new_password": "AdminPass456!"},
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"x-csrf-token": csrf_token},
     )
     assert change_response.status_code == 200
 
-    stale_session_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    stale_session_response = client.get("/auth/me")
     assert stale_session_response.status_code == 401
     assert stale_session_response.json()["detail"] == "Invalid credentials"
 
@@ -365,22 +510,46 @@ def test_logout_with_cookie_session_requires_csrf_header(client: TestClient, see
     assert allowed_logout.status_code == 200
     assert allowed_logout.json() == {"status": "ok"}
 
+    client.cookies.set("threatlens_session", login_response.json()["access_token"])
+    stale_session_response = client.get("/auth/me")
+    assert stale_session_response.status_code == 401
 
-def test_jwt_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
+
+def test_login_session_jwt_in_authorization_header_is_not_a_supported_api_credential(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+
+    bearer_response = client.get("/feeds", headers={"Authorization": f"Bearer {token}"})
+    assert bearer_response.status_code == 401
+    assert bearer_response.json()["detail"] == "Bearer auth requires a scoped API token"
+
+    auth_me_bearer_response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert auth_me_bearer_response.status_code == 401
+    assert auth_me_bearer_response.json()["detail"] == "Bearer auth requires a scoped API token"
+
+    cookie_response = client.get("/feeds")
+    assert cookie_response.status_code == 200
+
+
+def test_cookie_session_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
     _ = seed_users
     login_response = client.post(
         "/auth/login",
         json={"email": "viewer@example.com", "password": "ViewerPass123!"},
     )
     assert login_response.status_code == 200
-    token = login_response.json()["access_token"]
     user = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
     assert user is not None
     user.is_active = False
     db_session.add(user)
     db_session.commit()
 
-    response = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    response = client.get("/auth/me")
     assert response.status_code == 403
     assert response.json()["detail"] == "Account is inactive"
 
@@ -1575,7 +1744,7 @@ def test_api_token_flow(client: TestClient, auth_headers):
 
     tokens_response = client.get("/tokens", headers=auth_headers["admin"])
     assert tokens_response.status_code == 200
-    token_id = tokens_response.json()[0]["id"]
+    token_id = next(token["id"] for token in tokens_response.json() if token["name"] == "ci-token")
 
     revoke_response = client.delete(f"/tokens/{token_id}", headers=auth_headers["admin"])
     assert revoke_response.status_code == 204

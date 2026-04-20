@@ -25,32 +25,31 @@ def test_secret_storage_uses_dedicated_data_encryption_key(monkeypatch: pytest.M
     assert decrypt_json(encrypted_json) == {"status": "ok"}
 
 
-def test_secret_storage_can_decrypt_legacy_jwt_backed_ciphertext_when_jwt_secret_is_unchanged(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def test_secret_storage_does_not_fall_back_to_jwt_secret_for_encryption(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("JWT_SECRET", "legacy-jwt-secret-" + "x" * 32)
     monkeypatch.delenv("APP_DATA_ENCRYPTION_KEY", raising=False)
     monkeypatch.delenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", raising=False)
 
-    legacy_ciphertext = encrypt_text("keep-me-readable")
+    ciphertext = encrypt_text("keep-me-readable")
 
-    monkeypatch.setenv("APP_DATA_ENCRYPTION_KEY", "new-storage-secret-" + "y" * 32)
+    monkeypatch.setenv("JWT_SECRET", "rotated-jwt-secret-" + "z" * 31)
     get_settings.cache_clear()
 
-    assert decrypt_text(legacy_ciphertext) == "keep-me-readable"
+    with pytest.raises(ValueError):
+        decrypt_text(ciphertext)
 
 
 def test_secret_storage_can_decrypt_ciphertext_with_previous_key_ring(monkeypatch: pytest.MonkeyPatch):
-    original_jwt_secret = "legacy-jwt-secret-" + "x" * 32
-    monkeypatch.setenv("JWT_SECRET", original_jwt_secret)
-    monkeypatch.delenv("APP_DATA_ENCRYPTION_KEY", raising=False)
+    original_storage_secret = "legacy-storage-secret-" + "x" * 32
+    monkeypatch.setenv("JWT_SECRET", "legacy-jwt-secret-" + "j" * 32)
+    monkeypatch.setenv("APP_DATA_ENCRYPTION_KEY", original_storage_secret)
     monkeypatch.delenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", raising=False)
 
     legacy_ciphertext = encrypt_text("carry-forward")
 
     monkeypatch.setenv("JWT_SECRET", "rotated-jwt-secret-" + "z" * 31)
     monkeypatch.setenv("APP_DATA_ENCRYPTION_KEY", "new-storage-secret-" + "y" * 32)
-    monkeypatch.setenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", original_jwt_secret)
+    monkeypatch.setenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", original_storage_secret)
     get_settings.cache_clear()
 
     assert decrypt_text(legacy_ciphertext) == "carry-forward"

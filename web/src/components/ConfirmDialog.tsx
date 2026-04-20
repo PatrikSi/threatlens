@@ -7,8 +7,12 @@ type ConfirmDialogProps = {
   children?: ReactNode
   confirmLabel: string
   cancelLabel?: string
+  closeLabel?: string
   isConfirming?: boolean
   confirmDisabled?: boolean
+  cancelDisabled?: boolean
+  confirmTone?: 'danger' | 'primary'
+  role?: 'dialog' | 'alertdialog'
   onConfirm: () => void
   onCancel: () => void
 }
@@ -20,8 +24,12 @@ export function ConfirmDialog({
   children,
   confirmLabel,
   cancelLabel = 'Cancel',
+  closeLabel = 'Close dialog',
   isConfirming = false,
   confirmDisabled = false,
+  cancelDisabled = false,
+  confirmTone = 'danger',
+  role = 'alertdialog',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -30,6 +38,12 @@ export function ConfirmDialog({
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const dismissDisabled = cancelDisabled || isConfirming
+  const dismissDisabledRef = useRef(dismissDisabled)
+
+  useEffect(() => {
+    dismissDisabledRef.current = dismissDisabled
+  }, [dismissDisabled])
 
   useEffect(() => {
     if (!open) {
@@ -37,13 +51,13 @@ export function ConfirmDialog({
     }
 
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const focusTarget = cancelButtonRef.current ?? dialogRef.current
+    const focusTarget = dismissDisabled ? dialogRef.current : cancelButtonRef.current ?? dialogRef.current
     window.requestAnimationFrame(() => {
       focusTarget?.focus()
     })
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !dismissDisabledRef.current) {
         event.preventDefault()
         onCancel()
         return
@@ -80,10 +94,12 @@ export function ConfirmDialog({
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
-      previousFocusRef.current?.focus()
+      if (previousFocusRef.current?.isConnected) {
+        previousFocusRef.current.focus()
+      }
       previousFocusRef.current = null
     }
-  }, [open, onCancel])
+  }, [dismissDisabled, onCancel, open])
 
   if (!open) {
     return null
@@ -91,16 +107,21 @@ export function ConfirmDialog({
 
   const hasBody = Boolean(description || children)
   const showHeaderDescription = Boolean(description) && !children
+  const confirmButtonClassName =
+    confirmTone === 'primary'
+      ? 'rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90'
+      : 'rounded bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6">
       <div
         ref={dialogRef}
         className="w-full max-w-xl rounded-2xl border border-slate/20 bg-white p-5 shadow-2xl dark:border-cyan-900/40 dark:bg-[#041612]"
-        role="dialog"
+        role={role}
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={hasBody ? descriptionId : undefined}
+        aria-busy={isConfirming}
         tabIndex={-1}
       >
         <div className="flex items-start justify-between gap-4">
@@ -119,6 +140,8 @@ export function ConfirmDialog({
             type="button"
             className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
             onClick={onCancel}
+            disabled={dismissDisabled}
+            aria-label={closeLabel}
           >
             Close
           </button>
@@ -136,12 +159,13 @@ export function ConfirmDialog({
             type="button"
             className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
             onClick={onCancel}
+            disabled={dismissDisabled}
           >
             {cancelLabel}
           </button>
           <button
             type="button"
-            className="rounded bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className={confirmButtonClassName}
             onClick={onConfirm}
             disabled={confirmDisabled || isConfirming}
           >

@@ -7,6 +7,10 @@ import feedparser
 from app.services.connectors.base import Connector, NormalizedItem
 
 
+class RSSFeedParseError(ValueError):
+    pass
+
+
 class RSSConnector(Connector):
     name = "rss"
 
@@ -14,6 +18,7 @@ class RSSConnector(Connector):
         _ = cursor
         body = source_config.get("body", b"")
         parsed = feedparser.parse(body)
+        _require_feed_document(parsed)
         out: list[NormalizedItem] = []
 
         for entry in parsed.entries:
@@ -41,6 +46,14 @@ class RSSConnector(Connector):
     def fetch_fulltext(self, item: NormalizedItem):
         _ = item
         return None
+
+
+def _require_feed_document(parsed: Any) -> None:
+    if str(getattr(parsed, "version", "") or "").strip():
+        return
+    if getattr(parsed, "entries", None):
+        return
+    raise RSSFeedParseError("invalid_feed_content")
 
 
 def _parse_datetime(entry: Any) -> datetime | None:

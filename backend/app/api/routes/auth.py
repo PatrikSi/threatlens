@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
@@ -9,6 +10,7 @@ from app.core.config import get_settings
 from app.core.security import (
     clear_auth_cookies,
     create_access_token,
+    decode_access_token_claims,
     generate_csrf_token,
     get_password_hash,
     set_auth_cookies,
@@ -113,6 +115,11 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    """Create a browser session cookie and return the same session token for compatibility.
+
+    Scoped API access should use dedicated API tokens in the `Authorization` header.
+    Browser clients should rely on the HttpOnly session cookie set by this route.
+    """
     email = payload.email.lower()
     client_ip = resolve_client_ip(request)
     throttle = check_login_throttle(email, client_ip)
@@ -201,7 +208,7 @@ def change_password(
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)
-def logout(request: Request, response: Response):
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     settings = get_settings()
     auth_cookie = request.cookies.get(settings.auth_cookie_name)
     if auth_cookie and settings.auth_require_csrf:
@@ -210,5 +217,45 @@ def logout(request: Request, response: Response):
         if not csrf_cookie or not csrf_header or csrf_cookie != csrf_header:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Missing or invalid CSRF token")
 
+    user = _resolve_logout_session_user(db, auth_cookie)
+    if user is not None:
+        user.auth_token_version = int(user.auth_token_version or 0) + 1
+        db.add(user)
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="auth.logout",
+            resource_type="user",
+            resource_id=str(user.id),
+            metadata={"session_revoked": True},
+        )
+        db.commit()
+
     clear_auth_cookies(response)
     return {"status": "ok"}
+
+
+def _resolve_logout_session_user(db: Session, auth_cookie: str | None) -> User | None:
+    if not auth_cookie:
+        return None
+
+    claims = decode_access_token_claims(auth_cookie)
+    if claims is None:
+        return None
+
+    subject = claims.get("sub")
+    if not subject:
+        return None
+
+    try:
+        user_id = uuid.UUID(subject)
+        token_version = int(claims.get("ver", 0))
+    except (TypeError, ValueError):
+        return None
+
+    user = db.scalar(select(User).where(User.id == user_id))
+    if user is None:
+        return None
+    if token_version != int(user.auth_token_version or 0):
+        return None
+    return user

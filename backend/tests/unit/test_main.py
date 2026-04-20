@@ -51,3 +51,22 @@ def test_versioned_routes_are_published_while_legacy_routes_remain_available():
     payload = schema.json()
     assert "/v1/health/live" in payload["paths"]
     assert "/health/live" not in payload["paths"]
+
+
+def test_live_schema_publishes_versioned_auth_contract():
+    client = TestClient(app)
+
+    response = client.get("/openapi.json")
+
+    assert response.status_code == 200
+    payload = response.json()
+    api_token_scheme = payload["components"]["securitySchemes"]["ApiTokenBearer"]
+    session_cookie_scheme = payload["components"]["securitySchemes"]["SessionCookieAuth"]
+    assert api_token_scheme["type"] == "http"
+    assert api_token_scheme["scheme"] == "bearer"
+    assert "scoped personal API token" in api_token_scheme["description"]
+    assert session_cookie_scheme["type"] == "apiKey"
+    assert session_cookie_scheme["in"] == "cookie"
+    assert session_cookie_scheme["name"] == "threatlens_session"
+    assert "/api/v1/auth/login" in session_cookie_scheme["description"]
+    assert "HttpOnly cookie sessions" in payload["info"]["description"]

@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { AlertInterest, AlertMatchListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -28,6 +29,7 @@ export function AlertsPage() {
   const [category, setCategory] = useState<string>(ALERT_CATEGORIES[0].value)
   const [keywordsText, setKeywordsText] = useState('')
   const [showDisabled, setShowDisabled] = useState(false)
+  const [pendingDeleteAlert, setPendingDeleteAlert] = useState<AlertInterest | null>(null)
 
   const parsedKeywords = useMemo(
     () =>
@@ -177,94 +179,105 @@ export function AlertsPage() {
     setKeywordsText('')
   }
 
+  const confirmDeleteAlert = () => {
+    if (!pendingDeleteAlert) {
+      return
+    }
+
+    const alertId = pendingDeleteAlert.id
+    setPendingDeleteAlert(null)
+    deleteAlert.mutate(alertId)
+  }
+
   return (
-    <div className="grid gap-4 xl:grid-cols-[480px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-display text-xl">{editingAlertId ? 'Edit Alert Interest' : 'Alert Interests'}</h2>
-            <p className="mt-1 text-sm text-slate dark:text-slate-300">
-              Define focused interests by category. Dashboard alert windows match item text against these keywords.
-            </p>
-          </div>
-          {editingAlertId && (
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
-              onClick={() => resetForm()}
-            >
-              Cancel edit
-            </button>
-          )}
-        </div>
-
-        <form className="mt-4 space-y-3" onSubmit={onSave}>
-          <div>
-            <label htmlFor="alert-interest-name" className="text-sm font-semibold">
-              Interest Name
-            </label>
-            <input
-              id="alert-interest-name"
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Microsoft Security Updates"
-              required
-            />
-          </div>
-
-          <div>
-            <label htmlFor="alert-interest-category" className="text-sm font-semibold">
-              Category
-            </label>
-            <select
-              id="alert-interest-category"
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              value={category}
-              onChange={(event) => setCategory(event.target.value)}
-            >
-              {ALERT_CATEGORIES.map((entry) => (
-                <option key={entry.value} value={entry.value}>
-                  {entry.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label htmlFor="alert-interest-keywords" className="text-sm font-semibold">
-              Keywords (comma-separated)
-            </label>
-            <textarea
-              id="alert-interest-keywords"
-              className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-              value={keywordsText}
-              onChange={(event) => setKeywordsText(event.target.value)}
-              placeholder="microsoft, exchange, entra id"
-              required
-            />
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button
-              className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
-              type="submit"
-              disabled={saveAlert.isPending}
-            >
-              {editingAlertId ? 'Save changes' : 'Add Interest'}
-            </button>
+    <>
+      <div className="grid gap-4 xl:grid-cols-[480px_1fr]">
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-xl">{editingAlertId ? 'Edit Alert Interest' : 'Alert Interests'}</h2>
+              <p className="mt-1 text-sm text-slate dark:text-slate-300">
+                Define focused interests by category. Dashboard alert windows match item text against these keywords.
+              </p>
+            </div>
             {editingAlertId && (
               <button
-                className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
                 type="button"
+                className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
                 onClick={() => resetForm()}
               >
-                Reset
+                Cancel edit
               </button>
             )}
           </div>
-          {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
-        </form>
+
+          <form className="mt-4 space-y-3" onSubmit={onSave}>
+            <div>
+              <label htmlFor="alert-interest-name" className="text-sm font-semibold">
+                Interest Name
+              </label>
+              <input
+                id="alert-interest-name"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="Microsoft Security Updates"
+                required
+              />
+            </div>
+
+            <div>
+              <label htmlFor="alert-interest-category" className="text-sm font-semibold">
+                Category
+              </label>
+              <select
+                id="alert-interest-category"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={category}
+                onChange={(event) => setCategory(event.target.value)}
+              >
+                {ALERT_CATEGORIES.map((entry) => (
+                  <option key={entry.value} value={entry.value}>
+                    {entry.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label htmlFor="alert-interest-keywords" className="text-sm font-semibold">
+                Keywords (comma-separated)
+              </label>
+              <textarea
+                id="alert-interest-keywords"
+                className="mt-1 h-24 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={keywordsText}
+                onChange={(event) => setKeywordsText(event.target.value)}
+                placeholder="microsoft, exchange, entra id"
+                required
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+                type="submit"
+                disabled={saveAlert.isPending}
+              >
+                {editingAlertId ? 'Save changes' : 'Add Interest'}
+              </button>
+              {editingAlertId && (
+                <button
+                  className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                  type="button"
+                  onClick={() => resetForm()}
+                >
+                  Reset
+                </button>
+              )}
+            </div>
+            {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
+          </form>
 
         <section className="mt-5 rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
           <div className="flex items-center justify-between gap-3">
@@ -341,95 +354,134 @@ export function AlertsPage() {
             </div>
           )}
         </section>
-      </section>
+        </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl">Configured Alerts</h2>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={showDisabled}
-              onChange={(event) => setShowDisabled(event.target.checked)}
-              className="accent-cyan"
-            />
-            Include disabled
-          </label>
-        </div>
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-xl">Configured Alerts</h2>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={showDisabled}
+                onChange={(event) => setShowDisabled(event.target.checked)}
+                className="accent-cyan"
+              />
+              Include disabled
+            </label>
+          </div>
 
-        <div className="mt-4 space-y-4">
-          {ALERT_CATEGORIES.map((categoryOption) => {
-            const entries = groupedAlerts.get(categoryOption.value) ?? []
-            if (!entries.length) {
-              return null
-            }
-            return (
-              <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate dark:text-slate-300">{categoryOption.label}</h3>
-                <div className="mt-2 space-y-2">
-                  {entries.map((alert) => (
-                    <article
-                      key={alert.id}
-                      className={`rounded border p-2 dark:border-cyan-900/40 ${
-                        editingAlertId === alert.id ? 'border-cyan bg-cyan/10 dark:bg-cyan-950/30' : 'border-slate/20 bg-white/75 dark:bg-[#072019]/45'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div>
-                          <p className="font-semibold">{alert.name}</p>
-                          {!alert.enabled && <p className="mt-1 text-xs text-slate dark:text-white/60">Disabled</p>}
+          <div className="mt-4 space-y-4">
+            {ALERT_CATEGORIES.map((categoryOption) => {
+              const entries = groupedAlerts.get(categoryOption.value) ?? []
+              if (!entries.length) {
+                return null
+              }
+              return (
+                <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate dark:text-slate-300">{categoryOption.label}</h3>
+                  <div className="mt-2 space-y-2">
+                    {entries.map((alert) => (
+                      <article
+                        key={alert.id}
+                        className={`rounded border p-2 dark:border-cyan-900/40 ${
+                          editingAlertId === alert.id ? 'border-cyan bg-cyan/10 dark:bg-cyan-950/30' : 'border-slate/20 bg-white/75 dark:bg-[#072019]/45'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <p className="font-semibold">{alert.name}</p>
+                            {!alert.enabled && <p className="mt-1 text-xs text-slate dark:text-white/60">Disabled</p>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                              onClick={() => onEdit(alert)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                              onClick={() => updateAlert.mutate({ id: alert.id, body: { enabled: !alert.enabled } })}
+                              disabled={updateAlert.isPending}
+                            >
+                              {alert.enabled ? 'Disable' : 'Enable'}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
+                              onClick={() => setPendingDeleteAlert(alert)}
+                              disabled={deleteAlert.isPending || Boolean(pendingDeleteAlert)}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
-                            onClick={() => onEdit(alert)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
-                            onClick={() => updateAlert.mutate({ id: alert.id, body: { enabled: !alert.enabled } })}
-                            disabled={updateAlert.isPending}
-                          >
-                            {alert.enabled ? 'Disable' : 'Enable'}
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                            onClick={() => deleteAlert.mutate(alert.id)}
-                            disabled={deleteAlert.isPending}
-                          >
-                            Delete
-                          </button>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {alert.keywords.map((keyword) => (
+                            <span
+                              key={`${alert.id}-${keyword}`}
+                              className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                            >
+                              {keyword}
+                            </span>
+                          ))}
                         </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {alert.keywords.map((keyword) => (
-                          <span
-                            key={`${alert.id}-${keyword}`}
-                            className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
-                          >
-                            {keyword}
-                          </span>
-                        ))}
-                      </div>
-                    </article>
-                  ))}
+                      </article>
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
 
-          {alertsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert interests...</p>}
-          {alertsQuery.isError && <p className="text-sm text-red-600">Failed to load alert interests.</p>}
-          {!alertsQuery.isLoading && (alertsQuery.data?.length ?? 0) === 0 && (
-            <p className="text-sm text-slate dark:text-slate-300">No alert interests configured yet.</p>
-          )}
-        </div>
-      </section>
-    </div>
+            {alertsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert interests...</p>}
+            {alertsQuery.isError && <p className="text-sm text-red-600">Failed to load alert interests.</p>}
+            {!alertsQuery.isLoading && (alertsQuery.data?.length ?? 0) === 0 && (
+              <p className="text-sm text-slate dark:text-slate-300">No alert interests configured yet.</p>
+            )}
+          </div>
+        </section>
+      </div>
+
+      <ConfirmDialog
+        open={Boolean(pendingDeleteAlert)}
+        title="Delete alert interest?"
+        description="This permanently removes the alert interest and stops future item matching for these keywords."
+        confirmLabel="Delete alert"
+        onCancel={() => setPendingDeleteAlert(null)}
+        onConfirm={confirmDeleteAlert}
+        confirmDisabled={!pendingDeleteAlert}
+        isConfirming={deleteAlert.isPending}
+      >
+        {pendingDeleteAlert && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-semibold text-ink dark:text-white">{pendingDeleteAlert.name}</p>
+              <p className="text-xs text-slate dark:text-white/70">
+                Category: {describeAlertCategory(pendingDeleteAlert.category)} · {pendingDeleteAlert.keywords.length} keyword
+                {pendingDeleteAlert.keywords.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {pendingDeleteAlert.keywords.map((keyword) => (
+                <span
+                  key={`${pendingDeleteAlert.id}-${keyword}`}
+                  className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                >
+                  {keyword}
+                </span>
+              ))}
+            </div>
+            {pendingDeleteAlert.id === editingAlertId && hasUnsavedAlertDraftChanges && (
+              <p className="rounded-lg border border-amber-300/70 bg-amber-100/80 px-3 py-2 text-xs text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
+                Your current unsaved edits for this alert will be discarded too.
+              </p>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
+    </>
   )
 }
 

@@ -4,6 +4,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
@@ -107,6 +108,7 @@ interface DashboardAlertViewQuery {
 }
 
 interface DashboardSavedViewState {
+  schema_version: number
   version: number
   rss_filters: DashboardSavedViewQuery
   alert_filters: DashboardAlertViewQuery
@@ -115,6 +117,12 @@ interface DashboardSavedViewState {
     show_advanced_filters: boolean
   }
 }
+
+type SavedViewSelectionChange =
+  | { kind: 'noop' }
+  | { kind: 'clear' }
+  | { kind: 'load'; viewId: string }
+  | { kind: 'confirm_load'; viewId: string }
 
 interface DashboardEditSessionSnapshot {
   activeSavedViewId: string | null
@@ -143,6 +151,7 @@ interface SavedViewPreview {
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
+const DASHBOARD_SAVED_VIEW_SCHEMA_VERSION = 1
 const DASHBOARD_VIEW_VERSION = 6
 const WINDOW_MIN_WIDTH = 460
 const WINDOW_MIN_HEIGHT = 320
@@ -401,6 +410,7 @@ export function DashboardPage() {
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
   const [pendingViewDelete, setPendingViewDelete] = useState<SavedViewPreview | null>(null)
+  const [pendingSavedViewLoad, setPendingSavedViewLoad] = useState<{ id: string; name: string } | null>(null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
   const [isImportingViews, setIsImportingViews] = useState(false)
   const [importViewsError, setImportViewsError] = useState('')
@@ -439,6 +449,11 @@ export function DashboardPage() {
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
+  const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+  useUnsavedChangesWarning(
+    hasProtectedEditSession,
+    'You have an unsaved dashboard layout edit session. Leave without saving?',
+  )
 
   const flushPendingWindowPersistence = (targetUserId?: string | null) => {
     if (typeof window === 'undefined') {
@@ -728,6 +743,7 @@ export function DashboardPage() {
     onSuccess: () => {
       setActiveSavedViewId(null)
       setEditSessionSnapshot(null)
+      setPendingSavedViewLoad(null)
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
@@ -1411,15 +1427,53 @@ export function DashboardPage() {
     })
   }
 
+  const findSavedViewById = (viewId: string) => viewsQuery.data?.find((view) => view.id === viewId) ?? null
+
+  const clearActiveSavedViewSelection = () => {
+    setActiveSavedViewId(null)
+    setShowSaveAsNew(false)
+    setViewSaveError('')
+    if (!isEditMode) {
+      setEditSessionSnapshot(null)
+    }
+  }
+
   const applySavedView = (view: SavedView) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     const parsed = parseDashboardSavedView(view.query_json, width, height)
+    setPendingSavedViewLoad(null)
     setEditSessionSnapshot(null)
     setIsEditMode(false)
     setShowAddWindowMenu(false)
     setShowSaveAsNew(false)
     setViewSaveError('')
     applyDashboardSavedViewState(parsed, view.id)
+  }
+
+  const requestSavedViewLoad = (viewId: string) => {
+    const selected = findSavedViewById(viewId)
+    if (!selected) {
+      return
+    }
+
+    if (hasProtectedEditSession) {
+      setPendingSavedViewLoad({ id: selected.id, name: selected.name })
+      return
+    }
+
+    applySavedView(selected)
+  }
+
+  const onConfirmPendingSavedViewLoad = () => {
+    if (!pendingSavedViewLoad) {
+      return
+    }
+
+    const selected = findSavedViewById(pendingSavedViewLoad.id)
+    setPendingSavedViewLoad(null)
+    if (selected) {
+      applySavedView(selected)
+    }
   }
 
   const exportAllViews = () => {
@@ -1832,15 +1886,19 @@ export function DashboardPage() {
             className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
             value={activeSavedViewId ?? ''}
             onChange={(event) => {
-              const value = event.target.value
-              if (!value) {
-                setActiveSavedViewId(null)
-                setEditSessionSnapshot(null)
+              const change = resolveSavedViewSelectionChange({
+                currentActiveSavedViewId: activeSavedViewId,
+                nextValue: event.target.value,
+                hasProtectedEditSession,
+              })
+
+              if (change.kind === 'clear') {
+                clearActiveSavedViewSelection()
                 return
               }
-              const selected = viewsQuery.data?.find((view) => view.id === value)
-              if (selected) {
-                applySavedView(selected)
+
+              if (change.kind === 'load' || change.kind === 'confirm_load') {
+                requestSavedViewLoad(change.viewId)
               }
             }}
           >
@@ -3280,12 +3338,7 @@ export function DashboardPage() {
                     <button
                       type="button"
                       className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                      onClick={() => {
-                        const selected = viewsQuery.data?.find((entry) => entry.id === view.id)
-                        if (selected) {
-                          applySavedView(selected)
-                        }
-                      }}
+                      onClick={() => requestSavedViewLoad(view.id)}
                     >
                       Load
                     </button>
@@ -3310,6 +3363,24 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(pendingSavedViewLoad)}
+        title="Discard the current edit session?"
+        description="Loading another saved view will replace the layout you are editing and clear the current cancel checkpoint."
+        confirmLabel="Load saved view"
+        onCancel={() => setPendingSavedViewLoad(null)}
+        onConfirm={onConfirmPendingSavedViewLoad}
+      >
+        {pendingSavedViewLoad && (
+          <div className="space-y-2">
+            <p className="font-semibold text-ink dark:text-white">{pendingSavedViewLoad.name}</p>
+            <p className="text-xs text-slate dark:text-white/70">
+              Save or cancel the current edit session first if you want to keep those unsaved layout changes.
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={Boolean(pendingViewDelete)}
@@ -4026,24 +4097,26 @@ function buildSavedViewAlertFilters(
   }
 }
 
-function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: number, containerHeight: number): DashboardSavedViewState {
+export function parseDashboardSavedView(raw: unknown, containerWidth: number, containerHeight: number): DashboardSavedViewState {
+  const source = isRecord(raw) ? raw : {}
   const fallback = createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
 
-  const legacyFilters = isRecord(raw.filters) ? raw.filters : raw
-  const legacyLayout = isRecord(raw.layout) ? raw.layout : {}
+  const legacyFilters = isRecord(source.filters) ? source.filters : source
+  const legacyLayout = isRecord(source.layout) ? source.layout : {}
   const legacyWindows = isRecord(legacyLayout.windows) ? legacyLayout.windows : {}
-  const legacyFeedRect = parsePanelRectCandidate(legacyWindows.feeds) || parsePanelRectCandidate(raw.panel_rect) || fallback.rect
-  const rssSource = isRecord(raw.rss_filters) ? raw.rss_filters : legacyFilters
-  const alertSource = isRecord(raw.alert_filters) ? raw.alert_filters : {}
-  const uiSource = isRecord(raw.ui) ? raw.ui : {}
+  const legacyFeedRect =
+    parsePanelRectCandidate(legacyWindows.feeds) || parsePanelRectCandidate(source.panel_rect) || fallback.rect
+  const rssSource = isRecord(source.rss_filters) ? source.rss_filters : legacyFilters
+  const alertSource = isRecord(source.alert_filters) ? source.alert_filters : {}
+  const uiSource = isRecord(source.ui) ? source.ui : {}
 
   const rssFilters = parseSavedViewRssFilters(rssSource)
   const alertFilters = parseSavedViewAlertFilters(alertSource)
   const showAdvancedFilters = typeof uiSource.show_advanced_filters === 'boolean' ? uiSource.show_advanced_filters : false
 
   const parsedWindows: DashboardWindow[] = []
-  if (Array.isArray(raw.windows)) {
-    for (const entry of raw.windows) {
+  if (Array.isArray(source.windows)) {
+    for (const entry of source.windows) {
       if (!isRecord(entry)) continue
       if (!isWindowType(entry.type)) continue
       if (!isWindowSnap(entry.snap)) continue
@@ -4095,6 +4168,10 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
   }
 
   return {
+    schema_version:
+      typeof source.schema_version === 'number' && source.schema_version >= 1
+        ? Math.floor(source.schema_version)
+        : DASHBOARD_SAVED_VIEW_SCHEMA_VERSION,
     version: DASHBOARD_VIEW_VERSION,
     rss_filters: rssFilters,
     alert_filters: alertFilters,
@@ -4105,13 +4182,17 @@ function parseDashboardSavedView(raw: Record<string, unknown>, containerWidth: n
   }
 }
 
-function buildDashboardSavedViewState(windows: DashboardWindow[], dashboardTimeFilter: WindowTimeFilter): DashboardSavedViewState {
+export function buildDashboardSavedViewState(
+  windows: DashboardWindow[],
+  dashboardTimeFilter: WindowTimeFilter,
+): DashboardSavedViewState {
   const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
   const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
   const rssWindowFilters = firstRssWindow?.rss_filters ?? createDefaultRssWindowFilters()
   const alertWindowFilters = firstAlertWindow?.alert_filters ?? createDefaultAlertWindowFilters()
 
   return {
+    schema_version: DASHBOARD_SAVED_VIEW_SCHEMA_VERSION,
     version: DASHBOARD_VIEW_VERSION,
     rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
     alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
@@ -4148,7 +4229,7 @@ function buildDashboardSavedViewState(windows: DashboardWindow[], dashboardTimeF
   }
 }
 
-function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] {
+export function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] {
   const source = isRecord(raw) && Array.isArray(raw.views) ? raw.views : raw
   if (!Array.isArray(source)) {
     throw new Error('Expected a JSON array or an object with a "views" array')
@@ -4174,6 +4255,26 @@ function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] {
   }
 
   return entries
+}
+
+export function resolveSavedViewSelectionChange({
+  currentActiveSavedViewId,
+  nextValue,
+  hasProtectedEditSession,
+}: {
+  currentActiveSavedViewId: string | null
+  nextValue: string
+  hasProtectedEditSession: boolean
+}): SavedViewSelectionChange {
+  if (!nextValue) {
+    return currentActiveSavedViewId ? { kind: 'clear' } : { kind: 'noop' }
+  }
+
+  if (nextValue === currentActiveSavedViewId) {
+    return { kind: 'noop' }
+  }
+
+  return hasProtectedEditSession ? { kind: 'confirm_load', viewId: nextValue } : { kind: 'load', viewId: nextValue }
 }
 
 function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {
