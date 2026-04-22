@@ -204,8 +204,11 @@ export function UsersPage() {
         <h2 className="font-display text-xl">Create User</h2>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
-            <label className="text-sm font-semibold">Email</label>
+            <label htmlFor="create-user-email" className="text-sm font-semibold">
+              Email
+            </label>
             <input
+              id="create-user-email"
               value={createForm.email}
               onChange={(event) => setCreateForm((f) => ({ ...f, email: event.target.value }))}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -214,8 +217,11 @@ export function UsersPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold">Password</label>
+            <label htmlFor="create-user-password" className="text-sm font-semibold">
+              Password
+            </label>
             <input
+              id="create-user-password"
               value={createForm.password}
               onChange={(event) => setCreateForm((f) => ({ ...f, password: event.target.value }))}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -225,8 +231,11 @@ export function UsersPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold">Role</label>
+            <label htmlFor="create-user-role" className="text-sm font-semibold">
+              Role
+            </label>
             <select
+              id="create-user-role"
               value={createForm.role}
               onChange={(event) => setCreateForm((f) => ({ ...f, role: event.target.value as User['role'] }))}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -262,7 +271,11 @@ export function UsersPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">User Directory</h2>
+          <label htmlFor="user-directory-search" className="sr-only">
+            Search users
+          </label>
           <input
+            id="user-directory-search"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search users..."
@@ -322,6 +335,8 @@ function UserRow({
   saving: boolean
   notice: { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' } | null
 }) {
+  const roleInputId = `user-role-${user.id}`
+  const passwordInputId = `user-reset-password-${user.id}`
   const [role, setRole] = useState<User['role']>(user.role)
   const [isActive, setIsActive] = useState(user.is_active)
   const [isApproved, setIsApproved] = useState(user.is_approved)
@@ -379,13 +394,17 @@ function UserRow({
                 Pending approval
               </p>
             )}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={role}
-              onChange={(event) => setRole(event.target.value as User['role'])}
-              className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-            >
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label htmlFor={roleInputId} className="sr-only">
+            Role for {user.email}
+          </label>
+          <select
+            id={roleInputId}
+            value={role}
+            onChange={(event) => setRole(event.target.value as User['role'])}
+            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+          >
               <option value="viewer">viewer</option>
               <option value="analyst">analyst</option>
               <option value="admin">admin</option>
@@ -409,7 +428,11 @@ function UserRow({
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label htmlFor={passwordInputId} className="sr-only">
+            New password for {user.email}
+          </label>
           <input
+            id={passwordInputId}
             type="password"
             placeholder="New password (min 8 chars)"
             value={resetPassword}

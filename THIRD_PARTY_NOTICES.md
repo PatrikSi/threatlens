@@ -44,6 +44,8 @@ Bundled license texts shipped in this repository:
 - `docs/licenses/LGPL-3.0.txt`
 - `docs/licenses/GPL-3.0.txt`
 
+The MIT/BSD family texts above are supplemental family references. Package-specific metadata and, where provided by upstream wheels, package-specific notice files remain preserved inside the redistributed backend image under the installed Python `.dist-info/` directories.
+
 ## Bundled Frontend Assets
 
 These files are committed directly in this repository:
@@ -101,6 +103,8 @@ These files are committed directly in this repository:
 - Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles. The full resolved runtime inventories are committed under `docs/reference/` and can be regenerated with the command above.
 - Built backend images ship `LICENSE`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `backend-requirements.txt`, `backend-requirements-lock.txt`, and `backend-runtime-dependencies.txt` under `/usr/share/doc/threatlens/`.
 - Built web images ship `LICENSE`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `frontend-package-lock.json`, and `frontend-runtime-dependencies.txt` under `/usr/share/doc/threatlens/`.
+- Built backend images also preserve upstream package metadata and wheel-provided notice files in the installed Python distribution directories under `/usr/local/lib/python3.12/site-packages/*.dist-info/`.
 - Apache-2.0 third-party components use the standard Apache 2.0 license text already shipped as the repository `LICENSE`.
-- The backend dependency spec installs `psycopg[binary]`, which pulls in both `psycopg` and `psycopg-binary`. Redistributors should preserve the shipped license texts and review whether a locally linked psycopg build better matches their compliance program.
+- The backend dependency spec installs `psycopg[binary]`, which pulls in both `psycopg` and `psycopg-binary`. Redistributors should preserve the shipped license texts, the backend lockfile, and the upstream wheel metadata already present in the image. If your compliance program requires a locally linked PostgreSQL client or a different LGPL fulfillment path, rebuild from `backend/requirements.txt` with non-binary `psycopg` before redistribution.
+- ThreatLens redistributes `psycopg-binary` as received from PyPI at the version pinned in `backend/requirements-lock.txt`. Downstream redistributors should review the upstream project source/wheel publication path and satisfy any corresponding LGPL source-offer or relinkability obligations required by their distribution model.
 - If you redistribute ThreatLens images or other packaged artifacts, preserve this notice file and comply with the licenses of bundled and transitive dependencies.

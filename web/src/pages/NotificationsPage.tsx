@@ -1056,6 +1056,8 @@ function KeyValueEditor({
   valuePlaceholder: string
   onChange: (fields: NotificationWebhookField[]) => void
 }) {
+  const fieldIdPrefix = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+
   return (
     <section className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
       <div className="flex items-start justify-between gap-3">
@@ -1070,28 +1072,43 @@ function KeyValueEditor({
 
       <div className="mt-3 space-y-2">
         {fields.length === 0 && <p className="text-sm text-slate dark:text-white/70">No entries yet.</p>}
-        {fields.map((field, index) => (
+        {fields.map((field, index) => {
+          const keyId = `${fieldIdPrefix}-${index}-key`
+          const valueId = `${fieldIdPrefix}-${index}-value`
+
+          return (
           <div key={`${title}-${index}`} className="grid gap-2 md:grid-cols-[1fr_1.4fr_auto]">
+            <label htmlFor={keyId} className="sr-only">
+              {title} row {index + 1} key
+            </label>
             <input
+              id={keyId}
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={field.key}
               onChange={(event) => onChange(updateField(fields, index, { key: event.target.value }))}
               placeholder={keyPlaceholder}
             />
+            <label htmlFor={valueId} className="sr-only">
+              {title} row {index + 1} value
+            </label>
             <input
+              id={valueId}
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={field.value}
               onChange={(event) => onChange(updateField(fields, index, { value: event.target.value }))}
               placeholder={valuePlaceholder}
             />
             <button
+              type="button"
               className="rounded border border-slate/30 px-3 py-2 text-sm dark:border-cyan-900/40"
+              aria-label={`Remove ${title} row ${index + 1}`}
               onClick={() => onChange(fields.filter((_, candidateIndex) => candidateIndex !== index))}
             >
               Remove
             </button>
           </div>
-        ))}
+          )
+        })}
       </div>
     </section>
   )
