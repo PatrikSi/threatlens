@@ -3,14 +3,12 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
-import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-import httpx
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -25,22 +23,45 @@ from app.models.user import User
 from app.schemas.notification import (
     NotificationAnalyticsEventSummary,
     NotificationAnalyticsResponse,
-    NotificationQueueSnapshot,
     NotificationAnalyticsWebhookSummary,
     NotificationEventType,
-    NotificationWebhookDeliveryResponse,
     NotificationTemplateVariable,
     NotificationWebhookField,
-    NotificationWebhookResponse,
+    NotificationQueueSnapshot,
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
+)
+from app.services import notification_webhook_http
+from app.services.notification_webhook_http import (
+    THREATLENS_DELIVERY_ID_HEADER,
+    canonicalize_headers,
+    default_raw_content_type,
 )
 from app.services.notification_webhook_policy import (
     validate_notification_target_for_actor,
 )
-from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
-from app.services.secret_storage import decrypt_json, decrypt_text, encrypt_json, encrypt_text
-from app.services.url_utils import ensure_runtime_fetchable_url, is_fetchable_url, redact_feed_url
+from app.services.notification_webhook_storage import (
+    POLICY_FAILURE_ERROR_PREFIX,
+    RENDER_FAILURE_ERROR_PREFIX,
+    apply_notification_webhook_updates,
+    build_notification_webhook,
+    decrypt_notification_json as _decrypt_notification_json,
+    decrypt_notification_text as _decrypt_notification_text,
+    encrypt_notification_json as _encrypt_notification_json,
+    encrypt_notification_text as _encrypt_notification_text,
+    notification_error_for_display as _notification_error_for_display,
+    notification_feed_ids_from_storage as _notification_feed_ids_from_storage,
+    notification_fields_from_storage as _notification_fields_from_storage,
+    notification_fields_to_storage as _notification_fields_to_storage,
+    notification_webhook_delivery_response_from_model,
+    notification_webhook_response_from_model,
+    notification_webhook_write_from_model,
+    redact_delivery_body_preview as _redact_delivery_body_preview,
+    redact_notification_field_values as _redact_notification_field_values,
+    redact_notification_query_params as _redact_notification_query_params,
+    redact_notification_test_response as _redact_notification_test_response,
+)
+from app.services.url_utils import is_fetchable_url, redact_feed_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -142,7 +163,6 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
 )
 TEMPLATE_VARIABLE_KEYS = frozenset(variable.key for variable in TEMPLATE_VARIABLES)
 TEMPLATE_PATTERN = __import__("re").compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
-MAX_RESPONSE_PREVIEW_CHARS = 4000
 NOTIFICATION_DELIVERY_PENDING = "pending"
 NOTIFICATION_DELIVERY_SENDING = "sending"
 NOTIFICATION_DELIVERY_SUCCEEDED = "succeeded"
@@ -151,33 +171,6 @@ NOTIFICATION_DELIVERY_TERMINAL_STATES = (NOTIFICATION_DELIVERY_SUCCEEDED, NOTIFI
 NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE = settings.notification_delivery_recovery_batch_size
 NOTIFICATION_DELIVERY_STALE_AFTER = timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
 NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER = timedelta(seconds=settings.notification_delivery_queue_degraded_after_seconds)
-BLOCKED_REQUEST_HEADERS = frozenset(
-    {
-        "connection",
-        "content-length",
-        "expect",
-        "host",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "proxy-connection",
-        "te",
-        "trailer",
-        "transfer-encoding",
-        "upgrade",
-    }
-)
-SENSITIVE_HEADER_NAMES = frozenset(
-    {
-        "authorization",
-        "cookie",
-        "proxy-authorization",
-        "set-cookie",
-        "x-api-key",
-    }
-)
-THREATLENS_DELIVERY_ID_HEADER = "X-ThreatLens-Delivery-ID"
-RENDER_FAILURE_ERROR_PREFIX = "render_error:"
-POLICY_FAILURE_ERROR_PREFIX = "policy_error:"
 
 
 class TemplateRenderError(ValueError):
@@ -251,204 +244,6 @@ class NotificationDeliveryReservationBatch:
 
 def list_template_variables() -> list[NotificationTemplateVariable]:
     return list(TEMPLATE_VARIABLES)
-
-
-def _decrypt_notification_text(value: str | None) -> str | None:
-    return decrypt_text(value)
-
-
-def _decrypt_notification_json(value):
-    return decrypt_json(value)
-
-
-def _encrypt_notification_text(value: str | None) -> str | None:
-    return encrypt_text(value)
-
-
-def _encrypt_notification_json(value) -> dict[str, str]:
-    return encrypt_json(value)
-
-
-def _notification_fields_from_storage(value) -> list[NotificationWebhookField]:
-    decrypted = _decrypt_notification_json(value) or []
-    return [NotificationWebhookField.model_validate(entry) for entry in decrypted]
-
-
-def _notification_fields_to_storage(fields: list[NotificationWebhookField]) -> dict[str, str]:
-    return _encrypt_notification_json([field.model_dump() for field in fields])
-
-
-def _notification_feed_ids_from_storage(value) -> list[uuid.UUID]:
-    return [uuid.UUID(entry) for entry in (value or [])]
-
-
-def _is_sensitive_header_name(header_name: str) -> bool:
-    lowered = header_name.strip().lower().replace("_", "-")
-    if lowered in SENSITIVE_HEADER_NAMES:
-        return True
-    return any(marker in lowered for marker in ("token", "secret", "password", "signature", "credential", "auth"))
-
-
-def _redact_notification_field_values(fields: list[NotificationWebhookField]) -> list[NotificationWebhookField]:
-    redacted: list[NotificationWebhookField] = []
-    for field in fields:
-        value = "REDACTED" if _is_sensitive_header_name(field.key) else field.value
-        redacted.append(NotificationWebhookField(key=field.key, value=value))
-    return redacted
-
-
-def _redact_notification_query_params(fields: list[NotificationWebhookField]) -> list[NotificationWebhookField]:
-    redacted: list[NotificationWebhookField] = []
-    for field in fields:
-        lowered = field.key.strip().lower().replace("-", "_")
-        if any(marker in lowered for marker in ("token", "secret", "password", "credential", "signature", "auth")):
-            redacted.append(NotificationWebhookField(key=field.key, value="REDACTED"))
-            continue
-        redacted.append(field)
-    return redacted
-
-
-def _redact_delivery_body_preview(value: str | None) -> str | None:
-    if value is None:
-        return None
-    return f"Stored body withheld ({len(value)} chars)"
-
-
-def _notification_error_for_display(error: str | None) -> str | None:
-    if error is None:
-        return None
-    for prefix in (RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX):
-        if error.startswith(prefix):
-            return error[len(prefix) :]
-    return error
-
-
-def _redact_notification_test_response(
-    result: NotificationWebhookTestResponse,
-) -> NotificationWebhookTestResponse:
-    return NotificationWebhookTestResponse(
-        success=result.success,
-        status_code=result.status_code,
-        duration_ms=result.duration_ms,
-        rendered_url=redact_feed_url(result.rendered_url),
-        rendered_method=result.rendered_method,
-        rendered_headers=_redact_notification_field_values(result.rendered_headers),
-        rendered_query_params=_redact_notification_query_params(result.rendered_query_params),
-        rendered_body=_redact_delivery_body_preview(result.rendered_body),
-        response_body_preview=_redact_delivery_body_preview(result.response_body_preview),
-        error=_notification_error_for_display(result.error),
-    )
-
-
-def notification_webhook_write_from_model(webhook: NotificationWebhook) -> NotificationWebhookWrite:
-    return NotificationWebhookWrite(
-        name=webhook.name,
-        enabled=webhook.enabled,
-        event_type=webhook.event_type,
-        url_template=_decrypt_notification_text(webhook.url_template) or "",
-        method=webhook.method,
-        feed_scope=webhook.feed_scope,
-        feed_ids=_notification_feed_ids_from_storage(webhook.feed_ids_json),
-        query_params=_notification_fields_from_storage(webhook.query_params_json),
-        headers=_notification_fields_from_storage(webhook.headers_json),
-        body_mode=webhook.body_mode,
-        body_fields=_notification_fields_from_storage(webhook.body_fields_json),
-        body_template=_decrypt_notification_text(webhook.body_template),
-        timeout_seconds=webhook.timeout_seconds,
-    )
-
-
-def notification_webhook_response_from_model(webhook: NotificationWebhook) -> NotificationWebhookResponse:
-    payload = notification_webhook_write_from_model(webhook)
-    return NotificationWebhookResponse(
-        id=webhook.id,
-        user_id=webhook.user_id,
-        name=payload.name,
-        enabled=payload.enabled,
-        event_type=payload.event_type,
-        url_template=payload.url_template,
-        method=payload.method,
-        feed_scope=payload.feed_scope,
-        feed_ids=payload.feed_ids,
-        query_params=payload.query_params,
-        headers=payload.headers,
-        body_mode=payload.body_mode,
-        body_fields=payload.body_fields,
-        body_template=payload.body_template,
-        timeout_seconds=payload.timeout_seconds,
-        created_at=webhook.created_at,
-        updated_at=webhook.updated_at,
-    )
-
-
-def notification_webhook_delivery_response_from_model(
-    delivery: NotificationWebhookDelivery,
-) -> NotificationWebhookDeliveryResponse:
-    rendered_headers = _redact_notification_field_values(_notification_fields_from_storage(delivery.rendered_headers_json))
-    rendered_query_params = _redact_notification_query_params(
-        _notification_fields_from_storage(delivery.rendered_query_params_json)
-    )
-    return NotificationWebhookDeliveryResponse(
-        id=delivery.id,
-        webhook_id=delivery.webhook_id,
-        user_id=delivery.user_id,
-        event_type=delivery.event_type_snapshot,
-        item_id=delivery.item_id,
-        feed_id=delivery.feed_id,
-        item_title=delivery.item_title_snapshot,
-        feed_name=delivery.feed_name_snapshot,
-        delivery_kind=delivery.delivery_kind,
-        delivery_state=delivery.delivery_state,
-        attempt_count=delivery.attempt_count,
-        claimed_at=delivery.claimed_at,
-        success=delivery.success,
-        status_code=delivery.status_code,
-        duration_ms=delivery.duration_ms,
-        timeout_seconds=delivery.timeout_seconds,
-        rendered_url=redact_feed_url(_decrypt_notification_text(delivery.rendered_url)),
-        rendered_method=delivery.rendered_method,
-        rendered_headers=rendered_headers,
-        rendered_query_params=rendered_query_params,
-        rendered_body=_redact_delivery_body_preview(_decrypt_notification_text(delivery.rendered_body)),
-        response_body_preview=_redact_delivery_body_preview(_decrypt_notification_text(delivery.response_body_preview)),
-        error=_notification_error_for_display(delivery.error),
-        attempted_at=delivery.attempted_at,
-    )
-
-
-def build_notification_webhook(user_id: uuid.UUID, payload: NotificationWebhookWrite) -> NotificationWebhook:
-    return NotificationWebhook(
-        user_id=user_id,
-        name=payload.name,
-        enabled=payload.enabled,
-        event_type=payload.event_type,
-        url_template=_encrypt_notification_text(payload.url_template) or "",
-        method=payload.method,
-        feed_scope=payload.feed_scope,
-        feed_ids_json=[str(feed_id) for feed_id in payload.feed_ids],
-        query_params_json=_notification_fields_to_storage(payload.query_params),
-        headers_json=_notification_fields_to_storage(payload.headers),
-        body_mode=payload.body_mode,
-        body_fields_json=_notification_fields_to_storage(payload.body_fields),
-        body_template=_encrypt_notification_text(payload.body_template),
-        timeout_seconds=payload.timeout_seconds,
-    )
-
-
-def apply_notification_webhook_updates(webhook: NotificationWebhook, payload: NotificationWebhookWrite) -> None:
-    webhook.name = payload.name
-    webhook.enabled = payload.enabled
-    webhook.event_type = payload.event_type
-    webhook.url_template = _encrypt_notification_text(payload.url_template) or ""
-    webhook.method = payload.method
-    webhook.feed_scope = payload.feed_scope
-    webhook.feed_ids_json = [str(feed_id) for feed_id in payload.feed_ids]
-    webhook.query_params_json = _notification_fields_to_storage(payload.query_params)
-    webhook.headers_json = _notification_fields_to_storage(payload.headers)
-    webhook.body_mode = payload.body_mode
-    webhook.body_fields_json = _notification_fields_to_storage(payload.body_fields)
-    webhook.body_template = _encrypt_notification_text(payload.body_template)
-    webhook.timeout_seconds = payload.timeout_seconds
 
 
 def validate_notification_webhook_payload(payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]) -> None:
@@ -545,7 +340,7 @@ def render_notification_request(
     rendered_url = _render_template(payload.url_template, context)
     rendered_query_params = [_render_field(field, context) for field in payload.query_params]
     rendered_headers = [_render_field(field, context) for field in payload.headers]
-    headers_dict = _canonicalize_headers(rendered_headers)
+    headers_dict = canonicalize_headers(rendered_headers)
     headers_dict[THREATLENS_DELIVERY_ID_HEADER] = str(delivery_uuid)
     query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
 
@@ -569,7 +364,7 @@ def render_notification_request(
     elif payload.body_mode == "raw":
         body_text = _render_template(payload.body_template or "", context)
         raw_body = body_text.encode("utf-8")
-        headers_dict.setdefault("Content-Type", _default_raw_content_type(body_text))
+        headers_dict.setdefault("Content-Type", default_raw_content_type(body_text))
 
     rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
 
@@ -1924,183 +1719,16 @@ def _assign_nested_json_value(target: dict, key_path: str, value: str) -> None:
     cursor[parts[-1]] = value
 
 
-def _default_raw_content_type(body_text: str) -> str:
-    stripped = body_text.lstrip()
-    if stripped.startswith("{") or stripped.startswith("["):
-        return "application/json"
-    return "text/plain; charset=utf-8"
+def _read_response_preview(*args, **kwargs):
+    return notification_webhook_http.read_response_preview(*args, **kwargs)
 
 
-def _canonicalize_headers(fields: list[NotificationWebhookField]) -> dict[str, str]:
-    canonical_headers: dict[str, str] = {}
-    seen_names: set[str] = set()
-
-    for field in fields:
-        header_name = field.key.strip()
-        if not header_name:
-            raise TemplateRenderError("Header name cannot be empty")
-
-        normalized_name = header_name.lower()
-        if normalized_name in BLOCKED_REQUEST_HEADERS:
-            raise TemplateRenderError(f"Header is not allowed: {header_name}")
-        if normalized_name in seen_names:
-            raise TemplateRenderError(f"Duplicate header: {header_name}")
-
-        seen_names.add(normalized_name)
-        canonical_headers[_canonical_header_name(header_name)] = field.value
-
-    return canonical_headers
+def _send_request_with_redirects(*args, **kwargs):
+    return notification_webhook_http.send_request_with_redirects(*args, **kwargs)
 
 
-def _canonical_header_name(header_name: str) -> str:
-    return "-".join(part[:1].upper() + part[1:] for part in header_name.split("-"))
-
-
-def _send_rendered_notification_request(rendered: RenderedNotificationRequest) -> NotificationWebhookTestResponse:
-    timeout = httpx.Timeout(
-        connect=rendered.timeout_seconds,
-        read=rendered.timeout_seconds,
-        write=rendered.timeout_seconds,
-        pool=rendered.timeout_seconds,
-    )
-    started_at = time.perf_counter()
-
-    try:
-        with build_safe_http_client(
-            timeout=timeout,
-            headers={"User-Agent": settings.fetch_user_agent},
-            allow_private_network=settings.allow_private_network_webhooks,
-        ) as client:
-            response = _send_request_with_redirects(
-                client,
-                method=rendered.method,
-                url=rendered.url,
-                headers=rendered.headers_dict,
-                params=rendered.query_param_pairs,
-                json_body=rendered.json_body,
-                form_body=rendered.form_body,
-                raw_body=rendered.raw_body,
-            )
-    except (TemplateRenderError, SafeFetchError, httpx.HTTPError, ValueError) as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        return NotificationWebhookTestResponse(
-            success=False,
-            status_code=None,
-            duration_ms=duration_ms,
-            rendered_url=rendered.url,
-            rendered_method=rendered.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=None,
-            error=str(exc),
-        )
-
-    duration_ms = int((time.perf_counter() - started_at) * 1000)
-    try:
-        response_body_preview = _read_response_preview(response, max_bytes=MAX_RESPONSE_PREVIEW_CHARS)
-        return NotificationWebhookTestResponse(
-            success=200 <= response.status_code < 400,
-            status_code=response.status_code,
-            duration_ms=duration_ms,
-            rendered_url=str(response.request.url),
-            rendered_method=response.request.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=response_body_preview,
-            error=None if 200 <= response.status_code < 400 else f"HTTP {response.status_code}",
-        )
-    finally:
-        response.close()
-
-
-def _read_response_preview(response: httpx.Response, *, max_bytes: int) -> str:
-    preview_chunks: list[bytes] = []
-    remaining = max_bytes
-
-    for chunk in response.iter_bytes():
-        if remaining <= 0:
-            break
-
-        if len(chunk) <= remaining:
-            preview_chunks.append(chunk)
-            remaining -= len(chunk)
-            continue
-
-        preview_chunks.append(chunk[:remaining])
-        remaining = 0
-        break
-
-    return b"".join(preview_chunks).decode("utf-8", errors="replace")
-
-
-def _send_request_with_redirects(
-    client: httpx.Client,
-    *,
-    method: str,
-    url: str,
-    headers: dict[str, str],
-    params: list[tuple[str, str]],
-    json_body: dict | None,
-    form_body: list[tuple[str, str]] | None,
-    raw_body: bytes | None,
-) -> httpx.Response:
-    current_url = url
-    current_method = method.upper()
-    redirects = 0
-    current_json_body = json_body
-    current_form_body = form_body
-    current_raw_body = raw_body
-    current_params = list(params)
-
-    while True:
-        ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_webhooks)
-        request_url = _merge_request_url(current_url, current_params)
-        request = client.build_request(
-            current_method,
-            request_url,
-            headers=headers,
-            json=current_json_body,
-            data=current_form_body if current_form_body is not None else current_raw_body,
-        )
-        response = client.send(request, stream=True, follow_redirects=False)
-        if response.status_code not in REDIRECT_STATUS_CODES:
-            return response
-
-        location = response.headers.get("location")
-        if not location:
-            response.close()
-            raise RedirectError("Redirect missing location header")
-
-        redirects += 1
-        if redirects > settings.outbound_max_redirects:
-            response.close()
-            raise RedirectError("Too many redirects")
-
-        redirect_status = response.status_code
-        response.close()
-        redirect_url = urljoin(current_url, location)
-        if _origin_tuple(redirect_url) != _origin_tuple(current_url):
-            raise RedirectError("Cross-origin redirects are not allowed")
-        current_url = redirect_url
-        current_params = []
-        if redirect_status in {301, 302, 303} and current_method not in {"GET", "HEAD"}:
-            current_method = "GET"
-            current_json_body = None
-            current_form_body = None
-            current_raw_body = None
-
-
-def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
-    if not params:
-        return url
-
-    split = urlsplit(url)
-    query_pairs = parse_qsl(split.query, keep_blank_values=True)
-    query_pairs.extend(params)
-    merged_query = urlencode(query_pairs, doseq=True)
-    return urlunsplit((split.scheme, split.netloc, split.path, merged_query, split.fragment))
+def _send_rendered_notification_request(*args, **kwargs):
+    return notification_webhook_http.send_rendered_notification_request(*args, **kwargs)
 
 
 def _restore_saved_request_target(
@@ -2118,23 +1746,6 @@ def _restore_saved_request_target(
     if saved_query_pairs == query_param_pairs:
         return urlunsplit((split.scheme, split.netloc, split.path, "", split.fragment)), query_param_pairs
     return saved_url, []
-
-
-def _origin_tuple(url: str) -> tuple[str, str, int | None]:
-    split = urlsplit(url)
-    try:
-        port = split.port
-    except ValueError as exc:
-        raise RedirectError("Redirect target URL is invalid") from exc
-
-    scheme = split.scheme.lower()
-    if port is None:
-        if scheme == "http":
-            port = 80
-        elif scheme == "https":
-            port = 443
-
-    return scheme, (split.hostname or "").lower(), port
 
 
 def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> NotificationWebhookTestResponse:
@@ -2398,7 +2009,7 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
     rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
     saved_url = _decrypt_notification_text(delivery.rendered_url) or ""
     replay_url, query_param_pairs = _restore_saved_request_target(saved_url, rendered_query_params)
-    headers_dict = _canonicalize_headers(rendered_headers)
+    headers_dict = canonicalize_headers(rendered_headers)
     headers_dict.setdefault(THREATLENS_DELIVERY_ID_HEADER, str(delivery.source_delivery_id or delivery.id))
     rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
     body_text = _decrypt_notification_text(delivery.rendered_body)

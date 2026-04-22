@@ -77,13 +77,19 @@ Release-contract artifacts shipped in the repo:
 
 - Generated API reference: `docs/reference/api.md`
 - OpenAPI schema snapshot: `docs/reference/openapi.json`
+- Backend runtime lockfile: `backend/requirements-lock.txt`
 - Runtime dependency inventories: `docs/reference/backend-runtime-dependencies.txt`, `docs/reference/frontend-runtime-dependencies.txt`
 - Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
 - Bundled license texts: `docs/licenses/`
 - Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
 
-The governance docs intentionally use `.invalid` placeholder addresses until maintainers publish real public contact channels. Do not send mail to those placeholders; see `docs/reference/release-process.md` for the release gate that replaces them before public distribution.
+Repository-hosted support and reporting paths:
+
+- Questions and bug reports: `https://github.com/PatrikSi/threatlens/issues`
+- Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
+- Security coordination entry point: `https://github.com/PatrikSi/threatlens/security`
+- Maintainer profile: `https://github.com/PatrikSi`
 
 ## Running with Docker
 
@@ -103,6 +109,7 @@ Startup flow for `docker-compose.yml`:
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - Legacy unversioned backend routes remain available for compatibility, but they are not the documented or shipped runtime contract.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, including notices, bundled license texts, and runtime dependency inventories.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -392,7 +399,7 @@ Notes:
 - Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt` and `/usr/share/doc/threatlens/backend-requirements.txt`.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
 - `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
-- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, and `docs/licenses/Unlicense.txt` are bundled for common third-party runtime licenses in the shipped stack.
+- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled for common third-party runtime licenses in the shipped stack.
 - `docs/licenses/LGPL-3.0.txt` and `docs/licenses/GPL-3.0.txt` are shipped for the `psycopg[binary]` backend dependency. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
 
 ## User Management (admin only)

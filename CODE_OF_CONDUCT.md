@@ -20,9 +20,8 @@ Examples of unacceptable behavior:
 
 ## Reporting
 
-This repository intentionally uses non-routable placeholder addresses under `example.invalid` until maintainers publish a real public conduct contact. Do not email `conduct-contact@example.invalid`.
-
-Before public release, maintainers should replace that placeholder with a monitored private contact path. If no staffed private conduct channel is published yet, avoid posting sensitive personal details in public threads; open a minimal issue asking maintainers to establish a private reporting path instead.
+For private or platform-level conduct concerns, use GitHub's abuse reporting path at `https://support.github.com/contact/report-abuse`.
+For project moderation concerns that do not require a private report, open a minimal issue at `https://github.com/PatrikSi/threatlens/issues/new` without posting sensitive personal details.
 
 ## Maintainer Responsibilities
 

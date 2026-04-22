@@ -2,9 +2,7 @@
 
 ## Supported Code Lines
 
-ThreatLens uses tag-based public releases. The default branch is active development and may be ahead of the latest supported release.
-
-Until the first public tag exists, this repository should be treated as preview code rather than a stable release line.
+ThreatLens uses tag-based releases. The default branch is active development and may be ahead of the latest supported release.
 
 Once public tags exist, use this support model:
 
@@ -18,19 +16,17 @@ Once public tags exist, use this support model:
 
 Please do not open a public GitHub issue for an unpatched vulnerability.
 
-This repository intentionally uses non-routable placeholder addresses under `example.invalid` until maintainers publish a real public security contact. Do not send reports to `security-contact@example.invalid`.
+Use the repository security page first:
 
-Before cutting a public release, maintainers must do at least one of the following:
+- `https://github.com/PatrikSi/threatlens/security`
+- Direct private-report entry point when enabled: `https://github.com/PatrikSi/threatlens/security/advisories/new`
 
-- enable GitHub private vulnerability reporting for the repository
-- replace the placeholder contact in this file and `README.md` with a monitored private security mailbox or equivalent intake path
+If private vulnerability reporting is not available in your current repository access mode, open a minimal issue at `https://github.com/PatrikSi/threatlens/issues/new` asking maintainers to establish a private channel, and do not include exploit details or sensitive data in the issue body.
 
 Preferred reporting order:
 
-1. GitHub private vulnerability reporting, if enabled for this repository
-2. A real private contact explicitly published in this file
-
-If neither private path exists yet, do not post exploit details publicly. Instead, open a minimal issue requesting a private reporting channel or wait for maintainers to publish one before sharing sensitive details.
+1. GitHub private vulnerability reporting from the repository security page, if enabled
+2. Maintainer instructions returned through the repository issue tracker or security page
 
 Include as much of the following as you can:
 
@@ -48,4 +44,4 @@ Include as much of the following as you can:
 
 ## Disclosure
 
-Please give maintainers reasonable time to investigate and prepare a fix before public disclosure. When a fix ships, prefer coordinated disclosure with clear operator upgrade guidance.
+Please give maintainers reasonable time to investigate and prepare a fix before public disclosure. When a fix ships, prefer coordinated disclosure with clear operator upgrade guidance in the issue tracker, changelog, and release notes.

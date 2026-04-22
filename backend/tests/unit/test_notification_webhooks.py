@@ -14,11 +14,13 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse, NotificationWebhookWrite
-from app.services.notification_webhooks import (
-    _read_response_preview,
-    _send_rendered_notification_request,
-    _send_request_with_redirects,
+from app.services.notification_webhook_http import (
     RedirectError,
+    read_response_preview,
+    send_rendered_notification_request,
+    send_request_with_redirects,
+)
+from app.services.notification_webhooks import (
     build_alert_match_context_for_item,
     get_notification_analytics,
     list_recoverable_notification_delivery_ids,
@@ -442,7 +444,7 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda rendered: NotificationWebhookTestResponse(
             success=True,
             status_code=204,
@@ -561,7 +563,7 @@ def test_render_notification_request_rejects_host_header_override():
 
 def test_send_request_with_redirects_does_not_replay_original_query_params_after_redirect(monkeypatch):
     seen_urls: list[str] = []
-    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         seen_urls.append(str(request.url))
@@ -571,7 +573,7 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
 
     transport = httpx.MockTransport(_handler)
     with httpx.Client(transport=transport) as client:
-        response = _send_request_with_redirects(
+        response = send_request_with_redirects(
             client,
             method="POST",
             url="https://hooks.example.com/start?orig=1",
@@ -590,7 +592,7 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
 
 
 def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(302, headers={"Location": "https://other.example.com/final"})
@@ -598,7 +600,7 @@ def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
     transport = httpx.MockTransport(_handler)
     with httpx.Client(transport=transport) as client:
         with pytest.raises(RedirectError, match="Cross-origin redirects are not allowed"):
-            _send_request_with_redirects(
+            send_request_with_redirects(
                 client,
                 method="POST",
                 url="https://hooks.example.com/start",
@@ -611,7 +613,7 @@ def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
 
 
 def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_default_port(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
 
     def _handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/start":
@@ -620,7 +622,7 @@ def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_d
 
     transport = httpx.MockTransport(_handler)
     with httpx.Client(transport=transport) as client:
-        response = _send_request_with_redirects(
+        response = send_request_with_redirects(
             client,
             method="POST",
             url="https://hooks.example.com/start",
@@ -645,18 +647,18 @@ def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch
             _ = (exc_type, exc, tb)
             return False
 
-    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_fetch", True)
-    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_fetch", True)
+    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_webhooks", False)
     monkeypatch.setattr(
-        "app.services.notification_webhooks.build_safe_http_client",
+        "app.services.notification_webhook_http.build_safe_http_client",
         lambda *args, **kwargs: captured.setdefault("allow_private_network", kwargs["allow_private_network"]) or _Client(),
     )
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_request_with_redirects",
+        "app.services.notification_webhook_http.send_request_with_redirects",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(httpx.ConnectError("stop after client setup")),
     )
 
-    result = _send_rendered_notification_request(
+    result = send_rendered_notification_request(
         type(
             "Rendered",
             (),
@@ -683,10 +685,10 @@ def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch
 def test_webhook_redirect_validation_uses_dedicated_private_network_setting(monkeypatch):
     observed: list[bool] = []
 
-    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_fetch", True)
-    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_fetch", True)
+    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_webhooks", False)
     monkeypatch.setattr(
-        "app.services.notification_webhooks.ensure_runtime_fetchable_url",
+        "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
         lambda _url, *, allow_private_network=False: observed.append(allow_private_network),
     )
 
@@ -695,7 +697,7 @@ def test_webhook_redirect_validation_uses_dedicated_private_network_setting(monk
 
     transport = httpx.MockTransport(_handler)
     with httpx.Client(transport=transport) as client:
-        response = _send_request_with_redirects(
+        response = send_request_with_redirects(
             client,
             method="POST",
             url="https://hooks.example.com/start",
@@ -713,7 +715,7 @@ def test_webhook_redirect_validation_uses_dedicated_private_network_setting(monk
 def test_read_response_preview_caps_body_size():
     response = httpx.Response(200, content=b"a" * 5000)
 
-    assert _read_response_preview(response, max_bytes=4000) == "a" * 4000
+    assert read_response_preview(response, max_bytes=4000) == "a" * 4000
 
 
 def test_send_notification_webhook_for_item_records_delivery_history(db_session, monkeypatch):
@@ -777,7 +779,7 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
 
     result = send_notification_webhook_for_item(db_session, webhook=webhook, item=item, feed=feed, user=user)
 
@@ -850,7 +852,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
     )
 
@@ -919,7 +921,7 @@ def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
     )
 
@@ -982,7 +984,7 @@ def test_presend_render_failures_stay_pending_until_processed(db_session, monkey
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("pre-send render failure should not reach sender")),
     )
 
@@ -1144,7 +1146,7 @@ def test_process_notification_webhook_delivery_preserves_original_request_snapsh
             error="HTTP 500",
         )
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
 
@@ -1247,7 +1249,7 @@ def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_cont
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
 
     retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
 
@@ -1340,7 +1342,7 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
 
     retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
 
@@ -1420,7 +1422,7 @@ def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(db
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.services.notification_webhooks._send_rendered_notification_request",
+        "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda _rendered: (_ for _ in ()).throw(AssertionError("existing retry should be reused")),
     )
 
@@ -2162,7 +2164,7 @@ def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
 
     result = dispatch_pending_notification_webhook_deliveries()

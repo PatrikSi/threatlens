@@ -195,7 +195,7 @@ def test_notification_webhook_test_endpoint_redacts_sensitive_previews(client: T
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
 
     response = client.post(
         "/notifications/webhooks/test",

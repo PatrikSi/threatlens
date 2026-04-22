@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate reproducible runtime dependency inventories for release artifacts.
+"""Generate runtime dependency inventories for release artifacts.
 
 Backend inventory is generated from the currently running Python environment.
 For release artifacts, run this script inside the built backend image so the

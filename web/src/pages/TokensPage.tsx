@@ -4,18 +4,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useTokenCreateFormState } from '../hooks/useTokenCreateFormState'
 import { ApiToken, ApiTokenCreateResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
 export function TokensPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
-  const [name, setName] = useState('')
-  const [expiresInDays, setExpiresInDays] = useState(90)
-  const [scopesText, setScopesText] = useState('')
-  const [currentPassword, setCurrentPassword] = useState('')
+  const [tokenFormState, dispatchTokenForm] = useTokenCreateFormState()
   const [adminUserFilter, setAdminUserFilter] = useState('')
-  const [createdToken, setCreatedToken] = useState<ApiTokenCreateResponse | null>(null)
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
 
   const tokenQueryKey = ['tokens', adminUserFilter]
@@ -33,20 +30,20 @@ export function TokensPage() {
 
   const createToken = useMutation({
     mutationFn: () => {
-      const scopes = scopesText
+      const scopes = tokenFormState.scopesText
         .split(',')
         .map((scope) => scope.trim())
         .filter(Boolean)
 
       const body: Record<string, unknown> = {
-        name,
-        expires_in_days: expiresInDays,
+        name: tokenFormState.name,
+        expires_in_days: tokenFormState.expiresInDays,
       }
       if (scopes.length > 0) {
         body.scopes = scopes
       }
-      if (currentPassword.trim()) {
-        body.current_password = currentPassword
+      if (tokenFormState.currentPassword.trim()) {
+        body.current_password = tokenFormState.currentPassword
       }
 
       return apiFetch<ApiTokenCreateResponse>('/tokens', {
@@ -55,12 +52,11 @@ export function TokensPage() {
       })
     },
     onSuccess: (data) => {
-      setCreatedToken(data)
-      setName('')
-      setScopesText('')
-      setCurrentPassword('')
-      setExpiresInDays(90)
+      dispatchTokenForm({ type: 'createSucceeded', value: data })
       void queryClient.invalidateQueries({ queryKey: ['tokens'] })
+    },
+    onError: () => {
+      dispatchTokenForm({ type: 'createFailed' })
     },
   })
 
@@ -81,6 +77,7 @@ export function TokensPage() {
 
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
+    dispatchTokenForm({ type: 'createStarted' })
     createToken.mutate()
   }
 
@@ -103,8 +100,8 @@ export function TokensPage() {
             <input
               id="token-name"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
+              value={tokenFormState.name}
+              onChange={(event) => dispatchTokenForm({ type: 'setName', value: event.target.value })}
               required
             />
           </div>
@@ -116,8 +113,8 @@ export function TokensPage() {
               type="number"
               min={1}
               max={3650}
-              value={expiresInDays}
-              onChange={(event) => setExpiresInDays(Number(event.target.value))}
+              value={tokenFormState.expiresInDays}
+              onChange={(event) => dispatchTokenForm({ type: 'setExpiresInDays', value: Number(event.target.value) })}
               required
             />
           </div>
@@ -126,8 +123,8 @@ export function TokensPage() {
             <input
               id="token-scopes"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              value={scopesText}
-              onChange={(event) => setScopesText(event.target.value)}
+              value={tokenFormState.scopesText}
+              onChange={(event) => dispatchTokenForm({ type: 'setScopesText', value: event.target.value })}
               placeholder="read:feeds,write:items"
             />
           </div>
@@ -138,8 +135,8 @@ export function TokensPage() {
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="password"
               autoComplete="current-password"
-              value={currentPassword}
-              onChange={(event) => setCurrentPassword(event.target.value)}
+              value={tokenFormState.currentPassword}
+              onChange={(event) => dispatchTokenForm({ type: 'setCurrentPassword', value: event.target.value })}
               required
             />
           </div>
@@ -153,11 +150,11 @@ export function TokensPage() {
           )}
         </form>
 
-        {createdToken && (
+        {tokenFormState.createdToken && (
           <div className="mt-4 rounded border border-cyan/40 bg-cyan/10 p-3 text-sm dark:bg-cyan/15">
             <p className="font-semibold">New token</p>
-            <p className="mt-1 break-all font-mono text-xs">{createdToken.token}</p>
-            <p className="mt-1 text-xs text-slate dark:text-slate-300">Prefix: {createdToken.token_prefix}</p>
+            <p className="mt-1 break-all font-mono text-xs">{tokenFormState.createdToken.token}</p>
+            <p className="mt-1 text-xs text-slate dark:text-slate-300">Prefix: {tokenFormState.createdToken.token_prefix}</p>
           </div>
         )}
       </section>

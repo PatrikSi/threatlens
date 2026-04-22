@@ -1,13 +1,6 @@
-import { ReactNode, RefObject, useEffect, useId, useRef } from 'react'
+import { ReactNode, RefObject, useId, useRef } from 'react'
 
-const DIALOG_FOCUSABLE_SELECTOR =
-  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-
-function getFocusableDialogElements(container: HTMLElement) {
-  return Array.from(container.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR)).filter(
-    (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true',
-  )
-}
+import { useDialogFocusTrap } from '../hooks/useDialogFocusTrap'
 
 type DialogSurfaceProps = {
   open: boolean
@@ -66,70 +59,14 @@ export function DialogSurface({
   const bodyId = useId()
   const dialogRef = useRef<HTMLDivElement | null>(null)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
-  const previousFocusRef = useRef<HTMLElement | null>(null)
-  const dismissDisabledRef = useRef(dismissDisabled)
-
-  useEffect(() => {
-    dismissDisabledRef.current = dismissDisabled
-  }, [dismissDisabled])
-
-  useEffect(() => {
-    if (!open) {
-      return
-    }
-
-    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    window.requestAnimationFrame(() => {
-      const focusTarget = initialFocusRef?.current ?? (dismissDisabled ? dialogRef.current : closeButtonRef.current) ?? dialogRef.current
-      focusTarget?.focus()
-    })
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !dismissDisabledRef.current) {
-        event.preventDefault()
-        onClose()
-        return
-      }
-
-      if (event.key !== 'Tab' || !dialogRef.current) {
-        return
-      }
-
-      const focusable = getFocusableDialogElements(dialogRef.current)
-      if (!focusable.length) {
-        event.preventDefault()
-        dialogRef.current.focus()
-        return
-      }
-
-      const first = focusable[0]
-      const last = focusable[focusable.length - 1]
-      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
-
-      if (!active || !dialogRef.current.contains(active)) {
-        event.preventDefault()
-        ;(event.shiftKey ? last : first).focus()
-        return
-      }
-
-      if (event.shiftKey && active === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && active === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      if (previousFocusRef.current?.isConnected) {
-        previousFocusRef.current.focus()
-      }
-      previousFocusRef.current = null
-    }
-  }, [dismissDisabled, initialFocusRef, onClose, open])
+  useDialogFocusTrap({
+    open,
+    dialogRef,
+    closeButtonRef,
+    initialFocusRef,
+    dismissDisabled,
+    onClose,
+  })
 
   if (!open) {
     return null
@@ -202,6 +139,8 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const dismissDisabled = cancelDisabled || isConfirming
+  const cancelButtonRef = useRef<HTMLButtonElement | null>(null)
+  const initialFocusRef = dismissDisabled ? undefined : cancelButtonRef
   const showHeaderDescription = Boolean(description) && !children
   const confirmButtonClassName =
     confirmTone === 'primary'
@@ -217,10 +156,12 @@ export function ConfirmDialog({
       closeLabel={closeLabel}
       dismissDisabled={dismissDisabled}
       ariaBusy={isConfirming}
+      initialFocusRef={initialFocusRef}
       onClose={onCancel}
       footer={
         <>
           <button
+            ref={cancelButtonRef}
             type="button"
             className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
             onClick={onCancel}

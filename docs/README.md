@@ -39,6 +39,8 @@ This documentation covers:
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)
 - [Bundled BSD-3-Clause Text](./licenses/BSD-3-Clause.txt)
+- [Bundled ISC Text](./licenses/ISC.txt)
+- [Bundled MPL-2.0 Text](./licenses/MPL-2.0.txt)
 - [Bundled Unlicense Text](./licenses/Unlicense.txt)
 - [Bundled LGPL Text](./licenses/LGPL-3.0.txt)
 - [Bundled GPL Text](./licenses/GPL-3.0.txt)

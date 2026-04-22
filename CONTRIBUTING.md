@@ -56,6 +56,8 @@ If your change affects the published API contract, regenerate the checked-in API
 If your change affects shipped dependencies, bundled assets, or release-compliance metadata, regenerate the dependency inventories from a clean backend runtime image:
 
 ```bash
+./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
+./backend/.venv/bin/python scripts/sync_compliance_bundle.py
 BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
 docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
   python backend/scripts/generate_dependency_inventory.py \
@@ -71,6 +73,9 @@ Before merging release-contract changes, review at least:
 - `docs/reference/backend-runtime-dependencies.txt`
 - `docs/reference/frontend-runtime-dependencies.txt`
 - `docs/reference/release-process.md`
+- `backend/requirements-lock.txt`
+- `backend/compliance/`
+- `web/compliance/`
 
 ## Commit Hygiene
 
@@ -80,6 +85,6 @@ Before merging release-contract changes, review at least:
 
 ## Questions
 
-This repository intentionally uses `.invalid` placeholder addresses until maintainers publish real public contact channels. Do not email `maintainers@example.invalid`.
+For non-sensitive product questions, open an issue at `https://github.com/PatrikSi/threatlens/issues` or draft a pull request at `https://github.com/PatrikSi/threatlens/pulls`.
 
-For non-sensitive product questions, open an issue or draft PR. For security-sensitive concerns, follow `SECURITY.md` and use a real private reporting path only if one is explicitly published there.
+For security-sensitive concerns, follow `SECURITY.md` and start from the repository security page at `https://github.com/PatrikSi/threatlens/security`.
