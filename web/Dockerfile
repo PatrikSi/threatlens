@@ -32,6 +32,8 @@ process.stdout.write(
   ].join('\n'),
 );
 NODE
+RUN mkdir -p /tmp/frontend-docs \
+    && node ./scripts/generate_runtime_package_metadata.mjs --output /tmp/frontend-docs/frontend-runtime-package-metadata.json
 RUN npm run build
 
 FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
@@ -41,6 +43,7 @@ COPY compliance/LICENSE /usr/share/doc/threatlens/LICENSE
 COPY compliance/THIRD_PARTY_NOTICES.md /usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md
 COPY compliance/licenses/ /usr/share/doc/threatlens/licenses/
 COPY --from=build /tmp/frontend-runtime-dependencies.txt /usr/share/doc/threatlens/frontend-runtime-dependencies.txt
+COPY --from=build /tmp/frontend-docs/frontend-runtime-package-metadata.json /usr/share/doc/threatlens/frontend-runtime-package-metadata.json
 COPY package-lock.json /usr/share/doc/threatlens/frontend-package-lock.json
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html

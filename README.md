@@ -79,6 +79,7 @@ Release-contract artifacts shipped in the repo:
 - OpenAPI schema snapshot: `docs/reference/openapi.json`
 - Backend runtime lockfile: `backend/requirements-lock.txt`
 - Runtime dependency inventories: `docs/reference/backend-runtime-dependencies.txt`, `docs/reference/frontend-runtime-dependencies.txt`
+- Runtime package metadata inventories: `docs/reference/backend-runtime-package-metadata.json`, `docs/reference/frontend-runtime-package-metadata.json`
 - Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
 - Bundled license texts: `docs/licenses/`
@@ -396,7 +397,9 @@ Notes:
 
 - `THIRD_PARTY_NOTICES.md` summarizes the bundled assets, selected direct runtime dependencies, redistribution notes, and regeneration commands for the committed runtime inventories.
 - `docs/reference/backend-runtime-dependencies.txt` and `docs/reference/frontend-runtime-dependencies.txt` are the full resolved runtime inventories committed with the source tree.
-- Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt` and `/usr/share/doc/threatlens/backend-requirements.txt`.
+- `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review.
+- Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`, and `/usr/share/doc/threatlens/backend-requirements.txt`.
+- Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, and `/usr/share/doc/threatlens/frontend-package-lock.json`.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
 - `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
 - `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled for common third-party runtime licenses in the shipped stack.

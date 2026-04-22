@@ -1,0 +1,92 @@
+[
+  {
+    "name": "@tanstack/query-core",
+    "version": "5.97.0",
+    "license": "MIT",
+    "description": "The framework agnostic core that powers TanStack Query",
+    "homepage": "https://tanstack.com/query",
+    "repository": "git+https://github.com/TanStack/query.git",
+    "author": "tannerlinsley",
+    "package_path": "node_modules/@tanstack/query-core"
+  },
+  {
+    "name": "@tanstack/react-query",
+    "version": "5.97.0",
+    "license": "MIT",
+    "description": "Hooks for managing, caching and syncing asynchronous and remote data in React",
+    "homepage": "https://tanstack.com/query",
+    "repository": "git+https://github.com/TanStack/query.git",
+    "author": "tannerlinsley",
+    "package_path": "node_modules/@tanstack/react-query"
+  },
+  {
+    "name": "cookie",
+    "version": "1.1.1",
+    "license": "MIT",
+    "description": "HTTP server cookie parsing and serialization",
+    "homepage": null,
+    "repository": "jshttp/cookie",
+    "author": "Roman Shtylman <shtylman@gmail.com>",
+    "package_path": "node_modules/cookie"
+  },
+  {
+    "name": "react",
+    "version": "19.2.5",
+    "license": "MIT",
+    "description": "React is a JavaScript library for building user interfaces.",
+    "homepage": "https://react.dev/",
+    "repository": "https://github.com/facebook/react.git",
+    "author": null,
+    "package_path": "node_modules/react"
+  },
+  {
+    "name": "react-dom",
+    "version": "19.2.5",
+    "license": "MIT",
+    "description": "React package for working with the DOM.",
+    "homepage": "https://react.dev/",
+    "repository": "https://github.com/facebook/react.git",
+    "author": null,
+    "package_path": "node_modules/react-dom"
+  },
+  {
+    "name": "react-router",
+    "version": "7.14.0",
+    "license": "MIT",
+    "description": "Declarative routing for React",
+    "homepage": null,
+    "repository": "https://github.com/remix-run/react-router",
+    "author": "Remix Software <hello@remix.run>",
+    "package_path": "node_modules/react-router"
+  },
+  {
+    "name": "react-router-dom",
+    "version": "7.14.0",
+    "license": "MIT",
+    "description": "Declarative routing for React web applications",
+    "homepage": null,
+    "repository": "https://github.com/remix-run/react-router",
+    "author": "Remix Software <hello@remix.run>",
+    "package_path": "node_modules/react-router-dom"
+  },
+  {
+    "name": "scheduler",
+    "version": "0.27.0",
+    "license": "MIT",
+    "description": "Cooperative scheduler for the browser environment.",
+    "homepage": "https://react.dev/",
+    "repository": "https://github.com/facebook/react.git",
+    "author": null,
+    "package_path": "node_modules/scheduler"
+  },
+  {
+    "name": "set-cookie-parser",
+    "version": "2.7.2",
+    "license": "MIT",
+    "description": "Parses set-cookie headers into objects",
+    "homepage": "https://github.com/nfriedly/set-cookie-parser",
+    "repository": "nfriedly/set-cookie-parser",
+    "author": "Nathan Friedly",
+    "package_path": "node_modules/set-cookie-parser"
+  }
+]

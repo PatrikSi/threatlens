@@ -66,7 +66,7 @@ afterEach(() => {
 })
 
 describe('UsersPage DOM workflows', () => {
-  it('renders accessible admin controls and opens the review dialog for a role change', () => {
+  it('renders accessible admin controls and confirms a role change through the review dialog', () => {
     const view = renderPage()
 
     expect(view.querySelector('label[for="create-user-email"]')?.textContent).toContain('Email')
@@ -97,5 +97,19 @@ describe('UsersPage DOM workflows', () => {
 
     expect(view.textContent).toContain('Apply privileged user changes?')
     expect(view.textContent).toContain('Role will change from analyst to admin.')
+
+    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Apply user changes'),
+    )
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(usersPageDomMocks.mutate).toHaveBeenCalledWith({
+      id: 'user-1',
+      body: { role: 'admin' },
+    })
   })
 })

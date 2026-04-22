@@ -11,7 +11,21 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
   },
+  saveMutate: vi.fn(),
+  deleteMutate: vi.fn(),
+  testMutate: vi.fn(),
+  retryMutate: vi.fn(),
 }))
+
+function notificationMutationResult(mutate: ReturnType<typeof vi.fn>) {
+  return {
+    mutate,
+    isPending: false,
+    isError: false,
+    error: null,
+    reset: vi.fn(),
+  }
+}
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => notificationsPageDomMocks.queryClient,
@@ -134,12 +148,19 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-    isError: false,
-    error: null,
-  }),
+  useMutation: (options: { mutationFn?: unknown }) => {
+    const source = String(options?.mutationFn ?? '')
+    if (source.includes('/notifications/webhooks/test')) {
+      return notificationMutationResult(notificationsPageDomMocks.testMutate)
+    }
+    if (source.includes('/deliveries/') && source.includes('/retry')) {
+      return notificationMutationResult(notificationsPageDomMocks.retryMutate)
+    }
+    if (source.includes('/notifications/webhooks/${webhookId}') && source.includes("DELETE")) {
+      return notificationMutationResult(notificationsPageDomMocks.deleteMutate)
+    }
+    return notificationMutationResult(notificationsPageDomMocks.saveMutate)
+  },
 }))
 
 vi.mock('../hooks/useUnsavedChangesWarning', () => ({
@@ -172,7 +193,7 @@ afterEach(() => {
 })
 
 describe('NotificationsPage DOM workflows', () => {
-  it('renders accessible request-shaping controls and opens the delete confirmation workflow', () => {
+  it('renders accessible request-shaping controls and confirms webhook deletion through the dialog', () => {
     const view = renderPage()
 
     const savedWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -202,5 +223,16 @@ describe('NotificationsPage DOM workflows', () => {
 
     expect(view.textContent).toContain('Delete webhook?')
     expect(view.textContent).toContain('Slack alert relay')
+
+    const confirmDeleteButton = Array.from(view.querySelectorAll('button'))
+      .filter((button) => button.textContent?.includes('Delete webhook'))
+      .at(-1)
+    expect(confirmDeleteButton).not.toBeNull()
+
+    act(() => {
+      confirmDeleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(notificationsPageDomMocks.deleteMutate).toHaveBeenCalledWith('webhook-1')
   })
 })

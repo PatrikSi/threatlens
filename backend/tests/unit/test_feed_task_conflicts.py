@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from app.models.feed import Feed
 from app.models.item import Item
-from app.tasks.feed_tasks import _insert_item_with_conflict_retry
+from app.services.feed_pipeline import _insert_item_with_conflict_retry
 
 
 def test_insert_item_with_conflict_retry_handles_duplicate_dedupe_key(db_session):

@@ -21,6 +21,7 @@ RUN chmod +x /app/scripts/start-api.sh \
     && cp /app/requirements-lock.txt /usr/share/doc/threatlens/backend-requirements-lock.txt \
     && python /app/scripts/generate_dependency_inventory.py \
       --backend-output /usr/share/doc/threatlens/backend-runtime-dependencies.txt \
+      --backend-metadata-output /usr/share/doc/threatlens/backend-runtime-package-metadata.json \
       --skip-frontend
 RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
 

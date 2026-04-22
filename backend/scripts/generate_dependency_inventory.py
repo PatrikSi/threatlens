@@ -29,6 +29,56 @@ def _sorted_backend_distributions() -> list[str]:
     return [rows[key] for key in sorted(rows)]
 
 
+def _normalized_backend_package_metadata() -> list[dict[str, object]]:
+    rows: dict[str, dict[str, object]] = {}
+    for dist in metadata.distributions():
+        name = (dist.metadata.get("Name") or "").strip()
+        version = (dist.version or "").strip()
+        if not name or not version:
+            continue
+
+        key = name.lower().replace("_", "-")
+        project_urls = [value.strip() for value in dist.metadata.get_all("Project-URL") or [] if value.strip()]
+        license_files = [value.strip() for value in dist.metadata.get_all("License-File") or [] if value.strip()]
+        license_classifiers = [
+            value.strip()
+            for value in dist.metadata.get_all("Classifier") or []
+            if value.startswith("License :: ")
+        ]
+        license_value = (dist.metadata.get("License") or "").strip()
+        if not license_value or license_value.upper() == "UNKNOWN":
+            license_value = license_classifiers[-1].removeprefix("License :: ").strip() if license_classifiers else "Unknown"
+
+        row: dict[str, object] = {
+            "name": name,
+            "version": version,
+            "license": license_value,
+        }
+
+        summary = (dist.metadata.get("Summary") or "").strip()
+        if summary:
+            row["summary"] = summary
+
+        home_page = (dist.metadata.get("Home-page") or "").strip()
+        if home_page:
+            row["home_page"] = home_page
+
+        author = (dist.metadata.get("Author") or "").strip()
+        if author:
+            row["author"] = author
+
+        if project_urls:
+            row["project_urls"] = project_urls
+        if license_files:
+            row["license_files"] = license_files
+        if license_classifiers:
+            row["license_classifiers"] = license_classifiers
+
+        rows[key] = row
+
+    return [rows[key] for key in sorted(rows)]
+
+
 def _sorted_frontend_packages(lockfile_path: Path) -> list[str]:
     data = json.loads(lockfile_path.read_text())
     packages = data.get("packages", {})
@@ -59,9 +109,18 @@ def _write_inventory(path: Path, header: str, lines: list[str]) -> None:
     path.write_text(content)
 
 
+def _write_json(path: Path, payload: object) -> None:
+    path.write_text(f"{json.dumps(payload, indent=2, sort_keys=False)}\n")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backend-output", type=Path, help="Path for the resolved backend runtime inventory.")
+    parser.add_argument(
+        "--backend-metadata-output",
+        type=Path,
+        help="Path for backend runtime package metadata JSON generated from Python package metadata.",
+    )
     parser.add_argument(
         "--frontend-output",
         type=Path,
@@ -93,6 +152,10 @@ def main() -> int:
             _sorted_backend_distributions(),
         )
 
+    if args.backend_metadata_output and not args.skip_backend:
+        args.backend_metadata_output.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(args.backend_metadata_output, _normalized_backend_package_metadata())
+
     if args.frontend_output and not args.skip_frontend:
         args.frontend_output.parent.mkdir(parents=True, exist_ok=True)
         _write_inventory(
@@ -101,8 +164,15 @@ def main() -> int:
             _sorted_frontend_packages(args.frontend_lockfile),
         )
 
-    if (not args.backend_output or args.skip_backend) and (not args.frontend_output or args.skip_frontend):
-        parser.error("No output requested. Provide --backend-output and/or --frontend-output.")
+    requested_outputs = [
+        args.backend_output and not args.skip_backend,
+        args.backend_metadata_output and not args.skip_backend,
+        args.frontend_output and not args.skip_frontend,
+    ]
+    if not any(requested_outputs):
+        parser.error(
+            "No output requested. Provide --backend-output, --backend-metadata-output, and/or --frontend-output."
+        )
 
     return 0
 

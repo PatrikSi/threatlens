@@ -27,6 +27,8 @@ This documentation covers:
 - [Release Process](./reference/release-process.md)
 - [Backend Runtime Inventory](./reference/backend-runtime-dependencies.txt)
 - [Frontend Runtime Inventory](./reference/frontend-runtime-dependencies.txt)
+- [Backend Runtime Package Metadata](./reference/backend-runtime-package-metadata.json)
+- [Frontend Runtime Package Metadata](./reference/frontend-runtime-package-metadata.json)
 - [Data Models and Contracts](./reference/data-models.md)
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)

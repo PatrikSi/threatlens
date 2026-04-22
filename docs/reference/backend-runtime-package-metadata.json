@@ -1,0 +1,1358 @@
+[
+  {
+    "name": "alembic",
+    "version": "1.16.4",
+    "license": "Unknown",
+    "summary": "A database migration tool for SQLAlchemy.",
+    "project_urls": [
+      "Homepage, https://alembic.sqlalchemy.org",
+      "Documentation, https://alembic.sqlalchemy.org/en/latest/",
+      "Changelog, https://alembic.sqlalchemy.org/en/latest/changelog.html",
+      "Source, https://github.com/sqlalchemy/alembic/",
+      "Issue Tracker, https://github.com/sqlalchemy/alembic/issues/"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "amqp",
+    "version": "5.3.1",
+    "license": "BSD",
+    "summary": "Low-level AMQP client for Python (fork of amqplib).",
+    "home_page": "http://github.com/celery/py-amqp",
+    "author": "Barry Pederson",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "annotated-types",
+    "version": "0.7.0",
+    "license": "OSI Approved :: MIT License",
+    "summary": "Reusable constraint types to use with typing.Annotated",
+    "project_urls": [
+      "Homepage, https://github.com/annotated-types/annotated-types",
+      "Source, https://github.com/annotated-types/annotated-types",
+      "Changelog, https://github.com/annotated-types/annotated-types/releases"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "anyio",
+    "version": "4.13.0",
+    "license": "Unknown",
+    "summary": "High-level concurrency and networking framework on top of asyncio or Trio",
+    "project_urls": [
+      "Documentation, https://anyio.readthedocs.io/en/latest/",
+      "Changelog, https://anyio.readthedocs.io/en/stable/versionhistory.html",
+      "Source code, https://github.com/agronholm/anyio",
+      "Issue tracker, https://github.com/agronholm/anyio/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "babel",
+    "version": "2.18.0",
+    "license": "BSD-3-Clause",
+    "summary": "Internationalization utilities",
+    "home_page": "https://babel.pocoo.org/",
+    "author": "Armin Ronacher",
+    "project_urls": [
+      "Source, https://github.com/python-babel/babel"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "bcrypt",
+    "version": "4.0.1",
+    "license": "Apache License, Version 2.0",
+    "summary": "Modern password hashing for your software and your servers",
+    "home_page": "https://github.com/pyca/bcrypt/",
+    "author": "The Python Cryptographic Authority developers",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "beautifulsoup4",
+    "version": "4.13.4",
+    "license": "MIT License",
+    "summary": "Screen-scraping library",
+    "project_urls": [
+      "Download, https://www.crummy.com/software/BeautifulSoup/bs4/download/",
+      "Homepage, https://www.crummy.com/software/BeautifulSoup/bs4/"
+    ],
+    "license_files": [
+      "AUTHORS",
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "billiard",
+    "version": "4.2.4",
+    "license": "BSD",
+    "summary": "Python multiprocessing fork with improvements and bugfixes",
+    "home_page": "https://github.com/celery/billiard",
+    "author": "R Oudkerk / Python Software Foundation",
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "celery",
+    "version": "5.5.3",
+    "license": "BSD-3-Clause",
+    "summary": "Distributed Task Queue.",
+    "home_page": "https://docs.celeryq.dev/",
+    "author": "Ask Solem",
+    "project_urls": [
+      "Documentation, https://docs.celeryq.dev/en/stable/",
+      "Changelog, https://docs.celeryq.dev/en/stable/changelog.html",
+      "Code, https://github.com/celery/celery",
+      "Tracker, https://github.com/celery/celery/issues",
+      "Funding, https://opencollective.com/celery"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "certifi",
+    "version": "2026.2.25",
+    "license": "MPL-2.0",
+    "summary": "Python package for providing Mozilla's CA Bundle.",
+    "home_page": "https://github.com/certifi/python-certifi",
+    "author": "Kenneth Reitz",
+    "project_urls": [
+      "Source, https://github.com/certifi/python-certifi"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Mozilla Public License 2.0 (MPL 2.0)"
+    ]
+  },
+  {
+    "name": "cffi",
+    "version": "2.0.0",
+    "license": "Unknown",
+    "summary": "Foreign Function Interface for Python calling C code.",
+    "author": "Armin Rigo, Maciej Fijalkowski",
+    "project_urls": [
+      "Documentation, https://cffi.readthedocs.io/",
+      "Changelog, https://cffi.readthedocs.io/en/latest/whatsnew.html",
+      "Downloads, https://github.com/python-cffi/cffi/releases",
+      "Contact, https://groups.google.com/forum/#!forum/python-cffi",
+      "Source Code, https://github.com/python-cffi/cffi",
+      "Issue Tracker, https://github.com/python-cffi/cffi/issues"
+    ],
+    "license_files": [
+      "LICENSE",
+      "AUTHORS"
+    ]
+  },
+  {
+    "name": "chardet",
+    "version": "7.3.0",
+    "license": "Unknown",
+    "summary": "Universal character encoding detector",
+    "project_urls": [
+      "Homepage, https://github.com/chardet/chardet",
+      "Repository, https://github.com/chardet/chardet",
+      "Bug Tracker, https://github.com/chardet/chardet/issues",
+      "Documentation, https://chardet.readthedocs.io",
+      "Changelog, https://chardet.readthedocs.io/en/latest/changelog.html"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "charset-normalizer",
+    "version": "3.4.6",
+    "license": "MIT",
+    "summary": "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet.",
+    "project_urls": [
+      "Changelog, https://github.com/jawah/charset_normalizer/blob/master/CHANGELOG.md",
+      "Documentation, https://charset-normalizer.readthedocs.io/",
+      "Code, https://github.com/jawah/charset_normalizer",
+      "Issue tracker, https://github.com/jawah/charset_normalizer/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "click",
+    "version": "8.3.1",
+    "license": "Unknown",
+    "summary": "Composable command line interface toolkit",
+    "project_urls": [
+      "Changes, https://click.palletsprojects.com/page/changes/",
+      "Chat, https://discord.gg/pallets",
+      "Documentation, https://click.palletsprojects.com/",
+      "Donate, https://palletsprojects.com/donate",
+      "Source, https://github.com/pallets/click/"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "click-didyoumean",
+    "version": "0.3.1",
+    "license": "MIT",
+    "summary": "Enables git-like *did-you-mean* feature in click",
+    "home_page": "https://github.com/click-contrib/click-didyoumean",
+    "author": "Timo Furrer",
+    "project_urls": [
+      "Repository, https://github.com/click-contrib/click-didyoumean"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "click-plugins",
+    "version": "1.1.1.2",
+    "license": "New BSD",
+    "summary": "An extension module for click to enable registering CLI commands via setuptools entry-points.",
+    "home_page": "https://github.com/click-contrib/click-plugins",
+    "author": "Kevin Wurster, Sean Gillies",
+    "license_files": [
+      "LICENSE.txt",
+      "AUTHORS.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "click-repl",
+    "version": "0.3.0",
+    "license": "MIT",
+    "summary": "REPL plugin for Click",
+    "home_page": "https://github.com/untitaker/click-repl",
+    "author": "Markus Unterwaditzer",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "courlan",
+    "version": "1.3.2",
+    "license": "Apache 2.0",
+    "summary": "Clean, filter and sample URLs to optimize data collection \u2013 includes spam, content type and language filters.",
+    "project_urls": [
+      "Homepage, https://github.com/adbar/courlan",
+      "Blog, https://adrien.barbaresi.eu/blog/",
+      "Tracker, https://github.com/adbar/courlan/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "coverage",
+    "version": "7.13.5",
+    "license": "Apache-2.0",
+    "summary": "Code coverage measurement for Python",
+    "home_page": "https://github.com/coveragepy/coveragepy",
+    "author": "Ned Batchelder and 253 others",
+    "project_urls": [
+      "Documentation, https://coverage.readthedocs.io/en/7.13.5",
+      "Funding, https://tidelift.com/subscription/pkg/pypi-coverage?utm_source=pypi-coverage&utm_medium=referral&utm_campaign=pypi",
+      "Issues, https://github.com/coveragepy/coveragepy/issues",
+      "Mastodon, https://hachyderm.io/@coveragepy",
+      "Mastodon (nedbat), https://hachyderm.io/@nedbat"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "croniter",
+    "version": "3.0.3",
+    "license": "MIT License",
+    "summary": "croniter provides iteration for datetime object with cron like format",
+    "home_page": "http://github.com/kiorky/croniter",
+    "author": "Matsumoto Taichi, kiorky",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "cryptography",
+    "version": "46.0.5",
+    "license": "Unknown",
+    "summary": "cryptography is a package which provides cryptographic recipes and primitives to Python developers.",
+    "project_urls": [
+      "homepage, https://github.com/pyca/cryptography",
+      "documentation, https://cryptography.io/",
+      "source, https://github.com/pyca/cryptography/",
+      "issues, https://github.com/pyca/cryptography/issues",
+      "changelog, https://cryptography.io/en/latest/changelog/"
+    ],
+    "license_files": [
+      "LICENSE",
+      "LICENSE.APACHE",
+      "LICENSE.BSD"
+    ]
+  },
+  {
+    "name": "cssselect",
+    "version": "1.4.0",
+    "license": "Unknown",
+    "summary": "cssselect parses CSS3 Selectors and translates them to XPath 1.0",
+    "project_urls": [
+      "Homepage, https://github.com/scrapy/cssselect"
+    ],
+    "license_files": [
+      "AUTHORS",
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "dateparser",
+    "version": "1.3.0",
+    "license": "BSD",
+    "summary": "Date parsing library designed to parse dates from HTML pages",
+    "home_page": "https://github.com/scrapinghub/dateparser",
+    "author": "Scrapinghub",
+    "project_urls": [
+      "History, https://dateparser.readthedocs.io/en/latest/history.html"
+    ],
+    "license_files": [
+      "LICENSE",
+      "AUTHORS.rst"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "dnspython",
+    "version": "2.8.0",
+    "license": "ISC",
+    "summary": "DNS toolkit",
+    "project_urls": [
+      "homepage, https://www.dnspython.org",
+      "repository, https://github.com/rthalley/dnspython.git",
+      "documentation, https://dnspython.readthedocs.io/en/stable/",
+      "issues, https://github.com/rthalley/dnspython/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: ISC License (ISCL)"
+    ]
+  },
+  {
+    "name": "ecdsa",
+    "version": "0.19.1",
+    "license": "MIT",
+    "summary": "ECDSA cryptographic signature library (pure python)",
+    "home_page": "http://github.com/tlsfuzzer/python-ecdsa",
+    "author": "Brian Warner",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "email_validator",
+    "version": "2.2.0",
+    "license": "Unlicense",
+    "summary": "A robust email address syntax and deliverability validation library.",
+    "home_page": "https://github.com/JoshData/python-email-validator",
+    "author": "Joshua Tauberer",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: The Unlicense (Unlicense)"
+    ]
+  },
+  {
+    "name": "fastapi",
+    "version": "0.116.1",
+    "license": "OSI Approved :: MIT License",
+    "summary": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
+    "project_urls": [
+      "Homepage, https://github.com/fastapi/fastapi",
+      "Documentation, https://fastapi.tiangolo.com/",
+      "Repository, https://github.com/fastapi/fastapi",
+      "Issues, https://github.com/fastapi/fastapi/issues",
+      "Changelog, https://fastapi.tiangolo.com/release-notes/"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "feedparser",
+    "version": "6.0.11",
+    "license": "BSD-2-Clause",
+    "summary": "Universal feed parser, handles RSS 0.9x, RSS 1.0, RSS 2.0, CDF, Atom 0.3, and Atom 1.0 feeds",
+    "home_page": "https://github.com/kurtmckee/feedparser",
+    "author": "Kurt McKee",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "greenlet",
+    "version": "3.3.2",
+    "license": "Unknown",
+    "summary": "Lightweight in-process concurrent programming",
+    "project_urls": [
+      "Homepage, https://greenlet.readthedocs.io",
+      "Documentation, https://greenlet.readthedocs.io",
+      "Repository, https://github.com/python-greenlet/greenlet",
+      "Issues, https://github.com/python-greenlet/greenlet/issues",
+      "Changelog, https://greenlet.readthedocs.io/en/latest/changes.html"
+    ],
+    "license_files": [
+      "LICENSE",
+      "LICENSE.PSF"
+    ]
+  },
+  {
+    "name": "h11",
+    "version": "0.16.0",
+    "license": "MIT",
+    "summary": "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1",
+    "home_page": "https://github.com/python-hyper/h11",
+    "author": "Nathaniel J. Smith",
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "htmldate",
+    "version": "1.9.4",
+    "license": "Apache 2.0",
+    "summary": "Fast and robust extraction of original and updated publication dates from URLs and web pages.",
+    "project_urls": [
+      "Homepage, https://htmldate.readthedocs.io",
+      "Source, https://github.com/adbar/htmldate",
+      "Blog, https://adrien.barbaresi.eu/blog/",
+      "Tracker, https://github.com/adbar/htmldate/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "httpcore",
+    "version": "1.0.9",
+    "license": "OSI Approved :: BSD License",
+    "summary": "A minimal low-level HTTP client.",
+    "project_urls": [
+      "Documentation, https://www.encode.io/httpcore",
+      "Homepage, https://www.encode.io/httpcore/",
+      "Source, https://github.com/encode/httpcore"
+    ],
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "httptools",
+    "version": "0.7.1",
+    "license": "Unknown",
+    "summary": "A collection of framework independent HTTP protocol utils.",
+    "project_urls": [
+      "Homepage, https://github.com/MagicStack/httptools"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "httpx",
+    "version": "0.28.1",
+    "license": "BSD-3-Clause",
+    "summary": "The next generation HTTP client.",
+    "project_urls": [
+      "Changelog, https://github.com/encode/httpx/blob/master/CHANGELOG.md",
+      "Documentation, https://www.python-httpx.org",
+      "Homepage, https://github.com/encode/httpx",
+      "Source, https://github.com/encode/httpx"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "idna",
+    "version": "3.11",
+    "license": "Unknown",
+    "summary": "Internationalized Domain Names in Applications (IDNA)",
+    "project_urls": [
+      "Changelog, https://github.com/kjd/idna/blob/master/HISTORY.rst",
+      "Issue tracker, https://github.com/kjd/idna/issues",
+      "Source, https://github.com/kjd/idna"
+    ],
+    "license_files": [
+      "LICENSE.md"
+    ]
+  },
+  {
+    "name": "iniconfig",
+    "version": "2.3.0",
+    "license": "Unknown",
+    "summary": "brain-dead simple config-ini parsing",
+    "project_urls": [
+      "Homepage, https://github.com/pytest-dev/iniconfig"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "jusText",
+    "version": "3.0.2",
+    "license": "The BSD 2-Clause License",
+    "summary": "Heuristic based boilerplate removal tool",
+    "home_page": "https://github.com/miso-belica/jusText",
+    "author": "Jan Pomik\u00e1lek",
+    "license_files": [
+      "LICENSE.rst"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "kombu",
+    "version": "5.5.4",
+    "license": "BSD-3-Clause",
+    "summary": "Messaging library for Python.",
+    "home_page": "https://kombu.readthedocs.io",
+    "author": "Ask Solem",
+    "project_urls": [
+      "Source, https://github.com/celery/kombu"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "lxml",
+    "version": "6.0.2",
+    "license": "BSD-3-Clause",
+    "summary": "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API.",
+    "home_page": "https://lxml.de/",
+    "author": "lxml dev team",
+    "project_urls": [
+      "Source, https://github.com/lxml/lxml",
+      "Bug Tracker, https://bugs.launchpad.net/lxml"
+    ],
+    "license_files": [
+      "LICENSE.txt",
+      "LICENSES.txt"
+    ]
+  },
+  {
+    "name": "lxml_html_clean",
+    "version": "0.4.4",
+    "license": "BSD-3-Clause",
+    "summary": "HTML cleaner from lxml project",
+    "home_page": "https://github.com/fedora-python/lxml_html_clean/",
+    "author": "Lum\u00edr Balhar",
+    "project_urls": [
+      "Documentation, https://lxml-html-clean.readthedocs.io/"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "Mako",
+    "version": "1.3.10",
+    "license": "MIT",
+    "summary": "A super-fast templating language that borrows the best ideas from the existing templating languages.",
+    "home_page": "https://www.makotemplates.org/",
+    "author": "Mike Bayer",
+    "project_urls": [
+      "Documentation, https://docs.makotemplates.org",
+      "Issue Tracker, https://github.com/sqlalchemy/mako"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "MarkupSafe",
+    "version": "3.0.3",
+    "license": "Unknown",
+    "summary": "Safely add untrusted strings to HTML/XML markup.",
+    "project_urls": [
+      "Donate, https://palletsprojects.com/donate",
+      "Documentation, https://markupsafe.palletsprojects.com/",
+      "Changes, https://markupsafe.palletsprojects.com/page/changes/",
+      "Source, https://github.com/pallets/markupsafe/",
+      "Chat, https://discord.gg/pallets"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "packaging",
+    "version": "26.0",
+    "license": "Unknown",
+    "summary": "Core utilities for Python packages",
+    "project_urls": [
+      "Documentation, https://packaging.pypa.io/",
+      "Source, https://github.com/pypa/packaging"
+    ],
+    "license_files": [
+      "LICENSE",
+      "LICENSE.APACHE",
+      "LICENSE.BSD"
+    ]
+  },
+  {
+    "name": "passlib",
+    "version": "1.7.4",
+    "license": "BSD",
+    "summary": "comprehensive password hashing framework supporting over 30 schemes",
+    "home_page": "https://passlib.readthedocs.io",
+    "author": "Eli Collins"
+  },
+  {
+    "name": "pip",
+    "version": "24.0",
+    "license": "MIT",
+    "summary": "The PyPA recommended tool for installing Python packages.",
+    "project_urls": [
+      "Homepage, https://pip.pypa.io/",
+      "Documentation, https://pip.pypa.io",
+      "Source, https://github.com/pypa/pip",
+      "Changelog, https://pip.pypa.io/en/stable/news/"
+    ],
+    "license_files": [
+      "LICENSE.txt",
+      "AUTHORS.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "pluggy",
+    "version": "1.6.0",
+    "license": "MIT",
+    "summary": "plugin and hook calling mechanisms for python",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "prompt_toolkit",
+    "version": "3.0.52",
+    "license": "OSI Approved :: BSD License",
+    "summary": "Library for building powerful interactive command lines in Python",
+    "author": "Jonathan Slenders",
+    "project_urls": [
+      "Homepage, https://github.com/prompt-toolkit/python-prompt-toolkit",
+      "Documentation, https://python-prompt-toolkit.readthedocs.io/en/stable/"
+    ],
+    "license_files": [
+      "LICENSE",
+      "AUTHORS.rst"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "psycopg",
+    "version": "3.2.9",
+    "license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "summary": "PostgreSQL database adapter for Python",
+    "home_page": "https://psycopg.org/psycopg3/",
+    "author": "Daniele Varrazzo",
+    "project_urls": [
+      "Homepage, https://psycopg.org/",
+      "Documentation, https://psycopg.org/psycopg3/docs/",
+      "Changes, https://psycopg.org/psycopg3/docs/news.html",
+      "Code, https://github.com/psycopg/psycopg",
+      "Issue Tracker, https://github.com/psycopg/psycopg/issues",
+      "Download, https://pypi.org/project/psycopg/",
+      "Funding, https://github.com/sponsors/dvarrazzo"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)"
+    ]
+  },
+  {
+    "name": "psycopg-binary",
+    "version": "3.2.9",
+    "license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "summary": "PostgreSQL database adapter for Python -- C optimisation distribution",
+    "home_page": "https://psycopg.org/psycopg3/",
+    "author": "Daniele Varrazzo",
+    "project_urls": [
+      "Homepage, https://psycopg.org/",
+      "Documentation, https://psycopg.org/psycopg3/docs/",
+      "Changes, https://psycopg.org/psycopg3/docs/news.html",
+      "Code, https://github.com/psycopg/psycopg",
+      "Issue Tracker, https://github.com/psycopg/psycopg/issues",
+      "Download, https://pypi.org/project/psycopg-binary/",
+      "Funding, https://github.com/sponsors/dvarrazzo"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)"
+    ]
+  },
+  {
+    "name": "pyasn1",
+    "version": "0.6.3",
+    "license": "BSD-2-Clause",
+    "summary": "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)",
+    "project_urls": [
+      "Homepage, https://github.com/pyasn1/pyasn1",
+      "Documentation, https://pyasn1.readthedocs.io",
+      "Source, https://github.com/pyasn1/pyasn1",
+      "Issues, https://github.com/pyasn1/pyasn1/issues",
+      "Changelog, https://pyasn1.readthedocs.io/en/latest/changelog.html"
+    ],
+    "license_files": [
+      "LICENSE.rst"
+    ]
+  },
+  {
+    "name": "pycparser",
+    "version": "3.0",
+    "license": "Unknown",
+    "summary": "C parser in Python",
+    "project_urls": [
+      "Homepage, https://github.com/eliben/pycparser"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pydantic",
+    "version": "2.12.5",
+    "license": "Unknown",
+    "summary": "Data validation using Python type hints",
+    "project_urls": [
+      "Homepage, https://github.com/pydantic/pydantic",
+      "Documentation, https://docs.pydantic.dev",
+      "Funding, https://github.com/sponsors/samuelcolvin",
+      "Source, https://github.com/pydantic/pydantic",
+      "Changelog, https://docs.pydantic.dev/latest/changelog/"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pydantic_core",
+    "version": "2.41.5",
+    "license": "Unknown",
+    "summary": "Core functionality for Pydantic validation and serialization",
+    "home_page": "https://github.com/pydantic/pydantic-core",
+    "project_urls": [
+      "Homepage, https://github.com/pydantic/pydantic-core",
+      "Funding, https://github.com/sponsors/samuelcolvin",
+      "Source, https://github.com/pydantic/pydantic-core"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "pydantic-settings",
+    "version": "2.10.1",
+    "license": "OSI Approved :: MIT License",
+    "summary": "Settings management using Pydantic",
+    "project_urls": [
+      "Homepage, https://github.com/pydantic/pydantic-settings",
+      "Funding, https://github.com/sponsors/samuelcolvin",
+      "Source, https://github.com/pydantic/pydantic-settings",
+      "Changelog, https://github.com/pydantic/pydantic-settings/releases",
+      "Documentation, https://docs.pydantic.dev/dev-v2/concepts/pydantic_settings/"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "Pygments",
+    "version": "2.19.2",
+    "license": "BSD-2-Clause",
+    "summary": "Pygments is a syntax highlighting package written in Python.",
+    "project_urls": [
+      "Homepage, https://pygments.org",
+      "Documentation, https://pygments.org/docs",
+      "Source, https://github.com/pygments/pygments",
+      "Bug Tracker, https://github.com/pygments/pygments/issues",
+      "Changelog, https://github.com/pygments/pygments/blob/master/CHANGES"
+    ],
+    "license_files": [
+      "AUTHORS",
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "pytest",
+    "version": "8.4.1",
+    "license": "MIT",
+    "summary": "pytest: simple powerful testing with Python",
+    "author": "Holger Krekel, Bruno Oliveira, Ronny Pfannschmidt, Floris Bruynooghe, Brianna Laugher, Florian Bruhin, Others (See AUTHORS)",
+    "project_urls": [
+      "Changelog, https://docs.pytest.org/en/stable/changelog.html",
+      "Contact, https://docs.pytest.org/en/stable/contact.html",
+      "Funding, https://docs.pytest.org/en/stable/sponsor.html",
+      "Homepage, https://docs.pytest.org/en/latest/",
+      "Source, https://github.com/pytest-dev/pytest",
+      "Tracker, https://github.com/pytest-dev/pytest/issues"
+    ],
+    "license_files": [
+      "LICENSE",
+      "AUTHORS"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "pytest-cov",
+    "version": "6.2.1",
+    "license": "MIT",
+    "summary": "Pytest plugin for measuring coverage.",
+    "home_page": "https://github.com/pytest-dev/pytest-cov",
+    "author": "Marc Schlaich",
+    "project_urls": [
+      "Documentation, https://pytest-cov.readthedocs.io/",
+      "Changelog, https://pytest-cov.readthedocs.io/en/latest/changelog.html",
+      "Issue Tracker, https://github.com/pytest-dev/pytest-cov/issues"
+    ],
+    "license_files": [
+      "LICENSE",
+      "AUTHORS.rst"
+    ]
+  },
+  {
+    "name": "python-dateutil",
+    "version": "2.9.0.post0",
+    "license": "Dual License",
+    "summary": "Extensions to the standard Python datetime module",
+    "home_page": "https://github.com/dateutil/dateutil",
+    "author": "Gustavo Niemeyer",
+    "project_urls": [
+      "Documentation, https://dateutil.readthedocs.io/en/stable/",
+      "Source, https://github.com/dateutil/dateutil"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License",
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "python-dotenv",
+    "version": "1.2.2",
+    "license": "BSD-3-Clause",
+    "summary": "Read key-value pairs from a .env file and set them as environment variables",
+    "project_urls": [
+      "Source, https://github.com/theskumar/python-dotenv"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "python-jose",
+    "version": "3.5.0",
+    "license": "MIT",
+    "summary": "JOSE implementation in Python",
+    "home_page": "http://github.com/mpdavis/python-jose",
+    "author": "Michael Davis",
+    "project_urls": [
+      "Documentation, https://python-jose.readthedocs.io/en/latest/",
+      "Source, https://github.com/mpdavis/python-jose/",
+      "Tracker, https://github.com/mpdavis/python-jose/issues/",
+      "Changelog, https://github.com/mpdavis/python-jose/blob/master/CHANGELOG.md"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "python-multipart",
+    "version": "0.0.20",
+    "license": "OSI Approved :: Apache Software License",
+    "summary": "A streaming multipart parser for Python",
+    "project_urls": [
+      "Homepage, https://github.com/Kludex/python-multipart",
+      "Documentation, https://kludex.github.io/python-multipart/",
+      "Changelog, https://github.com/Kludex/python-multipart/blob/master/CHANGELOG.md",
+      "Source, https://github.com/Kludex/python-multipart"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "pytz",
+    "version": "2026.1.post1",
+    "license": "MIT",
+    "summary": "World timezone definitions, modern and historical",
+    "home_page": "http://pythonhosted.org/pytz",
+    "author": "Stuart Bishop",
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "PyYAML",
+    "version": "6.0.3",
+    "license": "MIT",
+    "summary": "YAML parser and emitter for Python",
+    "home_page": "https://pyyaml.org/",
+    "author": "Kirill Simonov",
+    "project_urls": [
+      "Bug Tracker, https://github.com/yaml/pyyaml/issues",
+      "CI, https://github.com/yaml/pyyaml/actions",
+      "Documentation, https://pyyaml.org/wiki/PyYAMLDocumentation",
+      "Mailing lists, http://lists.sourceforge.net/lists/listinfo/yaml-core",
+      "Source Code, https://github.com/yaml/pyyaml"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "readability-lxml",
+    "version": "0.8.4.1",
+    "license": "Apache License 2.0",
+    "summary": "fast html to text parser (article readability tool) with python 3 support",
+    "home_page": "http://github.com/buriy/python-readability",
+    "author": "Yuri Baburov",
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "redis",
+    "version": "6.2.0",
+    "license": "OSI Approved :: MIT License",
+    "summary": "Python client for Redis database and key-value store",
+    "project_urls": [
+      "Changes, https://github.com/redis/redis-py/releases",
+      "Code, https://github.com/redis/redis-py",
+      "Documentation, https://redis.readthedocs.io/en/latest/",
+      "Homepage, https://github.com/redis/redis-py",
+      "Issue tracker, https://github.com/redis/redis-py/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "regex",
+    "version": "2026.2.28",
+    "license": "Unknown",
+    "summary": "Alternative regular expression module, to replace re.",
+    "project_urls": [
+      "Homepage, https://github.com/mrabarnett/mrab-regex"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "rsa",
+    "version": "4.9.1",
+    "license": "Apache-2.0",
+    "summary": "Pure-Python RSA implementation",
+    "author": "Sybren A. St\u00fcvel",
+    "project_urls": [
+      "Homepage, https://stuvel.eu/rsa",
+      "Repository, https://github.com/sybrenstuvel/python-rsa"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "sgmllib3k",
+    "version": "1.0.0",
+    "license": "BSD License",
+    "summary": "Py3k port of sgmllib.",
+    "home_page": "http://hg.hardcoded.net/sgmllib",
+    "author": "Hardcoded Software",
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "six",
+    "version": "1.17.0",
+    "license": "MIT",
+    "summary": "Python 2 and 3 compatibility utilities",
+    "home_page": "https://github.com/benjaminp/six",
+    "author": "Benjamin Peterson",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "soupsieve",
+    "version": "2.8.3",
+    "license": "OSI Approved :: MIT License",
+    "summary": "A modern CSS selector implementation for Beautiful Soup.",
+    "project_urls": [
+      "Homepage, https://github.com/facelessuser/soupsieve"
+    ],
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "SQLAlchemy",
+    "version": "2.0.42",
+    "license": "MIT",
+    "summary": "Database Abstraction Library",
+    "home_page": "https://www.sqlalchemy.org",
+    "author": "Mike Bayer",
+    "project_urls": [
+      "Documentation, https://docs.sqlalchemy.org",
+      "Issue Tracker, https://github.com/sqlalchemy/sqlalchemy/"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "starlette",
+    "version": "0.47.3",
+    "license": "OSI Approved :: BSD License",
+    "summary": "The little ASGI library that shines.",
+    "project_urls": [
+      "Homepage, https://github.com/encode/starlette",
+      "Documentation, https://www.starlette.io/",
+      "Changelog, https://www.starlette.io/release-notes/",
+      "Funding, https://github.com/sponsors/encode",
+      "Source, https://github.com/encode/starlette"
+    ],
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "tld",
+    "version": "0.13.2",
+    "license": "Unknown",
+    "summary": "Extract the top-level domain (TLD) from the URL given.",
+    "project_urls": [
+      "Bug Tracker, https://github.com/barseghyanartur/tld/issues",
+      "Documentation, https://tld.readthedocs.io/",
+      "Source Code, https://github.com/barseghyanartur/tld/",
+      "Changelog, https://tld.readthedocs.io/en/latest/changelog.html"
+    ],
+    "license_files": [
+      "LICENSE.rst",
+      "LICENSE_GPL2.0.txt",
+      "LICENSE_LGPL_2.1.txt",
+      "LICENSE_MPL_1.1.txt"
+    ]
+  },
+  {
+    "name": "trafilatura",
+    "version": "2.0.0",
+    "license": "Apache 2.0",
+    "summary": "Python & Command-line tool to gather text and metadata on the Web: Crawling, scraping, extraction, output as CSV, JSON, HTML, MD, TXT, XML.",
+    "project_urls": [
+      "Homepage, https://trafilatura.readthedocs.io",
+      "Source, https://github.com/adbar/trafilatura",
+      "Blog, https://adrien.barbaresi.eu/blog/tag/trafilatura.html",
+      "Tracker, https://github.com/adbar/trafilatura/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ]
+  },
+  {
+    "name": "typing_extensions",
+    "version": "4.15.0",
+    "license": "Unknown",
+    "summary": "Backported and Experimental Type Hints for Python 3.9+",
+    "project_urls": [
+      "Bug Tracker, https://github.com/python/typing_extensions/issues",
+      "Changes, https://github.com/python/typing_extensions/blob/main/CHANGELOG.md",
+      "Documentation, https://typing-extensions.readthedocs.io/",
+      "Home, https://github.com/python/typing_extensions",
+      "Q & A, https://github.com/python/typing/discussions",
+      "Repository, https://github.com/python/typing_extensions"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "typing-inspection",
+    "version": "0.4.2",
+    "license": "Unknown",
+    "summary": "Runtime typing introspection tools",
+    "project_urls": [
+      "Homepage, https://github.com/pydantic/typing-inspection",
+      "Documentation, https://pydantic.github.io/typing-inspection/dev/",
+      "Source, https://github.com/pydantic/typing-inspection",
+      "Changelog, https://github.com/pydantic/typing-inspection/blob/main/HISTORY.md"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "tzdata",
+    "version": "2025.3",
+    "license": "Apache-2.0",
+    "summary": "Provider of IANA time zone data",
+    "home_page": "https://github.com/python/tzdata",
+    "author": "Python Software Foundation",
+    "project_urls": [
+      "Bug Reports, https://github.com/python/tzdata/issues",
+      "Source, https://github.com/python/tzdata",
+      "Documentation, https://tzdata.readthedocs.io"
+    ],
+    "license_files": [
+      "LICENSE",
+      "licenses/LICENSE_APACHE"
+    ]
+  },
+  {
+    "name": "tzlocal",
+    "version": "5.3.1",
+    "license": "MIT",
+    "summary": "tzinfo object for the local timezone",
+    "project_urls": [
+      "Source code, https://github.com/regebro/tzlocal",
+      "Changelog, https://github.com/regebro/tzlocal/blob/master/CHANGES.txt",
+      "Issue tracker, https://github.com/regebro/tzlocal/issues"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "urllib3",
+    "version": "2.6.3",
+    "license": "Unknown",
+    "summary": "HTTP library with thread-safe connection pooling, file post, and more.",
+    "project_urls": [
+      "Changelog, https://github.com/urllib3/urllib3/blob/main/CHANGES.rst",
+      "Documentation, https://urllib3.readthedocs.io",
+      "Code, https://github.com/urllib3/urllib3",
+      "Issue tracker, https://github.com/urllib3/urllib3/issues"
+    ],
+    "license_files": [
+      "LICENSE.txt"
+    ]
+  },
+  {
+    "name": "uvicorn",
+    "version": "0.35.0",
+    "license": "OSI Approved :: BSD License",
+    "summary": "The lightning-fast ASGI server.",
+    "project_urls": [
+      "Changelog, https://www.uvicorn.org/release-notes",
+      "Funding, https://github.com/sponsors/encode",
+      "Homepage, https://www.uvicorn.org/",
+      "Source, https://github.com/encode/uvicorn"
+    ],
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "uvloop",
+    "version": "0.22.1",
+    "license": "MIT License",
+    "summary": "Fast implementation of asyncio event loop on top of libuv",
+    "project_urls": [
+      "github, https://github.com/MagicStack/uvloop"
+    ],
+    "license_files": [
+      "LICENSE-APACHE",
+      "LICENSE-MIT"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License",
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "vine",
+    "version": "5.1.0",
+    "license": "BSD",
+    "summary": "Python promises.",
+    "home_page": "https://github.com/celery/vine",
+    "author": "Ask Solem",
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ]
+  },
+  {
+    "name": "watchfiles",
+    "version": "1.1.1",
+    "license": "MIT",
+    "summary": "Simple, modern and high performance file watching and code reload in python.",
+    "home_page": "https://github.com/samuelcolvin/watchfiles",
+    "project_urls": [
+      "Homepage, https://github.com/samuelcolvin/watchfiles",
+      "Documentation, https://watchfiles.helpmanual.io",
+      "Funding, https://github.com/sponsors/samuelcolvin",
+      "Source, https://github.com/samuelcolvin/watchfiles",
+      "Changelog, https://github.com/samuelcolvin/watchfiles/releases"
+    ],
+    "license_files": [
+      "LICENSE"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ]
+  },
+  {
+    "name": "wcwidth",
+    "version": "0.6.0",
+    "license": "Unknown",
+    "summary": "Measures the displayed width of unicode strings in a terminal",
+    "project_urls": [
+      "Homepage, https://github.com/jquast/wcwidth"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "websockets",
+    "version": "16.0",
+    "license": "Unknown",
+    "summary": "An implementation of the WebSocket Protocol (RFC 6455 & 7692)",
+    "project_urls": [
+      "Homepage, https://github.com/python-websockets/websockets",
+      "Changelog, https://websockets.readthedocs.io/en/stable/project/changelog.html",
+      "Documentation, https://websockets.readthedocs.io/",
+      "Funding, https://tidelift.com/subscription/pkg/pypi-websockets?utm_source=pypi-websockets&utm_medium=referral&utm_campaign=readme",
+      "Tracker, https://github.com/python-websockets/websockets/issues"
+    ],
+    "license_files": [
+      "LICENSE"
+    ]
+  }
+]
