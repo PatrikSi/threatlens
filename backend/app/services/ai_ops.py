@@ -163,12 +163,17 @@ def start_ai_task_run(
     celery_task_id: str | None = None,
     metadata_updates: dict[str, Any] | None = None,
 ) -> AITaskRun | None:
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id).with_for_update())
     if run is None:
         return None
     if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
         return run
+
+    if celery_task_id and run.celery_task_id not in (None, celery_task_id):
+        return run
+
     now = datetime.now(timezone.utc)
+    started_at_was_missing = run.started_at is None
     run.status = AI_STATUS_RUNNING
     run.started_at = run.started_at or now
     if worker_name:
@@ -178,12 +183,13 @@ def start_ai_task_run(
     if metadata_updates:
         run.metadata_json = _merge_metadata(run.metadata_json, metadata_updates)
     db.add(run)
-    record_ai_task_event(
-        db,
-        run_id=run.id,
-        event_type="started",
-        payload={"worker_name": worker_name, "celery_task_id": celery_task_id},
-    )
+    if started_at_was_missing:
+        record_ai_task_event(
+            db,
+            run_id=run.id,
+            event_type="started",
+            payload={"worker_name": worker_name, "celery_task_id": celery_task_id},
+        )
     return run
 
 

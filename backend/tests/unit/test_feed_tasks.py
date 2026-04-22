@@ -1,6 +1,8 @@
 import uuid
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -16,8 +18,9 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.ai_config import apply_ai_settings_update, get_or_create_ai_settings
-from app.services.ai_integration import AICompletionResult
+from app.services.ai_integration import AICompletionResult, AIDailyBriefGenerationResult, AIItemEnrichmentResult
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_REPROCESS, AI_TRIGGER_MANUAL, queue_ai_task_run
+from app.services.ai_ops import AI_TASK_TYPE_DAILY_BRIEF, start_ai_task_run
 from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
@@ -27,14 +30,18 @@ from app.tasks.feed_tasks import (
     _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
     classify_item,
+    dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
     dispatch_items_missing_articles,
     enqueue_notification_webhook_delivery_processing,
     fetch_article,
     fetch_feed,
     generate_item_ai_enrichment_task,
+    feed_lock,
+    domain_slot,
     reconcile_ai_task_runs,
     reprocess_recent_ai_items,
+    daily_ai_brief_lock,
 )
 
 
@@ -61,6 +68,313 @@ def test_core_pipeline_tasks_ack_late_and_reject_on_worker_loss():
     assert generate_item_ai_enrichment_task.reject_on_worker_lost is True
     assert reprocess_recent_ai_items.acks_late is True
     assert reprocess_recent_ai_items.reject_on_worker_lost is True
+
+
+class _HeartbeatRedis:
+    def __init__(self):
+        self.values: dict[str, str] = {}
+        self.expirations: dict[str, float] = {}
+        self.expire_counts: dict[str, int] = {}
+
+    def _purge_expired(self) -> None:
+        now = time.monotonic()
+        expired = [key for key, expires_at in self.expirations.items() if expires_at <= now]
+        for key in expired:
+            self.values.pop(key, None)
+            self.expirations.pop(key, None)
+
+    def set(self, key: str, value: str, *, nx: bool = False, ex: int | None = None):
+        self._purge_expired()
+        if nx and key in self.values:
+            return False
+        self.values[key] = value
+        if ex is not None:
+            self.expire(key, ex)
+        else:
+            self.expirations.pop(key, None)
+        return True
+
+    def get(self, key: str):
+        self._purge_expired()
+        return self.values.get(key)
+
+    def expire(self, key: str, seconds: int):
+        self._purge_expired()
+        if key not in self.values:
+            return False
+        self.expire_counts[key] = self.expire_counts.get(key, 0) + 1
+        self.expirations[key] = time.monotonic() + max(0, int(seconds))
+        return True
+
+    def incr(self, key: str):
+        self._purge_expired()
+        current = int(self.values.get(key, 0)) + 1
+        self.values[key] = str(current)
+        return current
+
+    def decr(self, key: str):
+        self._purge_expired()
+        current = int(self.values.get(key, 0)) - 1
+        self.values[key] = str(current)
+        return current
+
+    def delete(self, key: str):
+        self._purge_expired()
+        existed = key in self.values or key in self.expirations
+        self.values.pop(key, None)
+        self.expirations.pop(key, None)
+        return 1 if existed else 0
+
+    def eval(self, _script: str, _numkeys: int, key: str, token: str):
+        self._purge_expired()
+        if self.values.get(key) == token:
+            self.delete(key)
+            return 1
+        return 0
+
+
+def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.MonkeyPatch):
+    redis_client = _HeartbeatRedis()
+    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_tasks._lease_renewal_interval_seconds", lambda _ttl: 0.01)
+
+    feed_key = "threatlens:feed:lock:feed-1"
+    brief_key = "threatlens:ai:daily_brief:lock"
+    domain_key = "threatlens:domain:example.com"
+
+    with feed_lock("feed-1", ttl_seconds=1) as acquired:
+        assert acquired is True
+        time.sleep(0.05)
+        assert redis_client.expire_counts[feed_key] >= 2
+
+    with daily_ai_brief_lock(ttl_seconds=1) as acquired:
+        assert acquired is True
+        time.sleep(0.05)
+        assert redis_client.expire_counts[brief_key] >= 2
+
+    with domain_slot("example.com", max_wait_seconds=0.1):
+        time.sleep(0.05)
+        assert redis_client.expire_counts[domain_key] >= 2
+
+
+def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="AI Feed",
+        url="https://example.com/ai.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        feed_id=feed.id,
+        source_guid="ai-item-1",
+        url="https://example.com/articles/ai-item-1",
+        canonical_url="https://example.com/articles/ai-item-1",
+        title="AI item",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ai-item-1",
+        content_hash="a" * 64,
+        status="new",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    started_enrichment = SimpleNamespace(
+        summary_text="summary",
+        relevance_label="high",
+        model="local-threat-model",
+        prompt_tokens=1,
+        completion_tokens=2,
+        total_tokens=3,
+        latency_ms=4,
+    )
+    ready_result = AIItemEnrichmentResult(
+        enrichment=started_enrichment,
+        status="ready",
+        reason=None,
+        input_text_chars=42,
+        prompt_char_count=10,
+        response_char_count=11,
+    )
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item_id,
+        metadata={"force": True},
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="api", metadata_updates={"force": True})
+    db_session.commit()
+
+    called: list[uuid.UUID] = []
+
+    def _run_item_ai_enrichment(_db, *, item_id: uuid.UUID, force: bool = False, task_run_id: uuid.UUID | None = None):
+        _ = (force, task_run_id)
+        called.append(item_id)
+        return ready_result
+
+    monkeypatch.setattr("app.tasks.feed_tasks.run_item_ai_enrichment", _run_item_ai_enrichment)
+
+    first = generate_item_ai_enrichment_task.apply(
+        args=(str(item_id),),
+        kwargs={"force": True, "task_run_id": str(run.id)},
+        task_id="worker-a",
+    ).get()
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert first == {"status": "ready", "reason": None, "item_id": str(item_id)}
+    assert called == [item_id]
+    assert refreshed is not None
+    assert refreshed.celery_task_id == "worker-a"
+    assert refreshed.status == "ready"
+
+    duplicate_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item_id,
+        metadata={"force": True},
+    )
+    start_ai_task_run(
+        db_session,
+        run_id=duplicate_run.id,
+        worker_name="celery@test",
+        celery_task_id="worker-a",
+        metadata_updates={"force": True},
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate redelivery should not execute the body")),
+    )
+
+    duplicate = generate_item_ai_enrichment_task.apply(
+        args=(str(item_id),),
+        kwargs={"force": True, "task_run_id": str(duplicate_run.id)},
+        task_id="worker-b",
+    ).get()
+
+    db_session.expire_all()
+    refreshed_duplicate = db_session.scalar(select(AITaskRun).where(AITaskRun.id == duplicate_run.id))
+    assert duplicate == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
+    assert refreshed_duplicate is not None
+    assert refreshed_duplicate.celery_task_id == "worker-a"
+    assert refreshed_duplicate.status == "running"
+
+
+def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
+    brief_id = uuid.uuid4()
+    brief = AIDailyBrief(
+        id=brief_id,
+        brief_date=datetime(2026, 4, 22, 0, 0, tzinfo=timezone.utc).date(),
+        window_start=datetime(2026, 4, 21, 0, 0, tzinfo=timezone.utc),
+        window_end=datetime(2026, 4, 22, 0, 0, tzinfo=timezone.utc),
+        status="pending",
+        item_count=0,
+    )
+    db_session.add(brief)
+    db_session.commit()
+
+    ready_result = AIDailyBriefGenerationResult(
+        brief=None,
+        status="ready",
+        reason=None,
+        items_considered=0,
+        items_selected=0,
+    )
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: SimpleNamespace(ai_enabled=True, ai_configured=True, daily_brief_enabled=True, model="local-threat-model"),
+    )
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        daily_brief_id=brief_id,
+        metadata={"force": True},
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="api", metadata_updates={"force": True})
+    db_session.commit()
+
+    called: list[uuid.UUID] = []
+
+    def _run_daily_brief_generation(_db, *, force: bool = False, task_run_id: uuid.UUID | None = None):
+        _ = force
+        called.append(task_run_id)
+        return ready_result
+
+    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+
+    first = dispatch_daily_ai_brief_generation.apply(
+        kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
+        task_id="worker-a",
+    ).get()
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert first == {"status": "ready", "reason": None}
+    assert called == [run.id]
+    assert refreshed is not None
+    assert refreshed.celery_task_id == "worker-a"
+    assert refreshed.status == "ready"
+
+    duplicate_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        daily_brief_id=brief_id,
+        metadata={"force": True},
+    )
+    start_ai_task_run(
+        db_session,
+        run_id=duplicate_run.id,
+        worker_name="celery@test",
+        celery_task_id="worker-a",
+        metadata_updates={"force": True},
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_daily_brief_generation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate redelivery should not execute the body")),
+    )
+
+    duplicate = dispatch_daily_ai_brief_generation.apply(
+        kwargs={"force": True, "task_run_id": str(duplicate_run.id), "actor_user_id": None},
+        task_id="worker-b",
+    ).get()
+
+    db_session.expire_all()
+    refreshed_duplicate = db_session.scalar(select(AITaskRun).where(AITaskRun.id == duplicate_run.id))
+    assert duplicate == {"status": "skipped", "reason": "already_running", "run_id": str(duplicate_run.id)}
+    assert refreshed_duplicate is not None
+    assert refreshed_duplicate.celery_task_id == "worker-a"
+    assert refreshed_duplicate.status == "running"
 
 
 def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):

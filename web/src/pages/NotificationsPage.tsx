@@ -718,18 +718,24 @@ export function NotificationsPage() {
                 </button>
               )}
               {(draft.feed_scope === 'all' || draft.feed_ids.length > 1) && (
-                <select
-                  className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                  value={sampleFeedId}
-                  onChange={(event) => setSampleFeedId(event.target.value)}
-                >
+                <>
+                  <label htmlFor="notification-sample-feed" className="sr-only">
+                    Sample feed
+                  </label>
+                  <select
+                    id="notification-sample-feed"
+                    className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                    value={sampleFeedId}
+                    onChange={(event) => setSampleFeedId(event.target.value)}
+                  >
                   <option value="">Auto sample feed</option>
                   {testableFeeds.map((feed) => (
                     <option key={feed.id} value={feed.id}>
                       {feed.name}
                     </option>
                   ))}
-                </select>
+                  </select>
+                </>
               )}
             </div>
 

@@ -112,7 +112,8 @@ Startup flow for `docker-compose.yml`:
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - Legacy unversioned backend routes remain available for compatibility, but they are not the documented or shipped runtime contract.
-- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, including notices, bundled license texts, frontend package legal files, and runtime dependency inventories.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, but the backend image carries backend notices, license texts, and runtime dependency inventories while the web image also carries the frontend package-lock snapshot and frontend package-legal bundle.
+- The shipped proxy defaults only trust explicit proxy hops you configure. If you need the API to preserve browser IPs through the bundled web proxy or another reverse proxy, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -198,7 +199,7 @@ docker compose exec redis sh -lc \
   "redis-cli --scan --pattern 'threatlens:auth:*' | xargs -r redis-cli del"
 ```
 
-4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to every trusted proxy network that can append `X-Forwarded-For` so IP-based auth throttling can walk the preserved chain back to the real client IP.
+4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to the exact proxy hops you control so IP-based auth throttling can walk the preserved chain back to the real client IP.
 
 ### Logs
 

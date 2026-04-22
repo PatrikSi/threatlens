@@ -58,7 +58,7 @@
 | `AUTH_LOGIN_LOCKOUT_SECONDS` (`auth_login_lockout_seconds`) | `900` | Login lockout duration after threshold breaches. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
-| `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Include every trusted hop in the proxy chain so client IP resolution can stop at the first untrusted address. |
+| `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Include only the exact hops you control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |
 | `AUTH_COOKIE_NAME` (`auth_cookie_name`) | `threatlens_session` | HttpOnly auth cookie name for browser sessions. |
 | `AUTH_COOKIE_DOMAIN` (`auth_cookie_domain`) | _(empty)_ | Optional cookie domain override for browser session and CSRF cookies. |
 | `AUTH_COOKIE_PATH` (`auth_cookie_path`) | `/` | Cookie path applied to browser session and CSRF cookies. |
@@ -116,7 +116,7 @@ When `APP_ENV` is `production` or `prod`:
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
-- The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `TRUSTED_PROXY_CIDRS` when those values are omitted.
+- The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, and `AUTH_REQUIRE_CSRF`; its shipped `TRUSTED_PROXY_CIDRS` guidance stays narrow by default, so add only the exact proxy hops you control if you want `X-Forwarded-For` preserved.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)

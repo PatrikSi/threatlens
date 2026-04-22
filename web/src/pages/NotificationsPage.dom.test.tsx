@@ -199,6 +199,12 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')
+  descriptor?.set?.call(select, value)
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -207,6 +213,10 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  notificationsPageDomMocks.deleteMutate.mockReset()
+  notificationsPageDomMocks.saveMutate.mockReset()
+  notificationsPageDomMocks.testMutate.mockReset()
+  notificationsPageDomMocks.retryMutate.mockReset()
 })
 
 describe('NotificationsPage DOM workflows', () => {
@@ -231,6 +241,32 @@ describe('NotificationsPage DOM workflows', () => {
     expect(
       Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Any feed')?.getAttribute('aria-pressed'),
     ).toBe('true')
+
+    expect(view.querySelector('label[for="notification-sample-feed"]')?.textContent).toContain('Sample feed')
+
+    const sampleFeedSelect = view.querySelector<HTMLSelectElement>('#notification-sample-feed')
+    expect(sampleFeedSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(sampleFeedSelect!, 'feed-1')
+    })
+
+    expect(sampleFeedSelect?.value).toBe('feed-1')
+
+    const testButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Test webhook'),
+    )
+    expect(testButton).not.toBeNull()
+
+    act(() => {
+      testButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(notificationsPageDomMocks.testMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sample_feed_id: 'feed-1',
+      }),
+    )
 
     const deleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Delete webhook'),

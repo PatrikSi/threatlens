@@ -2,6 +2,7 @@ import time
 import uuid
 import secrets
 import logging
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urljoin, urlsplit
@@ -117,6 +118,43 @@ def db_session() -> Session:
         yield db
     finally:
         db.close()
+
+
+def _lease_renewal_interval_seconds(ttl_seconds: int) -> float:
+    ttl_seconds = max(1, int(ttl_seconds))
+    return max(0.5, min(15.0, ttl_seconds / 3.0))
+
+
+@contextmanager
+def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None):
+    stop_event = threading.Event()
+    renew_interval_seconds = _lease_renewal_interval_seconds(ttl_seconds)
+
+    def _renew() -> None:
+        while not stop_event.wait(renew_interval_seconds):
+            try:
+                if token is not None:
+                    current_token = None
+                    get_redis_value = getattr(redis_client, "get", None)
+                    if callable(get_redis_value):
+                        current_token = get_redis_value(key)
+                    if current_token != token:
+                        return
+                redis_client.expire(key, ttl_seconds)
+            except redis.RedisError:
+                continue
+
+    _renewal_thread = threading.Thread(
+        target=_renew,
+        name=f"threatlens-lease-renewal:{key}",
+        daemon=True,
+    )
+    _renewal_thread.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        _renewal_thread.join(timeout=0.1)
 
 
 def _process_reserved_notification_deliveries(
@@ -292,7 +330,8 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
         raise TimeoutError(f"domain slot timeout for {domain}")
 
     try:
-        yield
+        with _redis_lease_heartbeat(key, 30):
+            yield
     finally:
         try:
             remaining = redis_client.decr(key)
@@ -334,6 +373,14 @@ def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) ->
     with db_session() as db:
         update_ai_task_run_celery(db, run_id=run_id, celery_task_id=celery_task_id)
         db.commit()
+
+
+def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id: str | None) -> bool:
+    if run is None:
+        return False
+    if celery_task_id is None:
+        return True
+    return run.celery_task_id in (None, celery_task_id)
 
 
 def _queue_item_ai_enrichment_run(
@@ -480,7 +527,8 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
         return
 
     try:
-        yield True
+        with _redis_lease_heartbeat(key, ttl_seconds, token):
+            yield True
     finally:
         try:
             redis_client.eval(
@@ -509,7 +557,8 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
         return
 
     try:
-        yield True
+        with _redis_lease_heartbeat(key, ttl_seconds, token):
+            yield True
     finally:
         try:
             redis_client.eval(
@@ -983,6 +1032,8 @@ def dispatch_daily_ai_brief_generation(
                     metadata_updates={"force": bool(force)},
                 )
                 db.commit()
+                if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
+                    return {"status": "skipped", "reason": "already_running", "run_id": task_run_id}
                 stop_reason = ai_task_run_stop_reason(started_run)
                 if stop_reason is not None:
                     if stop_reason == "canceled":
@@ -1822,6 +1873,8 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 metadata_updates={"force": bool(force)},
             )
             db.commit()
+            if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
+                return {"status": "skipped", "reason": "already_running", "item_id": item_id}
             stop_reason = ai_task_run_stop_reason(started_run)
             if stop_reason is not None:
                 if stop_reason == "canceled":
@@ -1981,6 +2034,8 @@ def reprocess_recent_ai_items(
                 },
             )
             db.commit()
+            if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
+                return {"queued": 0, "queue_errors": 0, "run_id": task_run_id, "reason": "already_running"}
             stop_reason = ai_task_run_stop_reason(started_run)
             if stop_reason is not None:
                 if stop_reason == "canceled":

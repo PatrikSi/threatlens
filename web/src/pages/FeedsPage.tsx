@@ -479,9 +479,12 @@ export function FeedsPage() {
 
         <form className="mt-3 space-y-3" onSubmit={onSubmit}>
           <div>
-            <label className="text-sm font-semibold">RSS URL</label>
+            <label htmlFor="feed-rss-url" className="text-sm font-semibold">
+              RSS URL
+            </label>
             <div className="mt-1 flex gap-2">
               <input
+                id="feed-rss-url"
                 className="w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={url}
                 onChange={(event) => setUrl(event.target.value)}
@@ -546,8 +549,11 @@ export function FeedsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold">Fetch Mode</label>
+            <label htmlFor="feed-fetch-mode" className="text-sm font-semibold">
+              Fetch Mode
+            </label>
             <select
+              id="feed-fetch-mode"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={fetchMode}
               onChange={(event) => setFetchMode(event.target.value as FeedFetchMode)}
@@ -629,13 +635,21 @@ export function FeedsPage() {
         </p>
 
         <div className="mt-2 flex flex-wrap items-center gap-3">
+          <label htmlFor="feed-search" className="sr-only">
+            Search feeds
+          </label>
           <input
+            id="feed-search"
             className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search feeds"
           />
+          <label htmlFor="feed-sort" className="sr-only">
+            Sort feeds
+          </label>
           <select
+            id="feed-sort"
             className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
             value={sort}
             onChange={(event) => setSort(event.target.value as FeedSort)}
@@ -808,7 +822,11 @@ export function FeedsPage() {
               </div>
 
               <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr]">
+                <label htmlFor={`feed-fetch-mode-${feed.id}`} className="sr-only">
+                  Fetch mode for {feed.name}
+                </label>
                 <select
+                  id={`feed-fetch-mode-${feed.id}`}
                   className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                   value={draft.fetchMode}
                   disabled={!canManage}
@@ -847,20 +865,26 @@ export function FeedsPage() {
                     <span className="text-xs text-slate dark:text-slate-300">seconds</span>
                   </div>
                 ) : (
-                  <input
-                    className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={draft.scheduleCron}
-                    onChange={(event) => {
-                      updateFeedDraft(feed, { fetchMode: 'schedule', scheduleCron: event.target.value })
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' && canManage && isDirty && !validationMessage && saveState !== 'saving') {
-                        event.preventDefault()
-                        void persistFeedSchedule(feed.id, draft)
-                      }
-                    }}
-                    disabled={!canManage}
-                  />
+                  <>
+                    <label htmlFor={`feed-schedule-cron-${feed.id}`} className="sr-only">
+                      Cron schedule for {feed.name}
+                    </label>
+                    <input
+                      id={`feed-schedule-cron-${feed.id}`}
+                      className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                      value={draft.scheduleCron}
+                      onChange={(event) => {
+                        updateFeedDraft(feed, { fetchMode: 'schedule', scheduleCron: event.target.value })
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && canManage && isDirty && !validationMessage && saveState !== 'saving') {
+                          event.preventDefault()
+                          void persistFeedSchedule(feed.id, draft)
+                        }
+                      }}
+                      disabled={!canManage}
+                    />
+                  </>
                 )}
               </div>
 
