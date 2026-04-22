@@ -11,7 +11,12 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY . /app
-RUN chmod +x /app/scripts/start-api.sh
+RUN chmod +x /app/scripts/start-api.sh \
+    && mkdir -p /usr/share/doc/threatlens \
+    && cp /app/requirements.txt /usr/share/doc/threatlens/backend-requirements.txt \
+    && python /app/scripts/generate_dependency_inventory.py \
+      --backend-output /usr/share/doc/threatlens/backend-runtime-dependencies.txt \
+      --skip-frontend
 RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:app /app
 
 ENV PYTHONPATH=/app

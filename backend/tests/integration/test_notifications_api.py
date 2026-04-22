@@ -12,7 +12,7 @@ from app.schemas.notification import NotificationWebhookTestResponse
 
 
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):
-    analyst = seed_users["analyst"]
+    admin = seed_users["admin"]
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -39,14 +39,14 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
             "body_fields": [{"key": "item.title", "value": "{{ item.title }}"}],
             "timeout_seconds": 10,
         },
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert create_response.status_code == 201
     created = create_response.json()
-    assert created["user_id"] == str(analyst.id)
+    assert created["user_id"] == str(admin.id)
     assert created["feed_ids"] == [str(feed.id)]
 
-    list_response = client.get("/notifications/webhooks", headers=auth_headers["analyst"])
+    list_response = client.get("/notifications/webhooks", headers=auth_headers["admin"])
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
 
@@ -68,7 +68,7 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
             "body_template": "title={{ item.title }}",
             "timeout_seconds": 12,
         },
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert update_response.status_code == 200
     updated = update_response.json()
@@ -78,10 +78,10 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
 
     webhook = db_session.scalar(select(NotificationWebhook).where(NotificationWebhook.id == uuid.UUID(webhook_id)))
     assert webhook is not None
-    assert webhook.user_id == analyst.id
+    assert webhook.user_id == admin.id
     assert webhook.feed_scope == "all"
 
-    delete_response = client.delete(f"/notifications/webhooks/{webhook_id}", headers=auth_headers["analyst"])
+    delete_response = client.delete(f"/notifications/webhooks/{webhook_id}", headers=auth_headers["admin"])
     assert delete_response.status_code == 204
     assert db_session.scalar(select(NotificationWebhook).where(NotificationWebhook.id == uuid.UUID(webhook_id))) is None
 
@@ -103,7 +103,7 @@ def test_notification_webhook_create_extracts_query_string_into_params(client: T
             "body_fields": [],
             "timeout_seconds": 10,
         },
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert response.status_code == 201
     payload = response.json()
@@ -115,7 +115,7 @@ def test_notification_webhook_create_extracts_query_string_into_params(client: T
 
 
 def test_notification_webhook_test_endpoint_returns_render_result(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
-    analyst = seed_users["analyst"]
+    admin = seed_users["admin"]
     feed = Feed(
         id=uuid.uuid4(),
         name="CISA",
@@ -167,14 +167,150 @@ def test_notification_webhook_test_endpoint_returns_render_result(client: TestCl
                 "timeout_seconds": 10,
             },
         },
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert response.status_code == 200
     payload = response.json()
     assert payload["success"] is True
     assert payload["status_code"] == 204
-    assert captured["user_id"] == analyst.id
+    assert captured["user_id"] == admin.id
     assert captured["sample_feed_id"] == feed.id
+
+
+def test_notification_webhook_test_endpoint_redacts_sensitive_previews(client: TestClient, auth_headers, monkeypatch):
+    request_body = '{"signature":"top-secret"}'
+    response_body = '{"ok":true,"token":"secret"}'
+
+    def _fake_send(rendered):
+        return NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=19,
+            rendered_url=f"{rendered.url}?token=abc123",
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview=response_body,
+            error=None,
+        )
+
+    monkeypatch.setattr("app.services.notification_webhooks._send_rendered_notification_request", _fake_send)
+
+    response = client.post(
+        "/notifications/webhooks/test",
+        json={
+            "webhook": {
+                "name": "Redacted test",
+                "enabled": True,
+                "event_type": "rss_item_new",
+                "url_template": "https://hooks.example.com/test?token=abc123",
+                "method": "POST",
+                "feed_scope": "all",
+                "feed_ids": [],
+                "query_params": [],
+                "headers": [{"key": "Authorization", "value": "Bearer secret-token"}],
+                "body_mode": "raw",
+                "body_fields": [],
+                "body_template": request_body,
+                "timeout_seconds": 10,
+            },
+        },
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["rendered_url"] == "https://hooks.example.com/test?token=REDACTED"
+    assert any(header["key"] == "Authorization" and header["value"] == "REDACTED" for header in payload["rendered_headers"])
+    assert all("secret-token" not in header["value"] for header in payload["rendered_headers"])
+    assert payload["rendered_query_params"] == [{"key": "token", "value": "REDACTED"}]
+    assert payload["rendered_body"] == f"Stored body withheld ({len(request_body)} chars)"
+    assert payload["response_body_preview"] == f"Stored body withheld ({len(response_body)} chars)"
+
+
+def test_analyst_cannot_create_notification_webhooks_without_allowlisted_hosts(client: TestClient, auth_headers):
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 403
+    assert (
+        response.json()["detail"]
+        == "Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured"
+    )
+
+
+def test_analyst_can_create_notification_webhooks_for_allowlisted_host(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "Analyst webhook"
+
+
+def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://evil.example.net/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Webhook destination host 'evil.example.net' is not approved for analyst-managed webhook deliveries"
+    )
 
 
 def test_viewer_cannot_create_notification_webhooks(client: TestClient, auth_headers):
@@ -367,10 +503,10 @@ def test_user_can_list_notification_webhook_delivery_history_with_stable_tiebrea
 
 
 def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
-    analyst = seed_users["analyst"]
+    admin = seed_users["admin"]
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
-        user_id=analyst.id,
+        user_id=admin.id,
         name="Retry webhook",
         url_template="https://hooks.example.com/retry",
         method="POST",
@@ -385,7 +521,7 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
     delivery = NotificationWebhookDelivery(
         id=uuid.uuid4(),
         webhook_id=webhook.id,
-        user_id=analyst.id,
+        user_id=admin.id,
         event_type_snapshot="rss_item_new",
         delivery_kind="live",
         delivery_state="failed",
@@ -438,7 +574,7 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
 
     response = client.post(
         f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert response.status_code == 200
     payload = response.json()
@@ -450,10 +586,10 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
 
 
 def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(client: TestClient, auth_headers, db_session, seed_users):
-    analyst = seed_users["analyst"]
+    admin = seed_users["admin"]
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
-        user_id=analyst.id,
+        user_id=admin.id,
         name="Retry webhook",
         url_template="https://hooks.example.com/retry",
         method="POST",
@@ -468,7 +604,7 @@ def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(clien
     delivery = NotificationWebhookDelivery(
         id=uuid.uuid4(),
         webhook_id=webhook.id,
-        user_id=analyst.id,
+        user_id=admin.id,
         event_type_snapshot="rss_item_new",
         delivery_kind="live",
         delivery_state="sending",
@@ -493,17 +629,17 @@ def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(clien
 
     response = client.post(
         f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
     assert response.status_code == 409
     assert response.json()["detail"] == "Webhook delivery is already queued or in progress"
 
 
 def test_user_cannot_retry_successful_notification_webhook_delivery(client: TestClient, auth_headers, db_session, seed_users):
-    analyst = seed_users["analyst"]
+    admin = seed_users["admin"]
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
-        user_id=analyst.id,
+        user_id=admin.id,
         name="Retry webhook",
         url_template="https://hooks.example.com/retry",
         method="POST",
@@ -518,7 +654,7 @@ def test_user_cannot_retry_successful_notification_webhook_delivery(client: Test
     delivery = NotificationWebhookDelivery(
         id=uuid.uuid4(),
         webhook_id=webhook.id,
-        user_id=analyst.id,
+        user_id=admin.id,
         event_type_snapshot="rss_item_new",
         delivery_kind="live",
         delivery_state="succeeded",
@@ -542,7 +678,7 @@ def test_user_cannot_retry_successful_notification_webhook_delivery(client: Test
 
     response = client.post(
         f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
-        headers=auth_headers["analyst"],
+        headers=auth_headers["admin"],
     )
 
     assert response.status_code == 409
@@ -638,7 +774,9 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
     }
 
 
-def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, seed_users):
+def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
+    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
     admin = seed_users["admin"]
     analyst = seed_users["analyst"]
     webhook = NotificationWebhook(

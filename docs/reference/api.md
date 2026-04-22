@@ -12,7 +12,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Security Schemes
 
-- `ApiTokenBearer`: `http` - Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser login responses also return a session JWT for compatibility, but that value is not a supported bearer API credential.
+- `ApiTokenBearer`: `http` - Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; bearer auth requires a dedicated API token.
 - `SessionCookieAuth`: `apiKey` - HttpOnly browser session cookie established by `/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`. Cookie-authenticated mutating requests must also send the CSRF header.
 
 ## Ai

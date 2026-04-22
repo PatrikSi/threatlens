@@ -23,7 +23,7 @@ The project is split into a few core services:
 - AI item enrichment with per-article summary + relevance scoring, plus a dashboard Daily Brief widget
 - Per-user triage state (read, starred, notes, tags) and saved dashboard views
 - Alert interests with live preview before save
-- Personal webhook notifications with template variables, multi-event delivery history, analytics, retry, and test-send support
+- Personal webhook notifications with template variables, admin-governed destination controls, multi-event delivery history, analytics, retry, and test-send support
 - Admin tagging controls with custom rules, preview, and background reapply
 - Feed scheduling, metadata detection, import/export, and manual refresh controls
 - Article fetching, readable content extraction, classification, and IOC extraction
@@ -50,6 +50,12 @@ You'll need to configure at least:
 
 Use a distinct `APP_DATA_ENCRYPTION_KEY` for webhook/request encryption at rest instead of reusing `JWT_SECRET`. If you are upgrading an existing install and want older encrypted rows to remain readable during key rotation, keep the old encryption input in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` until the stored secrets have been rewritten.
 
+Outbound webhook governance:
+
+- Admins can always manage their own notification webhooks.
+- Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
+- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts or `*.suffix` patterns, for example `hooks.slack.com,*.logic.azure.com`.
+
 Secure defaults in the shipped template:
 
 - `APP_ENV=production`
@@ -71,9 +77,13 @@ Release-contract artifacts shipped in the repo:
 
 - Generated API reference: `docs/reference/api.md`
 - OpenAPI schema snapshot: `docs/reference/openapi.json`
+- Runtime dependency inventories: `docs/reference/backend-runtime-dependencies.txt`, `docs/reference/frontend-runtime-dependencies.txt`
+- Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
 - Bundled license texts: `docs/licenses/`
 - Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
+
+The governance docs intentionally use `.invalid` placeholder addresses until maintainers publish real public contact channels. Do not send mail to those placeholders; see `docs/reference/release-process.md` for the release gate that replaces them before public distribution.
 
 ## Running with Docker
 
@@ -221,17 +231,18 @@ curl http://localhost:3000/api/v1/health/ready
 
 ## Auth Model
 
-- `POST /api/v1/auth/login` returns JSON containing `access_token`, `token_type`, and `csrf_token`, and also sets the browser session cookies.
+- `POST /api/v1/auth/login` returns JSON containing `token_type=session_cookie` and `csrf_token`, and also sets the browser session cookies.
 - The shipped React app uses the cookie session (`AUTH_COOKIE_NAME`) and does not store the JWT in local storage.
-- The returned `access_token` mirrors the cookie-backed browser session for compatibility, but it is not a supported bearer API credential.
+- Browser login no longer returns a replayable session JWT in the response body.
 - CLI and automation callers should mint personal API tokens from `/api/v1/tokens` and use those as `Authorization: Bearer <token>`.
+- Cookie-session callers minting durable API tokens from `/api/v1/tokens` must also provide `current_password` as a step-up check.
 - Cookie-authenticated `POST`, `PUT`, `PATCH`, and `DELETE` requests must echo the CSRF cookie value in `AUTH_CSRF_HEADER_NAME`.
 - If a request sends both an `Authorization` header and the session cookie, the header wins. An invalid header does not fall back to the cookie.
 
 ## Trust Boundaries
 
 - ThreatLens is a self-hosted, single-deployment application for one team or organization. It does not implement tenant isolation between separate customers.
-- The platform makes outbound requests to configured feed/article URLs, an optional AI endpoint, and user-configured webhook destinations. Private-network access is disabled by default and controlled separately for fetch, AI, and webhook traffic.
+- The platform makes outbound requests to configured feed/article URLs, an optional AI endpoint, and user-configured webhook destinations. Private-network access is disabled by default and controlled separately for fetch, AI, and webhook traffic. Analyst-managed webhook destinations are denied by default unless `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is configured.
 - Browser dashboard layouts, read state, and scratch notes are stored in local browser storage per user. Session credentials remain in cookies rather than browser storage.
 - Webhook templates and delivery snapshots are encrypted at rest with `APP_DATA_ENCRYPTION_KEY`, but authorized users can still view decrypted previews through the application.
 - AI summaries, daily briefs, and usage history are stored in the application database. Provider-exchange inspection stores sanitized request/response metadata, not full raw provider transcripts.
@@ -249,7 +260,7 @@ CSRF=$(curl -sS -c "$COOKIE_JAR" http://localhost:3000/api/v1/auth/login \
 TOKEN=$(curl -sS -b "$COOKIE_JAR" \
   -H "X-CSRF-Token: $CSRF" \
   -H "Content-Type: application/json" \
-  -d '{"name":"admin-demo-token","expires_in_days":30,"scopes":["*:*"]}' \
+  -d '{"name":"admin-demo-token","expires_in_days":30,"scopes":["*:*"],"current_password":"<admin-password>"}' \
   http://localhost:3000/api/v1/tokens \
   | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 rm -f "$COOKIE_JAR"
@@ -293,6 +304,8 @@ curl -X POST http://localhost:3000/api/v1/notifications/webhooks \
     "timeout_seconds": 10
   }'
 ```
+
+If the caller is an `analyst`, the webhook host must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`. Admin-managed webhooks are not constrained by that allowlist.
 
 Queue a Daily Brief after AI is configured:
 
@@ -374,8 +387,12 @@ Notes:
 
 ## Redistribution Notes
 
-- `THIRD_PARTY_NOTICES.md` lists the bundled assets and direct runtime dependencies used by the shipped source tree and container images.
+- `THIRD_PARTY_NOTICES.md` summarizes the bundled assets, selected direct runtime dependencies, redistribution notes, and regeneration commands for the committed runtime inventories.
+- `docs/reference/backend-runtime-dependencies.txt` and `docs/reference/frontend-runtime-dependencies.txt` are the full resolved runtime inventories committed with the source tree.
+- Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt` and `/usr/share/doc/threatlens/backend-requirements.txt`.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
+- `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
+- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, and `docs/licenses/Unlicense.txt` are bundled for common third-party runtime licenses in the shipped stack.
 - `docs/licenses/LGPL-3.0.txt` and `docs/licenses/GPL-3.0.txt` are shipped for the `psycopg[binary]` backend dependency. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
 
 ## User Management (admin only)

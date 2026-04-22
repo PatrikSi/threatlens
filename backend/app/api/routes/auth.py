@@ -115,7 +115,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
-    """Create a browser session cookie and return the same session token for compatibility.
+    """Create a browser session cookie and return only cookie-session metadata.
 
     Scoped API access should use dedicated API tokens in the `Authorization` header.
     Browser clients should rely on the HttpOnly session cookie set by this route.
@@ -157,7 +157,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         metadata={"email": user.email},
     )
     db.commit()
-    return TokenResponse(access_token=token, csrf_token=csrf_token)
+    return TokenResponse(csrf_token=csrf_token)
 
 
 @router.get("/me", response_model=CurrentUserResponse)

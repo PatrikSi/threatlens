@@ -70,6 +70,7 @@ AI_TASK_NAMES = {
 }
 
 STALE_AI_RUN_GRACE_PERIOD = timedelta(minutes=10)
+STALE_AI_RUN_FALLBACK_GRACE_PERIOD = timedelta(hours=1)
 
 INELIGIBLE_REASONS = {
     "ai_disabled",
@@ -186,6 +187,23 @@ def start_ai_task_run(
     return run
 
 
+def ai_task_run_stop_reason(run: AITaskRun | None) -> str | None:
+    if run is None:
+        return None
+    if _is_cancel_requested_run(run):
+        return "canceled"
+    if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
+        return run.reason or f"already_{run.status}"
+    return None
+
+
+def get_ai_task_run_stop_reason(db: Session, *, run_id: uuid.UUID | None) -> str | None:
+    if run_id is None:
+        return None
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    return ai_task_run_stop_reason(run)
+
+
 def finish_ai_task_run(
     db: Session,
     *,
@@ -233,6 +251,14 @@ def finish_ai_task_run(
     if metadata_updates:
         run.metadata_json = _merge_metadata(run.metadata_json, metadata_updates)
     _settle_pending_item_enrichment(
+        db,
+        run=run,
+        status=status,
+        reason=reason,
+        error=error,
+        settled_at=now,
+    )
+    _settle_pending_daily_brief(
         db,
         run=run,
         status=status,
@@ -366,58 +392,52 @@ def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UU
         runs_to_cancel.extend(child_runs)
 
     for target in runs_to_cancel:
+        terminate_running_task = bool(target.celery_task_id and target.celery_task_id in active_task_ids)
+        removed_from_queue = bool(
+            target.status == AI_STATUS_QUEUED
+            and not terminate_running_task
+            and (
+                target.celery_task_id is None
+                or target.celery_task_id in pending_task_ids
+                or (snapshot_available and target.celery_task_id not in active_task_ids)
+            )
+        )
+        revoke_failed = False
         if target.celery_task_id:
             try:
                 celery_app.control.revoke(
                     target.celery_task_id,
-                    terminate=target.celery_task_id in active_task_ids,
+                    terminate=terminate_running_task,
                     signal="SIGTERM",
                 )
             except Exception:
+                revoke_failed = True
                 record_ai_task_event(
                     db,
                     run_id=target.id,
                     event_type="cancel_revoke_failed",
                     payload={"celery_task_id": target.celery_task_id},
                 )
-
-        finish_ai_task_run(
+        _mark_ai_task_run_cancel_requested(
             db,
             run_id=target.id,
-            status=AI_STATUS_SKIPPED,
-            reason="canceled",
-            worker_name=target.worker_name,
-            model=target.model,
-            metadata_updates={
-                "canceled_by_user_id": str(actor_user_id) if actor_user_id else None,
-                "removed_from_queue": target.celery_task_id in pending_task_ids,
-                "terminated_running_task": target.celery_task_id in active_task_ids,
-            },
+            actor_user_id=actor_user_id,
+            removed_from_queue=removed_from_queue,
+            terminated_running_task=terminate_running_task,
+            revoke_failed=revoke_failed,
         )
-
-    if run.task_type == AI_TASK_TYPE_REPROCESS:
-        parent = db.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
-        if parent is not None:
-            parent.finished_at = parent.finished_at or datetime.now(timezone.utc)
-            if parent.started_at is None:
-                parent.started_at = parent.finished_at
-            parent.duration_ms = max(0, int((parent.finished_at - _coerce_utc(parent.started_at)).total_seconds() * 1000))
-            parent.status = AI_STATUS_SKIPPED
-            parent.reason = "canceled"
-            parent.metadata_json = _merge_metadata(
-                parent.metadata_json,
-                {
-                    "canceled_by_user_id": str(actor_user_id) if actor_user_id else None,
-                    "removed_from_queue": run.celery_task_id in pending_task_ids,
-                    "terminated_running_task": run.celery_task_id in active_task_ids,
-                },
-            )
-            db.add(parent)
-            record_ai_task_event(
+        if removed_from_queue:
+            finish_ai_task_run(
                 db,
-                run_id=parent.id,
-                event_type="canceled",
-                payload={"actor_user_id": str(actor_user_id) if actor_user_id else None},
+                run_id=target.id,
+                status=AI_STATUS_SKIPPED,
+                reason="canceled",
+                worker_name=target.worker_name,
+                model=target.model,
+                metadata_updates={
+                    "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
+                    "cancel_completed_without_worker": True,
+                },
             )
 
     db.commit()
@@ -703,6 +723,30 @@ def _settle_pending_item_enrichment(
     db.add(enrichment)
 
 
+def _settle_pending_daily_brief(
+    db: Session,
+    *,
+    run: AITaskRun,
+    status: str,
+    reason: str | None,
+    error: str | None,
+    settled_at: datetime,
+) -> None:
+    if run.task_type != AI_TASK_TYPE_DAILY_BRIEF or run.daily_brief_id is None:
+        return
+    if status != AI_STATUS_ERROR and reason != "canceled":
+        return
+
+    brief = db.scalar(select(AIDailyBrief).where(AIDailyBrief.id == run.daily_brief_id))
+    if brief is None or brief.status != "pending":
+        return
+
+    brief.status = AI_STATUS_ERROR
+    brief.error = error or reason or "task_failed"
+    brief.generated_at = settled_at
+    db.add(brief)
+
+
 def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResponse]:
     actor_ids = [run.actor_user_id for run in runs if run.actor_user_id]
     email_map = _load_user_emails(db, actor_ids)
@@ -864,20 +908,24 @@ def _reconcile_stale_ai_runs(
     elif snapshot_available is None:
         snapshot_available = True
 
-    if not snapshot_available:
-        return 0
-
     _ = workers
-    live_task_ids = {
-        task.celery_task_id
-        for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
-        if task.celery_task_id
-    }
-    stale_before = datetime.now(timezone.utc) - STALE_AI_RUN_GRACE_PERIOD
+    live_task_ids = (
+        {
+            task.celery_task_id
+            for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
+            if task.celery_task_id
+        }
+        if snapshot_available
+        else set()
+    )
+    now = datetime.now(timezone.utc)
+    stale_before = now - (
+        STALE_AI_RUN_GRACE_PERIOD if snapshot_available else STALE_AI_RUN_FALLBACK_GRACE_PERIOD
+    )
     changed = False
     reconciled_count = 0
 
-    stale_child_runs = list(
+    stale_item_runs = list(
         db.scalars(
             select(AITaskRun)
             .where(
@@ -888,18 +936,39 @@ def _reconcile_stale_ai_runs(
             .order_by(AITaskRun.created_at.asc())
         )
     )
-    for run in stale_child_runs:
+    for run in stale_item_runs:
         if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
             continue
-        finish_ai_task_run(
+        _finish_reconciled_stale_run(
             db,
-            run_id=run.id,
-            status=AI_STATUS_ERROR,
-            reason="stale_task_lost",
-            error="Task no longer appears in Celery and did not report completion",
-            worker_name=run.worker_name,
-            model=run.model,
-            metadata_updates={"stale_reconciled": True},
+            run=run,
+            snapshot_available=snapshot_available,
+            stale_reason="stale_task_lost",
+            stale_error="Task no longer appears in Celery and did not report completion",
+        )
+        changed = True
+        reconciled_count += 1
+
+    stale_daily_brief_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+                AITaskRun.finished_at.is_(None),
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            )
+            .order_by(AITaskRun.created_at.asc())
+        )
+    )
+    for run in stale_daily_brief_runs:
+        if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+            continue
+        _finish_reconciled_stale_run(
+            db,
+            run=run,
+            snapshot_available=snapshot_available,
+            stale_reason="stale_task_lost",
+            stale_error="Task no longer appears in Celery and did not report completion",
         )
         changed = True
         reconciled_count += 1
@@ -945,15 +1014,12 @@ def _reconcile_stale_ai_runs(
             continue
         if unfinished_child_count > 0 or not _is_stale_unfinished_run(run, live_task_ids, stale_before):
             continue
-        finish_ai_task_run(
+        _finish_reconciled_stale_run(
             db,
-            run_id=run.id,
-            status=AI_STATUS_ERROR,
-            reason="stale_reprocess_tracking",
-            error="Reprocess task stopped updating and is no longer active in Celery",
-            worker_name=run.worker_name,
-            model=run.model,
-            metadata_updates={"stale_reconciled": True},
+            run=run,
+            snapshot_available=snapshot_available,
+            stale_reason="stale_reprocess_tracking",
+            stale_error="Reprocess task stopped updating and is no longer active in Celery",
         )
         changed = True
         reconciled_count += 1
@@ -1035,6 +1101,101 @@ def _is_stale_unfinished_run(run: AITaskRun, live_task_ids: set[str], stale_befo
         return False
     reference = run.updated_at or run.started_at or run.queued_at or run.created_at
     return _coerce_utc(reference) < stale_before
+
+
+def is_ai_task_run_cancel_requested(db: Session, *, run_id: uuid.UUID | None) -> bool:
+    if run_id is None:
+        return False
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    if run is None:
+        return False
+    return _is_cancel_requested_run(run)
+
+
+def _mark_ai_task_run_cancel_requested(
+    db: Session,
+    *,
+    run_id: uuid.UUID,
+    actor_user_id: uuid.UUID | None,
+    removed_from_queue: bool,
+    terminated_running_task: bool,
+    revoke_failed: bool,
+) -> AITaskRun | None:
+    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    if run is None:
+        return None
+
+    already_requested = _is_cancel_requested_run(run)
+    run.reason = "cancel_requested" if run.finished_at is None else run.reason
+    run.metadata_json = _merge_metadata(
+        run.metadata_json,
+        {
+            "cancel_requested_at": datetime.now(timezone.utc).isoformat(),
+            "canceled_by_user_id": str(actor_user_id) if actor_user_id else None,
+            "removed_from_queue": removed_from_queue,
+            "terminated_running_task": terminated_running_task,
+            "cancel_revoke_failed": revoke_failed,
+            "was_canceled": True if run.task_type == AI_TASK_TYPE_REPROCESS else None,
+        },
+    )
+    db.add(run)
+    if not already_requested:
+        record_ai_task_event(
+            db,
+            run_id=run.id,
+            event_type="cancel_requested",
+            payload={
+                "actor_user_id": str(actor_user_id) if actor_user_id else None,
+                "removed_from_queue": removed_from_queue,
+                "terminated_running_task": terminated_running_task,
+                "cancel_revoke_failed": revoke_failed,
+            },
+        )
+    return run
+
+
+def _finish_reconciled_stale_run(
+    db: Session,
+    *,
+    run: AITaskRun,
+    snapshot_available: bool,
+    stale_reason: str,
+    stale_error: str,
+) -> None:
+    if _is_cancel_requested_run(run):
+        finish_ai_task_run(
+            db,
+            run_id=run.id,
+            status=AI_STATUS_SKIPPED,
+            reason="canceled",
+            worker_name=run.worker_name,
+            model=run.model,
+            metadata_updates={
+                "stale_reconciled": True,
+                "stale_snapshot_available": snapshot_available,
+                "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return
+
+    finish_ai_task_run(
+        db,
+        run_id=run.id,
+        status=AI_STATUS_ERROR,
+        reason=stale_reason,
+        error=stale_error,
+        worker_name=run.worker_name,
+        model=run.model,
+        metadata_updates={
+            "stale_reconciled": True,
+            "stale_snapshot_available": snapshot_available,
+        },
+    )
+
+
+def _is_cancel_requested_run(run: AITaskRun) -> bool:
+    metadata = run.metadata_json or {}
+    return bool(metadata.get("cancel_requested_at")) or run.reason == "cancel_requested" or run.reason == "canceled"
 
 
 def _build_per_model_usage(events: list[AIUsageEvent]) -> list[AIOverviewPerModelResponse]:

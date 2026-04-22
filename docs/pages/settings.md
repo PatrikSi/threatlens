@@ -41,7 +41,10 @@ Legacy route behavior:
   - `webhook_failed`
   - `daily_digest`
 - Saved webhook list with create/edit/delete
-- Create, update, delete, test, and retry actions are limited to `admin` and `analyst` users; viewers can still see their own notification analytics and delivery history when scopes permit.
+- Create, update, test, and retry actions are always allowed for `admin` users.
+- Analysts can only create, update, test, or retry when an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and the target host matches that allowlist.
+- Delete remains available to webhook owners with operator access so analysts can remove stale webhooks even when outbound egress is locked down.
+- Viewers can still see their own notification analytics and delivery history when scopes permit.
 - Webhook configuration fields:
   - name
   - enabled flag
@@ -136,6 +139,7 @@ Legacy route behavior:
 
 - Protected by authenticated route guard.
 - Notifications analytics/list/history are available to authenticated users for their own webhooks.
-- Notifications create/update/delete/test/retry actions additionally require `admin` or `analyst`.
+- Notifications delete additionally requires operator access.
+- Notifications create/update/test/retry require `admin`, or `analyst` plus an approved host from `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
 - Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
 - AI is a nested admin-only settings page at `/settings/ai`, with `/ai` redirecting there for backward compatibility.

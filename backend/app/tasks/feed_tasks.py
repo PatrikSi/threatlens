@@ -26,6 +26,13 @@ from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.services.article_recovery import (
+    article_fast_retryable_error_filter,
+    article_fetch_repair_cutoff,
+    article_fetch_repair_floor,
+    article_soft_repair_cutoff,
+    article_soft_retryable_error_filter,
+)
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
 from app.services.ai_integration import is_stale_daily_brief_pending
@@ -41,7 +48,10 @@ from app.services.ai_ops import (
     AI_TRIGGER_AUTO,
     AI_TRIGGER_MANUAL,
     AI_TRIGGER_SCHEDULED,
+    ai_task_run_stop_reason,
     finish_ai_task_run,
+    get_ai_task_run_stop_reason,
+    is_ai_task_run_cancel_requested,
     queue_ai_task_run,
     record_ai_task_event,
     _reconcile_stale_ai_runs,
@@ -99,11 +109,6 @@ class CoordinationUnavailableError(RuntimeError):
 
 
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
-RETRYABLE_ARTICLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
-RETRYABLE_ARTICLE_ERROR_PREFIXES = (
-    "coordination_unavailable:",
-    "network_or_rate_limit_error:",
-)
 
 
 @contextmanager
@@ -232,16 +237,29 @@ def _chunk_uuid_list(values: list[uuid.UUID], chunk_size: int) -> list[list[uuid
 
 
 def _article_fetch_repair_cutoff(now: datetime | None = None) -> datetime:
-    current_time = now or datetime.now(timezone.utc)
-    return current_time - timedelta(seconds=max(0, int(settings.dispatch_items_missing_articles_after_seconds)))
-
-
-def _article_retryable_error_filter():
-    retryable_http_errors = [f"http_status:{status_code}" for status_code in sorted(RETRYABLE_ARTICLE_HTTP_STATUSES)]
-    return or_(
-        Article.error.in_(retryable_http_errors),
-        *[Article.error.like(f"{prefix}%") for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES],
+    return article_fetch_repair_cutoff(
+        dispatch_after_seconds=settings.dispatch_items_missing_articles_after_seconds,
+        now=now,
     )
+
+
+def _article_fetch_repair_floor(now: datetime | None = None) -> datetime:
+    return article_fetch_repair_floor(now=now)
+
+
+def _article_soft_repair_cutoff(now: datetime | None = None) -> datetime:
+    return article_soft_repair_cutoff(
+        dispatch_after_seconds=settings.dispatch_items_missing_articles_after_seconds,
+        now=now,
+    )
+
+
+def _article_fast_retryable_error_filter():
+    return article_fast_retryable_error_filter()
+
+
+def _article_soft_retryable_error_filter():
+    return article_soft_retryable_error_filter()
 
 
 def _feed_dispatch_claim_expiry(now: datetime) -> datetime:
@@ -277,19 +295,33 @@ def _claim_feed_for_dispatch(db: Session, *, feed_id: uuid.UUID, now: datetime) 
 
 def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | None = None) -> list[uuid.UUID]:
     repair_cutoff = _article_fetch_repair_cutoff(now)
+    repair_floor = _article_fetch_repair_floor(now)
+    soft_repair_cutoff = _article_soft_repair_cutoff(now)
     return list(
         db.scalars(
             select(Item.id)
             .outerjoin(Article, Article.item_id == Item.id)
             .where(
-                Item.first_seen_at <= repair_cutoff,
                 or_(
-                    Article.item_id.is_(None),
+                    and_(
+                        Article.item_id.is_(None),
+                        Item.first_seen_at >= repair_floor,
+                        Item.first_seen_at <= repair_cutoff,
+                    ),
                     and_(
                         Article.text.is_(None),
                         Article.retrieved_at.is_not(None),
-                        Article.retrieved_at <= repair_cutoff,
-                        _article_retryable_error_filter(),
+                        Article.retrieved_at >= repair_floor,
+                        or_(
+                            and_(
+                                Article.retrieved_at <= repair_cutoff,
+                                _article_fast_retryable_error_filter(),
+                            ),
+                            and_(
+                                Article.retrieved_at <= soft_repair_cutoff,
+                                _article_soft_retryable_error_filter(),
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -460,14 +492,11 @@ def _safe_queue_item_ai_enrichment_run(
     return True
 
 
-def _is_canceled_ai_run(run_id: uuid.UUID | None) -> bool:
+def _get_ai_run_stop_reason(run_id: uuid.UUID | None) -> str | None:
     if run_id is None:
-        return False
+        return None
     with db_session() as db:
-        run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
-        if run is None:
-            return False
-        return bool(run.finished_at is not None or run.reason == "canceled" or run.status == AI_STATUS_SKIPPED)
+        return get_ai_task_run_stop_reason(db, run_id=run_id)
 
 
 def _record_skipped_item_ai_enrichment_run(
@@ -1026,8 +1055,19 @@ def dispatch_daily_ai_brief_generation(
                     metadata_updates={"force": bool(force)},
                 )
                 db.commit()
-                if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
-                    return {"status": "skipped", "reason": "canceled"}
+                stop_reason = ai_task_run_stop_reason(started_run)
+                if stop_reason is not None:
+                    if stop_reason == "canceled":
+                        finish_ai_task_run(
+                            db,
+                            run_id=run.id,
+                            status=AI_STATUS_SKIPPED,
+                            reason="canceled",
+                            worker_name=getattr(self.request, "hostname", None),
+                            metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+                        )
+                        db.commit()
+                    return {"status": "skipped", "reason": stop_reason}
                 active_ai_settings = load_active_ai_settings(db)
                 if not active_ai_settings.ai_enabled:
                     finish_ai_task_run(
@@ -1854,8 +1894,19 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 metadata_updates={"force": bool(force)},
             )
             db.commit()
-            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
-                return {"status": "skipped", "reason": "canceled", "item_id": item_id}
+            stop_reason = ai_task_run_stop_reason(started_run)
+            if stop_reason is not None:
+                if stop_reason == "canceled":
+                    finish_ai_task_run(
+                        db,
+                        run_id=parsed_run_id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="canceled",
+                        worker_name=getattr(self.request, "hostname", None),
+                        metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+                    )
+                    db.commit()
+                return {"status": "skipped", "reason": stop_reason, "item_id": item_id}
 
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -2002,8 +2053,19 @@ def reprocess_recent_ai_items(
                 },
             )
             db.commit()
-            if started_run is not None and started_run.finished_at is not None and started_run.reason == "canceled":
-                return {"queued": 0, "reason": "canceled"}
+            stop_reason = ai_task_run_stop_reason(started_run)
+            if stop_reason is not None:
+                if stop_reason == "canceled":
+                    finish_ai_task_run(
+                        db,
+                        run_id=parsed_run_id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="canceled",
+                        worker_name=getattr(self.request, "hostname", None),
+                        metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+                    )
+                    db.commit()
+                return {"queued": 0, "reason": stop_reason}
 
         active_ai_settings = load_active_ai_settings(db)
         if not active_ai_settings.ai_enabled:
@@ -2092,17 +2154,31 @@ def reprocess_recent_ai_items(
     queued = 0
     queue_errors = 0
     for item_id_value in item_ids:
-        if _is_canceled_ai_run(parsed_run_id):
+        stop_reason = _get_ai_run_stop_reason(parsed_run_id)
+        if stop_reason is not None:
             if parsed_run_id:
                 with db_session() as db:
                     record_ai_task_event(
                         db,
                         run_id=parsed_run_id,
                         event_type="queueing_stopped",
-                        payload={"reason": "canceled", "queued": queued, "queue_errors": queue_errors},
+                        payload={"reason": stop_reason, "queued": queued, "queue_errors": queue_errors},
                     )
+                    if stop_reason == "canceled":
+                        finish_ai_task_run(
+                            db,
+                            run_id=parsed_run_id,
+                            status=AI_STATUS_SKIPPED,
+                            reason="canceled",
+                            worker_name=getattr(self.request, "hostname", None),
+                            metadata_updates={
+                                "queued": queued,
+                                "queue_errors": queue_errors,
+                                "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
+                            },
+                        )
                     db.commit()
-            return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id, "reason": "canceled"}
+            return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id, "reason": stop_reason}
         queued_ok = _safe_queue_item_ai_enrichment_run(
             item_id=item_id_value,
             trigger_source=AI_TRIGGER_MANUAL,

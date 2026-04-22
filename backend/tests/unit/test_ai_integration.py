@@ -803,6 +803,277 @@ def test_run_item_ai_enrichment_records_failed_provider_exchange_event(db_sessio
     assert event.payload_json["response_json_summary"]["top_level_keys"] == ["error"]
 
 
+def test_run_item_ai_enrichment_skips_before_provider_call_when_cancel_requested(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-cancel-before-call",
+        url="https://example.com/articles/unit42-cancel-before-call",
+        canonical_url="https://example.com/articles/unit42-cancel-before-call",
+        title="Cancel before provider call",
+        summary="This run should stop before calling the provider.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-cancel-before-call",
+        content_hash="c" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted exposed edge systems.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    run.reason = "cancel_requested"
+    run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+    db_session.add(run)
+    db_session.commit()
+
+    def _unexpected_provider_call(active, *, messages):
+        _ = (active, messages)
+        raise AssertionError("provider should not be called after cancellation")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _unexpected_provider_call)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "canceled"
+    assert enrichment is None
+    assert event is not None
+    assert event.payload_json["stage"] == "before_pending_state"
+
+
+def test_run_item_ai_enrichment_discards_provider_result_when_cancel_requested_midflight(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-cancel-midflight",
+        url="https://example.com/articles/unit42-cancel-midflight",
+        canonical_url="https://example.com/articles/unit42-cancel-midflight",
+        title="Cancel after provider response",
+        summary="This run should discard the provider result.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-cancel-midflight",
+        content_hash="d" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted edge devices and identity systems.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    def _cancel_during_provider_call(active, *, messages):
+        _ = (active, messages)
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.reason = "cancel_requested"
+        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        db_session.add(task_run)
+        db_session.flush()
+        return AICompletionResult(
+            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=30,
+            prompt_tokens=40,
+            completion_tokens=10,
+            total_tokens=50,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _cancel_during_provider_call)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "canceled"
+    assert enrichment is not None
+    assert enrichment.status == "pending"
+    assert enrichment.summary_text is None
+    assert enrichment.relevance_label is None
+    assert event is not None
+    assert event.payload_json["stage"] == "after_provider_response"
+
+
+def test_run_item_ai_enrichment_discards_provider_result_when_run_terminalizes_midflight(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-terminal-midflight",
+        url="https://example.com/articles/unit42-terminal-midflight",
+        canonical_url="https://example.com/articles/unit42-terminal-midflight",
+        title="Terminalized after provider response",
+        summary="This run should discard the provider result after terminalization.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-terminal-midflight",
+        content_hash="e" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted edge devices and identity systems.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    def _terminalize_during_provider_call(active, *, messages):
+        _ = (active, messages)
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.status = "error"
+        task_run.reason = "stale_task_lost"
+        task_run.error = "Task no longer appears in Celery and did not report completion"
+        task_run.finished_at = datetime.now(timezone.utc)
+        db_session.add(task_run)
+        db_session.flush()
+        return AICompletionResult(
+            payload={"summary_text": "summary", "relevance_score": 0.8, "relevance_reasons": ["edge systems"]},
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=30,
+            prompt_tokens=40,
+            completion_tokens=10,
+            total_tokens=50,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _terminalize_during_provider_call)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "terminal_run_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "stale_task_lost"
+    assert enrichment is not None
+    assert enrichment.status == "pending"
+    assert enrichment.summary_text is None
+    assert enrichment.relevance_label is None
+    assert event is not None
+    assert event.payload_json["stage"] == "after_provider_response"
+    assert event.payload_json["resolved_reason"] == "stale_task_lost"
+
+
 def test_run_item_ai_enrichment_recovers_from_extra_closing_brace_in_model_json(
     db_session,
     ai_enabled_env,
@@ -1359,6 +1630,208 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
         .order_by(AIUsageEvent.created_at.asc())
     ).all()
     assert [event.success for event in usage_events] == [False, True]
+
+
+def test_run_daily_brief_generation_discards_provider_result_when_cancel_requested_midflight(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="daily-brief-cancel-midflight",
+        url="https://example.com/articles/daily-brief-cancel-midflight",
+        canonical_url="https://example.com/articles/daily-brief-cancel-midflight",
+        title="Critical edge infrastructure exposure",
+        summary="A critical edge exposure requires immediate review.",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="daily-brief-cancel-midflight",
+        content_hash="7" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Citrix and F5 edge exposures require immediate patching and review.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    db_session.commit()
+
+    def _cancel_during_provider_call(active, *, messages):
+        _ = (active, messages)
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.reason = "cancel_requested"
+        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        db_session.add(task_run)
+        db_session.flush()
+        return AICompletionResult(
+            payload={
+                "title": "ThreatLens Daily Brief",
+                "brief_text": "Critical vulnerabilities require immediate action.",
+                "key_points": ["Citrix NetScaler is under active recon."],
+                "recommended_actions": ["Patch exposed edge systems immediately."],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=82,
+            prompt_tokens=70,
+            completion_tokens=30,
+            total_tokens=100,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _cancel_during_provider_call)
+
+    result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    task_run = db_session.get(AITaskRun, run.id)
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "canceled"
+    assert result.brief is not None
+    assert result.brief.status == "pending"
+    assert result.brief.title is None
+    assert task_run is not None
+    assert task_run.daily_brief_id == result.brief.id
+    assert event is not None
+    assert event.payload_json["stage"] == "after_provider_response"
+
+
+def test_run_daily_brief_generation_discards_provider_result_when_run_terminalizes_midflight(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="daily-brief-terminal-midflight",
+        url="https://example.com/articles/daily-brief-terminal-midflight",
+        canonical_url="https://example.com/articles/daily-brief-terminal-midflight",
+        title="Critical edge infrastructure exposure",
+        summary="A critical edge exposure requires immediate review.",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="daily-brief-terminal-midflight",
+        content_hash="6" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Citrix and F5 edge exposures require immediate patching and review.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    db_session.commit()
+
+    def _terminalize_during_provider_call(active, *, messages):
+        _ = (active, messages)
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.status = "error"
+        task_run.reason = "stale_task_lost"
+        task_run.error = "Task no longer appears in Celery and did not report completion"
+        task_run.finished_at = datetime.now(timezone.utc)
+        db_session.add(task_run)
+        db_session.flush()
+        return AICompletionResult(
+            payload={
+                "title": "ThreatLens Daily Brief",
+                "brief_text": "Critical vulnerabilities require immediate action.",
+                "key_points": ["Citrix NetScaler is under active recon."],
+                "recommended_actions": ["Patch exposed edge systems immediately."],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=82,
+            prompt_tokens=70,
+            completion_tokens=30,
+            total_tokens=100,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _terminalize_during_provider_call)
+
+    result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "terminal_run_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert result.status == "skipped"
+    assert result.reason == "stale_task_lost"
+    assert result.brief is not None
+    assert result.brief.status == "pending"
+    assert result.brief.title is None
+    assert event is not None
+    assert event.payload_json["stage"] == "after_provider_response"
+    assert event.payload_json["resolved_reason"] == "stale_task_lost"
 
 
 def test_generate_daily_brief_prunes_history_to_configured_limit(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):

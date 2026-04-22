@@ -16,11 +16,13 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
+    cancel_ai_task_run,
     finish_ai_task_run,
     list_ai_task_runs,
     queue_ai_task_run,
     start_ai_task_run,
 )
+from app.schemas.ai import AILiveTaskResponse
 
 
 def _create_item(db_session: Session, *, source_guid: str) -> Item:
@@ -145,7 +147,53 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
     assert refreshed.celery_task_id is None
 
 
-def test_list_ai_task_runs_skips_stale_reconciliation_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_observes_it(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="cancel-running")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot",
+        lambda: (
+            True,
+            ["worker@test"],
+            [
+                AILiveTaskResponse(
+                    worker_name="worker@test",
+                    celery_task_id="task-id",
+                    task_name="item_enrichment",
+                    state="active",
+                    run_id=run.id,
+                    item_id=item.id,
+                )
+            ],
+            [],
+            [],
+        ),
+    )
+
+    canceled = cancel_ai_task_run(db_session, run_id=run.id)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+
+    assert canceled is not None
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_RUNNING
+    assert refreshed.finished_at is None
+    assert refreshed.reason == "cancel_requested"
+    assert refreshed.metadata_json["cancel_requested_at"]
+    assert refreshed.metadata_json["terminated_running_task"] is True
+
+
+def test_list_ai_task_runs_reconciles_obviously_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
     item = _create_item(db_session, source_guid="snapshot-unavailable")
 
     run = queue_ai_task_run(
@@ -157,6 +205,42 @@ def test_list_ai_task_runs_skips_stale_reconciliation_when_live_snapshot_unavail
     start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_ERROR
+    assert refreshed.reason == "stale_task_lost"
+    assert refreshed.metadata_json["stale_snapshot_available"] is False
+
+    assert response.items[0].status == AI_STATUS_ERROR
+
+
+def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="snapshot-unavailable-recent")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=20)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert run is not None
     run.status = AI_STATUS_RUNNING

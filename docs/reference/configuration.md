@@ -50,6 +50,7 @@
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
+| `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` (`notification_webhook_allowed_hosts`) | _(empty)_ | Comma-separated exact hosts or `*.suffix` patterns that non-admin users may target for create/update/test/retry webhook operations. When empty, analyst-managed webhook egress is disabled and only admins can manage outbound webhook destinations. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
@@ -131,6 +132,7 @@ When `APP_ENV` is `production` or `prod`:
 ## Trust and Egress Notes
 
 - Feed/article fetches, AI calls, and notification webhooks are separate outbound trust boundaries with separate private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`).
+- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the analyst webhook egress allowlist. ThreatLens reevaluates queued analyst-owned webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists.
 - `APP_DATA_ENCRYPTION_KEY` protects stored webhook templates and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET`.
 

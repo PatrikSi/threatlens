@@ -5,10 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_token_scopes
+from app.api.deps import is_cookie_session_auth, require_token_scopes
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
-from app.core.security import generate_api_token
+from app.core.security import generate_api_token, verify_password
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES, SCOPE_READ_TOKENS, SCOPE_WRITE_TOKENS, missing_delegable_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
@@ -17,6 +17,10 @@ from app.schemas.token import ApiTokenCreateRequest, ApiTokenCreateResponse, Api
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
+
+SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL = (
+    "Browser sessions must confirm the current password before creating API tokens"
+)
 
 
 @router.get("", response_model=list[ApiTokenResponse])
@@ -48,6 +52,7 @@ def create_token(
     user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
 ):
     settings = get_settings()
+    _enforce_browser_session_step_up(request, payload, user)
 
     token_value, token_prefix, token_hash = generate_api_token()
     expires_days = payload.expires_in_days or settings.default_api_token_expiry_days
@@ -86,6 +91,15 @@ def create_token(
     response.headers["Cache-Control"] = "no-store"
     response.headers["Pragma"] = "no-cache"
     return ApiTokenCreateResponse(token=token_value, token_prefix=token_prefix, expires_at=expires_at)
+
+
+def _enforce_browser_session_step_up(request: Request, payload: ApiTokenCreateRequest, user: User) -> None:
+    if not is_cookie_session_auth(request):
+        return
+    if not payload.current_password:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL)
+    if not verify_password(payload.current_password, user.password_hash):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

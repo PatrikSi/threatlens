@@ -14,6 +14,13 @@ Thank you for helping improve ThreatLens.
 - Frontend: React + Vite in `web/`
 - Default local stack: `docker compose up --build`
 
+If `./backend/.venv` does not exist yet:
+
+```bash
+python3 -m venv backend/.venv
+./backend/.venv/bin/pip install -r backend/requirements-dev.txt
+```
+
 Useful validation commands:
 
 ```bash
@@ -40,6 +47,31 @@ If your change ships new dependencies, bundled assets, or new runtime behavior, 
 
 If you add bundled font or media assets, document the exact upstream source and license terms. If you change packaged backend dependencies, re-check whether redistribution guidance needs to change.
 
+If your change affects the published API contract, regenerate the checked-in API artifacts:
+
+```bash
+./backend/.venv/bin/python backend/scripts/generate_api_reference.py
+```
+
+If your change affects shipped dependencies, bundled assets, or release-compliance metadata, regenerate the dependency inventories from a clean backend runtime image:
+
+```bash
+BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
+docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
+  python backend/scripts/generate_dependency_inventory.py \
+  --backend-output docs/reference/backend-runtime-dependencies.txt \
+  --frontend-output docs/reference/frontend-runtime-dependencies.txt
+```
+
+Before merging release-contract changes, review at least:
+
+- `THIRD_PARTY_NOTICES.md`
+- `docs/reference/api.md`
+- `docs/reference/openapi.json`
+- `docs/reference/backend-runtime-dependencies.txt`
+- `docs/reference/frontend-runtime-dependencies.txt`
+- `docs/reference/release-process.md`
+
 ## Commit Hygiene
 
 - Use clear commit messages that describe the user-visible or operator-visible change.
@@ -48,4 +80,6 @@ If you add bundled font or media assets, document the exact upstream source and 
 
 ## Questions
 
-For product or security-sensitive questions, prefer opening a draft PR or emailing `patrik@local` instead of guessing at the contract in public issue threads.
+This repository intentionally uses `.invalid` placeholder addresses until maintainers publish real public contact channels. Do not email `maintainers@example.invalid`.
+
+For non-sensitive product questions, open an issue or draft PR. For security-sensitive concerns, follow `SECURITY.md` and use a real private reporting path only if one is explicitly published there.

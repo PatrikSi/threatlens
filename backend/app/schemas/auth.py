@@ -8,23 +8,34 @@ from app.core.rbac import ROLE_VIEWER
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(min_length=8, max_length=256)
+    password: str = Field(
+        min_length=8,
+        max_length=256,
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str = Field(min_length=8, max_length=256)
+    current_password: str = Field(
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
+    new_password: str = Field(
+        min_length=8,
+        max_length=256,
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    csrf_token: str | None = None
+    token_type: str = "session_cookie"
+    csrf_token: str
 
 
 class RegistrationSettingsResponse(BaseModel):

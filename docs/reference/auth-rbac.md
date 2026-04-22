@@ -17,16 +17,15 @@
 Important contract details:
 
 - A bearer header suppresses cookie fallback. If a request sends both and the header is invalid, the cookie is ignored.
-- The session JWT mirrored in the `/auth/login` JSON response is not a supported bearer API credential.
+- Browser login does not return a replayable session JWT in JSON.
 - Approved and active account status is enforced after credential validation for both browser sessions and API tokens.
 
 ## Browser Session Contract
 
-- `POST /api/v1/auth/login` accepts email/password, returns a JSON body (`access_token`, `token_type`, `csrf_token`), and sets:
+- `POST /api/v1/auth/login` accepts email/password, returns a JSON body (`token_type=session_cookie`, `csrf_token`), and sets:
   - an HttpOnly session cookie (`AUTH_COOKIE_NAME`)
   - a JS-readable CSRF cookie (`AUTH_CSRF_COOKIE_NAME`)
-- The shipped React frontend uses the cookie session and does not persist the returned JWT in browser storage.
-- The returned `access_token` mirrors the cookie-backed session for compatibility, but CLI and automation callers should mint personal API tokens for bearer auth.
+- The shipped React frontend uses the cookie session and does not persist session credentials in browser storage.
 - CSRF checks apply only when authentication comes from the session cookie and the method is `POST`, `PUT`, `PATCH`, or `DELETE`.
 - Cookie-authenticated mutating requests must send `AUTH_CSRF_HEADER_NAME` with the same value as the CSRF cookie.
 - `POST /api/v1/auth/logout` also enforces CSRF when a session cookie is present.
@@ -55,6 +54,7 @@ Token format and handling:
 - Stored: SHA-256 token hash, token prefix, scopes, expiry, revocation state
 - Last usage timestamp (`last_used_at`) is updated on successful auth
 - Creation endpoint: `POST /api/v1/tokens` only creates tokens for the currently authenticated user
+- Cookie-session callers creating durable API tokens must also supply `current_password` in the request body as a step-up confirmation
 - Admins can list another user's tokens with `GET /api/v1/tokens?user_id=<uuid>` and can revoke any user's token
 - Omitting the `scopes` field applies `DEFAULT_API_TOKEN_SCOPES`; sending an explicit empty list is rejected
 - Tokens created while already authenticated with an API token can only delegate a subset of the parent token's scopes
@@ -134,7 +134,7 @@ Paths below are relative to the published `/api/v1` base.
 | `/alerts/preview` | authenticated user | `read:alerts` and `read:items` |
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
 | `/notifications/template-variables`, `/notifications/analytics`, `/notifications/webhooks`, `/notifications/webhooks/{id}/deliveries` | authenticated user | `read:notifications` |
-| `/notifications/webhooks` mutate/test/retry | `admin` or `analyst` | `write:notifications` |
+| `/notifications/webhooks` mutate/test/retry | `admin`, or `analyst` when `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is configured and the destination host is approved | `write:notifications` |
 | `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
@@ -153,3 +153,4 @@ Paths below are relative to the published `/api/v1` base.
 - Cookie sessions are the primary browser contract. Token scopes only apply when the caller is authenticated via a personal API token.
 - `write:<resource>` implies `read:<resource>` during scope checks.
 - `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.
+- Notification webhook egress is secure-by-default for shared deployments: analysts cannot create, update, test, or retry outbound deliveries until an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and approved hosts are rechecked at delivery time.

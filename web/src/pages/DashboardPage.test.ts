@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  buildDashboardSavedViewState,
   getDashboardStorageKeys,
   migrateLegacyDashboardStorage,
+} from './dashboardStorage'
+import {
+  buildDashboardSavedViewState,
   parseDashboardSavedView,
   resolveSavedViewSelectionChange,
-} from './DashboardPage'
+} from './dashboardSavedViews'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 

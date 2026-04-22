@@ -2,20 +2,35 @@
 
 ## Supported Code Lines
 
-ThreatLens does not currently publish a formal long-term support matrix in this repository.
+ThreatLens uses tag-based public releases. The default branch is active development and may be ahead of the latest supported release.
 
-Until versioned support policy is defined, assume:
+Until the first public tag exists, this repository should be treated as preview code rather than a stable release line.
 
-| Version | Supported |
+Once public tags exist, use this support model:
+
+| Code Line | Supported |
 |---|---|
-| `main` / latest default branch commit | Yes |
-| Older snapshots and forks | Best effort only |
+| Latest published tag | Yes |
+| `main` / default branch | Preview of the next release |
+| Older tags, snapshots, and forks | Historical reference only |
 
 ## Reporting a Vulnerability
 
 Please do not open a public GitHub issue for an unpatched vulnerability.
 
-Report security issues privately to `patrik@local`. If GitHub private vulnerability reporting is enabled for this repository, that path is also acceptable.
+This repository intentionally uses non-routable placeholder addresses under `example.invalid` until maintainers publish a real public security contact. Do not send reports to `security-contact@example.invalid`.
+
+Before cutting a public release, maintainers must do at least one of the following:
+
+- enable GitHub private vulnerability reporting for the repository
+- replace the placeholder contact in this file and `README.md` with a monitored private security mailbox or equivalent intake path
+
+Preferred reporting order:
+
+1. GitHub private vulnerability reporting, if enabled for this repository
+2. A real private contact explicitly published in this file
+
+If neither private path exists yet, do not post exploit details publicly. Instead, open a minimal issue requesting a private reporting channel or wait for maintainers to publish one before sharing sensitive details.
 
 Include as much of the following as you can:
 

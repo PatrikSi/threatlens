@@ -20,7 +20,9 @@ Examples of unacceptable behavior:
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, contact the maintainers privately at `patrik@local`. Please avoid escalating conduct issues in public threads when a private path is available.
+This repository intentionally uses non-routable placeholder addresses under `example.invalid` until maintainers publish a real public conduct contact. Do not email `conduct-contact@example.invalid`.
+
+Before public release, maintainers should replace that placeholder with a monitored private contact path. If no staffed private conduct channel is published yet, avoid posting sensitive personal details in public threads; open a minimal issue asking maintainers to establish a private reporting path instead.
 
 ## Maintainer Responsibilities
 

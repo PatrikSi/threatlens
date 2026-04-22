@@ -2,13 +2,48 @@ import { ChangeEvent, Dispatch, ReactNode, SetStateAction, useDeferredValue, use
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
-import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
+import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
+import {
+  buildDashboardSavedViewState,
+  createDefaultAlertWindowFilters,
+  createDefaultRssWindowFilters,
+  createWindowLayout,
+  DEFAULT_ROLLING_DAYS,
+  defaultWindowTitle,
+  getSnapRect,
+  HIDDEN_TAGS,
+  isTimeRangeFilter,
+  normalizeDashboardWindows,
+  normalizeRollingDaysInput,
+  PAGE_SIZE_OPTIONS,
+  parseAlertWindowFiltersCandidate,
+  parseDashboardSavedView,
+  parseImportedSavedViews,
+  parseRssWindowFiltersCandidate,
+  parseWindowTimeFilterCandidate,
+  resolveSavedViewSelectionChange,
+  WINDOW_MIN_HEIGHT,
+  WINDOW_MIN_WIDTH,
+  type DashboardAlertWindowFilters,
+  type DashboardRssWindowFilters,
+  type DashboardSavedViewState,
+  type DashboardWindow,
+  type DashboardWindowSnap,
+  type DashboardWindowType,
+  type PanelRect,
+  type ReadStatusFilter,
+  type StarStatusFilter,
+  type TimeRangeFilter,
+  type TimeSort,
+  type WindowTimeFilter,
+} from './dashboardSavedViews'
 import {
   AIDailyBrief,
   AlertInterest,
@@ -20,119 +55,10 @@ import {
   Tag,
 } from '../types/api'
 
-type TimeRangeFilter = 'all' | '24h' | '7d' | '30d' | 'days' | 'custom'
-type ReadStatusFilter = 'all' | 'read' | 'unread'
-type StarStatusFilter = 'all' | 'starred' | 'unstarred'
-type TimeSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
-type DashboardViewMode = 'expanded' | 'compact'
-type AlertViewMode = 'expanded' | 'compact'
-type DashboardWindowType = 'rss' | 'alerts' | 'notes' | 'daily_brief'
-type DashboardWindowSnap = 'free' | 'full' | 'left' | 'right' | 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right'
-type WindowTimeFilter = {
-  time_range: TimeRangeFilter
-  custom_since_date: string
-  custom_until_date: string
-  rolling_days: string
-}
-
-type PanelRect = {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
-interface DashboardWindow {
-  id: string
-  type: DashboardWindowType
-  title: string
-  snap: DashboardWindowSnap
-  rect: PanelRect
-  controls_collapsed: boolean
-  scratch_note: string
-  time_override: WindowTimeFilter | null
-  rss_filters: DashboardRssWindowFilters | null
-  alert_filters: DashboardAlertWindowFilters | null
-  selected_daily_brief_id: string | null
-}
-
-interface DashboardRssWindowFilters {
-  selected_feed_ids: string[]
-  selected_tags: string[]
-  q: string
-  read_status: ReadStatusFilter
-  star_status: StarStatusFilter
-  view_mode: DashboardViewMode
-  page: number
-  page_size: number
-  sort: TimeSort
-  show_advanced_filters: boolean
-}
-
-interface DashboardAlertWindowFilters {
-  selected_alert_ids: string[]
-  selected_categories: string[]
-  q: string
-  view_mode: AlertViewMode
-  page: number
-  page_size: number
-  sort: TimeSort
-}
-
-interface DashboardSavedViewQuery {
-  selected_feed_ids: string[]
-  selected_tags: string[]
-  q: string
-  read_status: ReadStatusFilter
-  star_status: StarStatusFilter
-  view_mode: DashboardViewMode
-  page_size: number
-  time_range: TimeRangeFilter
-  custom_since_date: string
-  custom_until_date: string
-  rolling_days: string
-  sort: TimeSort
-}
-
-interface DashboardAlertViewQuery {
-  selected_alert_ids: string[]
-  selected_categories: string[]
-  q: string
-  view_mode: AlertViewMode
-  page_size: number
-  time_range: TimeRangeFilter
-  custom_since_date: string
-  custom_until_date: string
-  rolling_days: string
-  sort: TimeSort
-}
-
-interface DashboardSavedViewState {
-  schema_version: number
-  version: number
-  rss_filters: DashboardSavedViewQuery
-  alert_filters: DashboardAlertViewQuery
-  windows: DashboardWindow[]
-  ui: {
-    show_advanced_filters: boolean
-  }
-}
-
-type SavedViewSelectionChange =
-  | { kind: 'noop' }
-  | { kind: 'clear' }
-  | { kind: 'load'; viewId: string }
-  | { kind: 'confirm_load'; viewId: string }
-
 interface DashboardEditSessionSnapshot {
   activeSavedViewId: string | null
   savedViewName: string
   state: DashboardSavedViewState
-}
-
-interface ImportedSavedViewEntry {
-  name: string
-  query_json: Record<string, unknown>
 }
 
 interface SavedViewPreview {
@@ -148,61 +74,12 @@ interface SavedViewPreview {
   }
 }
 
-const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
-const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
-const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
-const DASHBOARD_SAVED_VIEW_SCHEMA_VERSION = 1
-const DASHBOARD_VIEW_VERSION = 6
-const WINDOW_MIN_WIDTH = 460
-const WINDOW_MIN_HEIGHT = 320
 const DRAG_EDGE_SNAP_THRESHOLD = 12
 const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
-const DEFAULT_ROLLING_DAYS = '7'
-const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
-const PAGE_SIZE_OPTIONS = [10, 25, 50, 100]
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
-const MAX_IMPORTED_VIEWS = 250
 const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
-
-export function getDashboardStorageKeys(userId: string) {
-  return {
-    windows: `${WINDOW_STORAGE_KEY}:${userId}`,
-    windowSeenAt: `${WINDOW_SEEN_STORAGE_KEY}:${userId}`,
-    lastOpenedAt: `${USER_LAST_OPEN_STORAGE_KEY}:${userId}`,
-  } as const
-}
-
-export function migrateLegacyDashboardStorage(userId: string) {
-  if (typeof window === 'undefined' || !userId) {
-    return false
-  }
-
-  const storageKeys = getDashboardStorageKeys(userId)
-  const migrations: Array<{ legacyKey: string; scopedKey: string }> = [
-    { legacyKey: WINDOW_STORAGE_KEY, scopedKey: storageKeys.windows },
-    { legacyKey: WINDOW_SEEN_STORAGE_KEY, scopedKey: storageKeys.windowSeenAt },
-    { legacyKey: USER_LAST_OPEN_STORAGE_KEY, scopedKey: storageKeys.lastOpenedAt },
-  ]
-
-  let migrated = false
-  for (const { legacyKey, scopedKey } of migrations) {
-    if (window.localStorage.getItem(scopedKey) !== null) {
-      continue
-    }
-
-    const legacyValue = window.localStorage.getItem(legacyKey)
-    if (legacyValue === null) {
-      continue
-    }
-
-    window.localStorage.setItem(scopedKey, legacyValue)
-    migrated = true
-  }
-
-  return migrated
-}
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Floating (Advanced)' },
@@ -272,120 +149,6 @@ function isRelativeTimeRange(value: TimeRangeFilter) {
   return value === '24h' || value === '7d' || value === '30d' || value === 'days'
 }
 
-function createDefaultRssWindowFilters(showAdvancedFilters = false): DashboardRssWindowFilters {
-  return {
-    selected_feed_ids: [],
-    selected_tags: [],
-    q: '',
-    read_status: 'all',
-    star_status: 'all',
-    view_mode: 'compact',
-    page: 1,
-    page_size: 25,
-    sort: 'published_at_desc',
-    show_advanced_filters: showAdvancedFilters,
-  }
-}
-
-function createDefaultAlertWindowFilters(): DashboardAlertWindowFilters {
-  return {
-    selected_alert_ids: [],
-    selected_categories: [],
-    q: '',
-    view_mode: 'expanded',
-    page: 1,
-    page_size: 25,
-    sort: 'published_at_desc',
-  }
-}
-
-function parseRssWindowFiltersCandidate(
-  raw: unknown,
-  fallback?: Partial<DashboardRssWindowFilters>,
-  showAdvancedFallback = false,
-): DashboardRssWindowFilters {
-  const source = isRecord(raw) ? raw : {}
-  const base = {
-    ...createDefaultRssWindowFilters(showAdvancedFallback),
-    ...fallback,
-  }
-
-  const selectedFeedIds = Array.isArray(source.selected_feed_ids)
-    ? source.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
-    : (base.selected_feed_ids ?? [])
-  const selectedTags = Array.isArray(source.selected_tags)
-    ? source.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
-    : (base.selected_tags ?? [])
-
-  return {
-    selected_feed_ids: [...selectedFeedIds],
-    selected_tags: [...selectedTags],
-    q: typeof source.q === 'string' ? source.q : (base.q ?? ''),
-    read_status:
-      source.read_status === 'read' || source.read_status === 'unread'
-        ? source.read_status
-        : (base.read_status ?? 'all'),
-    star_status:
-      source.star_status === 'starred' || source.star_status === 'unstarred'
-        ? source.star_status
-        : (base.star_status ?? 'all'),
-    view_mode:
-      source.view_mode === 'expanded' || source.view_mode === 'compact'
-        ? source.view_mode
-        : (base.view_mode ?? 'compact'),
-    page: typeof source.page === 'number' && source.page >= 1 ? Math.floor(source.page) : (base.page ?? 1),
-    page_size:
-      typeof source.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(source.page_size)
-        ? source.page_size
-        : (base.page_size ?? 25),
-    sort:
-      typeof source.sort === 'string' && isTimeSort(source.sort)
-        ? source.sort
-        : (base.sort ?? 'published_at_desc'),
-    show_advanced_filters:
-      typeof source.show_advanced_filters === 'boolean'
-        ? source.show_advanced_filters
-        : (base.show_advanced_filters ?? showAdvancedFallback),
-  }
-}
-
-function parseAlertWindowFiltersCandidate(
-  raw: unknown,
-  fallback?: Partial<DashboardAlertWindowFilters>,
-): DashboardAlertWindowFilters {
-  const source = isRecord(raw) ? raw : {}
-  const base = {
-    ...createDefaultAlertWindowFilters(),
-    ...fallback,
-  }
-
-  const selectedAlertIds = Array.isArray(source.selected_alert_ids)
-    ? source.selected_alert_ids.filter((entry): entry is string => typeof entry === 'string')
-    : (base.selected_alert_ids ?? [])
-  const selectedCategories = Array.isArray(source.selected_categories)
-    ? source.selected_categories.filter((entry): entry is string => typeof entry === 'string')
-    : (base.selected_categories ?? [])
-
-  return {
-    selected_alert_ids: [...selectedAlertIds],
-    selected_categories: [...selectedCategories],
-    q: typeof source.q === 'string' ? source.q : (base.q ?? ''),
-    view_mode:
-      source.view_mode === 'compact' || source.view_mode === 'expanded'
-        ? source.view_mode
-        : (base.view_mode ?? 'expanded'),
-    page: typeof source.page === 'number' && source.page >= 1 ? Math.floor(source.page) : (base.page ?? 1),
-    page_size:
-      typeof source.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(source.page_size)
-        ? source.page_size
-        : (base.page_size ?? 25),
-    sort:
-      typeof source.sort === 'string' && isTimeSort(source.sort)
-        ? source.sort
-        : (base.sort ?? 'published_at_desc'),
-  }
-}
-
 function resolveDashboardViewSaveError(error: unknown) {
   if (error instanceof ApiError && error.message.trim()) {
     return error.message
@@ -444,6 +207,7 @@ export function DashboardPage() {
   const windowPersistenceTimeoutRef = useRef<number | null>(null)
   const pendingWindowPersistenceRef = useRef<{ userId: string; serialized: string } | null>(null)
   const persistedWindowUserIdRef = useRef<string | null>(null)
+  const renameWindowInputRef = useRef<HTMLInputElement | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
@@ -1253,6 +1017,11 @@ export function DashboardPage() {
     setRenameWindowDraft(target.title)
   }
 
+  const closeRenameWindow = () => {
+    setRenamingWindowId(null)
+    setRenameWindowDraft('')
+  }
+
   const saveRenamedWindow = () => {
     if (!renamingWindowId) {
       return
@@ -1266,8 +1035,7 @@ export function DashboardPage() {
     setWindows((current) =>
       current.map((window) => (window.id === renamingWindowId ? { ...window, title: normalized } : window)),
     )
-    setRenamingWindowId(null)
-    setRenameWindowDraft('')
+    closeRenameWindow()
   }
 
   const toggleWindowControls = (windowId: string) => {
@@ -1826,6 +1594,7 @@ export function DashboardPage() {
           <input
             value={globalSearchState.value}
             onChange={(event) => applyGlobalSearch(event.target.value)}
+            aria-label="Search across all dashboard panels"
             placeholder={
               globalSearchState.isMixed
                 ? 'Panels have different searches. Type here to overwrite all panel searches...'
@@ -1838,6 +1607,7 @@ export function DashboardPage() {
               className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardTimeRange}
               onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
+              aria-label="Dashboard time range"
             >
               <option value="all">All time</option>
               <option value="24h">Last 24h</option>
@@ -1856,6 +1626,7 @@ export function DashboardPage() {
                     max={365}
                     value={dashboardRollingDays}
                     onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
+                    aria-label="Dashboard rolling time window in days"
                     className="w-full bg-transparent text-xs outline-none"
                   />
                   <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
@@ -1872,12 +1643,14 @@ export function DashboardPage() {
                   className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={dashboardCustomSinceDate}
                   onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
+                  aria-label="Dashboard custom start date"
                 />
                 <input
                   type="date"
                   className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
                   value={dashboardCustomUntilDate}
                   onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+                  aria-label="Dashboard custom end date"
                 />
               </>
             )}
@@ -1885,6 +1658,7 @@ export function DashboardPage() {
           <select
             className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs xl:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
             value={activeSavedViewId ?? ''}
+            aria-label="Load saved dashboard view"
             onChange={(event) => {
               const change = resolveSavedViewSelectionChange({
                 currentActiveSavedViewId: activeSavedViewId,
@@ -2008,6 +1782,7 @@ export function DashboardPage() {
                         autoFocus
                         value={savedViewName}
                         onChange={(event) => setSavedViewName(event.target.value)}
+                        aria-label="New saved dashboard view name"
                         placeholder="New view name..."
                         disabled={viewSavePending}
                         className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -2030,6 +1805,7 @@ export function DashboardPage() {
                   <input
                     value={savedViewName}
                     onChange={(event) => setSavedViewName(event.target.value)}
+                    aria-label="Saved dashboard view name"
                     placeholder="View name..."
                     disabled={viewSavePending}
                     className="h-8 w-full min-w-[140px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:w-auto sm:min-w-[160px] dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -2227,6 +2003,7 @@ export function DashboardPage() {
                           value={windowLayout.snap}
                           onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
                           onMouseDown={(event) => event.stopPropagation()}
+                          aria-label={`${windowLayout.title} panel layout`}
                         >
                           {WINDOW_SNAP_OPTIONS.map((option) => (
                             <option key={option.value} value={option.value}>
@@ -2341,6 +2118,7 @@ export function DashboardPage() {
                       <input
                         value={rssFilters.q}
                         onChange={(event) => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
+                        aria-label={`${windowLayout.title} search query`}
                         placeholder="Search title, summary, URL"
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
@@ -2348,6 +2126,7 @@ export function DashboardPage() {
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
+                        aria-label={`${windowLayout.title} time range`}
                       >
                         <option value={DASHBOARD_TIME_INHERIT_VALUE}>Dashboard Time</option>
                         <option value="all">All time</option>
@@ -2366,6 +2145,7 @@ export function DashboardPage() {
                             max={365}
                             value={effectiveWindowTimeFilter.rolling_days}
                             onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
+                            aria-label={`${windowLayout.title} rolling time window in days`}
                             className="w-full bg-transparent outline-none"
                           />
                           <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
@@ -2377,6 +2157,7 @@ export function DashboardPage() {
                         onChange={(event) =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
                         }
+                        aria-label={`${windowLayout.title} sort order`}
                       >
                         <option value="published_at_desc">Newest</option>
                         <option value="published_at_asc">Oldest</option>
@@ -2425,6 +2206,7 @@ export function DashboardPage() {
                               read_status: event.target.value as ReadStatusFilter,
                             }))
                           }
+                          aria-label={`${windowLayout.title} read status filter`}
                         >
                           <option value="all">Read: All</option>
                           <option value="unread">Read: Unread</option>
@@ -2439,6 +2221,7 @@ export function DashboardPage() {
                               star_status: event.target.value as StarStatusFilter,
                             }))
                           }
+                          aria-label={`${windowLayout.title} star filter`}
                         >
                           <option value="all">Stars: All</option>
                           <option value="starred">Stars: Starred</option>
@@ -2451,6 +2234,7 @@ export function DashboardPage() {
                             value={effectiveWindowTimeFilter.custom_since_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
+                            aria-label={`${windowLayout.title} custom start date`}
                           />
                           <input
                             type="date"
@@ -2458,6 +2242,7 @@ export function DashboardPage() {
                             value={effectiveWindowTimeFilter.custom_until_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
+                            aria-label={`${windowLayout.title} custom end date`}
                           />
                         </div>
                         </div>
@@ -2720,6 +2505,7 @@ export function DashboardPage() {
                                           }))
                                         }
                                         disabled={!canManage}
+                                        aria-label={`Analyst notes for ${detail.title}`}
                                       />
                                       <div className="mt-2 flex items-center gap-2">
                                         <button
@@ -2781,9 +2567,10 @@ export function DashboardPage() {
                         onChange={(event) =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({
                             ...current,
-                            page_size: Number(event.target.value),
+                            page_size: Number(event.target.value) as DashboardRssWindowFilters['page_size'],
                           }))
                         }
+                        aria-label={`${windowLayout.title} results per page`}
                       >
                         {PAGE_SIZE_OPTIONS.map((option) => (
                           <option key={option} value={option}>
@@ -2885,6 +2672,7 @@ export function DashboardPage() {
                       <input
                         value={alertFilters.q}
                         onChange={(event) => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
+                        aria-label={`${windowLayout.title} search query`}
                         placeholder="Search matched alert items"
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
@@ -2892,6 +2680,7 @@ export function DashboardPage() {
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={windowLayout.time_override?.time_range ?? DASHBOARD_TIME_INHERIT_VALUE}
                         onChange={(event) => updateWindowTimeRange(windowLayout.id, event.target.value)}
+                        aria-label={`${windowLayout.title} time range`}
                       >
                         <option value={DASHBOARD_TIME_INHERIT_VALUE}>Dashboard Time</option>
                         <option value="all">All time</option>
@@ -2910,6 +2699,7 @@ export function DashboardPage() {
                             max={365}
                             value={effectiveWindowTimeFilter.rolling_days}
                             onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
+                            aria-label={`${windowLayout.title} rolling time window in days`}
                             className="w-full bg-transparent outline-none"
                           />
                           <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
@@ -2921,6 +2711,7 @@ export function DashboardPage() {
                         onChange={(event) =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, sort: event.target.value as TimeSort }))
                         }
+                        aria-label={`${windowLayout.title} sort order`}
                       >
                         <option value="published_at_desc">Newest</option>
                         <option value="published_at_asc">Oldest</option>
@@ -2949,6 +2740,7 @@ export function DashboardPage() {
                         value={effectiveWindowTimeFilter.custom_since_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
+                        aria-label={`${windowLayout.title} custom start date`}
                       />
                       <input
                         type="date"
@@ -2956,6 +2748,7 @@ export function DashboardPage() {
                         value={effectiveWindowTimeFilter.custom_until_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
+                        aria-label={`${windowLayout.title} custom end date`}
                       />
                     </div>
                     </div>
@@ -3046,9 +2839,10 @@ export function DashboardPage() {
                         onChange={(event) =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({
                             ...current,
-                            page_size: Number(event.target.value),
+                            page_size: Number(event.target.value) as DashboardAlertWindowFilters['page_size'],
                           }))
                         }
+                        aria-label={`${windowLayout.title} results per page`}
                       >
                         {PAGE_SIZE_OPTIONS.map((option) => (
                           <option key={option} value={option}>
@@ -3100,6 +2894,7 @@ export function DashboardPage() {
                               className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                               value={selectedBrief.id}
                               onChange={(event) => updateWindowDailyBriefSelection(windowLayout.id, event.target.value)}
+                              aria-label={`${windowLayout.title} briefing selection`}
                             >
                               {availableBriefs.map((brief) => (
                                 <option key={brief.id} value={brief.id}>
@@ -3182,6 +2977,7 @@ export function DashboardPage() {
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
                     value={windowLayout.scratch_note}
                     onChange={(event) => updateWindowScratchNote(windowLayout.id, event.target.value)}
+                    aria-label={`${windowLayout.title} scratch notes`}
                   />
                   <p className="mt-2 text-xs text-slate dark:text-slate-300">Saved in this panel and in saved views.</p>
                 </div>
@@ -3201,31 +2997,44 @@ export function DashboardPage() {
       </div>
 
       {renamingWindowId && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3">
-          <div className="w-full max-w-md rounded-2xl border border-slate/20 bg-white p-4 shadow-xl dark:border-cyan-900/40 dark:bg-[#041612]">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium text-slate dark:text-white/55">Panel settings</p>
-                <h3 className="mt-1 font-display text-xl text-ink dark:text-white">Rename panel</h3>
-                <p className="mt-1 text-sm text-slate dark:text-white/70">
-                  Rename this panel without leaving the dashboard.
-                </p>
-              </div>
+        <DialogSurface
+          open
+          title="Rename panel"
+          description="Rename this panel without leaving the dashboard."
+          eyebrow="Panel settings"
+          onClose={closeRenameWindow}
+          initialFocusRef={renameWindowInputRef}
+          panelClassName="max-w-md"
+          footer={
+            <>
               <button
                 type="button"
-                className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                onClick={() => {
-                  setRenamingWindowId(null)
-                  setRenameWindowDraft('')
-                }}
+                className="rounded border border-slate/20 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                onClick={closeRenameWindow}
               >
-                Close
+                Cancel
               </button>
-            </div>
-
-            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
+                onClick={saveRenamedWindow}
+              >
+                Save Panel Title
+              </button>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label
+                htmlFor="dashboard-panel-title-input"
+                className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/60"
+              >
+                Panel title
+              </label>
               <input
-                autoFocus
+                id="dashboard-panel-title-input"
+                ref={renameWindowInputRef}
                 value={renameWindowDraft}
                 onChange={(event) => setRenameWindowDraft(event.target.value)}
                 onKeyDown={(event) => {
@@ -3233,135 +3042,105 @@ export function DashboardPage() {
                     event.preventDefault()
                     saveRenamedWindow()
                   }
-                  if (event.key === 'Escape') {
-                    setRenamingWindowId(null)
-                    setRenameWindowDraft('')
-                  }
                 }}
                 maxLength={80}
                 className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               />
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-slate dark:text-white/60">Up to 80 characters. Saved with this view.</p>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded border border-slate/20 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
-                    onClick={() => {
-                      setRenamingWindowId(null)
-                      setRenameWindowDraft('')
-                    }}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded bg-ink px-3 py-2 text-xs font-semibold text-white dark:bg-cyan dark:text-slate-950"
-                    onClick={saveRenamedWindow}
-                  >
-                    Save Panel Title
-                  </button>
-                </div>
-              </div>
             </div>
+            <p className="text-xs text-slate dark:text-white/60">Up to 80 characters. Saved with this view.</p>
           </div>
-        </div>
+        </DialogSurface>
       )}
 
       {showManageViewsModal && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/55 p-3">
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-xl border border-slate/20 bg-white p-4 dark:border-cyan-900/40 dark:bg-[#041612]">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="font-display text-xl">Manage Saved Views</h3>
-              <button
-                type="button"
-                className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                onClick={() => setShowManageViewsModal(false)}
-              >
-                Close
-              </button>
-            </div>
+        <DialogSurface
+          open
+          title="Manage Saved Views"
+          description="Load, import, export, or delete saved dashboard layouts without leaving your current workspace."
+          onClose={() => setShowManageViewsModal(false)}
+          panelClassName="max-h-[92vh] max-w-3xl overflow-auto"
+          bodyClassName="mt-4 space-y-4 text-sm text-slate dark:text-white/75"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40"
+              onClick={exportAllViews}
+            >
+              Export JSON
+            </button>
+            <label className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40">
+              Import JSON
+              <input
+                type="file"
+                accept="application/json"
+                className="hidden"
+                aria-label="Import saved dashboard views JSON"
+                onChange={(event) => {
+                  void importViewsFile(event)
+                }}
+                disabled={isImportingViews}
+              />
+            </label>
+            {isImportingViews && <span className="text-xs text-slate dark:text-slate-300">Importing...</span>}
+            {importViewsError && <span className="text-xs text-red-600">{importViewsError}</span>}
+            {importViewsResult && <span className="text-xs text-emerald-600">{importViewsResult}</span>}
+          </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40"
-                onClick={exportAllViews}
+          <div className="grid gap-2 md:grid-cols-2">
+            {savedViewPreviews.map((view) => (
+              <div
+                key={view.id}
+                className="rounded border border-slate/20 p-2 dark:border-cyan-900/40"
               >
-                Export JSON
-              </button>
-              <label className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40">
-                Import JSON
-                <input
-                  type="file"
-                  accept="application/json"
-                  className="hidden"
-                  onChange={(event) => {
-                    void importViewsFile(event)
-                  }}
-                  disabled={isImportingViews}
-                />
-              </label>
-              {isImportingViews && <span className="text-xs text-slate dark:text-slate-300">Importing...</span>}
-              {importViewsError && <span className="text-xs text-red-600">{importViewsError}</span>}
-              {importViewsResult && <span className="text-xs text-emerald-600">{importViewsResult}</span>}
-            </div>
-
-            <div className="mt-4 grid gap-2 md:grid-cols-2">
-              {savedViewPreviews.map((view) => (
-                <div
-                  key={view.id}
-                  className="rounded border border-slate/20 p-2 dark:border-cyan-900/40"
-                >
-                  <div className="flex items-start gap-3">
-                    <SavedViewThumbnail windows={view.windows} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold">{view.name}</p>
-                      <p className="text-xs text-slate dark:text-slate-300">{formatDateTime(view.created_at)}</p>
-                      <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
-                          RSS {view.window_type_counts.rss}
-                        </span>
-                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
-                          Alerts {view.window_type_counts.alerts}
-                        </span>
-                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
-                          Notes {view.window_type_counts.notes}
-                        </span>
-                        <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
-                          Daily Brief {view.window_type_counts.daily_brief}
-                        </span>
-                      </div>
+                <div className="flex items-start gap-3">
+                  <SavedViewThumbnail windows={view.windows} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{view.name}</p>
+                    <p className="text-xs text-slate dark:text-slate-300">{formatDateTime(view.created_at)}</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
+                      <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        RSS {view.window_type_counts.rss}
+                      </span>
+                      <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        Alerts {view.window_type_counts.alerts}
+                      </span>
+                      <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        Notes {view.window_type_counts.notes}
+                      </span>
+                      <span className="rounded border border-slate/20 px-1.5 py-0.5 dark:border-cyan-900/40">
+                        Daily Brief {view.window_type_counts.daily_brief}
+                      </span>
                     </div>
                   </div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <button
-                      type="button"
-                      className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                      onClick={() => requestSavedViewLoad(view.id)}
-                    >
-                      Load
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                      onClick={() => setPendingViewDelete(view)}
-                      disabled={deleteView.isPending || Boolean(pendingViewDelete)}
-                    >
-                      Delete
-                    </button>
-                  </div>
                 </div>
-              ))}
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    onClick={() => requestSavedViewLoad(view.id)}
+                  >
+                    Load
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
+                    onClick={() => setPendingViewDelete(view)}
+                    disabled={deleteView.isPending || Boolean(pendingViewDelete)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
 
-              {viewsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading saved views...</p>}
-              {viewsQuery.isError && <p className="text-sm text-red-600">Failed to load saved views.</p>}
-              {!viewsQuery.isLoading && !viewsQuery.data?.length && (
-                <p className="text-sm text-slate dark:text-slate-300">No saved views available.</p>
-              )}
-            </div>
+            {viewsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading saved views...</p>}
+            {viewsQuery.isError && <p className="text-sm text-red-600">Failed to load saved views.</p>}
+            {!viewsQuery.isLoading && !viewsQuery.data?.length && (
+              <p className="text-sm text-slate dark:text-slate-300">No saved views available.</p>
+            )}
           </div>
-        </div>
+        </DialogSurface>
       )}
 
       <ConfirmDialog
@@ -3466,31 +3245,6 @@ function parseEndOfDay(date: string): Date | null {
   if (!date) return null
   const parsed = new Date(`${date}T23:59:59.999`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function isTimeRangeFilter(value: unknown): value is TimeRangeFilter {
-  return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'days' || value === 'custom'
-}
-
-function isTimeSort(value: unknown): value is TimeSort {
-  return (
-    value === 'published_at_desc' ||
-    value === 'published_at_asc' ||
-    value === 'first_seen_desc' ||
-    value === 'first_seen_asc'
-  )
-}
-
-function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter | null {
-  if (!isRecord(value)) return null
-  if (!isTimeRangeFilter(value.time_range)) return null
-  return {
-    time_range: value.time_range,
-    custom_since_date: typeof value.custom_since_date === 'string' ? value.custom_since_date : '',
-    custom_until_date: typeof value.custom_until_date === 'string' ? value.custom_until_date : '',
-    rolling_days:
-      typeof value.rolling_days === 'string' ? normalizeRollingDaysInput(value.rolling_days) : DEFAULT_ROLLING_DAYS,
-  }
 }
 
 function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter): WindowTimeFilter {
@@ -3700,14 +3454,6 @@ function thumbnailWindowTone(type: DashboardWindowType): string {
   return 'border-slate-400/40 bg-slate-300/45 dark:border-slate-600/45 dark:bg-slate-500/30'
 }
 
-function normalizeRollingDaysInput(value: string) {
-  const numeric = value.replace(/[^\d]/g, '')
-  if (!numeric) {
-    return DEFAULT_ROLLING_DAYS
-  }
-  return String(clamp(Number(numeric), 1, 365))
-}
-
 function formatRollingWindowHint(rollingDays: string) {
   const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
   const now = new Date()
@@ -3908,373 +3654,6 @@ function loadDashboardWindows(storageKey: string, containerWidth: number, contai
   } catch {
     return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
   }
-}
-
-function normalizeDashboardWindows(windows: DashboardWindow[], containerWidth: number, containerHeight: number) {
-  if (!windows.length) {
-    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-  }
-
-  return windows.map((window) => {
-    if (window.snap === 'free') {
-      return {
-        ...window,
-        rect: normalizePanelRect(window.rect, containerWidth, containerHeight),
-      }
-    }
-
-    return {
-      ...window,
-      rect: getSnapRect(window.snap, containerWidth, containerHeight),
-    }
-  })
-}
-
-function defaultWindowTitle(type: DashboardWindowType, index: number): string {
-  if (type === 'rss') return `RSS Panel ${index}`
-  if (type === 'alerts') return `Alerts Panel ${index}`
-  if (type === 'daily_brief') return `Daily Brief Panel ${index}`
-  return `Notes Panel ${index}`
-}
-
-function createWindowLayout(
-  type: DashboardWindowType,
-  index: number,
-  containerWidth: number,
-  containerHeight: number,
-  snap: DashboardWindowSnap = 'free',
-): DashboardWindow {
-  const id = `${type}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`
-  const width = clamp(Math.round(containerWidth * 0.68), WINDOW_MIN_WIDTH, containerWidth)
-  const height = clamp(Math.round(containerHeight * 0.74), WINDOW_MIN_HEIGHT, containerHeight)
-
-  const maxX = Math.max(0, containerWidth - width)
-  const maxY = Math.max(0, containerHeight - height)
-
-  const rect: PanelRect = {
-    x: clamp((index * 28) % Math.max(1, maxX + 1), 0, maxX),
-    y: clamp((index * 22) % Math.max(1, maxY + 1), 0, maxY),
-    width,
-    height,
-  }
-
-  return {
-    id,
-    type,
-    title: defaultWindowTitle(type, index),
-    snap,
-    rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
-    controls_collapsed: false,
-    scratch_note: '',
-    time_override: null,
-    rss_filters: type === 'rss' ? createDefaultRssWindowFilters() : null,
-    alert_filters: type === 'alerts' ? createDefaultAlertWindowFilters() : null,
-    selected_daily_brief_id: null,
-  }
-}
-
-function getSnapRect(snap: DashboardWindowSnap, containerWidth: number, containerHeight: number): PanelRect {
-  const width = Math.max(WINDOW_MIN_WIDTH, containerWidth)
-  const height = Math.max(WINDOW_MIN_HEIGHT, containerHeight)
-
-  const halfWidth = Math.floor(width / 2)
-  const halfHeight = Math.floor(height / 2)
-
-  if (snap === 'full') {
-    return { x: 0, y: 0, width, height }
-  }
-
-  if (snap === 'left') {
-    return { x: 0, y: 0, width: halfWidth, height }
-  }
-
-  if (snap === 'right') {
-    return { x: halfWidth, y: 0, width: width - halfWidth, height }
-  }
-
-  if (snap === 'top_left') {
-    return { x: 0, y: 0, width: halfWidth, height: halfHeight }
-  }
-
-  if (snap === 'top_right') {
-    return { x: halfWidth, y: 0, width: width - halfWidth, height: halfHeight }
-  }
-
-  if (snap === 'bottom_left') {
-    return { x: 0, y: halfHeight, width: halfWidth, height: height - halfHeight }
-  }
-
-  if (snap === 'bottom_right') {
-    return { x: halfWidth, y: halfHeight, width: width - halfWidth, height: height - halfHeight }
-  }
-
-  return {
-    x: 0,
-    y: 0,
-    width,
-    height,
-  }
-}
-
-function parseSavedViewRssFilters(raw: Record<string, unknown>): DashboardSavedViewQuery {
-  const selectedFeedIds = Array.isArray(raw.selected_feed_ids)
-    ? raw.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
-    : []
-  const selectedTags = Array.isArray(raw.selected_tags)
-    ? raw.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
-    : []
-
-  return {
-    selected_feed_ids: selectedFeedIds,
-    selected_tags: selectedTags,
-    q: typeof raw.q === 'string' ? raw.q : '',
-    read_status: raw.read_status === 'read' || raw.read_status === 'unread' ? raw.read_status : 'all',
-    star_status: raw.star_status === 'starred' || raw.star_status === 'unstarred' ? raw.star_status : 'all',
-    view_mode: raw.view_mode === 'expanded' ? 'expanded' : 'compact',
-    page_size: typeof raw.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(raw.page_size) ? raw.page_size : 25,
-    time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
-    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
-    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
-    rolling_days: typeof raw.rolling_days === 'string' && raw.rolling_days.trim() ? raw.rolling_days.trim() : DEFAULT_ROLLING_DAYS,
-    sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
-  }
-}
-
-function parseSavedViewAlertFilters(raw: Record<string, unknown>): DashboardAlertViewQuery {
-  const selectedAlertIds = Array.isArray(raw.selected_alert_ids)
-    ? raw.selected_alert_ids.filter((entry): entry is string => typeof entry === 'string')
-    : []
-  const selectedAlertCategories = Array.isArray(raw.selected_categories)
-    ? raw.selected_categories.filter((entry): entry is string => typeof entry === 'string')
-    : []
-
-  return {
-    selected_alert_ids: selectedAlertIds,
-    selected_categories: selectedAlertCategories,
-    q: typeof raw.q === 'string' ? raw.q : '',
-    view_mode: raw.view_mode === 'compact' ? 'compact' : 'expanded',
-    page_size: typeof raw.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(raw.page_size) ? raw.page_size : 25,
-    time_range: isTimeRangeFilter(raw.time_range) ? raw.time_range : 'all',
-    custom_since_date: typeof raw.custom_since_date === 'string' ? raw.custom_since_date : '',
-    custom_until_date: typeof raw.custom_until_date === 'string' ? raw.custom_until_date : '',
-    rolling_days: typeof raw.rolling_days === 'string' && raw.rolling_days.trim() ? raw.rolling_days.trim() : DEFAULT_ROLLING_DAYS,
-    sort: typeof raw.sort === 'string' && isTimeSort(raw.sort) ? raw.sort : 'published_at_desc',
-  }
-}
-
-function buildSavedViewRssFilters(rssFilters: DashboardRssWindowFilters, dashboardTimeFilter: WindowTimeFilter): DashboardSavedViewQuery {
-  return {
-    selected_feed_ids: [...rssFilters.selected_feed_ids],
-    selected_tags: [...rssFilters.selected_tags],
-    q: rssFilters.q,
-    read_status: rssFilters.read_status,
-    star_status: rssFilters.star_status,
-    view_mode: rssFilters.view_mode,
-    page_size: rssFilters.page_size,
-    time_range: dashboardTimeFilter.time_range,
-    custom_since_date: dashboardTimeFilter.custom_since_date,
-    custom_until_date: dashboardTimeFilter.custom_until_date,
-    rolling_days: dashboardTimeFilter.rolling_days,
-    sort: rssFilters.sort,
-  }
-}
-
-function buildSavedViewAlertFilters(
-  alertFilters: DashboardAlertWindowFilters,
-  dashboardTimeFilter: WindowTimeFilter,
-): DashboardAlertViewQuery {
-  return {
-    selected_alert_ids: [...alertFilters.selected_alert_ids],
-    selected_categories: [...alertFilters.selected_categories],
-    q: alertFilters.q,
-    view_mode: alertFilters.view_mode,
-    page_size: alertFilters.page_size,
-    time_range: dashboardTimeFilter.time_range,
-    custom_since_date: dashboardTimeFilter.custom_since_date,
-    custom_until_date: dashboardTimeFilter.custom_until_date,
-    rolling_days: dashboardTimeFilter.rolling_days,
-    sort: alertFilters.sort,
-  }
-}
-
-export function parseDashboardSavedView(raw: unknown, containerWidth: number, containerHeight: number): DashboardSavedViewState {
-  const source = isRecord(raw) ? raw : {}
-  const fallback = createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
-
-  const legacyFilters = isRecord(source.filters) ? source.filters : source
-  const legacyLayout = isRecord(source.layout) ? source.layout : {}
-  const legacyWindows = isRecord(legacyLayout.windows) ? legacyLayout.windows : {}
-  const legacyFeedRect =
-    parsePanelRectCandidate(legacyWindows.feeds) || parsePanelRectCandidate(source.panel_rect) || fallback.rect
-  const rssSource = isRecord(source.rss_filters) ? source.rss_filters : legacyFilters
-  const alertSource = isRecord(source.alert_filters) ? source.alert_filters : {}
-  const uiSource = isRecord(source.ui) ? source.ui : {}
-
-  const rssFilters = parseSavedViewRssFilters(rssSource)
-  const alertFilters = parseSavedViewAlertFilters(alertSource)
-  const showAdvancedFilters = typeof uiSource.show_advanced_filters === 'boolean' ? uiSource.show_advanced_filters : false
-
-  const parsedWindows: DashboardWindow[] = []
-  if (Array.isArray(source.windows)) {
-    for (const entry of source.windows) {
-      if (!isRecord(entry)) continue
-      if (!isWindowType(entry.type)) continue
-      if (!isWindowSnap(entry.snap)) continue
-      const rect = parsePanelRectCandidate(entry.rect)
-      if (!rect) continue
-
-      parsedWindows.push({
-        id: typeof entry.id === 'string' && entry.id ? entry.id : crypto.randomUUID(),
-        type: entry.type,
-        title:
-          typeof entry.title === 'string' && entry.title
-            ? entry.title
-            : defaultWindowTitle(entry.type, parsedWindows.length + 1),
-        snap: entry.snap,
-        rect,
-        controls_collapsed: entry.controls_collapsed === true,
-        scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
-        time_override: parseWindowTimeFilterCandidate(entry.time_override),
-        rss_filters:
-          entry.type === 'rss'
-            ? parseRssWindowFiltersCandidate(entry.rss_filters, { ...rssFilters, page: 1 }, showAdvancedFilters)
-            : null,
-        alert_filters:
-          entry.type === 'alerts'
-            ? parseAlertWindowFiltersCandidate(entry.alert_filters, { ...alertFilters, page: 1 })
-            : null,
-        selected_daily_brief_id:
-          entry.type === 'daily_brief' && typeof entry.selected_daily_brief_id === 'string' && entry.selected_daily_brief_id
-            ? entry.selected_daily_brief_id
-            : null,
-      })
-    }
-  }
-
-  if (!parsedWindows.length) {
-    parsedWindows.push({
-      id: fallback.id,
-      type: 'rss',
-      title: 'RSS Feed 1',
-      snap: 'free',
-      rect: legacyFeedRect,
-      controls_collapsed: false,
-      scratch_note: '',
-      time_override: null,
-      rss_filters: parseRssWindowFiltersCandidate(null, { ...rssFilters, page: 1 }, showAdvancedFilters),
-      alert_filters: null,
-      selected_daily_brief_id: null,
-    })
-  }
-
-  return {
-    schema_version:
-      typeof source.schema_version === 'number' && source.schema_version >= 1
-        ? Math.floor(source.schema_version)
-        : DASHBOARD_SAVED_VIEW_SCHEMA_VERSION,
-    version: DASHBOARD_VIEW_VERSION,
-    rss_filters: rssFilters,
-    alert_filters: alertFilters,
-    windows: normalizeDashboardWindows(parsedWindows, containerWidth, containerHeight),
-    ui: {
-      show_advanced_filters: showAdvancedFilters,
-    },
-  }
-}
-
-export function buildDashboardSavedViewState(
-  windows: DashboardWindow[],
-  dashboardTimeFilter: WindowTimeFilter,
-): DashboardSavedViewState {
-  const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
-  const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
-  const rssWindowFilters = firstRssWindow?.rss_filters ?? createDefaultRssWindowFilters()
-  const alertWindowFilters = firstAlertWindow?.alert_filters ?? createDefaultAlertWindowFilters()
-
-  return {
-    schema_version: DASHBOARD_SAVED_VIEW_SCHEMA_VERSION,
-    version: DASHBOARD_VIEW_VERSION,
-    rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
-    alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
-    windows: windows.map((window) => ({
-      id: window.id,
-      type: window.type,
-      title: window.title,
-      snap: window.snap,
-      rect: { ...window.rect },
-      controls_collapsed: window.controls_collapsed,
-      scratch_note: window.scratch_note,
-      time_override: window.time_override ? { ...window.time_override } : null,
-      rss_filters: window.rss_filters
-        ? {
-            ...window.rss_filters,
-            selected_feed_ids: [...window.rss_filters.selected_feed_ids],
-            selected_tags: [...window.rss_filters.selected_tags],
-            page: 1,
-          }
-        : null,
-      alert_filters: window.alert_filters
-        ? {
-            ...window.alert_filters,
-            selected_alert_ids: [...window.alert_filters.selected_alert_ids],
-            selected_categories: [...window.alert_filters.selected_categories],
-            page: 1,
-          }
-        : null,
-      selected_daily_brief_id: window.selected_daily_brief_id,
-    })),
-    ui: {
-      show_advanced_filters: rssWindowFilters.show_advanced_filters,
-    },
-  }
-}
-
-export function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] {
-  const source = isRecord(raw) && Array.isArray(raw.views) ? raw.views : raw
-  if (!Array.isArray(source)) {
-    throw new Error('Expected a JSON array or an object with a "views" array')
-  }
-
-  const entries: ImportedSavedViewEntry[] = []
-  for (const entry of source) {
-    if (!isRecord(entry)) continue
-    const name = typeof entry.name === 'string' ? entry.name.trim() : ''
-    const queryJson = isRecord(entry.query_json) ? entry.query_json : null
-    if (!name || !queryJson) {
-      continue
-    }
-
-    entries.push({
-      name,
-      query_json: queryJson,
-    })
-  }
-
-  if (entries.length > MAX_IMPORTED_VIEWS) {
-    throw new Error(`Import file contains too many views. Maximum allowed is ${MAX_IMPORTED_VIEWS}.`)
-  }
-
-  return entries
-}
-
-export function resolveSavedViewSelectionChange({
-  currentActiveSavedViewId,
-  nextValue,
-  hasProtectedEditSession,
-}: {
-  currentActiveSavedViewId: string | null
-  nextValue: string
-  hasProtectedEditSession: boolean
-}): SavedViewSelectionChange {
-  if (!nextValue) {
-    return currentActiveSavedViewId ? { kind: 'clear' } : { kind: 'noop' }
-  }
-
-  if (nextValue === currentActiveSavedViewId) {
-    return { kind: 'noop' }
-  }
-
-  return hasProtectedEditSession ? { kind: 'confirm_load', viewId: nextValue } : { kind: 'load', viewId: nextValue }
 }
 
 function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {

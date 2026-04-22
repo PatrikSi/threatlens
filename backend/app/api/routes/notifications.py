@@ -5,6 +5,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
+from app.core.config import get_settings
+from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -32,11 +34,12 @@ from app.services.notification_webhooks import (
     reserve_webhook_failed_notification_deliveries,
     retry_notification_webhook_delivery,
     test_notification_webhook,
-    validate_notification_webhook_payload,
+    validate_notification_webhook_payload_for_actor,
 )
 from app.tasks.feed_tasks import enqueue_notification_webhook_delivery_processing
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+settings = get_settings()
 
 
 @router.get("/template-variables", response_model=list[NotificationTemplateVariable])
@@ -74,7 +77,8 @@ def create_notification_webhook(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
-    _validate_payload(db, payload)
+    _require_notification_webhook_egress_authority(user)
+    _validate_payload(db, payload, actor_user=user)
     webhook = build_notification_webhook(user.id, payload)
     db.add(webhook)
     db.flush()
@@ -105,7 +109,8 @@ def update_notification_webhook(
     if webhook is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
 
-    _validate_payload(db, payload)
+    _require_notification_webhook_egress_authority(user)
+    _validate_payload(db, payload, actor_user=user)
     apply_notification_webhook_updates(webhook, payload)
     db.add(webhook)
     record_audit(
@@ -212,6 +217,8 @@ def retry_notification_webhook_delivery_route(
             detail="Only failed webhook deliveries can be retried",
         )
 
+    _require_notification_webhook_egress_authority(user)
+
     retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
     failed_delivery_reservations = (
         reserve_webhook_failed_notification_deliveries(db, failed_delivery=retried)
@@ -246,7 +253,8 @@ def test_notification_webhook_route(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
-    _validate_payload(db, payload.webhook)
+    _require_notification_webhook_egress_authority(user)
+    _validate_payload(db, payload.webhook, actor_user=user)
     try:
         result = test_notification_webhook(
             db,
@@ -274,9 +282,20 @@ def test_notification_webhook_route(
     return result
 
 
-def _validate_payload(db: Session, payload: NotificationWebhookWrite) -> None:
+def _require_notification_webhook_egress_authority(user: User) -> None:
+    if user.role == ROLE_ADMIN:
+        return
+    if settings.notification_webhook_allowed_hosts:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
+    )
+
+
+def _validate_payload(db: Session, payload: NotificationWebhookWrite, *, actor_user: User) -> None:
     available_feed_ids = set(db.scalars(select(Feed.id)).all())
     try:
-        validate_notification_webhook_payload(payload, available_feed_ids)
+        validate_notification_webhook_payload_for_actor(payload, available_feed_ids, actor_user=actor_user)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc

@@ -755,6 +755,9 @@ export function NotificationsPage() {
 
               {testResult ? (
                 <div className="mt-3 space-y-3 text-sm">
+                  <p className="text-xs text-slate dark:text-white/60">
+                    Sensitive URL parameters, headers, request bodies, and response previews are redacted before display.
+                  </p>
                   <div className="grid gap-3 md:grid-cols-3">
                     <MetricCard label="Method" value={testResult.rendered_method} />
                     <MetricCard label="Status" value={testResult.status_code ? String(testResult.status_code) : 'n/a'} />
@@ -799,7 +802,7 @@ export function NotificationsPage() {
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-slate dark:text-white/70">
-                  Run a test delivery to inspect the fully rendered request and the webhook response.
+                  Run a test delivery to inspect a redacted request preview and the webhook response summary.
                 </p>
               )}
             </div>

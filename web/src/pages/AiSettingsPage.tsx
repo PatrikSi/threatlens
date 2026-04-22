@@ -2,7 +2,7 @@ import { Dispatch, RefObject, SetStateAction, useDeferredValue, useEffect, useMe
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
-import { ConfirmDialog } from '../components/ConfirmDialog'
+import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
@@ -1463,72 +1463,61 @@ function ProviderExchangeModal({
   const statusCode = typeof event?.payload?.status_code === 'number' ? event.payload.status_code : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-8">
-      <div className="max-h-[85vh] w-full max-w-5xl overflow-y-auto rounded-2xl border border-slate/20 bg-white p-5 shadow-2xl dark:border-cyan-900/40 dark:bg-[#041612]">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <h3 className="font-display text-xl">Provider Exchange</h3>
-            <p className="mt-1 text-sm text-slate dark:text-white/70">
-              {run ? `${formatTaskTypeLabel(run.task_type)}${run.item_title ? ` · ${run.item_title}` : ''}` : 'Loading run detail'}
-            </p>
+    <DialogSurface
+      open
+      title="Provider Exchange"
+      description={run ? `${formatTaskTypeLabel(run.task_type)}${run.item_title ? ` · ${run.item_title}` : ''}` : 'Loading run detail'}
+      onClose={onClose}
+      panelClassName="max-h-[85vh] max-w-5xl overflow-y-auto"
+      bodyClassName="mt-4 space-y-4 text-sm text-slate dark:text-white/75"
+    >
+      {isLoading && <p>Loading request/response details...</p>}
+      {!isLoading && errorMessage && <p className="text-red-600">Failed to load run detail. {errorMessage}</p>}
+      {!isLoading && !errorMessage && !event && (
+        <p>No provider request/response was captured for this run.</p>
+      )}
+
+      {!isLoading && !errorMessage && event && (
+        <div className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            <MiniStat label="Event" value={event.event_type} />
+            <MiniStat label="Captured" value={formatTimestamp(event.created_at)} />
+            <MiniStat label="HTTP Status" value={statusCode ?? 'n/a'} />
           </div>
-          <button
-            type="button"
-            className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
-            onClick={onClose}
-          >
-            Close
-          </button>
+
+          {event.message && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+              {event.message}
+            </div>
+          )}
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Panel title="Request">
+              {requestUrl && <p className="mb-3 text-xs text-slate dark:text-white/60">{requestUrl}</p>}
+              <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                {requestPayload != null ? formatDebugPayload(requestPayload) : 'No request payload recorded.'}
+              </pre>
+            </Panel>
+
+            <Panel title="Response">
+              <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                {responseBody || 'No raw response body recorded.'}
+              </pre>
+              {responseJson != null && (
+                <>
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">
+                    Parsed Response JSON
+                  </p>
+                  <pre className="mt-2 overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                    {formatDebugPayload(responseJson)}
+                  </pre>
+                </>
+              )}
+            </Panel>
+          </div>
         </div>
-
-        {isLoading && <p className="mt-4 text-sm text-slate dark:text-white/70">Loading request/response details...</p>}
-        {!isLoading && errorMessage && <p className="mt-4 text-sm text-red-600">Failed to load run detail. {errorMessage}</p>}
-        {!isLoading && !errorMessage && !event && (
-          <p className="mt-4 text-sm text-slate dark:text-white/70">No provider request/response was captured for this run.</p>
-        )}
-
-        {!isLoading && !errorMessage && event && (
-          <div className="mt-4 space-y-4">
-            <div className="grid gap-3 md:grid-cols-3">
-              <MiniStat label="Event" value={event.event_type} />
-              <MiniStat label="Captured" value={formatTimestamp(event.created_at)} />
-              <MiniStat label="HTTP Status" value={statusCode ?? 'n/a'} />
-            </div>
-
-            {event.message && (
-              <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-                {event.message}
-              </div>
-            )}
-
-            <div className="grid gap-4 xl:grid-cols-2">
-              <Panel title="Request">
-                {requestUrl && <p className="mb-3 text-xs text-slate dark:text-white/60">{requestUrl}</p>}
-                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
-                  {requestPayload != null ? formatDebugPayload(requestPayload) : 'No request payload recorded.'}
-                </pre>
-              </Panel>
-
-              <Panel title="Response">
-                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
-                  {responseBody || 'No raw response body recorded.'}
-                </pre>
-                {responseJson != null && (
-                  <>
-                    <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">
-                      Parsed Response JSON
-                    </p>
-                    <pre className="mt-2 overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
-                      {formatDebugPayload(responseJson)}
-                    </pre>
-                  </>
-                )}
-              </Panel>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
+      )}
+    </DialogSurface>
   )
 }
 

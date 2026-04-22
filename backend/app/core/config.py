@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
+    notification_webhook_allowed_hosts: Annotated[list[str], NoDecode] = []
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
@@ -106,12 +107,39 @@ class Settings(BaseSettings):
     notification_delivery_retry_backoff_seconds: int = 30
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
-    @field_validator("cors_origins", "trusted_proxy_cidrs", "app_data_encryption_previous_keys", mode="before")
+    @field_validator(
+        "cors_origins",
+        "trusted_proxy_cidrs",
+        "app_data_encryption_previous_keys",
+        "notification_webhook_allowed_hosts",
+        mode="before",
+    )
     @classmethod
     def _parse_csv_list(cls, value):
         if isinstance(value, str):
             return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
+
+    @field_validator("notification_webhook_allowed_hosts", mode="after")
+    @classmethod
+    def _normalize_notification_webhook_allowed_hosts(cls, value):
+        normalized: list[str] = []
+        for entry in value or []:
+            candidate = str(entry).strip().lower().rstrip(".")
+            if not candidate:
+                continue
+            if "://" in candidate or any(marker in candidate for marker in ("/", "?", "#", "@")):
+                raise ValueError(
+                    "notification_webhook_allowed_hosts entries must be hostnames, optionally prefixed with '*.'"
+                )
+            wildcard = candidate.startswith("*.")
+            host = candidate[2:] if wildcard else candidate
+            if not host or ":" in host:
+                raise ValueError(
+                    "notification_webhook_allowed_hosts entries must be hostnames without ports, schemes, or paths"
+                )
+            normalized.append(candidate)
+        return normalized
 
     @field_validator("auth_cookie_samesite", mode="before")
     @classmethod

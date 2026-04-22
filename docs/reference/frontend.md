@@ -49,7 +49,7 @@ Route tree:
 - Uses `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`).
 - Throws textual API error body when `response.ok` is false.
 - Returns `undefined` for `204` responses.
-- `LoginPage` and self-registration calls pass `auth=false`; after login the app relies on the server-set session cookies rather than persisting the returned JWT.
+- `LoginPage` and self-registration calls pass `auth=false`; after login the app relies on the server-set session cookies rather than persisting any bearer token in browser storage.
 
 ### Browser storage keys
 
@@ -425,8 +425,9 @@ API calls:
 
 UI elements:
 
-- Create token form: name, expiry days, scopes CSV
+- Create token form: name, expiry days, scopes CSV, current password
 - Leave scopes blank to get the default read-only scopes; an explicit empty list is rejected by the API
+- Browser-cookie sessions must provide the current password as a step-up check before the API will mint a durable token
 - One-time token reveal panel
 - Token inventory
 - Admin-only `user_id` filter input

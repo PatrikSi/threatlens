@@ -138,8 +138,8 @@ def _apply_published_security_contract(schema: dict[str, Any]) -> dict[str, Any]
         "bearerFormat": "API token",
         "description": (
             "Use a scoped personal API token in the `Authorization: Bearer <token>` header. "
-            "Browser login responses also return a session JWT for compatibility, but that value is not a supported "
-            "bearer API credential."
+            "Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; "
+            "bearer auth requires a dedicated API token."
         ),
     }
     security_schemes[SESSION_COOKIE_SECURITY_SCHEME_NAME] = {

@@ -58,6 +58,18 @@ def get_optional_current_user(
     return user
 
 
+def get_auth_credential_kind(request: Request) -> str | None:
+    return getattr(request.state, "auth_credential_kind", None)
+
+
+def is_cookie_session_auth(request: Request) -> bool:
+    return get_auth_credential_kind(request) == AUTH_SESSION_COOKIE
+
+
+def is_api_token_auth(request: Request) -> bool:
+    return get_auth_credential_kind(request) == AUTH_API_TOKEN
+
+
 
 def require_roles(*roles: str):
     def _checker(user: User = Depends(get_current_user)) -> User:
@@ -86,7 +98,7 @@ def require_token_scopes(*required_scopes: str):
     def _checker(request: Request, user: User = Depends(get_current_user)) -> User:
         token_scopes = getattr(request.state, "token_scopes", None)
         if token_scopes is None:
-            if getattr(request.state, "auth_credential_kind", None) == AUTH_SESSION_BEARER:
+            if get_auth_credential_kind(request) == AUTH_SESSION_BEARER:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Bearer auth requires a scoped API token",

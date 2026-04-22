@@ -35,6 +35,9 @@ from app.schemas.notification import (
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
 )
+from app.services.notification_webhook_policy import (
+    validate_notification_target_for_actor,
+)
 from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
 from app.services.secret_storage import decrypt_json, decrypt_text, encrypt_json, encrypt_text
 from app.services.url_utils import ensure_runtime_fetchable_url, is_fetchable_url, redact_feed_url
@@ -173,6 +176,8 @@ SENSITIVE_HEADER_NAMES = frozenset(
     }
 )
 THREATLENS_DELIVERY_ID_HEADER = "X-ThreatLens-Delivery-ID"
+RENDER_FAILURE_ERROR_PREFIX = "render_error:"
+POLICY_FAILURE_ERROR_PREFIX = "policy_error:"
 
 
 class TemplateRenderError(ValueError):
@@ -309,6 +314,32 @@ def _redact_delivery_body_preview(value: str | None) -> str | None:
     return f"Stored body withheld ({len(value)} chars)"
 
 
+def _notification_error_for_display(error: str | None) -> str | None:
+    if error is None:
+        return None
+    for prefix in (RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX):
+        if error.startswith(prefix):
+            return error[len(prefix) :]
+    return error
+
+
+def _redact_notification_test_response(
+    result: NotificationWebhookTestResponse,
+) -> NotificationWebhookTestResponse:
+    return NotificationWebhookTestResponse(
+        success=result.success,
+        status_code=result.status_code,
+        duration_ms=result.duration_ms,
+        rendered_url=redact_feed_url(result.rendered_url),
+        rendered_method=result.rendered_method,
+        rendered_headers=_redact_notification_field_values(result.rendered_headers),
+        rendered_query_params=_redact_notification_query_params(result.rendered_query_params),
+        rendered_body=_redact_delivery_body_preview(result.rendered_body),
+        response_body_preview=_redact_delivery_body_preview(result.response_body_preview),
+        error=_notification_error_for_display(result.error),
+    )
+
+
 def notification_webhook_write_from_model(webhook: NotificationWebhook) -> NotificationWebhookWrite:
     return NotificationWebhookWrite(
         name=webhook.name,
@@ -380,7 +411,7 @@ def notification_webhook_delivery_response_from_model(
         rendered_query_params=rendered_query_params,
         rendered_body=_redact_delivery_body_preview(_decrypt_notification_text(delivery.rendered_body)),
         response_body_preview=_redact_delivery_body_preview(_decrypt_notification_text(delivery.response_body_preview)),
-        error=delivery.error,
+        error=_notification_error_for_display(delivery.error),
         attempted_at=delivery.attempted_at,
     )
 
@@ -455,6 +486,33 @@ def _validate_notification_target_url(url_template: str) -> None:
         raise ValueError("url_template must not include fragments")
     if not is_fetchable_url(url_template, allow_private_network=settings.allow_private_network_webhooks):
         raise ValueError("url_template is not allowed for outbound fetch")
+
+
+def validate_notification_webhook_payload_for_actor(
+    payload: NotificationWebhookWrite,
+    available_feed_ids: set[uuid.UUID],
+    *,
+    actor_user: User | SimpleNamespace | None,
+) -> None:
+    validate_notification_webhook_payload(payload, available_feed_ids)
+    validate_notification_target_for_actor(
+        payload.url_template,
+        actor_user=actor_user,
+        allowed_hosts=settings.notification_webhook_allowed_hosts,
+    )
+
+
+def validate_notification_delivery_target_for_actor(
+    delivery: NotificationWebhookDelivery,
+    *,
+    actor_user: User | SimpleNamespace | None,
+) -> None:
+    rendered_url = _decrypt_notification_text(delivery.rendered_url) or ""
+    validate_notification_target_for_actor(
+        rendered_url,
+        actor_user=actor_user,
+        allowed_hosts=settings.notification_webhook_allowed_hosts,
+    )
 
 
 def render_notification_request(
@@ -595,7 +653,29 @@ def test_notification_webhook(
         failed_webhook_context=failed_webhook_context,
         digest_context=digest_context,
     )
-    return _send_rendered_notification_request(rendered)
+    try:
+        validate_notification_target_for_actor(
+            rendered.url,
+            actor_user=user,
+            allowed_hosts=settings.notification_webhook_allowed_hosts,
+        )
+    except ValueError as exc:
+        return _redact_notification_test_response(NotificationWebhookTestResponse(
+            success=False,
+            status_code=None,
+            duration_ms=0,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview=None,
+            error=str(exc),
+        ))
+    return _redact_notification_test_response(_send_rendered_notification_request(rendered))
+
+
+test_notification_webhook.__test__ = False
 
 
 def get_matching_notification_webhooks_for_feed(db: Session, *, feed_id: uuid.UUID) -> list[NotificationWebhook]:
@@ -838,7 +918,7 @@ def reserve_webhook_failed_notification_deliveries(
         name=resolved_source_webhook.name,
         event_type=failed_delivery.event_type_snapshot,
         status_code=failed_delivery.status_code,
-        error=failed_delivery.error,
+        error=_notification_error_for_display(failed_delivery.error),
         attempted_at=failed_delivery.attempted_at,
     )
 
@@ -910,6 +990,7 @@ def reserve_notification_webhook_delivery(
     feed_name: str | None = None,
     source_delivery_id: uuid.UUID | None = None,
     scope_key: str | None = None,
+    render_delivery_id: uuid.UUID | None = None,
 ) -> NotificationWebhookDelivery:
     payload = notification_webhook_write_from_model(webhook)
     delivery_id = uuid.uuid4()
@@ -923,13 +1004,13 @@ def reserve_notification_webhook_delivery(
             item=item,
             event_type=event_type,
             triggered_at=queued_at,
-            delivery_id=delivery_id,
+            delivery_id=render_delivery_id or delivery_id,
             alert_context=alert_context,
             failed_webhook_context=failed_webhook_context,
             digest_context=digest_context,
         )
     except (TemplateRenderError, ValueError) as exc:
-        return _create_failed_notification_webhook_delivery(
+        return _create_pending_notification_webhook_delivery_from_render_failure(
             db,
             delivery_id=delivery_id,
             webhook=webhook,
@@ -948,7 +1029,7 @@ def reserve_notification_webhook_delivery(
             source_delivery_id=source_delivery_id,
             scope_key=scope_key,
             attempted_at=queued_at,
-            error=str(exc),
+            error=f"{RENDER_FAILURE_ERROR_PREFIX}{exc}",
         )
 
     return _create_pending_notification_webhook_delivery(
@@ -974,6 +1055,13 @@ def reserve_notification_webhook_delivery_from_saved_request(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookDelivery:
+    rerendered = _reserve_notification_webhook_delivery_from_current_context(
+        db,
+        webhook=webhook,
+        delivery=delivery,
+    )
+    if rerendered is not None:
+        return rerendered
     return _create_pending_notification_webhook_delivery(
         db,
         delivery_id=uuid.uuid4(),
@@ -988,6 +1076,96 @@ def reserve_notification_webhook_delivery_from_saved_request(
         source_delivery_id=delivery.source_delivery_id or delivery.id,
         scope_key=delivery.scope_key,
         attempted_at=datetime.now(timezone.utc),
+    )
+
+
+def _reserve_notification_webhook_delivery_from_current_context(
+    db: Session,
+    *,
+    webhook: NotificationWebhook,
+    delivery: NotificationWebhookDelivery,
+) -> NotificationWebhookDelivery | None:
+    payload = notification_webhook_write_from_model(webhook)
+    user = db.scalar(select(User).where(User.id == webhook.user_id))
+    if user is None or not user.is_active or not user.is_approved:
+        return None
+
+    event_type = delivery.event_type_snapshot
+    item = db.scalar(select(Item).where(Item.id == delivery.item_id)) if delivery.item_id is not None else None
+    feed = db.scalar(select(Feed).where(Feed.id == delivery.feed_id)) if delivery.feed_id is not None else None
+    if feed is None and item is not None:
+        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+
+    alert_context = None
+    failed_webhook_context = None
+    digest_context = None
+
+    if event_type == "rss_item_new" and (item is None or feed is None):
+        return None
+    if event_type == "alert_match":
+        if item is None or feed is None:
+            return None
+        alert_context = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
+        if alert_context is None:
+            return None
+    if event_type == "feed_failing" and feed is None:
+        return None
+    if event_type == "webhook_failed":
+        failed_webhook_context = _build_failed_webhook_retry_context(db, delivery=delivery)
+        if failed_webhook_context is None:
+            return None
+    if event_type == "daily_digest":
+        digest_context = build_daily_digest_context(
+            db,
+            user_id=webhook.user_id,
+            feed_ids=_feed_ids_for_webhook_payload(payload),
+        )
+        if digest_context is None:
+            return None
+
+    return reserve_notification_webhook_delivery(
+        db,
+        webhook=webhook,
+        user=user,
+        event_type=event_type,
+        feed=feed,
+        item=item,
+        alert_context=alert_context,
+        failed_webhook_context=failed_webhook_context,
+        digest_context=digest_context,
+        delivery_kind="retry",
+        item_title=delivery.item_title_snapshot,
+        feed_name=delivery.feed_name_snapshot,
+        source_delivery_id=delivery.source_delivery_id or delivery.id,
+        scope_key=delivery.scope_key,
+        render_delivery_id=delivery.source_delivery_id or delivery.id,
+    )
+
+
+def _build_failed_webhook_retry_context(
+    db: Session,
+    *,
+    delivery: NotificationWebhookDelivery,
+) -> FailedWebhookContext | None:
+    source_delivery_id = delivery.source_delivery_id
+    if source_delivery_id is None:
+        return None
+
+    source_delivery = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == source_delivery_id))
+    if source_delivery is None:
+        return None
+
+    source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == source_delivery.webhook_id))
+    if source_webhook is None:
+        return None
+
+    return FailedWebhookContext(
+        id=source_webhook.id,
+        name=source_webhook.name,
+        event_type=source_delivery.event_type_snapshot,
+        status_code=source_delivery.status_code,
+        error=_notification_error_for_display(source_delivery.error),
+        attempted_at=source_delivery.attempted_at,
     )
 
 
@@ -1007,6 +1185,41 @@ def process_notification_webhook_delivery(
             claimed=False,
         )
 
+    actor_user = db.scalar(select(User).where(User.id == delivery.user_id))
+    try:
+        validate_notification_delivery_target_for_actor(delivery, actor_user=actor_user)
+    except ValueError as exc:
+        current_result = _delivery_result_from_model(delivery)
+        result = NotificationWebhookTestResponse(
+            success=False,
+            status_code=None,
+            duration_ms=0,
+            rendered_url=current_result.rendered_url,
+            rendered_method=current_result.rendered_method,
+            rendered_headers=current_result.rendered_headers,
+            rendered_query_params=current_result.rendered_query_params,
+            rendered_body=current_result.rendered_body,
+            response_body_preview=None,
+            error=f"{POLICY_FAILURE_ERROR_PREFIX}{exc}",
+        )
+        finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
+        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
+    if _delivery_has_presend_render_failure(delivery):
+        current_result = _delivery_result_from_model(delivery)
+        result = NotificationWebhookTestResponse(
+            success=False,
+            status_code=None,
+            duration_ms=current_result.duration_ms,
+            rendered_url=current_result.rendered_url,
+            rendered_method=current_result.rendered_method,
+            rendered_headers=current_result.rendered_headers,
+            rendered_query_params=current_result.rendered_query_params,
+            rendered_body=current_result.rendered_body,
+            response_body_preview=current_result.response_body_preview,
+            error=delivery.error,
+        )
+        finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
+        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
     rendered = _rendered_request_from_delivery(delivery)
     result = _send_rendered_notification_request(rendered)
     finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
@@ -1937,11 +2150,17 @@ def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> Notifi
         rendered_query_params=rendered_query_params,
         rendered_body=_decrypt_notification_text(delivery.rendered_body),
         response_body_preview=_decrypt_notification_text(delivery.response_body_preview),
-        error=delivery.error,
+        error=_notification_error_for_display(delivery.error),
     )
 
 
+def _delivery_has_presend_render_failure(delivery: NotificationWebhookDelivery) -> bool:
+    return delivery.status_code is None and (delivery.error or "").startswith(RENDER_FAILURE_ERROR_PREFIX)
+
+
 def _is_retryable_notification_delivery(delivery: NotificationWebhookDelivery) -> bool:
+    if delivery.error and delivery.error.startswith((RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX)):
+        return False
     status_code = delivery.status_code
     if status_code is None:
         return True
@@ -2047,7 +2266,7 @@ def _create_pending_notification_webhook_delivery(
     return delivery
 
 
-def _create_failed_notification_webhook_delivery(
+def _create_pending_notification_webhook_delivery_from_render_failure(
     db: Session,
     *,
     delivery_id: uuid.UUID,
@@ -2079,9 +2298,9 @@ def _create_failed_notification_webhook_delivery(
         source_delivery_id=source_delivery_id,
         scope_key=scope_key,
         delivery_kind=delivery_kind,
-        delivery_state=NOTIFICATION_DELIVERY_FAILED,
-        attempt_count=1,
-        claimed_at=attempted_at,
+        delivery_state=NOTIFICATION_DELIVERY_PENDING,
+        attempt_count=0,
+        claimed_at=None,
         success=False,
         status_code=None,
         duration_ms=None,
@@ -2127,6 +2346,11 @@ def _claim_notification_webhook_delivery(
     ):
         return None
 
+    preserve_error = (
+        delivery.delivery_state == NOTIFICATION_DELIVERY_PENDING
+        and delivery.status_code is None
+        and delivery.error is not None
+    )
     delivery.delivery_state = NOTIFICATION_DELIVERY_SENDING
     delivery.claimed_at = current_time
     delivery.attempt_count = max(int(delivery.attempt_count or 0), 0) + 1
@@ -2134,7 +2358,8 @@ def _claim_notification_webhook_delivery(
     delivery.status_code = None
     delivery.duration_ms = None
     delivery.response_body_preview = None
-    delivery.error = None
+    if not preserve_error:
+        delivery.error = None
     db.add(delivery)
     db.commit()
     db.refresh(delivery)

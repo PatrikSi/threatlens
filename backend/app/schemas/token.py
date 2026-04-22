@@ -10,6 +10,16 @@ class ApiTokenCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     expires_in_days: int | None = Field(default=None, ge=1, le=3650)
     scopes: list[str] = Field(default_factory=list)
+    current_password: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description=(
+            "Required when creating an API token from a browser cookie session. "
+            "Callers already authenticated with an API token can omit it."
+        ),
+        json_schema_extra={"format": "password", "writeOnly": True},
+    )
 
     @field_validator("scopes")
     @classmethod

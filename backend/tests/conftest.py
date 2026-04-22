@@ -389,8 +389,9 @@ def seed_users(db_session: Session):
 def _login(client: TestClient, email: str, password: str) -> str:
     response = client.post("/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200
-    payload = response.json()
-    return payload["access_token"]
+    session_token = client.cookies.get("threatlens_session")
+    assert session_token
+    return session_token
 
 
 @pytest.fixture()

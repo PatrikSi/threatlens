@@ -512,6 +512,7 @@ def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch
 
 
 def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_period(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
     feed = Feed(
         id=uuid.uuid4(),
         name="Repair feed",
@@ -527,8 +528,8 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         canonical_url="https://example.com/articles/old",
         title="Old item",
         summary="Summary",
-        published_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        first_seen_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        published_at=now - timedelta(hours=1),
+        first_seen_at=now - timedelta(minutes=10),
         dedupe_key="old-item",
         content_hash="2" * 64,
         status="new",
@@ -541,8 +542,8 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         canonical_url="https://example.com/articles/recent",
         title="Recent item",
         summary="Summary",
-        published_at=datetime.now(timezone.utc) - timedelta(minutes=1),
-        first_seen_at=datetime.now(timezone.utc) - timedelta(seconds=60),
+        published_at=now - timedelta(minutes=1),
+        first_seen_at=now - timedelta(seconds=60),
         dedupe_key="recent-item",
         content_hash="3" * 64,
         status="new",
@@ -555,8 +556,8 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         canonical_url="https://example.com/articles/fetched",
         title="Fetched item",
         summary="Summary",
-        published_at=datetime.now(timezone.utc) - timedelta(hours=1),
-        first_seen_at=datetime.now(timezone.utc) - timedelta(minutes=15),
+        published_at=now - timedelta(hours=1),
+        first_seen_at=now - timedelta(minutes=15),
         dedupe_key="fetched-item",
         content_hash="4" * 64,
         status="content_fetched",
@@ -575,8 +576,8 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         canonical_url="https://example.com/articles/failed",
         title="Failed item",
         summary="Summary",
-        published_at=datetime.now(timezone.utc) - timedelta(hours=2),
-        first_seen_at=datetime.now(timezone.utc) - timedelta(minutes=20),
+        published_at=now - timedelta(hours=2),
+        first_seen_at=now - timedelta(minutes=20),
         dedupe_key="failed-item",
         content_hash="5" * 64,
         status="error",
@@ -586,14 +587,183 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         final_url=failed_item.url,
         http_status=503,
         content_type="text/html",
-        retrieved_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        retrieved_at=now - timedelta(minutes=10),
         error="network_or_rate_limit_error:gateway timeout",
         text=None,
         extraction_method="none",
     )
-    db_session.add_all([feed, old_item, recent_item, fetched_item, failed_item])
+    soft_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="soft-failed-item",
+        url="https://example.com/articles/soft-failed",
+        canonical_url="https://example.com/articles/soft-failed",
+        title="Soft failed item",
+        summary="Summary",
+        published_at=now - timedelta(hours=2),
+        first_seen_at=now - timedelta(minutes=18),
+        dedupe_key="soft-failed-item",
+        content_hash="6" * 64,
+        status="error",
+    )
+    soft_failed_article = Article(
+        item_id=soft_failed_item.id,
+        final_url=soft_failed_item.url,
+        http_status=200,
+        content_type="application/json",
+        retrieved_at=now - timedelta(hours=2),
+        error="non_html_response",
+        text=None,
+        extraction_method="none",
+    )
+    extraction_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="extraction-failed-item",
+        url="https://example.com/articles/extraction-failed",
+        canonical_url="https://example.com/articles/extraction-failed",
+        title="Extraction failed item",
+        summary="Summary",
+        published_at=now - timedelta(hours=2),
+        first_seen_at=now - timedelta(minutes=16),
+        dedupe_key="extraction-failed-item",
+        content_hash="7" * 64,
+        status="error",
+    )
+    extraction_failed_article = Article(
+        item_id=extraction_failed_item.id,
+        final_url=extraction_failed_item.url,
+        http_status=200,
+        content_type="text/html",
+        retrieved_at=now - timedelta(hours=2),
+        error="readability_error:parser exploded",
+        text=None,
+        extraction_method="none",
+    )
+    recent_soft_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="recent-soft-failed-item",
+        url="https://example.com/articles/recent-soft-failed",
+        canonical_url="https://example.com/articles/recent-soft-failed",
+        title="Recent soft failed item",
+        summary="Summary",
+        published_at=now - timedelta(hours=1),
+        first_seen_at=now - timedelta(minutes=14),
+        dedupe_key="recent-soft-failed-item",
+        content_hash="8" * 64,
+        status="error",
+    )
+    recent_soft_failed_article = Article(
+        item_id=recent_soft_failed_item.id,
+        final_url=recent_soft_failed_item.url,
+        http_status=200,
+        content_type="text/html",
+        retrieved_at=now - timedelta(minutes=30),
+        error="no_extractor_succeeded",
+        text=None,
+        extraction_method="none",
+    )
+    stale_soft_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="stale-soft-failed-item",
+        url="https://example.com/articles/stale-soft-failed",
+        canonical_url="https://example.com/articles/stale-soft-failed",
+        title="Stale soft failed item",
+        summary="Summary",
+        published_at=now - timedelta(days=2),
+        first_seen_at=now - timedelta(days=2),
+        dedupe_key="stale-soft-failed-item",
+        content_hash="9" * 64,
+        status="error",
+    )
+    stale_soft_failed_article = Article(
+        item_id=stale_soft_failed_item.id,
+        final_url=stale_soft_failed_item.url,
+        http_status=200,
+        content_type="text/html",
+        retrieved_at=now - timedelta(hours=2),
+        error="no_extractor_succeeded",
+        text=None,
+        extraction_method="none",
+    )
+    aged_out_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="aged-out-failed-item",
+        url="https://example.com/articles/aged-out-failed",
+        canonical_url="https://example.com/articles/aged-out-failed",
+        title="Aged out failed item",
+        summary="Summary",
+        published_at=now - timedelta(hours=1),
+        first_seen_at=now - timedelta(minutes=11),
+        dedupe_key="aged-out-failed-item",
+        content_hash="0" * 64,
+        status="error",
+    )
+    aged_out_failed_article = Article(
+        item_id=aged_out_failed_item.id,
+        final_url=aged_out_failed_item.url,
+        http_status=200,
+        content_type="text/html",
+        retrieved_at=now - timedelta(days=2),
+        error="no_extractor_succeeded",
+        text=None,
+        extraction_method="none",
+    )
+    terminal_failed_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="terminal-failed-item",
+        url="http://10.0.0.8/private",
+        canonical_url="http://10.0.0.8/private",
+        title="Terminal failed item",
+        summary="Summary",
+        published_at=now - timedelta(hours=1),
+        first_seen_at=now - timedelta(minutes=12),
+        dedupe_key="terminal-failed-item",
+        content_hash="a" * 64,
+        status="error",
+    )
+    terminal_failed_article = Article(
+        item_id=terminal_failed_item.id,
+        final_url=terminal_failed_item.url,
+        http_status=0,
+        content_type=None,
+        retrieved_at=now - timedelta(hours=2),
+        error="unsafe_article_url",
+        text=None,
+        extraction_method="none",
+    )
+    db_session.add_all(
+        [
+            feed,
+            old_item,
+            recent_item,
+            fetched_item,
+            failed_item,
+            soft_failed_item,
+            extraction_failed_item,
+            recent_soft_failed_item,
+            stale_soft_failed_item,
+            aged_out_failed_item,
+            terminal_failed_item,
+        ]
+    )
     db_session.flush()
-    db_session.add_all([fetched_article, failed_article])
+    db_session.add_all(
+        [
+            fetched_article,
+            failed_article,
+            soft_failed_article,
+            extraction_failed_article,
+            recent_soft_failed_article,
+            stale_soft_failed_article,
+            aged_out_failed_article,
+            terminal_failed_article,
+        ]
+    )
     db_session.commit()
 
     queued_item_ids: list[str] = []
@@ -612,8 +782,112 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
 
     result = dispatch_items_missing_articles.run()
 
-    assert result == {"queued": 2}
-    assert queued_item_ids == [str(failed_item.id), str(old_item.id)]
+    assert result == {"queued": 5}
+    assert set(queued_item_ids) == {
+        str(failed_item.id),
+        str(soft_failed_item.id),
+        str(extraction_failed_item.id),
+        str(old_item.id),
+        str(stale_soft_failed_item.id),
+    }
+
+
+def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Recovered feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="recoverable-item",
+        url="https://example.com/articles/recoverable",
+        canonical_url="https://example.com/articles/recoverable",
+        title="Recoverable item",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="recoverable-item",
+        content_hash="b" * 64,
+        status="error",
+        last_error="non_html_response",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        content_type="application/json",
+        retrieved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        error="non_html_response",
+        text=None,
+        extraction_method="none",
+    )
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _domain_slot_override(_domain: str, max_wait_seconds: int = 30):
+        _ = max_wait_seconds
+        yield
+
+    class _Response:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+        url = item.url
+
+        def iter_bytes(self):
+            yield b"<html><body><article><p>Recovered readable text.</p></article></body></html>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    queued: list[str] = []
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_readable_text",
+        lambda _html: {
+            "title": "Recovered item",
+            "text": "Recovered readable text.",
+            "method": "readable",
+            "language": "en",
+            "word_count": 3,
+            "error": None,
+        },
+    )
+
+    result = fetch_article.run(str(item.id))
+
+    assert result == {"status": "ok", "item_id": str(item.id)}
+    db_session.refresh(item)
+    db_session.refresh(article)
+    assert item.status == "content_fetched"
+    assert item.last_error is None
+    assert article.text == "Recovered readable text."
+    assert article.error is None
+    assert article.content_type == "text/html; charset=utf-8"
+    assert queued == [str(item.id)]
 
 
 def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):
@@ -1411,6 +1685,121 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     assert refreshed_parent.status == "error"
 
 
+def test_generate_item_ai_enrichment_task_finishes_canceled_runs_before_work(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("task should not continue after cancellation")),
+    )
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="canceled-before-run",
+        url="https://example.com/articles/canceled-before-run",
+        canonical_url="https://example.com/articles/canceled-before-run",
+        title="Canceled before worker body",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="canceled-before-run",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+
+    child_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    child_run.reason = "cancel_requested"
+    child_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+    db_session.add(child_run)
+    db_session.commit()
+
+    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+
+    db_session.expire_all()
+    refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
+
+    assert result == {"status": "skipped", "reason": "canceled", "item_id": str(child_run.item_id)}
+    assert refreshed_child is not None
+    assert refreshed_child.status == "skipped"
+    assert refreshed_child.reason == "canceled"
+    assert refreshed_child.metadata_json["cancel_observed_at"]
+
+
+def test_generate_item_ai_enrichment_task_skips_already_terminal_runs_before_work(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("task should not continue after terminalization")),
+    )
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="terminal-before-run",
+        url="https://example.com/articles/terminal-before-run",
+        canonical_url="https://example.com/articles/terminal-before-run",
+        title="Terminalized before worker body",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="terminal-before-run",
+        content_hash="2" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+
+    child_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    child_run.status = "error"
+    child_run.reason = "stale_task_lost"
+    child_run.error = "Task no longer appears in Celery and did not report completion"
+    child_run.finished_at = datetime.now(timezone.utc)
+    db_session.add(child_run)
+    db_session.commit()
+
+    result = generate_item_ai_enrichment_task.run(str(child_run.item_id), force=True, task_run_id=str(child_run.id))
+
+    db_session.expire_all()
+    refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
+
+    assert result == {"status": "skipped", "reason": "stale_task_lost", "item_id": str(child_run.item_id)}
+    assert refreshed_child is not None
+    assert refreshed_child.status == "error"
+    assert refreshed_child.reason == "stale_task_lost"
+
+
 def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeypatch):
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_API_KEY", "")
@@ -1705,9 +2094,8 @@ def test_reprocess_recent_ai_items_stops_queueing_after_cancel(db_session, monke
         if len(queued_item_ids) == 1:
             parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
             assert parent is not None
-            parent.status = "skipped"
-            parent.reason = "canceled"
-            parent.finished_at = datetime.now(timezone.utc)
+            parent.reason = "cancel_requested"
+            parent.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
             db_session.add(parent)
             db_session.commit()
         return True
@@ -1726,6 +2114,46 @@ def test_reprocess_recent_ai_items_stops_queueing_after_cancel(db_session, monke
 
     assert result["reason"] == "canceled"
     assert queued_item_ids == [str(item_ids[0])]
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert refreshed_parent is not None
+    assert refreshed_parent.status == "skipped"
+    assert refreshed_parent.reason == "canceled"
+
+
+def test_reprocess_recent_ai_items_skips_already_terminal_parent_runs_before_queueing(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._safe_queue_item_ai_enrichment_run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("queueing should not continue after terminalization")),
+    )
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 5},
+    )
+    parent_run.status = "error"
+    parent_run.reason = "stale_task_lost"
+    parent_run.error = "Task no longer appears in Celery and did not report completion"
+    parent_run.finished_at = datetime.now(timezone.utc)
+    db_session.add(parent_run)
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(7, 5, task_run_id=str(parent_run.id))
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert result == {"queued": 0, "reason": "stale_task_lost"}
+    assert refreshed_parent is not None
+    assert refreshed_parent.status == "error"
+    assert refreshed_parent.reason == "stale_task_lost"
     get_settings.cache_clear()
 
 

@@ -85,7 +85,7 @@
           "auth"
         ],
         "summary": "Login",
-        "description": "Create a browser session cookie and return the same session token for compatibility.\n\nScoped API access should use dedicated API tokens in the `Authorization` header.\nBrowser clients should rely on the HttpOnly session cookie set by this route.",
+        "description": "Create a browser session cookie and return only cookie-session metadata.\n\nScoped API access should use dedicated API tokens in the `Authorization` header.\nBrowser clients should rely on the HttpOnly session cookie set by this route.",
         "operationId": "login_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -7912,6 +7912,22 @@
             },
             "type": "array",
             "title": "Scopes"
+          },
+          "current_password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "password",
+            "title": "Current Password",
+            "description": "Required when creating an API token from a browser cookie session. Callers already authenticated with an API token can omit it.",
+            "writeOnly": true
           }
         },
         "type": "object",
@@ -8320,13 +8336,17 @@
         "properties": {
           "current_password": {
             "type": "string",
-            "title": "Current Password"
+            "format": "password",
+            "title": "Current Password",
+            "writeOnly": true
           },
           "new_password": {
             "type": "string",
             "maxLength": 256,
             "minLength": 8,
-            "title": "New Password"
+            "format": "password",
+            "title": "New Password",
+            "writeOnly": true
           }
         },
         "type": "object",
@@ -10039,7 +10059,9 @@
           },
           "password": {
             "type": "string",
-            "title": "Password"
+            "format": "password",
+            "title": "Password",
+            "writeOnly": true
           }
         },
         "type": "object",
@@ -11000,7 +11022,9 @@
             "type": "string",
             "maxLength": 256,
             "minLength": 8,
-            "title": "Password"
+            "format": "password",
+            "title": "Password",
+            "writeOnly": true
           }
         },
         "type": "object",
@@ -12455,30 +12479,19 @@
       },
       "TokenResponse": {
         "properties": {
-          "access_token": {
-            "type": "string",
-            "title": "Access Token"
-          },
           "token_type": {
             "type": "string",
             "title": "Token Type",
-            "default": "bearer"
+            "default": "session_cookie"
           },
           "csrf_token": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Csrf Token"
           }
         },
         "type": "object",
         "required": [
-          "access_token"
+          "csrf_token"
         ],
         "title": "TokenResponse"
       },
@@ -12785,7 +12798,7 @@
         "type": "http",
         "scheme": "bearer",
         "bearerFormat": "API token",
-        "description": "Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser login responses also return a session JWT for compatibility, but that value is not a supported bearer API credential."
+        "description": "Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; bearer auth requires a dedicated API token."
       },
       "SessionCookieAuth": {
         "type": "apiKey",

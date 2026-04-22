@@ -1,9 +1,28 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { ConfirmDialog } from './ConfirmDialog'
+import { ConfirmDialog, DialogSurface } from './ConfirmDialog'
 
 describe('ConfirmDialog', () => {
+  it('renders reusable dialog semantics for non-destructive overlays', () => {
+    const markup = renderToStaticMarkup(
+      <DialogSurface
+        open
+        title="Manage Saved Views"
+        description="Load, import, export, or delete saved dashboard layouts."
+        eyebrow="Dashboard"
+        onClose={() => undefined}
+      >
+        <p>Saved view content</p>
+      </DialogSurface>,
+    )
+
+    expect(markup).toContain('role="dialog"')
+    expect(markup).toContain('aria-modal="true"')
+    expect(markup).toContain('Manage Saved Views')
+    expect(markup).toContain('Saved view content')
+  })
+
   it('renders alertdialog semantics when open', () => {
     const markup = renderToStaticMarkup(
       <ConfirmDialog

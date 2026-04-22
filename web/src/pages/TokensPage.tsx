@@ -13,6 +13,7 @@ export function TokensPage() {
   const [name, setName] = useState('')
   const [expiresInDays, setExpiresInDays] = useState(90)
   const [scopesText, setScopesText] = useState('')
+  const [currentPassword, setCurrentPassword] = useState('')
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [createdToken, setCreatedToken] = useState<ApiTokenCreateResponse | null>(null)
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
@@ -44,6 +45,9 @@ export function TokensPage() {
       if (scopes.length > 0) {
         body.scopes = scopes
       }
+      if (currentPassword.trim()) {
+        body.current_password = currentPassword
+      }
 
       return apiFetch<ApiTokenCreateResponse>('/tokens', {
         method: 'POST',
@@ -54,6 +58,7 @@ export function TokensPage() {
       setCreatedToken(data)
       setName('')
       setScopesText('')
+      setCurrentPassword('')
       setExpiresInDays(90)
       void queryClient.invalidateQueries({ queryKey: ['tokens'] })
     },
@@ -89,10 +94,14 @@ export function TokensPage() {
         <div className="mt-3 rounded-lg border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-slate dark:border-cyan-500/30 dark:bg-cyan-500/10 dark:text-slate-200">
           Leave scopes blank to apply the recommended read-only defaults. Explicit empty scope lists are not allowed.
         </div>
+        <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          Browser sessions must confirm the current account password before creating a durable API token.
+        </div>
         <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
           <div>
-            <label className="text-sm font-semibold">Name</label>
+            <label htmlFor="token-name" className="text-sm font-semibold">Name</label>
             <input
+              id="token-name"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -100,8 +109,9 @@ export function TokensPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold">Expiry (days)</label>
+            <label htmlFor="token-expiry-days" className="text-sm font-semibold">Expiry (days)</label>
             <input
+              id="token-expiry-days"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               type="number"
               min={1}
@@ -112,12 +122,25 @@ export function TokensPage() {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold">Scopes (comma-separated)</label>
+            <label htmlFor="token-scopes" className="text-sm font-semibold">Scopes (comma-separated)</label>
             <input
+              id="token-scopes"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={scopesText}
               onChange={(event) => setScopesText(event.target.value)}
               placeholder="read:feeds,write:items"
+            />
+          </div>
+          <div>
+            <label htmlFor="token-current-password" className="text-sm font-semibold">Current Password</label>
+            <input
+              id="token-current-password"
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
             />
           </div>
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createToken.isPending}>
@@ -143,12 +166,21 @@ export function TokensPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">Token Inventory</h2>
           {meQuery.data?.role === 'admin' && (
-            <input
-              value={adminUserFilter}
-              onChange={(event) => setAdminUserFilter(event.target.value)}
-              placeholder="Filter by user_id"
-              className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-            />
+            <div className="space-y-1">
+              <label
+                htmlFor="token-admin-user-filter"
+                className="block text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300"
+              >
+                Filter by User ID
+              </label>
+              <input
+                id="token-admin-user-filter"
+                value={adminUserFilter}
+                onChange={(event) => setAdminUserFilter(event.target.value)}
+                placeholder="Filter by user_id"
+                className="w-72 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              />
+            </div>
           )}
         </div>
 

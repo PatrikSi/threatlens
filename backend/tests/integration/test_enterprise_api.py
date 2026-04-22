@@ -56,6 +56,12 @@ class _UnavailableRedis:
         raise auth_rate_limit.redis.RedisError("redis unavailable")
 
 
+def _session_cookie_value(client: TestClient) -> str:
+    session_token = client.cookies.get("threatlens_session")
+    assert session_token
+    return session_token
+
+
 def _saved_view_query_payload(*, query: str = "exchange") -> dict:
     return {
         "schema_version": 1,
@@ -237,7 +243,8 @@ def test_login_succeeds_when_throttle_backend_is_unavailable(client: TestClient,
         json={"email": "admin@example.com", "password": "AdminPass123!"},
     )
     assert response.status_code == 200
-    assert response.json()["access_token"]
+    assert response.json() == {"token_type": "session_cookie", "csrf_token": response.json()["csrf_token"]}
+    assert response.json()["csrf_token"]
     assert response.headers["cache-control"] == "no-store"
     assert response.headers["pragma"] == "no-cache"
 
@@ -502,6 +509,7 @@ def test_logout_with_cookie_session_requires_csrf_header(client: TestClient, see
     )
     assert login_response.status_code == 200
     csrf_token = login_response.json()["csrf_token"]
+    session_token = _session_cookie_value(client)
 
     denied_logout = client.post("/auth/logout")
     assert denied_logout.status_code == 403
@@ -510,7 +518,7 @@ def test_logout_with_cookie_session_requires_csrf_header(client: TestClient, see
     assert allowed_logout.status_code == 200
     assert allowed_logout.json() == {"status": "ok"}
 
-    client.cookies.set("threatlens_session", login_response.json()["access_token"])
+    client.cookies.set("threatlens_session", session_token)
     stale_session_response = client.get("/auth/me")
     assert stale_session_response.status_code == 401
 
@@ -522,7 +530,7 @@ def test_login_session_jwt_in_authorization_header_is_not_a_supported_api_creden
         json={"email": "admin@example.com", "password": "AdminPass123!"},
     )
     assert login_response.status_code == 200
-    token = login_response.json()["access_token"]
+    token = _session_cookie_value(client)
 
     bearer_response = client.get("/feeds", headers={"Authorization": f"Bearer {token}"})
     assert bearer_response.status_code == 401
@@ -534,6 +542,66 @@ def test_login_session_jwt_in_authorization_header_is_not_a_supported_api_creden
 
     cookie_response = client.get("/feeds")
     assert cookie_response.status_code == 200
+
+
+def test_browser_session_requires_password_step_up_to_create_api_token(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    missing_step_up_response = client.post(
+        "/tokens",
+        json={"name": "browser-session-token", "expires_in_days": 30, "scopes": ["read:feeds"]},
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert missing_step_up_response.status_code == 403
+    assert (
+        missing_step_up_response.json()["detail"]
+        == "Browser sessions must confirm the current password before creating API tokens"
+    )
+
+    wrong_password_response = client.post(
+        "/tokens",
+        json={
+            "name": "browser-session-token",
+            "expires_in_days": 30,
+            "scopes": ["read:feeds"],
+            "current_password": "WrongPass123!",
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert wrong_password_response.status_code == 400
+    assert wrong_password_response.json()["detail"] == "Current password is incorrect"
+
+
+def test_browser_session_can_create_api_token_after_password_step_up(client: TestClient, seed_users):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    token_response = client.post(
+        "/tokens",
+        json={
+            "name": "browser-session-token",
+            "expires_in_days": 30,
+            "scopes": ["read:feeds"],
+            "current_password": "AdminPass123!",
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert token_response.status_code == 201
+    token_value = token_response.json()["token"]
+
+    access_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_value}"})
+    assert access_response.status_code == 200
 
 
 def test_cookie_session_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):

@@ -21,9 +21,8 @@ export interface CurrentUser extends User {
 }
 
 export interface TokenResponse {
-  access_token: string
-  token_type: string
-  csrf_token: string | null
+  token_type: 'session_cookie'
+  csrf_token: string
 }
 
 export interface UserCreateRequest {

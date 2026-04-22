@@ -2,13 +2,38 @@
 
 ThreatLens is licensed under Apache-2.0. This repository and its container images also redistribute third-party components. This file supplements the project `LICENSE`; it does not replace the license terms of upstream dependencies.
 
-For full dependency resolution, see:
+## Dependency Sources and Reproducible Inventories
 
-- `backend/requirements.txt`
-- `web/package-lock.json`
+Authoritative dependency inputs in this repository:
+
+- `backend/requirements.txt` for shipped backend runtime requirements
+- `backend/requirements-dev.txt` for backend development and test-only extras
+- `web/package-lock.json` for shipped frontend runtime resolution
+
+Generated resolved runtime inventories committed in this repository:
+
+- `docs/reference/backend-runtime-dependencies.txt`
+- `docs/reference/frontend-runtime-dependencies.txt`
+
+Regenerate those inventory files from a clean backend runtime image with:
+
+```bash
+BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
+docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
+  python backend/scripts/generate_dependency_inventory.py \
+  --backend-output docs/reference/backend-runtime-dependencies.txt \
+  --frontend-output docs/reference/frontend-runtime-dependencies.txt
+```
+
+The backend inventory is intentionally generated from the built backend image rather than a local development venv so it reflects the redistributed runtime environment installed by `backend/Dockerfile`.
 
 Bundled license texts shipped in this repository:
 
+- `LICENSE` (Apache-2.0)
+- `docs/licenses/MIT.txt`
+- `docs/licenses/BSD-2-Clause.txt`
+- `docs/licenses/BSD-3-Clause.txt`
+- `docs/licenses/Unlicense.txt`
 - `docs/licenses/OFL-1.1.txt`
 - `docs/licenses/LGPL-3.0.txt`
 - `docs/licenses/GPL-3.0.txt`
@@ -22,12 +47,12 @@ These files are committed directly in this repository:
 | Source Sans 3 | `web/public/fonts/source-sans-3-400.ttf`, `source-sans-3-600.ttf`, `source-sans-3-700.ttf` | SIL Open Font License 1.1 | Copyright 2010-2024 Adobe; Reserved Font Name `Source` |
 | Space Grotesk | `web/public/fonts/space-grotesk-500.ttf`, `space-grotesk-700.ttf` | SIL Open Font License 1.1 | Copyright 2020 The Space Grotesk Project Authors |
 
-## Direct Backend Runtime Dependencies
+## Selected Direct Backend Runtime Dependencies
 
 | Package | Version | License |
 |---|---:|---|
 | fastapi | 0.116.1 | MIT |
-| uvicorn | 0.35.0 | BSD |
+| uvicorn | 0.35.0 | BSD-3-Clause |
 | SQLAlchemy | 2.0.42 | MIT |
 | psycopg | 3.2.9 | GNU Lesser General Public License v3 (LGPLv3) |
 | psycopg-binary | 3.2.9 | GNU Lesser General Public License v3 (LGPLv3) |
@@ -48,7 +73,7 @@ These files are committed directly in this repository:
 | email-validator | 2.2.0 | Unlicense |
 | croniter | 3.0.3 | MIT |
 
-## Direct Frontend Runtime Dependencies
+## Selected Direct Frontend Runtime Dependencies
 
 | Package | Version | License |
 |---|---:|---|
@@ -60,6 +85,8 @@ These files are committed directly in this repository:
 ## Distribution Notes
 
 - Built web bundles include code from the frontend runtime dependencies listed above.
-- Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles.
+- Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles. The full resolved runtime inventories are committed under `docs/reference/` and can be regenerated with the command above.
+- Built backend images also write a backend runtime inventory to `/usr/share/doc/threatlens/backend-runtime-dependencies.txt` alongside `/usr/share/doc/threatlens/backend-requirements.txt`.
+- Apache-2.0 third-party components use the standard Apache 2.0 license text already shipped as the repository `LICENSE`.
 - The backend dependency spec installs `psycopg[binary]`, which pulls in both `psycopg` and `psycopg-binary`. Redistributors should preserve the shipped license texts and review whether a locally linked psycopg build better matches their compliance program.
 - If you redistribute ThreatLens images or other packaged artifacts, preserve this notice file and comply with the licenses of bundled and transitive dependencies.
