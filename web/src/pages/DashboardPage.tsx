@@ -214,7 +214,7 @@ export function DashboardPage() {
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
   const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
-  useUnsavedChangesWarning(
+  const confirmDiscardUnsavedDashboardChanges = useUnsavedChangesWarning(
     hasProtectedEditSession,
     'You have an unsaved dashboard layout edit session. Leave without saving?',
   )
@@ -3180,6 +3180,7 @@ export function DashboardPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedDashboardChanges.discardDialog}
     </div>
   )
 }

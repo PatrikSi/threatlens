@@ -55,6 +55,7 @@ Outbound webhook governance:
 - Admins can always manage their own notification webhooks.
 - Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
 - `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts or `*.suffix` patterns, for example `hooks.slack.com,*.logic.azure.com`.
+- Plain host entries approve the default `https` origin for that host. Explicit non-default ports are rejected for analyst-managed webhooks, and `*.suffix` only matches subdomains, not the apex `suffix`.
 
 Secure defaults in the shipped template:
 
@@ -80,16 +81,17 @@ Release-contract artifacts shipped in the repo:
 - Backend runtime lockfile: `backend/requirements-lock.txt`
 - Runtime dependency inventories: `docs/reference/backend-runtime-dependencies.txt`, `docs/reference/frontend-runtime-dependencies.txt`
 - Runtime package metadata inventories: `docs/reference/backend-runtime-package-metadata.json`, `docs/reference/frontend-runtime-package-metadata.json`
+- Frontend runtime package legal artifacts: `docs/reference/frontend-runtime-package-legal/`
 - Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
-- Bundled license texts: `docs/licenses/`
+- Bundled common license texts: `docs/licenses/`
 - Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
 
 Repository-hosted support and reporting paths:
 
 - Questions and bug reports: `https://github.com/PatrikSi/threatlens/issues`
 - Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
-- Security coordination entry point: `https://github.com/PatrikSi/threatlens/security`
+- Security reporting policy: `SECURITY.md`
 - Maintainer profile: `https://github.com/PatrikSi`
 
 ## Running with Docker
@@ -110,7 +112,7 @@ Startup flow for `docker-compose.yml`:
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - Legacy unversioned backend routes remain available for compatibility, but they are not the documented or shipped runtime contract.
-- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, including notices, bundled license texts, and runtime dependency inventories.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, including notices, bundled license texts, frontend package legal files, and runtime dependency inventories.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -196,7 +198,7 @@ docker compose exec redis sh -lc \
   "redis-cli --scan --pattern 'threatlens:auth:*' | xargs -r redis-cli del"
 ```
 
-4. If deployed behind a reverse proxy, set `TRUSTED_PROXY_CIDRS` to the proxy network so IP-based auth throttling uses the real client IP from `X-Forwarded-For`.
+4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to every trusted proxy network that can append `X-Forwarded-For` so IP-based auth throttling can walk the preserved chain back to the real client IP.
 
 ### Logs
 
@@ -313,7 +315,7 @@ curl -X POST http://localhost:3000/api/v1/notifications/webhooks \
   }'
 ```
 
-If the caller is an `analyst`, the webhook host must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`. Admin-managed webhooks are not constrained by that allowlist.
+If the caller is an `analyst`, the webhook origin must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`: plain host entries map to the default `https` origin, explicit non-default ports are rejected, and `*.suffix` does not include the apex `suffix`. Admin-managed webhooks are not constrained by that allowlist.
 
 Queue a Daily Brief after AI is configured:
 
@@ -397,12 +399,13 @@ Notes:
 
 - `THIRD_PARTY_NOTICES.md` summarizes the bundled assets, selected direct runtime dependencies, redistribution notes, and regeneration commands for the committed runtime inventories.
 - `docs/reference/backend-runtime-dependencies.txt` and `docs/reference/frontend-runtime-dependencies.txt` are the full resolved runtime inventories committed with the source tree.
-- `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review.
+- `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review. The frontend metadata inventory also records each copied package-legal artifact path and digest.
+- `docs/reference/frontend-runtime-package-legal/` preserves the package-published legal files harvested from installed frontend runtime dependencies.
 - Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`, and `/usr/share/doc/threatlens/backend-requirements.txt`.
-- Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, and `/usr/share/doc/threatlens/frontend-package-lock.json`.
+- Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/frontend-runtime-package-legal/`, and `/usr/share/doc/threatlens/frontend-package-lock.json`.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
 - `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
-- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled for common third-party runtime licenses in the shipped stack.
+- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled as common third-party runtime license references for the shipped stack.
 - `docs/licenses/LGPL-3.0.txt` and `docs/licenses/GPL-3.0.txt` are shipped for the `psycopg[binary]` backend dependency. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
 
 ## User Management (admin only)

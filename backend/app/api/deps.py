@@ -256,18 +256,28 @@ def _enforce_csrf_if_needed(request: Request) -> None:
 
 def resolve_client_ip(request: Request) -> str:
     settings = get_settings()
-    remote_ip = request.client.host if request.client and request.client.host else "unknown"
-    if remote_ip == "unknown":
-        return remote_ip
+    candidate_ip = request.client.host if request.client and request.client.host else "unknown"
+    if candidate_ip == "unknown":
+        return candidate_ip
 
-    if not _is_trusted_proxy(remote_ip, settings.trusted_proxy_cidrs):
-        return remote_ip
+    if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs):
+        return candidate_ip
 
     forwarded_for = request.headers.get("x-forwarded-for")
     if not forwarded_for:
-        return remote_ip
+        return candidate_ip
 
-    for raw_hop in reversed(forwarded_for.split(",")):
+    for forwarded_ip in reversed(_parse_forwarded_for_ips(forwarded_for)):
+        if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs):
+            break
+        candidate_ip = forwarded_ip
+
+    return candidate_ip
+
+
+def _parse_forwarded_for_ips(forwarded_for: str) -> list[str]:
+    parsed_hops: list[str] = []
+    for raw_hop in forwarded_for.split(","):
         candidate = raw_hop.strip()
         if not candidate:
             continue
@@ -275,8 +285,8 @@ def resolve_client_ip(request: Request) -> str:
             ip_address(candidate)
         except ValueError:
             continue
-        return candidate
-    return remote_ip
+        parsed_hops.append(candidate)
+    return parsed_hops
 
 
 def _is_trusted_proxy(remote_ip: str, trusted_proxy_cidrs: list[str]) -> bool:

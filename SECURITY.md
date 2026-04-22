@@ -16,25 +16,35 @@ Once public tags exist, use this support model:
 
 Please do not open a public GitHub issue for an unpatched vulnerability.
 
-Use the repository security page first:
+ThreatLens does not currently publish a dedicated private security reporting channel in this repository.
 
-- `https://github.com/PatrikSi/threatlens/security`
-- Direct private-report entry point when enabled: `https://github.com/PatrikSi/threatlens/security/advisories/new`
+Until a private channel is published, use the public issue tracker only to request a private follow-up path:
 
-If private vulnerability reporting is not available in your current repository access mode, open a minimal issue at `https://github.com/PatrikSi/threatlens/issues/new` asking maintainers to establish a private channel, and do not include exploit details or sensitive data in the issue body.
+- `https://github.com/PatrikSi/threatlens/issues/new`
 
-Preferred reporting order:
+Public coordination requests should stay high-level. Do not include:
 
-1. GitHub private vulnerability reporting from the repository security page, if enabled
-2. Maintainer instructions returned through the repository issue tracker or security page
+- exploit steps
+- proof-of-concept code
+- secrets, tokens, session cookies, or production data
+- hostnames, IPs, or tenant-specific details that would increase exposure
 
-Include as much of the following as you can:
+Use the first public message only to share:
+
+- affected commit, branch, tag, or container image
+- a short impact summary
+- whether you need an urgent maintainer response because the issue is being exploited or exposes live credentials
+- a request for a non-public follow-up channel
+
+Once maintainers provide a private path, include as much of the following as you can:
 
 - affected commit, branch, tag, or container image
 - deployment mode (`docker compose`, custom reverse proxy, local dev, and so on)
 - reproduction steps or proof of concept
 - impact assessment
 - any mitigations or configuration changes already identified
+
+If the repository later enables GitHub private vulnerability reporting or publishes another private contact path, that new channel should replace the public issue bootstrap above.
 
 ## Scope Notes
 

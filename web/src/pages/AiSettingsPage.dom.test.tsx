@@ -198,7 +198,14 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     page_size: 12,
   },
   cancelMutate: vi.fn(),
-  confirmDiscard: vi.fn(() => true),
+}))
+
+const routerMocks = vi.hoisted(() => ({
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
 }))
 
 function aiMutationResult(mutate: ReturnType<typeof vi.fn>) {
@@ -299,9 +306,13 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => aiSettingsPageDomMocks.currentUser,
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: () => aiSettingsPageDomMocks.confirmDiscard,
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
 
 import { AiSettingsPage } from './AiSettingsPage'
 
@@ -330,15 +341,21 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
-  it('opens the queued-task cancel dialog and wires the cancellation mutation', () => {
+  it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()
+    expect(view.querySelector('[role="tablist"]')).not.toBeNull()
+    expect(jobsTab?.getAttribute('role')).toBe('tab')
+    expect(jobsTab?.getAttribute('aria-selected')).toBe('false')
 
     act(() => {
       jobsTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+
+    expect(jobsTab?.getAttribute('aria-selected')).toBe('true')
+    expect(view.querySelector(`[aria-labelledby="${jobsTab?.id}"]`)).not.toBeNull()
 
     const cancelButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Remove From Queue'),

@@ -4,6 +4,8 @@ import pytest
 
 from app.services.notification_webhook_policy import (
     notification_host_matches_allowlist,
+    notification_origin_matches_allowlist,
+    notification_target_origin,
     notification_target_host,
     validate_notification_target_for_actor,
 )
@@ -13,11 +15,25 @@ def test_notification_target_host_normalizes_case_and_trailing_dot():
     assert notification_target_host("https://Hooks.Example.com./notify") == "hooks.example.com"
 
 
-def test_notification_host_matches_allowlist_supports_exact_and_wildcard_hosts():
+def test_notification_target_origin_normalizes_case_trailing_dot_and_default_port():
+    assert notification_target_origin("https://Hooks.Example.com./notify") == "https://hooks.example.com"
+    assert notification_target_origin("https://hooks.example.com:8443/notify") == "https://hooks.example.com:8443"
+
+
+def test_notification_host_matches_allowlist_supports_exact_and_subdomain_only_wildcard_hosts():
     assert notification_host_matches_allowlist("hooks.example.com", "hooks.example.com") is True
     assert notification_host_matches_allowlist("hooks.example.com", "*.example.com") is True
     assert notification_host_matches_allowlist("deep.ops.example.com", "*.example.com") is True
+    assert notification_host_matches_allowlist("example.com", "*.example.com") is False
     assert notification_host_matches_allowlist("example.net", "*.example.com") is False
+
+
+def test_notification_origin_matches_allowlist_requires_matching_scheme_and_port():
+    assert notification_origin_matches_allowlist("https://hooks.example.com/notify", "hooks.example.com") is True
+    assert notification_origin_matches_allowlist("https://hooks.example.com:443/notify", "hooks.example.com") is True
+    assert notification_origin_matches_allowlist("https://hooks.example.com:8443/notify", "hooks.example.com") is False
+    assert notification_origin_matches_allowlist("https://hooks.example.com:8443/notify", "https://hooks.example.com:8443") is True
+    assert notification_origin_matches_allowlist("http://hooks.example.com/notify", "hooks.example.com") is False
 
 
 def test_validate_notification_target_for_actor_blocks_analysts_without_allowlist():
@@ -43,6 +59,30 @@ def test_validate_notification_target_for_actor_allows_admin_and_approved_analys
         actor_user=SimpleNamespace(role="analyst"),
         allowed_hosts=("*.example.com",),
     )
+
+
+def test_validate_notification_target_for_actor_rejects_apex_and_non_default_ports():
+    analyst = SimpleNamespace(role="analyst")
+
+    with pytest.raises(
+        ValueError,
+        match="Webhook destination origin 'https://example.com' is not approved for analyst-managed webhook deliveries",
+    ):
+        validate_notification_target_for_actor(
+            "https://example.com/notify",
+            actor_user=analyst,
+            allowed_hosts=("*.example.com",),
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries",
+    ):
+        validate_notification_target_for_actor(
+            "https://hooks.example.com:8443/notify",
+            actor_user=analyst,
+            allowed_hosts=("hooks.example.com",),
+        )
 
 
 def test_validate_notification_target_for_actor_fails_closed_for_missing_or_inactive_owner():

@@ -186,6 +186,15 @@ def _process_reserved_notification_deliveries(
     return delivered, failed
 
 
+def _enqueue_classification_task(item_id: str) -> bool:
+    try:
+        classify_item.delay(item_id)
+    except Exception as exc:
+        logger.exception("item_classification_enqueue_failed item_id=%s error=%s", item_id, exc)
+        return False
+    return True
+
+
 def enqueue_notification_webhook_delivery_processing(
     delivery_ids: list[uuid.UUID],
     *,
@@ -608,12 +617,8 @@ def dispatch_unclassified_items():
         ).all()
 
     for item_id in item_ids:
-        try:
-            classify_item.delay(str(item_id))
-        except Exception as exc:
-            logger.exception("unclassified_item_enqueue_failed item_id=%s error=%s", item_id, exc)
-            continue
-        queued += 1
+        if _enqueue_classification_task(str(item_id)):
+            queued += 1
 
     return {"queued": queued}
 
@@ -1353,7 +1358,7 @@ def fetch_article(self, item_id: str):
 
         existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
         if existing_article is not None and item.status == "content_fetched":
-            classify_item.delay(item_id)
+            _enqueue_classification_task(item_id)
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
         candidate_urls: list[str] = []
@@ -1374,7 +1379,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=0,
                 error="missing_article_url",
             )
-            classify_item.delay(item_id)
+            _enqueue_classification_task(item_id)
             return {"status": "error", "item_id": item_id}
 
         start = time.perf_counter()
@@ -1457,7 +1462,7 @@ def fetch_article(self, item_id: str):
                         fetch_ms=fetch_ms,
                         error=f"network_or_rate_limit_error:{exc}",
                     )
-                    classify_item.delay(item_id)
+                    _enqueue_classification_task(item_id)
                     return {"status": "error", "item_id": item_id}
             except ResponseTooLargeError as exc:
                 logger.error("article_fetch_too_large item_id=%s target_url=%s error=%s", item_id, target_url, exc)
@@ -1481,7 +1486,7 @@ def fetch_article(self, item_id: str):
                     fetch_ms=fetch_ms,
                     error=str(exc),
                 )
-                classify_item.delay(item_id)
+                _enqueue_classification_task(item_id)
                 return {"status": "error", "item_id": item_id}
 
             if status_code != 200:
@@ -1544,7 +1549,7 @@ def fetch_article(self, item_id: str):
                     fetch_ms=fetch_ms,
                     error="article_fetch_failed",
                 )
-            classify_item.delay(item_id)
+            _enqueue_classification_task(item_id)
             return {"status": "error", "item_id": item_id}
 
         fetch_ms = int((time.perf_counter() - start) * 1000)
@@ -1559,7 +1564,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=fetch_ms,
                 error=f"http_status:{status_code}",
             )
-            classify_item.delay(item_id)
+            _enqueue_classification_task(item_id)
             return {"status": "error", "item_id": item_id}
 
         if "text/html" not in (content_type or "").lower():
@@ -1572,7 +1577,7 @@ def fetch_article(self, item_id: str):
                 fetch_ms=fetch_ms,
                 error="non_html_response",
             )
-            classify_item.delay(item_id)
+            _enqueue_classification_task(item_id)
             return {"status": "error", "item_id": item_id}
 
         html = body_bytes.decode("utf-8", errors="ignore")
@@ -1612,7 +1617,7 @@ def fetch_article(self, item_id: str):
         db.add(item)
         db.commit()
 
-    classify_item.delay(item_id)
+    _enqueue_classification_task(item_id)
     return {"status": "ok", "item_id": item_id}
 
 

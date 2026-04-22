@@ -1,4 +1,15 @@
-import { Dispatch, RefObject, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  type Dispatch,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  type SetStateAction,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -50,6 +61,20 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
   onlyFailures: false,
 }
 
+const AI_TABS: Array<{ value: AiTab; label: string }> = [
+  { value: 'overview', label: 'Status' },
+  { value: 'activity', label: 'Jobs' },
+  { value: 'configuration', label: 'Configuration' },
+]
+
+function getAiTabButtonId(tab: AiTab) {
+  return `ai-settings-tab-${tab}`
+}
+
+function getAiTabPanelId(tab: AiTab) {
+  return `ai-settings-panel-${tab}`
+}
+
 export function AiSettingsPage() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
@@ -73,17 +98,46 @@ export function AiSettingsPage() {
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
-  const activityTabRef = useRef<HTMLDivElement | null>(null)
+  const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
 
   const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
     setDraftDirty(true)
     setDraftState(value)
   }
-  useUnsavedChangesWarning(draftDirty, 'You have unsaved AI settings changes. Leave without saving?')
+  const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
+    draftDirty,
+    'You have unsaved AI settings changes. Leave without saving?',
+  )
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
+
+  const handleAiTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: AiTab) => {
+    let nextTab: AiTab | null = null
+    const currentIndex = AI_TABS.findIndex((tab) => tab.value === currentTab)
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+      nextTab = AI_TABS[(currentIndex + 1) % AI_TABS.length]?.value ?? currentTab
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+      nextTab = AI_TABS[(currentIndex - 1 + AI_TABS.length) % AI_TABS.length]?.value ?? currentTab
+    } else if (event.key === 'Home') {
+      nextTab = AI_TABS[0]?.value ?? currentTab
+    } else if (event.key === 'End') {
+      nextTab = AI_TABS[AI_TABS.length - 1]?.value ?? currentTab
+    }
+
+    if (!nextTab || nextTab === currentTab) {
+      return
+    }
+
+    event.preventDefault()
+    setActiveTab(nextTab)
+    const focusedTab = nextTab
+    window.requestAnimationFrame(() => {
+      document.getElementById(getAiTabButtonId(focusedTab))?.focus()
+    })
+  }
 
   const settingsQuery = useQuery({
     queryKey: ['ai', 'settings'],
@@ -504,16 +558,24 @@ export function AiSettingsPage() {
           <p className="mt-1 text-sm text-slate dark:text-white/70">
             Review status, work with queued jobs, and manage provider settings without leaving the settings area.
           </p>
-          <nav className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1">
-            <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} fullWidth>
-              Status
-            </TabButton>
-            <TabButton active={activeTab === 'activity'} onClick={() => setActiveTab('activity')} fullWidth>
-              Jobs
-            </TabButton>
-            <TabButton active={activeTab === 'configuration'} onClick={() => setActiveTab('configuration')} fullWidth>
-              Configuration
-            </TabButton>
+          <nav
+            className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1"
+            role="tablist"
+            aria-label="AI settings sections"
+          >
+            {AI_TABS.map((tab) => (
+              <TabButton
+                key={tab.value}
+                id={getAiTabButtonId(tab.value)}
+                controls={getAiTabPanelId(tab.value)}
+                active={activeTab === tab.value}
+                onClick={() => setActiveTab(tab.value)}
+                onKeyDown={(event) => handleAiTabKeyDown(event, tab.value)}
+                fullWidth
+              >
+                {tab.label}
+              </TabButton>
+            ))}
           </nav>
 
           <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-800/40 dark:bg-cyan-950/40">
@@ -526,33 +588,40 @@ export function AiSettingsPage() {
 
         <section className="space-y-4">
           {activeTab === 'overview' && (
-            <OverviewTab
-              settings={settingsQuery.data}
-              readiness={readiness}
-              overview={overviewQuery.data}
-              isLoading={overviewQuery.isLoading}
-              isError={overviewQuery.isError}
-              errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
-              onShowFailure={(failure) => {
-                setActiveTab('activity')
-                setRunPage(0)
-                setSelectedRunId(null)
-                setSelectedModel(failure.model || 'all')
-                setRunFilters((current) => ({
-                  ...current,
-                  taskType: failure.task_type || '',
-                  status: 'error',
-                  onlyFailures: true,
-                }))
-              }}
-              days={days}
-              setDays={setDays}
-              onRefresh={() => invalidateAiQueries(queryClient)}
-            />
+            <section id={getAiTabPanelId('overview')} role="tabpanel" aria-labelledby={getAiTabButtonId('overview')}>
+              <OverviewTab
+                settings={settingsQuery.data}
+                readiness={readiness}
+                overview={overviewQuery.data}
+                isLoading={overviewQuery.isLoading}
+                isError={overviewQuery.isError}
+                errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
+                onShowFailure={(failure) => {
+                  setActiveTab('activity')
+                  setRunPage(0)
+                  setSelectedRunId(null)
+                  setSelectedModel(failure.model || 'all')
+                  setRunFilters((current) => ({
+                    ...current,
+                    taskType: failure.task_type || '',
+                    status: 'error',
+                    onlyFailures: true,
+                  }))
+                }}
+                days={days}
+                setDays={setDays}
+                onRefresh={() => invalidateAiQueries(queryClient)}
+              />
+            </section>
           )}
 
           {activeTab === 'activity' && (
-            <div ref={activityTabRef}>
+            <section
+              id={getAiTabPanelId('activity')}
+              role="tabpanel"
+              aria-labelledby={getAiTabButtonId('activity')}
+              ref={activityTabRef}
+            >
               <ActivityTab
                 days={days}
                 setDays={setDays}
@@ -619,32 +688,38 @@ export function AiSettingsPage() {
                 briefSourcesErrorMessage={(briefSourcesQuery.error as Error | undefined)?.message ?? ''}
                 selectedRunSectionRef={selectedRunSectionRef}
               />
-            </div>
+            </section>
           )}
 
           {activeTab === 'configuration' && (
-            <ConfigurationTab
-              draft={draft}
-              setDraft={setDraft}
-              settings={settingsQuery.data}
-              readiness={readiness}
-              isLoading={settingsQuery.isLoading}
-              isError={settingsQuery.isError}
-              errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
-              savePending={saveMutation.isPending}
-              onSave={() => {
-                setNotice(null)
-                saveMutation.mutate(createRequestFromDraft(draft))
-              }}
-              onTestConnection={() => {
-                setNotice(null)
-                testConnectionMutation.mutate()
-              }}
-              testPending={testConnectionMutation.isPending}
-              testResult={testResult}
-              promptHistory={promptHistoryQuery.data ?? []}
-              manualActions={manualActionsQuery.data ?? []}
-            />
+            <section
+              id={getAiTabPanelId('configuration')}
+              role="tabpanel"
+              aria-labelledby={getAiTabButtonId('configuration')}
+            >
+              <ConfigurationTab
+                draft={draft}
+                setDraft={setDraft}
+                settings={settingsQuery.data}
+                readiness={readiness}
+                isLoading={settingsQuery.isLoading}
+                isError={settingsQuery.isError}
+                errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
+                savePending={saveMutation.isPending}
+                onSave={() => {
+                  setNotice(null)
+                  saveMutation.mutate(createRequestFromDraft(draft))
+                }}
+                onTestConnection={() => {
+                  setNotice(null)
+                  testConnectionMutation.mutate()
+                }}
+                testPending={testConnectionMutation.isPending}
+                testResult={testResult}
+                promptHistory={promptHistoryQuery.data ?? []}
+                manualActions={manualActionsQuery.data ?? []}
+              />
+            </section>
           )}
         </section>
       </div>
@@ -671,6 +746,7 @@ export function AiSettingsPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedAiSettingsChanges.discardDialog}
     </div>
   )
 }
@@ -1658,12 +1734,17 @@ function ActivityTab({
     <div className="space-y-4">
       <Panel title="Operations" subtitle="Queue AI work, monitor current jobs, and inspect the full run history in one place.">
         <div className="flex flex-wrap items-center gap-2">
+          <label className="sr-only" htmlFor="ai-activity-window-days">
+            Activity window
+          </label>
           <select
+            id="ai-activity-window-days"
             value={days}
             onChange={(event) => {
               setDays(Number(event.target.value))
               setRunPage(0)
             }}
+            aria-label="Activity window"
             className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           >
             <option value={1}>Last 24h</option>
@@ -1671,12 +1752,17 @@ function ActivityTab({
             <option value={30}>Last 30d</option>
             <option value={90}>Last 90d</option>
           </select>
+          <label className="sr-only" htmlFor="ai-activity-model-filter">
+            Model filter
+          </label>
           <select
+            id="ai-activity-model-filter"
             value={selectedModel}
             onChange={(event) => {
               setSelectedModel(event.target.value)
               setRunPage(0)
             }}
+            aria-label="Model filter"
             className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           >
             {modelOptions.map((model) => (
@@ -1747,12 +1833,17 @@ function ActivityTab({
       >
         <Panel title="Task History" subtitle="Filter by type, status, trigger source, and model to find the runs you need.">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <label className="sr-only" htmlFor="ai-history-task-type-filter">
+              Task type filter
+            </label>
             <select
+              id="ai-history-task-type-filter"
               value={filters.taskType}
               onChange={(event) => {
                 setRunPage(0)
                 setFilters((current) => ({ ...current, taskType: event.target.value }))
               }}
+              aria-label="Task type filter"
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value="">All task types</option>
@@ -1761,12 +1852,17 @@ function ActivityTab({
               <option value="connection_test">Connection Test</option>
               <option value="reprocess">Reprocess</option>
             </select>
+            <label className="sr-only" htmlFor="ai-history-status-filter">
+              Status filter
+            </label>
             <select
+              id="ai-history-status-filter"
               value={filters.status}
               onChange={(event) => {
                 setRunPage(0)
                 setFilters((current) => ({ ...current, status: event.target.value }))
               }}
+              aria-label="Status filter"
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value="">All statuses</option>
@@ -1776,12 +1872,17 @@ function ActivityTab({
               <option value="error">Error</option>
               <option value="skipped">Skipped</option>
             </select>
+            <label className="sr-only" htmlFor="ai-history-trigger-filter">
+              Trigger source filter
+            </label>
             <select
+              id="ai-history-trigger-filter"
               value={filters.triggerSource}
               onChange={(event) => {
                 setRunPage(0)
                 setFilters((current) => ({ ...current, triggerSource: event.target.value }))
               }}
+              aria-label="Trigger source filter"
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value="">All triggers</option>
@@ -1814,20 +1915,24 @@ function ActivityTab({
 
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-sm">
+              <caption className="sr-only">AI task history. Select a run to inspect its details below.</caption>
               <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
                 <tr>
-                  <th className="pb-2">Type</th>
-                  <th className="pb-2">Article</th>
-                  <th className="pb-2">Trigger</th>
-                  <th className="pb-2">Queued</th>
-                  <th className="pb-2">Finished</th>
-                  <th className="pb-2">Duration</th>
-                  <th className="pb-2">Status</th>
-                  <th className="pb-2">Worker</th>
-                  <th className="pb-2">Model</th>
-                  <th className="pb-2">Tokens</th>
-                  <th className="pb-2">Error</th>
-                  <th className="pb-2">Inspect</th>
+                  <th scope="col" className="pb-2">
+                    <span className="sr-only">Select</span>
+                  </th>
+                  <th scope="col" className="pb-2">Type</th>
+                  <th scope="col" className="pb-2">Article</th>
+                  <th scope="col" className="pb-2">Trigger</th>
+                  <th scope="col" className="pb-2">Queued</th>
+                  <th scope="col" className="pb-2">Finished</th>
+                  <th scope="col" className="pb-2">Duration</th>
+                  <th scope="col" className="pb-2">Status</th>
+                  <th scope="col" className="pb-2">Worker</th>
+                  <th scope="col" className="pb-2">Model</th>
+                  <th scope="col" className="pb-2">Tokens</th>
+                  <th scope="col" className="pb-2">Error</th>
+                  <th scope="col" className="pb-2">Inspect</th>
                 </tr>
               </thead>
               <tbody>
@@ -1839,6 +1944,16 @@ function ActivityTab({
                     }`}
                     onClick={() => setSelectedRunId(run.id)}
                   >
+                    <td className="py-2 pr-2 align-top">
+                      <input
+                        type="radio"
+                        name="ai-selected-run"
+                        className="mt-1 h-4 w-4"
+                        aria-label={formatRunSelectionLabel(run)}
+                        checked={selectedRunId === run.id}
+                        onChange={() => setSelectedRunId(run.id)}
+                      />
+                    </td>
                     <td className="py-2">
                       <div className="font-medium">{formatTaskTypeLabel(run.task_type)}</div>
                       {run.feed_name && <div className="text-xs text-slate dark:text-white/55">{run.feed_name}</div>}
@@ -2392,7 +2507,7 @@ function Panel({
 }: {
   title: string
   subtitle?: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -2410,7 +2525,7 @@ function OverviewSection({
 }: {
   title: string
   description: string
-  children: React.ReactNode
+  children: ReactNode
 }) {
   return (
     <section className="rounded-2xl border border-slate/20 bg-white/70 p-5 dark:border-cyan-900/40 dark:bg-[#03130f]/80">
@@ -2424,20 +2539,32 @@ function OverviewSection({
 }
 
 function TabButton({
+  id,
+  controls,
   active,
   onClick,
+  onKeyDown,
   children,
   fullWidth = false,
 }: {
+  id: string
+  controls: string
   active: boolean
   onClick: () => void
-  children: React.ReactNode
+  onKeyDown: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
+  children: ReactNode
   fullWidth?: boolean
 }) {
   return (
     <button
       type="button"
+      id={id}
+      role="tab"
+      aria-selected={active}
+      aria-controls={controls}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
+      onKeyDown={onKeyDown}
       className={
         fullWidth
           ? `block rounded px-3 py-2 text-center text-sm transition lg:text-left ${
@@ -2475,7 +2602,7 @@ function MiniStat({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
+function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <dt className="text-slate dark:text-white/65">{label}</dt>
@@ -2657,7 +2784,7 @@ function Field({
   className = '',
 }: {
   label: string
-  children: React.ReactNode
+  children: ReactNode
   className?: string
 }) {
   return (
@@ -2668,7 +2795,7 @@ function Field({
   )
 }
 
-function EmptyInline({ children }: { children: React.ReactNode }) {
+function EmptyInline({ children }: { children: ReactNode }) {
   return <p className="text-sm text-slate dark:text-white/60">{children}</p>
 }
 
@@ -2779,6 +2906,11 @@ function cancelActionLabel(run: AITaskRunResponse) {
 
 function canInspectProviderExchange(run: AITaskRunResponse) {
   return run.task_type === 'item_enrichment' || run.task_type === 'daily_brief' || run.task_type === 'connection_test'
+}
+
+function formatRunSelectionLabel(run: AITaskRunResponse) {
+  const scope = run.item_title?.trim() || run.feed_name?.trim() || run.model?.trim() || formatTimestamp(run.queued_at)
+  return `Select ${formatTaskTypeLabel(run.task_type)} run ${scope}`
 }
 
 function describeRunScope(run: AITaskRunResponse) {

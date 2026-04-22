@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const taggingPageDomMocks = vi.hoisted(() => ({
-  confirmDiscard: vi.fn(() => true),
   queryClient: {
     invalidateQueries: vi.fn(),
   },
@@ -67,6 +66,14 @@ const taggingPageDomMocks = vi.hoisted(() => ({
   reapplyMutate: vi.fn(),
 }))
 
+const routerMocks = vi.hoisted(() => ({
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
+}))
+
 function taggingMutationResult(mutate: ReturnType<typeof vi.fn>) {
   return {
     mutate,
@@ -123,9 +130,13 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: () => taggingPageDomMocks.confirmDiscard,
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
 
 import { TaggingSettingsPage } from './TaggingSettingsPage'
 
@@ -142,6 +153,12 @@ function renderPage() {
   return container
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -155,7 +172,7 @@ afterEach(() => {
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
-  it('loads an existing rule, previews it, and confirms deletion', () => {
+  it('loads an existing rule, preserves toggle semantics, protects unsaved changes, and confirms deletion', () => {
     const view = renderPage()
 
     const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -169,6 +186,15 @@ describe('TaggingSettingsPage DOM workflows', () => {
 
     expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.value).toBe('VPN disclosures')
     expect(view.querySelector<HTMLInputElement>('#tagging-rule-tag-name')?.value).toBe('vpn')
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Any feed')?.getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Title')?.getAttribute('aria-pressed'),
+    ).toBe('true')
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Vulnerability')?.getAttribute('aria-pressed'),
+    ).toBe('true')
 
     const previewButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Preview rule'),
@@ -215,5 +241,35 @@ describe('TaggingSettingsPage DOM workflows', () => {
     })
 
     expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith('rule-1')
+
+    const nameInput = view.querySelector<HTMLInputElement>('#tagging-rule-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed rule name')
+    })
+
+    const newRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('New rule'),
+    )
+    expect(newRuleButton).not.toBeNull()
+
+    act(() => {
+      newRuleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved tagging changes?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.value).toBe('')
   })
 })

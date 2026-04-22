@@ -1487,6 +1487,97 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
     assert [event.success for event in usage_events] == [False, True]
 
 
+def test_run_item_ai_enrichment_stops_before_retry_when_cancel_requested_after_failure(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Post",
+        url="https://example.com/threat-post.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-post-retry-cancel",
+        url="https://example.com/articles/threat-post-retry-cancel",
+        canonical_url="https://example.com/articles/threat-post-retry-cancel",
+        title="Retry canceled after first failure",
+        summary="The run should stop before a second provider attempt.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="threat-post-retry-cancel",
+        content_hash="8" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="The provider fails once and the task is canceled before retry.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=1,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    attempts = {"count": 0}
+
+    def _fail_then_cancel(active, *, messages):
+        _ = (active, messages)
+        attempts["count"] += 1
+        if attempts["count"] > 1:
+            raise AssertionError("provider retry should not run after cancellation")
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.reason = "cancel_requested"
+        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        db_session.add(task_run)
+        db_session.flush()
+        raise AIIntegrationError("provider timeout")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert attempts["count"] == 1
+    assert result.status == "skipped"
+    assert result.reason == "canceled"
+    assert enrichment is not None
+    assert enrichment.status == "pending"
+    assert event is not None
+    assert event.payload_json["stage"] == "before_provider_retry"
+
+
 def test_run_daily_brief_generation_retries_after_truncated_model_output(
     db_session,
     ai_enabled_env,
@@ -1630,6 +1721,97 @@ def test_run_daily_brief_generation_retries_after_truncated_model_output(
         .order_by(AIUsageEvent.created_at.asc())
     ).all()
     assert [event.success for event in usage_events] == [False, True]
+
+
+def test_run_daily_brief_generation_stops_before_retry_when_cancel_requested_after_failure(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="daily-brief-retry-cancel",
+        url="https://example.com/articles/daily-brief-retry-cancel",
+        canonical_url="https://example.com/articles/daily-brief-retry-cancel",
+        title="Retry canceled after first failure",
+        summary="The daily brief should stop before a second provider attempt.",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="daily-brief-retry-cancel",
+        content_hash="9" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="The provider fails once and the daily brief is canceled before retry.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            request_max_retries=1,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    db_session.commit()
+
+    attempts = {"count": 0}
+
+    def _fail_then_cancel(active, *, messages):
+        _ = (active, messages)
+        attempts["count"] += 1
+        if attempts["count"] > 1:
+            raise AssertionError("provider retry should not run after cancellation")
+        task_run = db_session.get(AITaskRun, run.id)
+        assert task_run is not None
+        task_run.reason = "cancel_requested"
+        task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
+        db_session.add(task_run)
+        db_session.flush()
+        raise AIIntegrationError("provider timeout")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
+
+    result = run_daily_brief_generation(db_session, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "cancel_observed")
+        .order_by(AITaskEvent.created_at.desc())
+    )
+
+    assert attempts["count"] == 1
+    assert result.status == "skipped"
+    assert result.reason == "canceled"
+    assert result.brief is not None
+    assert result.brief.status == "pending"
+    assert event is not None
+    assert event.payload_json["stage"] == "before_provider_retry"
 
 
 def test_run_daily_brief_generation_discards_provider_result_when_cancel_requested_midflight(

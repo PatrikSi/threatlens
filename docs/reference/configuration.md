@@ -50,7 +50,7 @@
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
-| `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` (`notification_webhook_allowed_hosts`) | _(empty)_ | Comma-separated exact hosts or `*.suffix` patterns that non-admin users may target for create/update/test/retry webhook operations. When empty, analyst-managed webhook egress is disabled and only admins can manage outbound webhook destinations. |
+| `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` (`notification_webhook_allowed_hosts`) | _(empty)_ | Comma-separated exact hosts or `*.suffix` patterns that non-admin users may target for create/update/test/retry webhook operations. Plain host entries approve the default `https` origin for that host, explicit non-default ports are rejected, and `*.suffix` only matches subdomains. When empty, analyst-managed webhook egress is disabled and only admins can manage outbound webhook destinations. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
@@ -58,7 +58,7 @@
 | `AUTH_LOGIN_LOCKOUT_SECONDS` (`auth_login_lockout_seconds`) | `900` | Login lockout duration after threshold breaches. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
-| `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to provide `X-Forwarded-For`. |
+| `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Include every trusted hop in the proxy chain so client IP resolution can stop at the first untrusted address. |
 | `AUTH_COOKIE_NAME` (`auth_cookie_name`) | `threatlens_session` | HttpOnly auth cookie name for browser sessions. |
 | `AUTH_COOKIE_DOMAIN` (`auth_cookie_domain`) | _(empty)_ | Optional cookie domain override for browser session and CSRF cookies. |
 | `AUTH_COOKIE_PATH` (`auth_cookie_path`) | `/` | Cookie path applied to browser session and CSRF cookies. |
@@ -132,8 +132,8 @@ When `APP_ENV` is `production` or `prod`:
 ## Trust and Egress Notes
 
 - Feed/article fetches, AI calls, and notification webhooks are separate outbound trust boundaries with separate private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`).
-- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the analyst webhook egress allowlist. ThreatLens reevaluates queued analyst-owned webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries.
-- `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists.
+- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the analyst webhook egress allowlist. ThreatLens reevaluates queued analyst-owned webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries. Host-only entries approve the default `https` origin, and wildcard entries do not cover the apex domain.
+- `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
 - `APP_DATA_ENCRYPTION_KEY` protects stored webhook templates and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET`.
 
 ## Theme Storage

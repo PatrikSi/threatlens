@@ -548,6 +548,20 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         content_hash="3" * 64,
         status="new",
     )
+    aged_out_missing_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="aged-out-missing-item",
+        url="https://example.com/articles/aged-out-missing",
+        canonical_url="https://example.com/articles/aged-out-missing",
+        title="Aged out missing item",
+        summary="Summary",
+        published_at=now - timedelta(days=2),
+        first_seen_at=now - timedelta(days=2),
+        dedupe_key="aged-out-missing-item",
+        content_hash="4" * 64,
+        status="new",
+    )
     fetched_item = Item(
         id=uuid.uuid4(),
         feed_id=feed.id,
@@ -741,6 +755,7 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
             feed,
             old_item,
             recent_item,
+            aged_out_missing_item,
             fetched_item,
             failed_item,
             soft_failed_item,
@@ -782,13 +797,15 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
 
     result = dispatch_items_missing_articles.run()
 
-    assert result == {"queued": 5}
+    assert result == {"queued": 7}
     assert set(queued_item_ids) == {
         str(failed_item.id),
         str(soft_failed_item.id),
         str(extraction_failed_item.id),
         str(old_item.id),
+        str(aged_out_missing_item.id),
         str(stale_soft_failed_item.id),
+        str(aged_out_failed_item.id),
     }
 
 
@@ -990,6 +1007,88 @@ def test_fetch_article_falls_back_to_original_url_when_canonical_fetch_fails(db_
     assert queued == [str(item.id)]
 
 
+def test_fetch_article_keeps_committed_article_state_when_classification_enqueue_fails(db_session, monkeypatch, caplog):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="enqueue-failure-item",
+        url="https://example.com/articles/enqueue-failure",
+        canonical_url="https://example.com/articles/enqueue-failure",
+        title="Queue boundary target",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="enqueue-failure-item",
+        content_hash="c" * 64,
+        status="new",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _domain_slot_override(_domain: str, max_wait_seconds: int = 30):
+        _ = max_wait_seconds
+        yield
+
+    class _Response:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+        url = item.url
+
+        def iter_bytes(self):
+            yield b"<html><body><article><p>Recovered readable text.</p></article></body></html>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    def _raise_enqueue_failure(*_args, **_kwargs):
+        raise RuntimeError("broker down")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", _raise_enqueue_failure)
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_readable_text",
+        lambda _html: {
+            "title": "Recovered article",
+            "text": "Recovered readable text.",
+            "method": "readable",
+            "language": "en",
+            "word_count": 3,
+            "error": None,
+        },
+    )
+
+    with caplog.at_level("ERROR"):
+        result = fetch_article.run(str(item.id))
+
+    assert result == {"status": "ok", "item_id": str(item.id)}
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    assert article is not None
+    assert article.text == "Recovered readable text."
+    db_session.refresh(item)
+    assert item.status == "content_fetched"
 def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(db_session, monkeypatch):
     @contextmanager
     def _db_session_override():

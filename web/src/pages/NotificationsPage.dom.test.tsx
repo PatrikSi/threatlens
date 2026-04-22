@@ -7,7 +7,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const notificationsPageDomMocks = vi.hoisted(() => ({
-  confirmDiscard: vi.fn(() => true),
   queryClient: {
     invalidateQueries: vi.fn(),
   },
@@ -15,6 +14,14 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
   deleteMutate: vi.fn(),
   testMutate: vi.fn(),
   retryMutate: vi.fn(),
+}))
+
+const routerMocks = vi.hoisted(() => ({
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
 }))
 
 function notificationMutationResult(mutate: ReturnType<typeof vi.fn>) {
@@ -163,9 +170,13 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: () => notificationsPageDomMocks.confirmDiscard,
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
 
 import { NotificationsPage } from './NotificationsPage'
 
@@ -182,6 +193,12 @@ function renderPage() {
   return container
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -193,7 +210,7 @@ afterEach(() => {
 })
 
 describe('NotificationsPage DOM workflows', () => {
-  it('renders accessible request-shaping controls and confirms webhook deletion through the dialog', () => {
+  it('renders accessible request-shaping controls, protects unsaved changes, and confirms webhook deletion through the dialog', () => {
     const view = renderPage()
 
     const savedWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -211,6 +228,9 @@ describe('NotificationsPage DOM workflows', () => {
       'Query Parameters row 1 key',
     )
     expect(view.querySelector('button[aria-label="Remove Headers row 1"]')).not.toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Any feed')?.getAttribute('aria-pressed'),
+    ).toBe('true')
 
     const deleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Delete webhook'),
@@ -234,5 +254,35 @@ describe('NotificationsPage DOM workflows', () => {
     })
 
     expect(notificationsPageDomMocks.deleteMutate).toHaveBeenCalledWith('webhook-1')
+
+    const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed webhook name')
+    })
+
+    const newWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('New webhook'),
+    )
+    expect(newWebhookButton).not.toBeNull()
+
+    act(() => {
+      newWebhookButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved webhook changes?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.value).toBe('')
   })
 })

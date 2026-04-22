@@ -3,14 +3,23 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 const notificationsPageMocks = vi.hoisted(() => ({
-  confirmDiscard: vi.fn(() => true),
   queryClient: {
     invalidateQueries: vi.fn(),
   },
   useUnsavedChangesWarning: vi.fn(),
 }))
 
-notificationsPageMocks.useUnsavedChangesWarning.mockImplementation(() => notificationsPageMocks.confirmDiscard)
+function createDiscardMock() {
+  return Object.assign(
+    vi.fn((onDiscard?: () => void) => {
+      onDiscard?.()
+      return true
+    }),
+    { discardDialog: null },
+  )
+}
+
+notificationsPageMocks.useUnsavedChangesWarning.mockImplementation(() => createDiscardMock())
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => notificationsPageMocks.queryClient,

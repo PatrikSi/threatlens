@@ -7,7 +7,20 @@
     "homepage": "https://tanstack.com/query",
     "repository": "git+https://github.com/TanStack/query.git",
     "author": "tannerlinsley",
-    "package_path": "node_modules/@tanstack/query-core"
+    "package_path": "node_modules/@tanstack/query-core",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@tanstack/query-core/LICENSE",
+        "artifact_path": "@tanstack/query-core/5.97.0/LICENSE",
+        "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+      }
+    ]
   },
   {
     "name": "@tanstack/react-query",
@@ -17,7 +30,20 @@
     "homepage": "https://tanstack.com/query",
     "repository": "git+https://github.com/TanStack/query.git",
     "author": "tannerlinsley",
-    "package_path": "node_modules/@tanstack/react-query"
+    "package_path": "node_modules/@tanstack/react-query",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/@tanstack/react-query/LICENSE",
+        "artifact_path": "@tanstack/react-query/5.97.0/LICENSE",
+        "sha256": "a405ee70c632bb938acb7ac5f210e814409b3760ea9d2329d8ed8ffcfd11a0e7"
+      }
+    ]
   },
   {
     "name": "cookie",
@@ -27,7 +53,20 @@
     "homepage": null,
     "repository": "jshttp/cookie",
     "author": "Roman Shtylman <shtylman@gmail.com>",
-    "package_path": "node_modules/cookie"
+    "package_path": "node_modules/cookie",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/cookie/LICENSE",
+        "artifact_path": "cookie/1.1.1/LICENSE",
+        "sha256": "c02110eedc16c7114f1a9bdc026c65626ce1d9c7e27fd51a8e0feee8a48a6858"
+      }
+    ]
   },
   {
     "name": "react",
@@ -37,7 +76,20 @@
     "homepage": "https://react.dev/",
     "repository": "https://github.com/facebook/react.git",
     "author": null,
-    "package_path": "node_modules/react"
+    "package_path": "node_modules/react",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/react/LICENSE",
+        "artifact_path": "react/19.2.5/LICENSE",
+        "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+      }
+    ]
   },
   {
     "name": "react-dom",
@@ -47,7 +99,20 @@
     "homepage": "https://react.dev/",
     "repository": "https://github.com/facebook/react.git",
     "author": null,
-    "package_path": "node_modules/react-dom"
+    "package_path": "node_modules/react-dom",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/react-dom/LICENSE",
+        "artifact_path": "react-dom/19.2.5/LICENSE",
+        "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+      }
+    ]
   },
   {
     "name": "react-router",
@@ -57,7 +122,20 @@
     "homepage": null,
     "repository": "https://github.com/remix-run/react-router",
     "author": "Remix Software <hello@remix.run>",
-    "package_path": "node_modules/react-router"
+    "package_path": "node_modules/react-router",
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.md",
+        "source_path": "node_modules/react-router/LICENSE.md",
+        "artifact_path": "react-router/7.14.0/LICENSE.md",
+        "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
+      }
+    ]
   },
   {
     "name": "react-router-dom",
@@ -67,7 +145,20 @@
     "homepage": null,
     "repository": "https://github.com/remix-run/react-router",
     "author": "Remix Software <hello@remix.run>",
-    "package_path": "node_modules/react-router-dom"
+    "package_path": "node_modules/react-router-dom",
+    "license_files": [
+      "LICENSE.md"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.md",
+        "source_path": "node_modules/react-router-dom/LICENSE.md",
+        "artifact_path": "react-router-dom/7.14.0/LICENSE.md",
+        "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
+      }
+    ]
   },
   {
     "name": "scheduler",
@@ -77,7 +168,20 @@
     "homepage": "https://react.dev/",
     "repository": "https://github.com/facebook/react.git",
     "author": null,
-    "package_path": "node_modules/scheduler"
+    "package_path": "node_modules/scheduler",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/scheduler/LICENSE",
+        "artifact_path": "scheduler/0.27.0/LICENSE",
+        "sha256": "da6d3703ed11cbe42bd212c725957c98da23cbff1998c05fa4b3d976d1a58e93"
+      }
+    ]
   },
   {
     "name": "set-cookie-parser",
@@ -87,6 +191,19 @@
     "homepage": "https://github.com/nfriedly/set-cookie-parser",
     "repository": "nfriedly/set-cookie-parser",
     "author": "Nathan Friedly",
-    "package_path": "node_modules/set-cookie-parser"
+    "package_path": "node_modules/set-cookie-parser",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "node_modules/set-cookie-parser/LICENSE",
+        "artifact_path": "set-cookie-parser/2.7.2/LICENSE",
+        "sha256": "c5c6c5183a789d122f267c405f685037efb87e27fcde28ab1dd7378a2d2f5962"
+      }
+    ]
   }
 ]

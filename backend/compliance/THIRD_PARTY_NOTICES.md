@@ -18,6 +18,7 @@ Generated resolved runtime inventories committed in this repository:
 - `docs/reference/frontend-runtime-dependencies.txt`
 - `docs/reference/backend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-metadata.json`
+- `docs/reference/frontend-runtime-package-legal/`
 
 Refresh the backend runtime lockfile and regenerate those inventory files with:
 
@@ -31,10 +32,12 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
   --backend-metadata-output docs/reference/backend-runtime-package-metadata.json \
   --frontend-output docs/reference/frontend-runtime-dependencies.txt
 docker run --rm -v "$PWD":/src -w /src/web node:22.20.0-alpine \
-  sh -lc 'npm ci >/dev/null && node ./scripts/generate_runtime_package_metadata.mjs --output /src/docs/reference/frontend-runtime-package-metadata.json'
+  sh -lc 'npm ci >/dev/null && node ./scripts/generate_runtime_package_metadata.mjs \
+    --output /src/docs/reference/frontend-runtime-package-metadata.json \
+    --legal-output-dir /src/docs/reference/frontend-runtime-package-legal'
 ```
 
-The backend inventory and backend metadata inventory are intentionally generated from the built backend image rather than a local development venv so they reflect the redistributed runtime environment installed by `backend/Dockerfile`. The frontend inventory is generated from the committed npm lockfile, and the frontend metadata inventory is generated from the installed runtime package manifests after `npm ci`. These artifacts document package-specific metadata for the shipped runtime stack, but ThreatLens does not yet publish external supply-chain attestations.
+The backend inventory and backend metadata inventory are intentionally generated from the built backend image rather than a local development venv so they reflect the redistributed runtime environment installed by `backend/Dockerfile`. The frontend inventory is generated from the committed npm lockfile, and the frontend metadata inventory plus `frontend-runtime-package-legal/` bundle are generated from the installed runtime package manifests after `npm ci`. The frontend metadata inventory records each package-published legal file copied into that bundle, including its artifact path and SHA-256 digest. These artifacts document package-specific metadata for the shipped runtime stack, but ThreatLens does not yet publish external supply-chain attestations.
 
 Bundled license texts shipped in this repository:
 
@@ -49,7 +52,7 @@ Bundled license texts shipped in this repository:
 - `docs/licenses/LGPL-3.0.txt`
 - `docs/licenses/GPL-3.0.txt`
 
-The MIT/BSD family texts above are supplemental family references. Package-specific metadata is committed in `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json`. Built backend images also preserve wheel-provided notice files and upstream package metadata under the installed Python `.dist-info/` directories.
+The MIT/BSD family texts above are supplemental family references. Package-specific frontend redistribution files are committed under `docs/reference/frontend-runtime-package-legal/`, and `docs/reference/frontend-runtime-package-metadata.json` maps each runtime package to the copied legal files. Built backend images also preserve wheel-provided notice files and upstream package metadata under the installed Python `.dist-info/` directories.
 
 ## Bundled Frontend Assets
 
@@ -105,11 +108,12 @@ These files are committed directly in this repository:
 ## Distribution Notes
 
 - Built web bundles include code from the frontend runtime dependencies listed above.
-- Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles. The full resolved runtime inventories are committed under `docs/reference/` and can be regenerated with the command above.
+- Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles. The full resolved runtime inventories and the generated frontend package-legal bundle are committed under `docs/reference/` and can be regenerated with the command above.
 - Built backend images ship `LICENSE`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `backend-requirements.txt`, `backend-requirements-lock.txt`, and `backend-runtime-dependencies.txt` under `/usr/share/doc/threatlens/`.
 - Built backend images also ship `backend-runtime-package-metadata.json` under `/usr/share/doc/threatlens/`.
-- Built web images ship `LICENSE`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `frontend-package-lock.json`, `frontend-runtime-dependencies.txt`, and `frontend-runtime-package-metadata.json` under `/usr/share/doc/threatlens/`.
+- Built web images ship `LICENSE`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `frontend-package-lock.json`, `frontend-runtime-dependencies.txt`, `frontend-runtime-package-metadata.json`, and `frontend-runtime-package-legal/` under `/usr/share/doc/threatlens/`.
 - Built backend images also preserve upstream package metadata and wheel-provided notice files in the installed Python distribution directories under `/usr/local/lib/python3.12/site-packages/*.dist-info/`.
+- Built web images copy package-published `LICENSE`, `NOTICE`, `COPYING`, and similar top-level legal files from each installed frontend runtime dependency into `/usr/share/doc/threatlens/frontend-runtime-package-legal/`.
 - Apache-2.0 third-party components use the standard Apache 2.0 license text already shipped as the repository `LICENSE`.
 - The backend dependency spec installs `psycopg[binary]`, which pulls in both `psycopg` and `psycopg-binary`. Redistributors should preserve the shipped license texts, the backend lockfile, and the upstream wheel metadata already present in the image. If your compliance program requires a locally linked PostgreSQL client or a different LGPL fulfillment path, rebuild from `backend/requirements.txt` with non-binary `psycopg` before redistribution.
 - ThreatLens redistributes `psycopg-binary` as received from PyPI at the version pinned in `backend/requirements-lock.txt`. Downstream redistributors should review the upstream project source/wheel publication path and satisfy any corresponding LGPL source-offer or relinkability obligations required by their distribution model.

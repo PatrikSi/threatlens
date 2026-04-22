@@ -207,23 +207,40 @@ export function TaggingSettingsPage() {
   const ruleValidationError = getRuleDraftValidationError(ruleDraft)
 
   const onSelectRule = (rule: TaggingRule) => {
-    if (rule.id !== selectedRuleId && hasUnsavedRuleDraftChanges && !confirmDiscardUnsavedTaggingChanges()) {
+    if (rule.id === selectedRuleId) {
       return
     }
-    setSelectedRuleId(rule.id)
-    setRuleDraft(createDraftFromRule(rule))
-    setPreviewResult(null)
-    setNotice(null)
+    if (!hasUnsavedRuleDraftChanges) {
+      setSelectedRuleId(rule.id)
+      setRuleDraft(createDraftFromRule(rule))
+      setPreviewResult(null)
+      setNotice(null)
+      return
+    }
+
+    confirmDiscardUnsavedTaggingChanges(() => {
+      setSelectedRuleId(rule.id)
+      setRuleDraft(createDraftFromRule(rule))
+      setPreviewResult(null)
+      setNotice(null)
+    })
   }
 
   const onCreateNewRule = () => {
-    if (hasUnsavedRuleDraftChanges && !confirmDiscardUnsavedTaggingChanges()) {
+    if (!hasUnsavedRuleDraftChanges) {
+      setSelectedRuleId(null)
+      setRuleDraft(createDefaultRuleDraft())
+      setPreviewResult(null)
+      setNotice(null)
       return
     }
-    setSelectedRuleId(null)
-    setRuleDraft(createDefaultRuleDraft())
-    setPreviewResult(null)
-    setNotice(null)
+
+    confirmDiscardUnsavedTaggingChanges(() => {
+      setSelectedRuleId(null)
+      setRuleDraft(createDefaultRuleDraft())
+      setPreviewResult(null)
+      setNotice(null)
+    })
   }
 
   const onPreviewRule = () => {
@@ -315,7 +332,9 @@ export function TaggingSettingsPage() {
                 const active = settingsDraft.enabled_categories.includes(category)
                 return (
                   <button
+                    type="button"
                     key={category}
+                    aria-pressed={active}
                     className={`rounded-full border px-3 py-1.5 text-sm ${
                       active
                         ? 'border-cyan bg-cyan/10 text-cyan-900 dark:border-cyan-700/60 dark:bg-cyan-950/40 dark:text-cyan-100'
@@ -588,8 +607,14 @@ export function TaggingSettingsPage() {
                   <h4 className="font-semibold">Feed Scope</h4>
                   <p className="mt-1 text-xs text-slate dark:text-white/65">Target all feeds or limit this rule to selected feeds.</p>
                 </div>
-                <div className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+                <div
+                  role="group"
+                  aria-label="Rule feed scope"
+                  className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40"
+                >
                   <button
+                    type="button"
+                    aria-pressed={ruleDraft.feed_scope === 'all'}
                     className={`rounded px-3 py-1 text-sm ${
                       ruleDraft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'
                     }`}
@@ -598,6 +623,8 @@ export function TaggingSettingsPage() {
                     Any feed
                   </button>
                   <button
+                    type="button"
+                    aria-pressed={ruleDraft.feed_scope === 'selected'}
                     className={`rounded px-3 py-1 text-sm ${
                       ruleDraft.feed_scope === 'selected'
                         ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
@@ -766,6 +793,7 @@ export function TaggingSettingsPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedTaggingChanges.discardDialog}
     </div>
   )
 }
@@ -787,12 +815,14 @@ function RuleSelectionGroup<T extends string>({
     <div className="mt-5">
       <h4 className="font-semibold">{title}</h4>
       <p className="mt-1 text-xs text-slate dark:text-white/65">{description}</p>
-      <div className="mt-2 flex flex-wrap gap-2">
+      <div role="group" aria-label={title} className="mt-2 flex flex-wrap gap-2">
         {entries.map((entry) => {
           const active = selectedValues.includes(entry.value)
           return (
             <button
+              type="button"
               key={entry.value}
+              aria-pressed={active}
               className={`rounded-full border px-3 py-1.5 text-sm ${
                 active
                   ? 'border-cyan bg-cyan/10 text-cyan-900 dark:border-cyan-700/60 dark:bg-cyan-950/40 dark:text-cyan-100'

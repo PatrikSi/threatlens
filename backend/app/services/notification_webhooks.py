@@ -786,6 +786,7 @@ def reserve_notification_webhook_delivery(
     source_delivery_id: uuid.UUID | None = None,
     scope_key: str | None = None,
     render_delivery_id: uuid.UUID | None = None,
+    not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery:
     payload = notification_webhook_write_from_model(webhook)
     delivery_id = uuid.uuid4()
@@ -824,6 +825,7 @@ def reserve_notification_webhook_delivery(
             source_delivery_id=source_delivery_id,
             scope_key=scope_key,
             attempted_at=queued_at,
+            not_before=not_before,
             error=f"{RENDER_FAILURE_ERROR_PREFIX}{exc}",
         )
 
@@ -841,6 +843,7 @@ def reserve_notification_webhook_delivery(
         source_delivery_id=source_delivery_id,
         scope_key=scope_key,
         attempted_at=queued_at,
+        not_before=not_before,
     )
 
 
@@ -849,11 +852,13 @@ def reserve_notification_webhook_delivery_from_saved_request(
     *,
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
+    not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery:
     rerendered = _reserve_notification_webhook_delivery_from_current_context(
         db,
         webhook=webhook,
         delivery=delivery,
+        not_before=not_before,
     )
     if rerendered is not None:
         return rerendered
@@ -871,6 +876,7 @@ def reserve_notification_webhook_delivery_from_saved_request(
         source_delivery_id=delivery.source_delivery_id or delivery.id,
         scope_key=delivery.scope_key,
         attempted_at=datetime.now(timezone.utc),
+        not_before=not_before,
     )
 
 
@@ -879,6 +885,7 @@ def _reserve_notification_webhook_delivery_from_current_context(
     *,
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
+    not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
     payload = notification_webhook_write_from_model(webhook)
     user = db.scalar(select(User).where(User.id == webhook.user_id))
@@ -934,6 +941,7 @@ def _reserve_notification_webhook_delivery_from_current_context(
         source_delivery_id=delivery.source_delivery_id or delivery.id,
         scope_key=delivery.scope_key,
         render_delivery_id=delivery.source_delivery_id or delivery.id,
+        not_before=not_before,
     )
 
 
@@ -1027,7 +1035,8 @@ def list_recoverable_notification_delivery_ids(
     limit: int = NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE,
     now: datetime | None = None,
 ) -> list[uuid.UUID]:
-    claim_cutoff = (now or datetime.now(timezone.utc)) - NOTIFICATION_DELIVERY_STALE_AFTER
+    current_time = now or datetime.now(timezone.utc)
+    claim_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
     return list(
         db.scalars(
             select(NotificationWebhookDelivery.id)
@@ -1035,7 +1044,13 @@ def list_recoverable_notification_delivery_ids(
                 or_(
                     and_(
                         NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
-                        NotificationWebhookDelivery.attempted_at < claim_cutoff,
+                        or_(
+                            and_(
+                                NotificationWebhookDelivery.not_before.is_(None),
+                                NotificationWebhookDelivery.attempted_at < claim_cutoff,
+                            ),
+                            NotificationWebhookDelivery.not_before <= current_time,
+                        ),
                     ),
                     and_(
                         NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING,
@@ -1046,7 +1061,7 @@ def list_recoverable_notification_delivery_ids(
                     ),
                 )
             )
-            .order_by(NotificationWebhookDelivery.attempted_at.asc())
+            .order_by(func.coalesce(NotificationWebhookDelivery.not_before, NotificationWebhookDelivery.attempted_at).asc())
             .limit(limit)
         ).all()
     )
@@ -1141,8 +1156,13 @@ def reserve_retryable_notification_webhook_delivery(
     if reusable_retry is not None:
         return NotificationWebhookRetryReservation(delivery=reusable_retry, created=False, countdown_seconds=None)
 
-    retried = reserve_notification_webhook_delivery_from_saved_request(db, webhook=webhook, delivery=delivery)
     countdown_seconds = _notification_delivery_retry_delay_seconds(chain_attempt_count)
+    retried = reserve_notification_webhook_delivery_from_saved_request(
+        db,
+        webhook=webhook,
+        delivery=delivery,
+        not_before=datetime.now(timezone.utc) + timedelta(seconds=countdown_seconds),
+    )
     return NotificationWebhookRetryReservation(
         delivery=retried,
         created=True,
@@ -1557,7 +1577,9 @@ def get_notification_delivery_queue_snapshot(
     )
 
     oldest_pending_at = db.scalar(
-        select(func.min(NotificationWebhookDelivery.attempted_at)).where(*pending_filters)
+        select(func.min(func.coalesce(NotificationWebhookDelivery.not_before, NotificationWebhookDelivery.attempted_at))).where(
+            *pending_filters
+        )
     )
     oldest_sending_at = db.scalar(
         select(func.min(func.coalesce(NotificationWebhookDelivery.claimed_at, NotificationWebhookDelivery.attempted_at))).where(
@@ -1843,6 +1865,7 @@ def _create_pending_notification_webhook_delivery(
     source_delivery_id: uuid.UUID | None,
     scope_key: str | None,
     attempted_at: datetime,
+    not_before: datetime | None,
 ) -> NotificationWebhookDelivery:
     delivery = NotificationWebhookDelivery(
         id=delivery_id,
@@ -1856,6 +1879,7 @@ def _create_pending_notification_webhook_delivery(
         delivery_kind=delivery_kind,
         delivery_state=NOTIFICATION_DELIVERY_PENDING,
         attempt_count=0,
+        not_before=not_before,
         claimed_at=None,
         success=False,
         status_code=None,
@@ -1897,6 +1921,7 @@ def _create_pending_notification_webhook_delivery_from_render_failure(
     source_delivery_id: uuid.UUID | None,
     scope_key: str | None,
     attempted_at: datetime,
+    not_before: datetime | None,
     error: str,
 ) -> NotificationWebhookDelivery:
     delivery = NotificationWebhookDelivery(
@@ -1911,6 +1936,7 @@ def _create_pending_notification_webhook_delivery_from_render_failure(
         delivery_kind=delivery_kind,
         delivery_state=NOTIFICATION_DELIVERY_PENDING,
         attempt_count=0,
+        not_before=not_before,
         claimed_at=None,
         success=False,
         status_code=None,
@@ -1950,6 +1976,12 @@ def _claim_notification_webhook_delivery(
 
     if delivery.delivery_state in NOTIFICATION_DELIVERY_TERMINAL_STATES:
         return None
+    if delivery.delivery_state == NOTIFICATION_DELIVERY_PENDING and delivery.not_before is not None:
+        scheduled_for = delivery.not_before
+        if scheduled_for.tzinfo is None:
+            scheduled_for = scheduled_for.replace(tzinfo=timezone.utc)
+        if scheduled_for > current_time:
+            return None
     if (
         delivery.delivery_state == NOTIFICATION_DELIVERY_SENDING
         and delivery.claimed_at is not None

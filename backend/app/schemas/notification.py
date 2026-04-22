@@ -147,6 +147,7 @@ class NotificationWebhookDeliveryResponse(BaseModel):
     delivery_kind: NotificationDeliveryKind
     delivery_state: NotificationDeliveryState
     attempt_count: int
+    not_before: datetime | None
     claimed_at: datetime | None
     success: bool
     status_code: int | None

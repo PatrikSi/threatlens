@@ -86,7 +86,15 @@ vi.mock('../hooks/useCurrentUser', () => ({
 }))
 
 vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: vi.fn(),
+  useUnsavedChangesWarning: vi.fn(() =>
+    Object.assign(
+      vi.fn((onDiscard?: () => void) => {
+        onDiscard?.()
+        return true
+      }),
+      { discardDialog: null },
+    ),
+  ),
 }))
 
 import { DashboardPage } from './DashboardPage'

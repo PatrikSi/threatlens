@@ -88,6 +88,12 @@ class AIIntegrationError(ValueError):
         return payload
 
 
+class AITaskRunStoppedError(RuntimeError):
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class AICompletionResult:
     payload: dict[str, object]
@@ -295,6 +301,13 @@ def run_item_ai_enrichment(
                 tag_names=tag_names,
             ),
         )
+    except AITaskRunStoppedError as exc:
+        return AIItemEnrichmentResult(
+            enrichment=enrichment,
+            status="skipped",
+            reason=exc.reason,
+            input_text_chars=len(article.text or ""),
+        )
     except AIIntegrationError as exc:
         enrichment.status = "error"
         enrichment.error = str(exc)
@@ -496,6 +509,14 @@ def run_daily_brief_generation(
             daily_brief_id=brief.id,
             task_run_id=task_run_id,
             messages=_build_daily_brief_messages(active, item_rows=item_rows, window_start=window_start, window_end=window_end),
+        )
+    except AITaskRunStoppedError as exc:
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="skipped",
+            reason=exc.reason,
+            items_considered=len(item_rows_all),
+            items_selected=len(item_rows),
         )
     except AIIntegrationError as exc:
         brief.status = "error"
@@ -864,6 +885,14 @@ def _request_json_with_usage(
     request_max_tokens = active.max_completion_tokens
 
     for attempt in range(1, max_attempts + 1):
+        if attempt > 1:
+            stop_reason = _record_task_run_stop_observed(
+                db,
+                task_run_id=task_run_id,
+                stage="before_provider_retry",
+            )
+            if stop_reason is not None:
+                raise AITaskRunStoppedError(stop_reason)
         try:
             call_kwargs: dict[str, object] = {"messages": messages}
             if request_max_tokens != active.max_completion_tokens:

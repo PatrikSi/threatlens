@@ -22,7 +22,17 @@ def _make_request(*, client_host: str, forwarded_for: str | None = None) -> Requ
     return Request(scope)
 
 
-def test_resolve_client_ip_uses_last_forwarded_hop_from_trusted_proxy(monkeypatch):
+def test_resolve_client_ip_walks_back_to_first_untrusted_client_hop(monkeypatch):
+    monkeypatch.setattr(
+        deps,
+        "get_settings",
+        lambda: SimpleNamespace(trusted_proxy_cidrs=["172.16.0.0/12", "198.51.100.0/24"]),
+    )
+    request = _make_request(client_host="172.18.0.2", forwarded_for="203.0.113.10, 198.51.100.44")
+    assert deps.resolve_client_ip(request) == "203.0.113.10"
+
+
+def test_resolve_client_ip_stops_when_forwarded_chain_reaches_untrusted_proxy(monkeypatch):
     monkeypatch.setattr(
         deps,
         "get_settings",
@@ -40,6 +50,19 @@ def test_resolve_client_ip_ignores_forwarded_header_from_untrusted_peer(monkeypa
     )
     request = _make_request(client_host="198.51.100.7", forwarded_for="203.0.113.10")
     assert deps.resolve_client_ip(request) == "198.51.100.7"
+
+
+def test_resolve_client_ip_ignores_invalid_forwarded_hops(monkeypatch):
+    monkeypatch.setattr(
+        deps,
+        "get_settings",
+        lambda: SimpleNamespace(trusted_proxy_cidrs=["172.16.0.0/12", "198.51.100.0/24"]),
+    )
+    request = _make_request(
+        client_host="172.18.0.2",
+        forwarded_for="garbage, 203.0.113.10, not-an-ip, 198.51.100.44",
+    )
+    assert deps.resolve_client_ip(request) == "203.0.113.10"
 
 
 def test_require_token_scopes_rejects_session_jwt_used_in_authorization_header():

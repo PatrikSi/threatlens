@@ -43,9 +43,12 @@ If your change ships new dependencies, bundled assets, or new runtime behavior, 
 - `README.md` and `docs/`
 - `.env.example`
 - `THIRD_PARTY_NOTICES.md`
-- `docs/licenses/*` when bundled license texts need to be added or refreshed
+- `docs/licenses/*` when bundled family license texts need to be added or refreshed
+- `docs/reference/backend-runtime-package-metadata.json`
+- `docs/reference/frontend-runtime-package-metadata.json`
+- `docs/reference/frontend-runtime-package-legal/`
 
-If you add bundled font or media assets, document the exact upstream source and license terms. If you change packaged backend dependencies, re-check whether redistribution guidance needs to change.
+If you add bundled font or media assets, document the exact upstream source and license terms. If you change packaged backend dependencies, re-check whether redistribution guidance needs to change. If you change packaged frontend dependencies, regenerate the frontend package-legal bundle instead of hand-editing files under `docs/reference/frontend-runtime-package-legal/`.
 
 If your change affects the published API contract, regenerate the checked-in API artifacts:
 
@@ -53,7 +56,7 @@ If your change affects the published API contract, regenerate the checked-in API
 ./backend/.venv/bin/python backend/scripts/generate_api_reference.py
 ```
 
-If your change affects shipped dependencies, bundled assets, or release-compliance metadata, regenerate the dependency inventories from a clean backend runtime image:
+If your change affects shipped dependencies, bundled assets, or release-compliance metadata, regenerate the release artifacts with the same workflow used for a public release:
 
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
@@ -62,7 +65,12 @@ BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
 docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
   python backend/scripts/generate_dependency_inventory.py \
   --backend-output docs/reference/backend-runtime-dependencies.txt \
+  --backend-metadata-output docs/reference/backend-runtime-package-metadata.json \
   --frontend-output docs/reference/frontend-runtime-dependencies.txt
+docker run --rm -v "$PWD":/src -w /src/web node:22.20.0-alpine \
+  sh -lc 'npm ci >/dev/null && node ./scripts/generate_runtime_package_metadata.mjs \
+    --output /src/docs/reference/frontend-runtime-package-metadata.json \
+    --legal-output-dir /src/docs/reference/frontend-runtime-package-legal'
 ```
 
 Before merging release-contract changes, review at least:
@@ -72,6 +80,9 @@ Before merging release-contract changes, review at least:
 - `docs/reference/openapi.json`
 - `docs/reference/backend-runtime-dependencies.txt`
 - `docs/reference/frontend-runtime-dependencies.txt`
+- `docs/reference/backend-runtime-package-metadata.json`
+- `docs/reference/frontend-runtime-package-metadata.json`
+- `docs/reference/frontend-runtime-package-legal/`
 - `docs/reference/release-process.md`
 - `backend/requirements-lock.txt`
 - `backend/compliance/`
@@ -87,4 +98,4 @@ Before merging release-contract changes, review at least:
 
 For non-sensitive product questions, open an issue at `https://github.com/PatrikSi/threatlens/issues` or draft a pull request at `https://github.com/PatrikSi/threatlens/pulls`.
 
-For security-sensitive concerns, follow `SECURITY.md` and start from the repository security page at `https://github.com/PatrikSi/threatlens/security`.
+For security-sensitive concerns, follow `SECURITY.md`. Do not post exploit details, credentials, or proof-of-concept data in a public issue or pull request.

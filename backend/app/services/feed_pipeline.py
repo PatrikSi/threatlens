@@ -13,7 +13,6 @@ from app.models.item import Item
 from app.services.article_recovery import (
     article_fast_retryable_error_filter,
     article_fetch_repair_cutoff,
-    article_fetch_repair_floor,
     article_soft_repair_cutoff,
     article_soft_retryable_error_filter,
 )
@@ -64,7 +63,6 @@ def list_item_ids_missing_articles(
     dispatch_after_seconds: int,
 ) -> list[uuid.UUID]:
     repair_cutoff = article_fetch_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
-    repair_floor = article_fetch_repair_floor(now=now)
     soft_repair_cutoff = article_soft_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
     return list(
         db.scalars(
@@ -74,13 +72,11 @@ def list_item_ids_missing_articles(
                 or_(
                     and_(
                         Article.item_id.is_(None),
-                        Item.first_seen_at >= repair_floor,
                         Item.first_seen_at <= repair_cutoff,
                     ),
                     and_(
                         Article.text.is_(None),
                         Article.retrieved_at.is_not(None),
-                        Article.retrieved_at >= repair_floor,
                         or_(
                             and_(
                                 Article.retrieved_at <= repair_cutoff,

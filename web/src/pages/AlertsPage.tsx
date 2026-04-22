@@ -160,23 +160,31 @@ export function AlertsPage() {
   }
 
   const onEdit = (alert: AlertInterest) => {
-    if (alert.id !== editingAlertId && !confirmDiscardUnsavedAlertChanges()) {
+    if (alert.id === editingAlertId) {
       return
     }
-    setEditingAlertId(alert.id)
-    setName(alert.name)
-    setCategory(alert.category)
-    setKeywordsText(alert.keywords.join(', '))
+    confirmDiscardUnsavedAlertChanges(() => {
+      setEditingAlertId(alert.id)
+      setName(alert.name)
+      setCategory(alert.category)
+      setKeywordsText(alert.keywords.join(', '))
+    })
   }
 
   function resetForm(force = false) {
-    if (!force && !confirmDiscardUnsavedAlertChanges()) {
+    if (force) {
+      setEditingAlertId(null)
+      setName('')
+      setCategory(ALERT_CATEGORIES[0].value)
+      setKeywordsText('')
       return
     }
-    setEditingAlertId(null)
-    setName('')
-    setCategory(ALERT_CATEGORIES[0].value)
-    setKeywordsText('')
+    confirmDiscardUnsavedAlertChanges(() => {
+      setEditingAlertId(null)
+      setName('')
+      setCategory(ALERT_CATEGORIES[0].value)
+      setKeywordsText('')
+    })
   }
 
   const confirmDeleteAlert = () => {
@@ -481,6 +489,7 @@ export function AlertsPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedAlertChanges.discardDialog}
     </>
   )
 }

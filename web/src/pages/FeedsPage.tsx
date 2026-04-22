@@ -466,7 +466,10 @@ export function FeedsPage() {
   const hasUnsavedFeedScheduleChanges = (feedsQuery.data ?? []).some((feed) =>
     isFeedScheduleDraftDirty(feed, feedDrafts[feed.id] ?? feedToScheduleDraft(feed)),
   )
-  useUnsavedChangesWarning(hasUnsavedFeedScheduleChanges, 'You have unsaved feed schedule changes. Leave without saving?')
+  const confirmDiscardUnsavedFeedScheduleChanges = useUnsavedChangesWarning(
+    hasUnsavedFeedScheduleChanges,
+    'You have unsaved feed schedule changes. Leave without saving?',
+  )
 
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
@@ -946,6 +949,7 @@ export function FeedsPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedFeedScheduleChanges.discardDialog}
     </div>
   )
 }

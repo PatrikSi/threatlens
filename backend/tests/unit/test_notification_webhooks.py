@@ -136,9 +136,37 @@ def test_validate_notification_webhook_payload_for_actor_requires_approved_host_
 
     with pytest.raises(
         ValueError,
-        match="Webhook destination host 'evil.example.net' is not approved for analyst-managed webhook deliveries",
+        match="Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_webhook_payload_for_actor(blocked_payload, set(), actor_user=analyst)
+
+
+def test_validate_notification_webhook_payload_for_actor_rejects_non_default_ports_for_analysts(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        ["hooks.example.com"],
+    )
+
+    payload = NotificationWebhookWrite(
+        name="Blocked",
+        url_template="https://hooks.example.com:8443/notify",
+        method="POST",
+        body_mode="none",
+    )
+    analyst = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries",
+    ):
+        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
 
 
 def test_notification_webhook_write_extracts_query_params_from_url_template():
@@ -224,6 +252,50 @@ def test_list_recoverable_notification_delivery_ids_only_returns_stale_pending_o
         delivery_state="pending",
         attempt_count=0,
     )
+    overdue_delayed_retry = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="retry",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=1),
+        not_before=now - timedelta(seconds=30),
+        delivery_state="pending",
+        attempt_count=0,
+    )
+    future_delayed_retry = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="retry",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now - timedelta(minutes=10),
+        not_before=now + timedelta(minutes=5),
+        delivery_state="pending",
+        attempt_count=0,
+    )
     stale_sending = NotificationWebhookDelivery(
         id=uuid.uuid4(),
         webhook_id=webhook.id,
@@ -271,12 +343,20 @@ def test_list_recoverable_notification_delivery_ids_only_returns_stale_pending_o
 
     _persist_rows(db_session, user)
     _persist_rows(db_session, webhook)
-    _persist_rows(db_session, stale_pending, fresh_pending, stale_sending, fresh_sending)
+    _persist_rows(
+        db_session,
+        stale_pending,
+        fresh_pending,
+        overdue_delayed_retry,
+        future_delayed_retry,
+        stale_sending,
+        fresh_sending,
+    )
     db_session.commit()
 
     recoverable = list_recoverable_notification_delivery_ids(db_session, now=now)
 
-    assert recoverable == [stale_pending.id, stale_sending.id]
+    assert recoverable == [stale_pending.id, stale_sending.id, overdue_delayed_retry.id]
 
 
 def test_process_notification_webhook_delivery_marks_unclaimed_attempts(db_session):
@@ -336,6 +416,71 @@ def test_process_notification_webhook_delivery_marks_unclaimed_attempts(db_sessi
     assert attempt.claimed is False
     assert attempt.delivery.id == delivery.id
     assert attempt.delivery.delivery_state == "sending"
+
+
+def test_process_notification_webhook_delivery_does_not_claim_retry_before_not_before(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    user = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Analytics",
+        url_template="https://example.com/hooks",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="retry",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://example.com/hooks",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        attempted_at=now,
+        not_before=now + timedelta(minutes=5),
+        delivery_state="pending",
+        attempt_count=0,
+    )
+
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook)
+    _persist_rows(db_session, delivery)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delayed retry should not send early")),
+    )
+
+    attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
+
+    assert attempt.claimed is False
+    assert attempt.delivery.id == delivery.id
+    assert attempt.delivery.delivery_state == "pending"
+    assert attempt.delivery.not_before == delivery.not_before
 
 
 def test_render_notification_request_expands_templates_into_json_body():
@@ -862,7 +1007,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
     assert attempt.result.success is False
     assert (
         attempt.result.error
-        == "Webhook destination host 'evil.example.net' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries"
     )
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None

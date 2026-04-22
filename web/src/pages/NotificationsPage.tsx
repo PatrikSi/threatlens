@@ -208,27 +208,28 @@ export function NotificationsPage() {
   }, [sampleFeedId, testableFeeds])
 
   const onSelectWebhook = (webhook: NotificationWebhook) => {
-    if (webhook.id !== selectedWebhookId && !confirmDiscardUnsavedWebhookChanges()) {
+    if (webhook.id === selectedWebhookId) {
       return
     }
-    setSelectedWebhookId(webhook.id)
-    setDraft(createDraftFromWebhook(webhook))
-    setSampleFeedId('')
-    setFormNotice(null)
-    setTestResult(null)
-    setPendingDeliveryRetry(null)
+    confirmDiscardUnsavedWebhookChanges(() => {
+      setSelectedWebhookId(webhook.id)
+      setDraft(createDraftFromWebhook(webhook))
+      setSampleFeedId('')
+      setFormNotice(null)
+      setTestResult(null)
+      setPendingDeliveryRetry(null)
+    })
   }
 
   const onCreateNewWebhook = () => {
-    if (!confirmDiscardUnsavedWebhookChanges()) {
-      return
-    }
-    setSelectedWebhookId(null)
-    setDraft(createDefaultDraft())
-    setSampleFeedId('')
-    setFormNotice(null)
-    setTestResult(null)
-    setPendingDeliveryRetry(null)
+    confirmDiscardUnsavedWebhookChanges(() => {
+      setSelectedWebhookId(null)
+      setDraft(createDefaultDraft())
+      setSampleFeedId('')
+      setFormNotice(null)
+      setTestResult(null)
+      setPendingDeliveryRetry(null)
+    })
   }
 
   const onConfirmRetryDelivery = () => {
@@ -580,8 +581,14 @@ export function NotificationsPage() {
                   <h4 className="font-semibold">Feed Scope</h4>
                   <p className="mt-1 text-xs text-slate dark:text-white/65">Choose whether this webhook fires for any feed or only selected feeds.</p>
                 </div>
-                <div className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+                <div
+                  role="group"
+                  aria-label="Webhook feed scope"
+                  className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40"
+                >
                   <button
+                    type="button"
+                    aria-pressed={draft.feed_scope === 'all'}
                     className={`rounded px-3 py-1 text-sm ${
                       draft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'
                     }`}
@@ -590,6 +597,8 @@ export function NotificationsPage() {
                     Any feed
                   </button>
                   <button
+                    type="button"
+                    aria-pressed={draft.feed_scope === 'selected'}
                     className={`rounded px-3 py-1 text-sm ${
                       draft.feed_scope === 'selected'
                         ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
@@ -1035,6 +1044,7 @@ export function NotificationsPage() {
           </div>
         ) : null}
       </ConfirmDialog>
+      {confirmDiscardUnsavedWebhookChanges.discardDialog}
     </div>
   )
 }

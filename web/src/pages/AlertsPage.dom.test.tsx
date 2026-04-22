@@ -7,13 +7,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const alertsPageDomMocks = vi.hoisted(() => ({
-  confirmDiscard: vi.fn(() => true),
   queryClient: {
     invalidateQueries: vi.fn(),
   },
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   deleteMutate: vi.fn(),
+}))
+
+const routerMocks = vi.hoisted(() => ({
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
 }))
 
 function alertMutationResult(mutate: ReturnType<typeof vi.fn>) {
@@ -84,9 +91,13 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: () => alertsPageDomMocks.confirmDiscard,
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
 
 import { AlertsPage } from './AlertsPage'
 
@@ -103,6 +114,12 @@ function renderPage() {
   return container
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -117,7 +134,7 @@ afterEach(() => {
 })
 
 describe('AlertsPage DOM workflows', () => {
-  it('loads alert edits, toggles alert state, and confirms deletion', () => {
+  it('loads alert edits, protects unsaved changes, toggles alert state, and confirms deletion', () => {
     const view = renderPage()
 
     const editButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Edit'))
@@ -161,5 +178,33 @@ describe('AlertsPage DOM workflows', () => {
     })
 
     expect(alertsPageDomMocks.deleteMutate).toHaveBeenCalledWith('alert-1')
+
+    const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed alert name')
+    })
+
+    const resetButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Reset'))
+    expect(resetButton).not.toBeNull()
+
+    act(() => {
+      resetButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved alert changes?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#alert-interest-name')?.value).toBe('')
   })
 })

@@ -174,6 +174,7 @@ def notification_webhook_delivery_response_from_model(
         delivery_kind=delivery.delivery_kind,
         delivery_state=delivery.delivery_state,
         attempt_count=delivery.attempt_count,
+        not_before=delivery.not_before,
         claimed_at=delivery.claimed_at,
         success=delivery.success,
         status_code=delivery.status_code,

@@ -29,7 +29,7 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
             "name": "Unit42 webhook",
             "enabled": True,
             "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/notify",
+            "url_template": "https://hooks.example.com:443/notify",
             "method": "POST",
             "feed_scope": "selected",
             "feed_ids": [str(feed.id)],
@@ -236,7 +236,7 @@ def test_analyst_cannot_create_notification_webhooks_without_allowlisted_hosts(c
             "name": "Analyst webhook",
             "enabled": True,
             "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/notify",
+            "url_template": "https://hooks.example.com:443/notify",
             "method": "POST",
             "feed_scope": "all",
             "feed_ids": [],
@@ -309,7 +309,71 @@ def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client:
     assert response.status_code == 422
     assert (
         response.json()["detail"]
-        == "Webhook destination host 'evil.example.net' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries"
+    )
+
+
+def test_analyst_cannot_create_notification_webhooks_for_non_default_allowlisted_port(
+    client: TestClient,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com:8443/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries"
+    )
+
+
+def test_analyst_wildcard_allowlist_does_not_include_apex_domain(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["*.example.com"])
+    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["*.example.com"])
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://example.com/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Webhook destination origin 'https://example.com' is not approved for analyst-managed webhook deliveries"
     )
 
 

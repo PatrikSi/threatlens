@@ -1,9 +1,21 @@
-import { useEffect } from 'react'
+import { createElement, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 import { useBlocker } from 'react-router-dom'
+
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
 type ConfirmUnsavedChangesFn = (message: string) => boolean
 
 type UnsavedChangesBlocker = Pick<ReturnType<typeof useBlocker>, 'proceed' | 'reset' | 'state'>
+
+type PendingUnsavedChangesAction = {
+  onConfirm?: () => void
+  onCancel?: () => void
+}
+
+export type ConfirmDiscardChanges = {
+  (onDiscard?: () => void): boolean
+  discardDialog: ReactNode
+}
 
 function defaultConfirmUnsavedChanges(message: string) {
   return window.confirm(message)
@@ -45,8 +57,31 @@ export function handleBlockedUnsavedChangesNavigation(
 export function useUnsavedChangesWarning(
   isDirty: boolean,
   message = 'You have unsaved changes. Leave without saving?',
-) {
+): ConfirmDiscardChanges {
   const blocker = useBlocker(isDirty)
+  const [pendingAction, setPendingAction] = useState<PendingUnsavedChangesAction | null>(null)
+
+  const clearPendingAction = useCallback(
+    (run: keyof PendingUnsavedChangesAction) => {
+      const current = pendingAction
+      setPendingAction(null)
+      current?.[run]?.()
+    },
+    [pendingAction],
+  )
+
+  const requestDiscard = useCallback(
+    (onDiscard?: () => void) => {
+      if (!isDirty) {
+        onDiscard?.()
+        return true
+      }
+
+      setPendingAction((current) => current ?? { onConfirm: onDiscard })
+      return false
+    },
+    [isDirty],
+  )
 
   useEffect(() => {
     if (!isDirty) {
@@ -59,13 +94,33 @@ export function useUnsavedChangesWarning(
   }, [isDirty, message])
 
   useEffect(() => {
-    handleBlockedUnsavedChangesNavigation(blocker, message)
-  }, [blocker, message])
-
-  return () => {
     if (!isDirty) {
-      return true
+      return
     }
-    return confirmUnsavedChanges(message)
-  }
+    if (blocker.state !== 'blocked') {
+      return
+    }
+
+    setPendingAction((current) => current ?? { onConfirm: blocker.proceed, onCancel: blocker.reset })
+  }, [blocker, isDirty])
+
+  useEffect(() => {
+    if (!isDirty) {
+      setPendingAction(null)
+    }
+  }, [isDirty])
+
+  const discardDialog = createElement(ConfirmDialog, {
+    open: pendingAction !== null,
+    title: 'Discard unsaved changes?',
+    description: message,
+    confirmLabel: 'Discard changes',
+    onCancel: () => clearPendingAction('onCancel'),
+    onConfirm: () => clearPendingAction('onConfirm'),
+  })
+
+  return useMemo(
+    () => Object.assign(requestDiscard, { discardDialog }),
+    [discardDialog, requestDiscard],
+  )
 }
