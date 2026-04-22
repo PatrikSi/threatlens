@@ -26,13 +26,6 @@ from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.services.article_recovery import (
-    article_fast_retryable_error_filter,
-    article_fetch_repair_cutoff,
-    article_fetch_repair_floor,
-    article_soft_repair_cutoff,
-    article_soft_retryable_error_filter,
-)
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
 from app.services.ai_integration import is_stale_daily_brief_pending
@@ -61,12 +54,18 @@ from app.services.ai_ops import (
 from app.services.connectors.rss import RSSConnector, RSSFeedParseError
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
-from app.services.dedupe import content_hash, dedupe_key
 from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_metadata import (
     apply_probe_metadata as _apply_probe_metadata,
     backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
     needs_metadata_backfill as _needs_metadata_backfill,
+)
+from app.services.feed_pipeline import (
+    clear_feed_dispatch_claim as _clear_feed_dispatch_claim,
+    claim_feed_for_dispatch as _claim_feed_for_dispatch_impl,
+    list_item_ids_missing_articles as _list_item_ids_missing_articles_impl,
+    mark_feed_failure as _mark_feed_failure,
+    upsert_item_from_parsed as _upsert_item_from_parsed,
 )
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
@@ -236,98 +235,22 @@ def _chunk_uuid_list(values: list[uuid.UUID], chunk_size: int) -> list[list[uuid
     return [values[index : index + chunk_size] for index in range(0, len(values), chunk_size)]
 
 
-def _article_fetch_repair_cutoff(now: datetime | None = None) -> datetime:
-    return article_fetch_repair_cutoff(
-        dispatch_after_seconds=settings.dispatch_items_missing_articles_after_seconds,
-        now=now,
-    )
-
-
-def _article_fetch_repair_floor(now: datetime | None = None) -> datetime:
-    return article_fetch_repair_floor(now=now)
-
-
-def _article_soft_repair_cutoff(now: datetime | None = None) -> datetime:
-    return article_soft_repair_cutoff(
-        dispatch_after_seconds=settings.dispatch_items_missing_articles_after_seconds,
-        now=now,
-    )
-
-
-def _article_fast_retryable_error_filter():
-    return article_fast_retryable_error_filter()
-
-
-def _article_soft_retryable_error_filter():
-    return article_soft_retryable_error_filter()
-
-
-def _feed_dispatch_claim_expiry(now: datetime) -> datetime:
-    return now + timedelta(seconds=max(60, int(settings.dispatch_feed_claim_seconds)))
-
-
-def _clear_feed_dispatch_claim(feed: Feed) -> None:
-    feed.dispatch_claimed_at = None
-    feed.dispatch_backoff_until = None
-
-
 def _claim_feed_for_dispatch(db: Session, *, feed_id: uuid.UUID, now: datetime) -> bool:
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
-    if feed is None or not feed.enabled:
-        return False
-
-    backoff_until = feed.dispatch_backoff_until
-    if backoff_until is not None:
-        if backoff_until.tzinfo is None:
-            backoff_until = backoff_until.replace(tzinfo=timezone.utc)
-        if backoff_until > now:
-            return False
-
-    if not _is_feed_due(feed, now):
-        return False
-
-    feed.dispatch_claimed_at = now
-    feed.dispatch_backoff_until = _feed_dispatch_claim_expiry(now)
-    db.add(feed)
-    db.flush()
-    return True
+    return _claim_feed_for_dispatch_impl(
+        db,
+        feed_id=feed_id,
+        now=now,
+        claim_seconds=settings.dispatch_feed_claim_seconds,
+        is_feed_due=_is_feed_due,
+    )
 
 
 def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | None = None) -> list[uuid.UUID]:
-    repair_cutoff = _article_fetch_repair_cutoff(now)
-    repair_floor = _article_fetch_repair_floor(now)
-    soft_repair_cutoff = _article_soft_repair_cutoff(now)
-    return list(
-        db.scalars(
-            select(Item.id)
-            .outerjoin(Article, Article.item_id == Item.id)
-            .where(
-                or_(
-                    and_(
-                        Article.item_id.is_(None),
-                        Item.first_seen_at >= repair_floor,
-                        Item.first_seen_at <= repair_cutoff,
-                    ),
-                    and_(
-                        Article.text.is_(None),
-                        Article.retrieved_at.is_not(None),
-                        Article.retrieved_at >= repair_floor,
-                        or_(
-                            and_(
-                                Article.retrieved_at <= repair_cutoff,
-                                _article_fast_retryable_error_filter(),
-                            ),
-                            and_(
-                                Article.retrieved_at <= soft_repair_cutoff,
-                                _article_soft_retryable_error_filter(),
-                            ),
-                        ),
-                    ),
-                ),
-            )
-            .order_by(Item.first_seen_at.asc())
-            .limit(limit)
-        ).all()
+    return _list_item_ids_missing_articles_impl(
+        db,
+        limit=limit,
+        now=now,
+        dispatch_after_seconds=settings.dispatch_items_missing_articles_after_seconds,
     )
 
 
@@ -2398,59 +2321,6 @@ def reapply_recent_item_tags(days: int = 30, limit: int = 0):
     }
 
 
-def _upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:
-    item_url = parsed.url or ""
-    key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
-    hash_value = content_hash(parsed.title, parsed.summary, item_url)
-
-    item = db.scalar(select(Item).where(Item.dedupe_key == key))
-    if item is None:
-        candidate = Item(
-            feed_id=feed.id,
-            source_guid=parsed.guid,
-            url=item_url,
-            title=parsed.title,
-            summary=parsed.summary,
-            published_at=parsed.published_at,
-            dedupe_key=key,
-            content_hash=hash_value,
-            status="new",
-            last_error=None,
-        )
-        if _insert_item_with_conflict_retry(db, candidate):
-            return candidate, True, True
-
-        # Another worker inserted the same dedupe key concurrently.
-        item = db.scalar(select(Item).where(Item.dedupe_key == key))
-        if item is None:
-            raise RuntimeError(f"item conflict recovery failed for dedupe key {key}")
-
-    if item.content_hash != hash_value:
-        item.url = item_url or item.url
-        item.title = parsed.title
-        item.summary = parsed.summary
-        item.published_at = parsed.published_at
-        item.content_hash = hash_value
-        item.status = "new"
-        item.last_error = None
-        db.add(item)
-        db.flush()
-        return item, True, False
-
-    return item, False, False
-
-
-def _insert_item_with_conflict_retry(db: Session, item: Item) -> bool:
-    try:
-        with db.begin_nested():
-            db.add(item)
-            db.flush()
-        return True
-    except IntegrityError:
-        logger.info("dedupe_conflict_detected dedupe_key=%s", item.dedupe_key)
-        return False
-
-
 def _get_or_create_ioc(
     db: Session,
     *,
@@ -2515,16 +2385,6 @@ def _store_article_error(
     db.add(article)
     db.add(item)
     db.commit()
-
-
-def _mark_feed_failure(db: Session, feed: Feed, error: str):
-    feed.last_fetch_at = datetime.now(timezone.utc)
-    feed.error_count += 1
-    feed.last_error = error
-    _clear_feed_dispatch_claim(feed)
-    db.add(feed)
-    db.flush()
-    return feed.error_count
 
 
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:

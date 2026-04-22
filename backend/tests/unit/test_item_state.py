@@ -2,8 +2,8 @@ import uuid
 
 from sqlalchemy.exc import IntegrityError
 
-from app.api.routes.items import _get_or_create_state
 from app.models.item_state import ItemState
+from app.services.item_state import get_or_create_item_state
 
 
 class _FakeSession:
@@ -35,7 +35,7 @@ def test_get_or_create_state_recovers_from_duplicate_insert_race():
     existing_state = ItemState(user_id=user_id, item_id=item_id)
     db = _FakeSession(existing_state)
 
-    state = _get_or_create_state(db, user_id, item_id)
+    state = get_or_create_item_state(db, user_id=user_id, item_id=item_id)
 
     assert state is existing_state
     assert db.flush_calls == 1
