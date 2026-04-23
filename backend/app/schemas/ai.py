@@ -140,6 +140,12 @@ class AISettingsUpdate(BaseModel):
         allow_private_network = bool(settings.allow_private_network_ai)
         if parsed.scheme.lower() not in {"http", "https"}:
             raise ValueError("base_url must use http or https")
+        if settings.ai_api_key:
+            hostname = (parsed.hostname or "").lower().rstrip(".")
+            if parsed.scheme.lower() != "https" or hostname not in _SHARED_AI_API_KEY_ALLOWED_HOSTS or port not in (None, 443):
+                raise ValueError(
+                    "base_url must target https://api.openai.com when the server AI_API_KEY is configured"
+                )
         if parsed.scheme.lower() != "https" and not allow_private_network:
             raise ValueError("base_url must use https unless ALLOW_PRIVATE_NETWORK_AI is enabled")
         if parsed.scheme.lower() == "http" and allow_private_network and is_fetchable_url(base_url, allow_private_network=False):
@@ -152,12 +158,6 @@ class AISettingsUpdate(BaseModel):
             raise ValueError("base_url must not include query parameters or fragments")
         if "{{" in parsed.scheme or "{{" in parsed.netloc:
             raise ValueError("base_url must not contain templates in the scheme or host")
-        if settings.ai_api_key:
-            hostname = (parsed.hostname or "").lower().rstrip(".")
-            if parsed.scheme.lower() != "https" or hostname not in _SHARED_AI_API_KEY_ALLOWED_HOSTS or port not in (None, 443):
-                raise ValueError(
-                    "base_url must target https://api.openai.com when the server AI_API_KEY is configured"
-                )
         if not is_fetchable_url(base_url, allow_private_network=allow_private_network):
             raise ValueError("base_url is not allowed for outbound fetch")
         return base_url
