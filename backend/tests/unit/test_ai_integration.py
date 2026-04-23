@@ -1487,6 +1487,103 @@ def test_run_item_ai_enrichment_retries_after_malformed_model_output(
     assert [event.success for event in usage_events] == [False, True]
 
 
+def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retries(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Post",
+        url="https://example.com/threat-post-backoff.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-post-backoff",
+        url="https://example.com/articles/threat-post-backoff",
+        canonical_url="https://example.com/articles/threat-post-backoff",
+        title="Retry with backoff",
+        summary="The provider fails once and retries after a delay.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="threat-post-backoff",
+        content_hash="8" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="The provider should pause before the second attempt.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=1,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    attempts = {"count": 0}
+    sleep_calls: list[float] = []
+
+    def _fail_once_then_succeed(active, *, messages):
+        _ = (active, messages)
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            raise AIIntegrationError("provider timeout")
+        return AICompletionResult(
+            payload={
+                "summary_text": "Retry succeeded.",
+                "relevance_score": 0.62,
+                "relevance_reasons": ["Retry completed after backoff"],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=55,
+            prompt_tokens=30,
+            completion_tokens=12,
+            total_tokens=42,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_once_then_succeed)
+    monkeypatch.setattr("app.services.ai_integration.random.uniform", lambda _start, _end: 0.25)
+    monkeypatch.setattr("app.services.ai_integration.time.sleep", lambda delay: sleep_calls.append(delay))
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    retry_event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+        .order_by(AITaskEvent.created_at.asc())
+    )
+
+    assert attempts["count"] == 2
+    assert result.status == "ready"
+    assert sleep_calls == [pytest.approx(0.75)]
+    assert retry_event is not None
+    assert retry_event.payload_json["retry_delay_seconds"] == pytest.approx(0.75, rel=1e-3)
+
+
 def test_run_item_ai_enrichment_stops_before_retry_when_cancel_requested_after_failure(
     db_session,
     ai_enabled_env,

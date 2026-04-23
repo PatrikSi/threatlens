@@ -81,6 +81,7 @@ Release-contract artifacts shipped in the repo:
 - Backend runtime lockfile: `backend/requirements-lock.txt`
 - Runtime dependency inventories: `docs/reference/backend-runtime-dependencies.txt`, `docs/reference/frontend-runtime-dependencies.txt`
 - Runtime package metadata inventories: `docs/reference/backend-runtime-package-metadata.json`, `docs/reference/frontend-runtime-package-metadata.json`
+- Backend runtime package legal artifacts: `docs/reference/backend-runtime-package-legal/`
 - Frontend runtime package legal artifacts: `docs/reference/frontend-runtime-package-legal/`
 - Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
@@ -112,7 +113,7 @@ Startup flow for `docker-compose.yml`:
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - Legacy unversioned backend routes remain available for compatibility, but they are not the documented or shipped runtime contract.
-- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`, but the backend image carries backend notices, license texts, and runtime dependency inventories while the web image also carries the frontend package-lock snapshot and frontend package-legal bundle.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships backend notices, license texts, requirements snapshots, and runtime inventories, while the installed Python `.dist-info/` directories retain wheel-published backend legal files. The web image also ships the frontend package-lock snapshot and the extracted `frontend-runtime-package-legal/` bundle.
 - The shipped proxy defaults only trust explicit proxy hops you configure. If you need the API to preserve browser IPs through the bundled web proxy or another reverse proxy, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
@@ -400,10 +401,12 @@ Notes:
 
 - `THIRD_PARTY_NOTICES.md` summarizes the bundled assets, selected direct runtime dependencies, redistribution notes, and regeneration commands for the committed runtime inventories.
 - `docs/reference/backend-runtime-dependencies.txt` and `docs/reference/frontend-runtime-dependencies.txt` are the full resolved runtime inventories committed with the source tree.
-- `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review. The frontend metadata inventory also records each copied package-legal artifact path and digest.
+- `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review, including copied package-legal artifact paths and digests where those files are published by upstream packages.
+- `docs/reference/backend-runtime-package-legal/` preserves wheel-published legal files harvested from installed backend runtime dependencies when those files are present in the redistributed Python distributions.
 - `docs/reference/frontend-runtime-package-legal/` preserves the package-published legal files harvested from installed frontend runtime dependencies.
-- Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`, and `/usr/share/doc/threatlens/backend-requirements.txt`.
+- Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/backend-requirements.txt`, and `/usr/share/doc/threatlens/backend-requirements-lock.txt`.
 - Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/frontend-runtime-package-legal/`, and `/usr/share/doc/threatlens/frontend-package-lock.json`.
+- The committed runtime inventories document the Python and npm application dependency layers. They do not yet mirror every Debian or Alpine package redistributed by the pinned `python:3.12.11-slim-bookworm` and `nginx:1.27-alpine` base images, so redistributors should also review the upstream base-image notices.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
 - `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
 - `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled as common third-party runtime license references for the shipped stack.
@@ -456,10 +459,10 @@ alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Optional one-time startup helper:
+Optional one-time startup helper from the repository root:
 
 ```bash
-RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true ./scripts/start-api.sh
+RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true ./backend/scripts/start-api.sh
 ```
 
 Run workers:

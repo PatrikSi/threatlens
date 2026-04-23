@@ -136,7 +136,43 @@ def test_validate_notification_webhook_payload_for_actor_requires_approved_host_
 
     with pytest.raises(
         ValueError,
-        match="Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries",
+        match="Webhook destination 'https://evil.example.net/notify' is not approved for analyst-managed webhook deliveries",
+    ):
+        validate_notification_webhook_payload_for_actor(blocked_payload, set(), actor_user=analyst)
+
+
+def test_validate_notification_webhook_payload_for_actor_requires_approved_url_prefix_for_analysts(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+
+    allowed_payload = NotificationWebhookWrite(
+        name="Allowed tenant",
+        url_template="https://hooks.example.com/services/tenant-a/notify",
+        method="POST",
+        body_mode="none",
+    )
+    blocked_payload = NotificationWebhookWrite(
+        name="Blocked tenant",
+        url_template="https://hooks.example.com/services/tenant-b/notify",
+        method="POST",
+        body_mode="none",
+    )
+    analyst = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+
+    validate_notification_webhook_payload_for_actor(allowed_payload, set(), actor_user=analyst)
+
+    with pytest.raises(
+        ValueError,
+        match="Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_webhook_payload_for_actor(blocked_payload, set(), actor_user=analyst)
 
@@ -164,7 +200,7 @@ def test_validate_notification_webhook_payload_for_actor_rejects_non_default_por
 
     with pytest.raises(
         ValueError,
-        match="Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries",
+        match="Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
 
@@ -1007,7 +1043,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
     assert attempt.result.success is False
     assert (
         attempt.result.error
-        == "Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination 'https://evil.example.net/hook' is not approved for analyst-managed webhook deliveries"
     )
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None

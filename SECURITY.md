@@ -12,17 +12,17 @@ Once public tags exist, use this support model:
 | `main` / default branch | Preview of the next release |
 | Older tags, snapshots, and forks | Historical reference only |
 
-## Reporting a Vulnerability
+## Private Reporting
 
-Please do not open a public GitHub issue for an unpatched vulnerability.
+Preferred private path, when enabled for this repository:
 
-ThreatLens does not currently publish a dedicated private security reporting channel in this repository.
+- GitHub private vulnerability reporting: `https://github.com/PatrikSi/threatlens/security/advisories/new`
 
-Until a private channel is published, use the public issue tracker only to request a private follow-up path:
+If that page returns `404` or the repository UI does not show a private reporting form, private reporting is not enabled yet. In that case, use the public issue tracker only to request a private follow-up path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 
-Public coordination requests should stay high-level. Do not include:
+Please do not publish unpatched vulnerability details in a public issue. Public coordination requests should stay high-level and should not include:
 
 - exploit steps
 - proof-of-concept code
@@ -36,7 +36,7 @@ Use the first public message only to share:
 - whether you need an urgent maintainer response because the issue is being exploited or exposes live credentials
 - a request for a non-public follow-up channel
 
-Once maintainers provide a private path, include as much of the following as you can:
+Once you have a private path, include as much of the following as you can:
 
 - affected commit, branch, tag, or container image
 - deployment mode (`docker compose`, custom reverse proxy, local dev, and so on)
@@ -44,7 +44,11 @@ Once maintainers provide a private path, include as much of the following as you
 - impact assessment
 - any mitigations or configuration changes already identified
 
-If the repository later enables GitHub private vulnerability reporting or publishes another private contact path, that new channel should replace the public issue bootstrap above.
+## Response Targets
+
+- Initial acknowledgment target: within 5 business days
+- Status updates target: at least weekly while a fix or mitigation is in progress
+- Please call out active exploitation, exposed credentials, or internet-reachable defaults in the first message so triage can be prioritized appropriately
 
 ## Scope Notes
 

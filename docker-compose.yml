@@ -3,28 +3,34 @@ services:
     image: postgres:16@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f
     restart: unless-stopped
     environment:
-      POSTGRES_DB: threatlens
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${POSTGRES_DB:-threatlens}
+      POSTGRES_USER: ${POSTGRES_USER:-threatlens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-with-long-random-postgres-password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d threatlens"]
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backplane
 
   redis:
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-replace-with-long-random-redis-password}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping"]
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - backplane
 
   api:
     build:
@@ -55,6 +61,9 @@ services:
       interval: 15s
       timeout: 5s
       retries: 8
+    networks:
+      - frontend
+      - backplane
 
   worker:
     build:
@@ -86,6 +95,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - backplane
 
   beat:
     build:
@@ -117,6 +128,8 @@ services:
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - backplane
 
   web:
     build:
@@ -129,7 +142,13 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    networks:
+      - frontend
 
 volumes:
   postgres_data:
   redis_data:
+
+networks:
+  frontend:
+  backplane:

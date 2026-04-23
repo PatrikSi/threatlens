@@ -36,6 +36,7 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
   python backend/scripts/generate_dependency_inventory.py \
   --backend-output docs/reference/backend-runtime-dependencies.txt \
   --backend-metadata-output docs/reference/backend-runtime-package-metadata.json \
+  --backend-legal-output-dir docs/reference/backend-runtime-package-legal \
   --frontend-output docs/reference/frontend-runtime-dependencies.txt
 docker run --rm -v "$PWD":/src -w /src/web node:22.20.0-alpine \
   sh -lc 'npm ci >/dev/null && node ./scripts/generate_runtime_package_metadata.mjs \
@@ -43,9 +44,9 @@ docker run --rm -v "$PWD":/src -w /src/web node:22.20.0-alpine \
     --legal-output-dir /src/docs/reference/frontend-runtime-package-legal'
 ```
 
-That sequence intentionally refreshes the checked-in backend runtime lockfile, syncs the mirrored compliance bundle used by the backend/web build contexts, regenerates the backend runtime inventory and backend package metadata inside the built backend image, and then regenerates the frontend package metadata plus the frontend package-legal artifact bundle from an `npm ci` install in a clean container.
+That sequence intentionally refreshes the checked-in backend runtime lockfile, syncs the mirrored compliance bundle used by the backend/web build contexts, regenerates the backend runtime inventory plus backend package metadata and copied wheel-published legal files inside the built backend image, and then regenerates the frontend package metadata plus the frontend package-legal artifact bundle from an `npm ci` install in a clean container.
 
-The backend image now installs from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves from `web/package-lock.json`. The Dockerfiles and compose base images are pinned by digest. Application dependencies are therefore version-pinned by source control, but the backend image still installs Debian packages from the live Bookworm apt repositories, so full byte-for-byte rebuild reproducibility is not claimed yet.
+The backend image now installs from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves from `web/package-lock.json`. The Dockerfiles and compose base images are pinned by digest. Application dependencies are therefore version-pinned by source control, but the backend image still installs Debian packages from the live Bookworm apt repositories, so full byte-for-byte rebuild reproducibility is not claimed yet. The committed runtime inventories and legal bundles cover the Python and npm application layers only; they do not yet replace the upstream Debian/Alpine package manifests or notice files redistributed by the pinned base images.
 
 ## Files to Review Before Release
 
@@ -58,6 +59,7 @@ The backend image now installs from the checked-in `backend/requirements-lock.tx
 - `docs/reference/frontend-runtime-dependencies.txt`
 - `docs/reference/backend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-metadata.json`
+- `docs/reference/backend-runtime-package-legal/`
 - `docs/reference/frontend-runtime-package-legal/`
 - `docs/licenses/`
 - `SECURITY.md`
@@ -75,6 +77,8 @@ Built backend images write release-compliance metadata to:
 - `/usr/share/doc/threatlens/backend-requirements-lock.txt`
 - `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`
 - `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`
+
+Built backend images do not currently flatten the checked-in `docs/reference/backend-runtime-package-legal/` bundle into `/usr/share/doc/threatlens/`; equivalent wheel-published legal files remain in the installed Python `.dist-info/` directories under `/usr/local/lib/python3.12/site-packages/`.
 
 Built web images write release-compliance metadata to:
 

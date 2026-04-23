@@ -95,6 +95,9 @@ settings = get_settings()
 redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 logger = logging.getLogger(__name__)
 
+DOMAIN_SLOT_TTL_SECONDS = 30
+DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
+
 
 class ResponseTooLargeError(Exception):
     pass
@@ -314,31 +317,57 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
     while time.monotonic() < deadline:
         try:
             current = redis_client.incr(key)
-            redis_client.expire(key, 30)
         except redis.RedisError as exc:
+            raise CoordinationUnavailableError("domain slot unavailable") from exc
+        try:
+            ttl_set = redis_client.expire(key, DOMAIN_SLOT_TTL_SECONDS)
+            if ttl_set is False:
+                raise redis.RedisError("domain slot ttl was not applied")
+        except redis.RedisError as exc:
+            _best_effort_release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
             raise CoordinationUnavailableError("domain slot unavailable") from exc
         if current <= settings.per_domain_concurrency:
             acquired = True
             break
-        try:
-            redis_client.decr(key)
-        except redis.RedisError as exc:
-            raise CoordinationUnavailableError("domain slot unavailable") from exc
-        time.sleep(0.2)
+        _release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
+        time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
 
     if not acquired:
         raise TimeoutError(f"domain slot timeout for {domain}")
 
     try:
-        with _redis_lease_heartbeat(key, 30):
+        with _redis_lease_heartbeat(key, DOMAIN_SLOT_TTL_SECONDS):
             yield
     finally:
-        try:
-            remaining = redis_client.decr(key)
-            if remaining <= 0:
-                redis_client.delete(key)
-        except redis.RedisError:
-            pass
+        _best_effort_release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
+
+
+def _release_domain_slot_counter(key: str, *, ttl_seconds: int) -> None:
+    try:
+        remaining = redis_client.decr(key)
+    except redis.RedisError as exc:
+        raise CoordinationUnavailableError("domain slot unavailable") from exc
+    _finalize_domain_slot_counter(key, remaining=remaining, ttl_seconds=ttl_seconds)
+
+
+def _best_effort_release_domain_slot_counter(key: str, *, ttl_seconds: int) -> None:
+    try:
+        remaining = redis_client.decr(key)
+    except redis.RedisError:
+        return
+    _finalize_domain_slot_counter(key, remaining=remaining, ttl_seconds=ttl_seconds)
+
+
+def _finalize_domain_slot_counter(key: str, *, remaining: int, ttl_seconds: int) -> None:
+    try:
+        if remaining <= 0:
+            deleted = redis_client.delete(key)
+            if deleted == 0:
+                redis_client.expire(key, ttl_seconds)
+        else:
+            redis_client.expire(key, ttl_seconds)
+    except redis.RedisError:
+        pass
 
 
 @celery_app.task(
@@ -381,6 +410,21 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
     if celery_task_id is None:
         return True
     return run.celery_task_id in (None, celery_task_id)
+
+
+def _claim_item_ai_enrichment_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
+    item = db.scalar(
+        select(Item)
+        .where(Item.id == item_id)
+        .with_for_update(skip_locked=True)
+    )
+    if item is not None:
+        return item, None
+
+    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
+    if unlocked_item is None:
+        return None, "not_found"
+    return None, "already_running"
 
 
 def _queue_item_ai_enrichment_run(
@@ -1902,6 +1946,19 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 )
                 db.commit()
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
+
+        _claimed_item, claim_reason = _claim_item_ai_enrichment_target(db, item_id=parsed_item_id)
+        if claim_reason is not None:
+            if parsed_run_id:
+                finish_ai_task_run(
+                    db,
+                    run_id=parsed_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason=claim_reason,
+                    worker_name=getattr(self.request, "hostname", None),
+                )
+                db.commit()
+            return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
 
         try:
             result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)

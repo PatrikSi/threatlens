@@ -329,6 +329,12 @@ function renderPage() {
   return container
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -379,5 +385,32 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(aiSettingsPageDomMocks.cancelMutate).toHaveBeenCalledWith('run-queued-1')
+  })
+
+  it('blocks reprocess queueing when the lookback scope becomes blank', () => {
+    const view = renderPage()
+
+    const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
+    expect(jobsTab).not.toBeNull()
+
+    act(() => {
+      jobsTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const lookbackInput = Array.from(view.querySelectorAll('label'))
+      .find((label) => label.textContent?.includes('Lookback Days'))
+      ?.querySelector('input')
+    const queueButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Queue Reprocess'))
+
+    expect(lookbackInput).not.toBeNull()
+    expect(queueButton).not.toBeNull()
+    expect(queueButton?.hasAttribute('disabled')).toBe(false)
+
+    act(() => {
+      setInputValue(lookbackInput as HTMLInputElement, '')
+    })
+
+    expect(view.textContent).toContain('Lookback Days must be a whole number greater than 0')
+    expect(queueButton?.hasAttribute('disabled')).toBe(true)
   })
 })

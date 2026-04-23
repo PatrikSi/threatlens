@@ -10436,6 +10436,18 @@
             "type": "integer",
             "title": "Attempt Count"
           },
+          "not_before": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Before"
+          },
           "claimed_at": {
             "anyOf": [
               {
@@ -10559,6 +10571,7 @@
           "delivery_kind",
           "delivery_state",
           "attempt_count",
+          "not_before",
           "claimed_at",
           "success",
           "status_code",

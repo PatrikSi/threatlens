@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import random
 import time
 import uuid
 from dataclasses import dataclass
@@ -52,6 +53,8 @@ MAX_ITEM_ARTICLE_PROMPT_CHARS = 8_000
 MAX_ITEM_SUMMARY_CHARS = 2_000
 MAX_BRIEF_ITEM_SUMMARY_CHARS = 900
 DAILY_BRIEF_PENDING_STALE_AFTER = timedelta(minutes=15)
+AI_PROVIDER_RETRY_BASE_DELAY_SECONDS = 0.5
+AI_PROVIDER_RETRY_MAX_DELAY_SECONDS = 8.0
 
 
 class AIIntegrationError(ValueError):
@@ -905,6 +908,7 @@ def _request_json_with_usage(
                 current=request_max_tokens,
                 error=exc,
             )
+            retry_delay_seconds = _provider_retry_delay_seconds(attempt=attempt) if attempt < max_attempts else None
             payload = {
                 **exc.debug_payload(),
                 "attempt": attempt,
@@ -913,6 +917,8 @@ def _request_json_with_usage(
             }
             if next_request_max_tokens != request_max_tokens:
                 payload["next_max_tokens"] = next_request_max_tokens
+            if retry_delay_seconds is not None:
+                payload["retry_delay_seconds"] = round(retry_delay_seconds, 3)
             if task_run_id is not None:
                 record_ai_task_event(
                     db,
@@ -933,6 +939,8 @@ def _request_json_with_usage(
             )
             if attempt < max_attempts:
                 request_max_tokens = next_request_max_tokens
+                if retry_delay_seconds is not None and retry_delay_seconds > 0:
+                    time.sleep(retry_delay_seconds)
                 continue
             raise
 
@@ -975,6 +983,15 @@ def _request_json_with_usage(
     if last_error is None:
         raise AIIntegrationError("AI request failed unexpectedly")
     raise last_error
+
+
+def _provider_retry_delay_seconds(*, attempt: int) -> float:
+    capped_attempt = max(1, int(attempt))
+    base_delay_seconds = min(
+        AI_PROVIDER_RETRY_MAX_DELAY_SECONDS,
+        AI_PROVIDER_RETRY_BASE_DELAY_SECONDS * (2 ** (capped_attempt - 1)),
+    )
+    return base_delay_seconds + random.uniform(0.0, base_delay_seconds)
 
 
 def _next_retry_max_completion_tokens(

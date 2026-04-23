@@ -8,20 +8,28 @@ import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
+import {
+  collectDirtyFeedScheduleDrafts,
+  DEFAULT_SCHEDULE_CRON,
+  FeedScheduleDraft,
+  feedToScheduleDraft,
+  isFeedScheduleDraftDirty,
+  normalizeFeedScheduleDraft,
+  validateFeedScheduleDraft,
+} from './feedScheduleDraft'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
-type FeedFetchMode = 'interval' | 'schedule'
+type FeedFetchMode = FeedScheduleDraft['fetchMode']
 type FeedSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-
-export type FeedScheduleDraft = {
-  fetchMode: FeedFetchMode
-  intervalSeconds: string
-  scheduleCron: string
-}
 
 type FeedSaveState = {
   status: FeedSaveStatus
   message?: string
+}
+
+type PendingBulkSetEnabledAction = {
+  enabled: boolean
+  feeds: Feed[]
 }
 
 type DetectedFeedMetadata = {
@@ -33,8 +41,6 @@ type DetectedFeedMetadata = {
 }
 
 const FEED_SCHEDULE_DRAFT_STORAGE_KEY = 'threatlens.feed-schedule-drafts.v1'
-const DEFAULT_SCHEDULE_CRON = '0 * * * *'
-
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -66,6 +72,7 @@ export function FeedsPage() {
   const [managementNotice, setManagementNotice] = useState('')
   const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
   const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<Feed[] | null>(null)
+  const [pendingBulkSetEnabled, setPendingBulkSetEnabled] = useState<PendingBulkSetEnabledAction | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
@@ -373,6 +380,18 @@ export function FeedsPage() {
     bulkDeleteFeeds.mutate(feedIds)
   }
 
+  const onConfirmBulkSetEnabled = () => {
+    if (!pendingBulkSetEnabled?.feeds.length) {
+      return
+    }
+
+    const feedIds = pendingBulkSetEnabled.feeds.map((feed) => feed.id)
+    const enabled = pendingBulkSetEnabled.enabled
+    setPendingBulkSetEnabled(null)
+    setManagementNotice('')
+    bulkSetEnabled.mutate({ ids: feedIds, enabled })
+  }
+
   const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) return
@@ -505,8 +524,11 @@ export function FeedsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold">Name (auto-filled)</label>
+            <label htmlFor="feed-name" className="text-sm font-semibold">
+              Name (auto-filled)
+            </label>
             <input
+              id="feed-name"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={name}
               onChange={(event) => setName(event.target.value)}
@@ -516,8 +538,11 @@ export function FeedsPage() {
           </div>
 
           <div>
-            <label className="text-sm font-semibold">Description</label>
+            <label htmlFor="feed-description" className="text-sm font-semibold">
+              Description
+            </label>
             <textarea
+              id="feed-description"
               className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
@@ -528,8 +553,11 @@ export function FeedsPage() {
 
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <label className="text-sm font-semibold">Site URL</label>
+              <label htmlFor="feed-site-url" className="text-sm font-semibold">
+                Site URL
+              </label>
               <input
+                id="feed-site-url"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={siteUrl}
                 onChange={(event) => setSiteUrl(event.target.value)}
@@ -537,8 +565,11 @@ export function FeedsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-semibold">Language</label>
+              <label htmlFor="feed-language" className="text-sm font-semibold">
+                Language
+              </label>
               <input
+                id="feed-language"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={language}
                 onChange={(event) => setLanguage(event.target.value)}
@@ -566,8 +597,11 @@ export function FeedsPage() {
 
           {fetchMode === 'interval' ? (
             <div>
-              <label className="text-sm font-semibold">Fetch Interval (seconds)</label>
+              <label htmlFor="feed-fetch-interval" className="text-sm font-semibold">
+                Fetch Interval (seconds)
+              </label>
               <input
+                id="feed-fetch-interval"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 type="number"
                 min={60}
@@ -579,8 +613,11 @@ export function FeedsPage() {
             </div>
           ) : (
             <div>
-              <label className="text-sm font-semibold">Cron Schedule</label>
+              <label htmlFor="feed-schedule-cron" className="text-sm font-semibold">
+                Cron Schedule
+              </label>
               <input
+                id="feed-schedule-cron"
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={scheduleCron}
                 onChange={(event) => setScheduleCron(event.target.value)}
@@ -689,7 +726,10 @@ export function FeedsPage() {
             disabled={!canManage || !visibleDisabledFeedIds.length || bulkSetEnabled.isPending}
             onClick={() => {
               setManagementNotice('')
-              bulkSetEnabled.mutate({ ids: visibleDisabledFeedIds, enabled: true })
+              setPendingBulkSetEnabled({
+                enabled: true,
+                feeds: filteredFeeds.filter((feed) => !feed.enabled),
+              })
             }}
           >
             Enable Disabled (Filtered)
@@ -700,7 +740,10 @@ export function FeedsPage() {
             disabled={!canManage || !visibleEnabledFeedIds.length || bulkSetEnabled.isPending}
             onClick={() => {
               setManagementNotice('')
-              bulkSetEnabled.mutate({ ids: visibleEnabledFeedIds, enabled: false })
+              setPendingBulkSetEnabled({
+                enabled: false,
+                feeds: filteredFeeds.filter((feed) => feed.enabled),
+              })
             }}
           >
             Disable Enabled (Filtered)
@@ -845,8 +888,14 @@ export function FeedsPage() {
 
                 {draft.fetchMode === 'interval' ? (
                   <div className="flex flex-wrap items-center gap-2">
-                    <label className="text-xs font-semibold">Every</label>
+                    <label htmlFor={`feed-interval-seconds-${feed.id}`} className="sr-only">
+                      Interval seconds for {feed.name}
+                    </label>
+                    <label htmlFor={`feed-interval-seconds-${feed.id}`} className="text-xs font-semibold">
+                      Every
+                    </label>
                     <input
+                      id={`feed-interval-seconds-${feed.id}`}
                       className="w-28 rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                       type="number"
                       min={60}
@@ -927,6 +976,36 @@ export function FeedsPage() {
       </section>
 
       <ConfirmDialog
+        open={Boolean(pendingBulkSetEnabled?.feeds.length)}
+        title={pendingBulkSetEnabled?.enabled ? 'Enable filtered feeds?' : 'Disable filtered feeds?'}
+        description="Review the feeds in the current filtered view before applying this bulk status change."
+        confirmLabel={pendingBulkSetEnabled?.enabled ? 'Enable feeds' : 'Disable feeds'}
+        onCancel={() => setPendingBulkSetEnabled(null)}
+        onConfirm={onConfirmBulkSetEnabled}
+        confirmDisabled={bulkSetEnabled.isPending || !pendingBulkSetEnabled?.feeds.length}
+        isConfirming={bulkSetEnabled.isPending}
+      >
+        {pendingBulkSetEnabled && (
+          <div className="space-y-3">
+            <p>
+              You are about to {pendingBulkSetEnabled.enabled ? 'enable' : 'disable'}{' '}
+              <span className="font-semibold text-ink dark:text-white">{pendingBulkSetEnabled.feeds.length}</span> filtered
+              feed{pendingBulkSetEnabled.feeds.length === 1 ? '' : 's'}.
+            </p>
+            <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+              <ul className="space-y-1">
+                {pendingBulkSetEnabled.feeds.map((feed) => (
+                  <li key={feed.id} className="break-all font-mono text-xs text-slate-700 dark:text-white/70">
+                    {feed.name}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
         open={Boolean(pendingDeleteFeed)}
         title="Delete feed?"
         description="This removes the feed, its related items, and its fetch history."
@@ -982,73 +1061,6 @@ type BulkSummary = {
   attempted: number
   succeeded: number
   failed: number
-}
-
-export function feedToScheduleDraft(feed: Feed): FeedScheduleDraft {
-  return {
-    fetchMode: feed.fetch_mode,
-    intervalSeconds: String(feed.fetch_interval_seconds || 1800),
-    scheduleCron: feed.schedule_cron || DEFAULT_SCHEDULE_CRON,
-  }
-}
-
-export function normalizeFeedScheduleDraft(draft: FeedScheduleDraft): FeedScheduleDraft {
-  const trimmedInterval = draft.intervalSeconds.trim()
-  const parsedInterval = Number(trimmedInterval)
-
-  return {
-    fetchMode: draft.fetchMode,
-    intervalSeconds: Number.isFinite(parsedInterval) ? String(Math.floor(parsedInterval)) : trimmedInterval,
-    scheduleCron: draft.scheduleCron.trim(),
-  }
-}
-
-export function validateFeedScheduleDraft(draft: FeedScheduleDraft): string | null {
-  if (draft.fetchMode === 'interval') {
-    const trimmedInterval = draft.intervalSeconds.trim()
-    const parsedInterval = Number(trimmedInterval)
-    if (!trimmedInterval) {
-      return 'Interval is required.'
-    }
-    if (!Number.isFinite(parsedInterval) || parsedInterval < 60) {
-      return 'Interval must be at least 60 seconds.'
-    }
-    return null
-  }
-
-  return draft.scheduleCron.trim() ? null : 'Schedule cannot be empty.'
-}
-
-export function isFeedScheduleDraftDirty(feed: Feed, draft: FeedScheduleDraft): boolean {
-  const persistedDraft = feedToScheduleDraft(feed)
-  const normalizedDraft = normalizeFeedScheduleDraft(draft)
-
-  if (normalizedDraft.fetchMode !== persistedDraft.fetchMode) {
-    return true
-  }
-
-  if (normalizedDraft.fetchMode === 'interval') {
-    return normalizedDraft.intervalSeconds !== persistedDraft.intervalSeconds
-  }
-
-  return normalizedDraft.scheduleCron !== persistedDraft.scheduleCron
-}
-
-export function collectDirtyFeedScheduleDrafts(
-  feeds: Feed[],
-  drafts: Record<string, FeedScheduleDraft>,
-): Record<string, FeedScheduleDraft> {
-  const dirtyDrafts: Record<string, FeedScheduleDraft> = {}
-
-  for (const feed of feeds) {
-    const draft = drafts[feed.id]
-    if (!draft || !isFeedScheduleDraftDirty(feed, draft)) {
-      continue
-    }
-    dirtyDrafts[feed.id] = draft
-  }
-
-  return dirtyDrafts
 }
 
 function feedSaveStatusText(status: FeedSaveStatus): string {

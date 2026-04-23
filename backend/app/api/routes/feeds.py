@@ -26,6 +26,7 @@ from app.schemas.feed import (
 )
 from app.services.audit import record_audit
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
+from app.services.feed_storage import feed_url_digest
 from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
 from app.tasks.celery_app import celery_app
 
@@ -109,7 +110,7 @@ def import_feeds(
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
 
-        existing = db.scalar(select(Feed).where(Feed.url == feed_url))
+        existing = _get_feed_by_url(db, feed_url)
         if existing is not None and not payload.overwrite_existing:
             skipped += 1
             continue
@@ -123,7 +124,7 @@ def import_feeds(
                 created += 1
                 continue
 
-            existing = db.scalar(select(Feed).where(Feed.url == feed_url))
+            existing = _get_feed_by_url(db, feed_url)
             if existing is None:
                 errors.append(f"entry {index}: feed URL already exists")
                 continue
@@ -175,7 +176,7 @@ def create_feed(
     if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
 
-    existing = db.scalar(select(Feed).where(Feed.url == feed_url))
+    existing = _get_feed_by_url(db, feed_url)
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
 
@@ -349,6 +350,13 @@ def _create_feed_record(db: Session, **feed_values) -> Feed | None:
     except IntegrityError:
         return None
     return feed
+
+
+def _get_feed_by_url(db: Session, feed_url: str) -> Feed | None:
+    digest = feed_url_digest(feed_url)
+    if digest is None:
+        return None
+    return db.scalar(select(Feed).where(Feed.url_digest == digest))
 
 
 def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None) -> int:

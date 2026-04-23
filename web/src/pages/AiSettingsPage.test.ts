@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createDraftFromSettings, createRequestFromDraft } from './aiSettingsDraft'
+import { resolveAiReprocessQueueState } from './aiReprocessQueueState'
 import { resolveVisibleRunSelection } from './aiRunSelection'
 
 describe('resolveVisibleRunSelection', () => {
@@ -151,5 +152,74 @@ describe('createRequestFromDraft', () => {
     expect(request.company_stack).toEqual(['Fortinet', 'Okta'])
     expect(request.item_enrichment_system_prompt).toBeNull()
     expect(request.global_instructions).toBe('Keep it concise.')
+  })
+})
+
+describe('resolveAiReprocessQueueState', () => {
+  it('blocks blank lookback input when no explicit scope is selected', () => {
+    expect(
+      resolveAiReprocessQueueState({
+        days: ' ',
+        limit: '100',
+        startTime: '',
+        endTime: '',
+        feedIds: [],
+        selectedItems: [],
+      }),
+    ).toEqual({
+      payload: null,
+      validation: {
+        days: 'Lookback Days must be a whole number greater than 0 when no explicit time or article scope is selected.',
+        limit: null,
+        timeRange: null,
+      },
+    })
+  })
+
+  it('blocks zero article limits instead of silently falling back to the default batch size', () => {
+    expect(
+      resolveAiReprocessQueueState({
+        days: '7',
+        limit: '0',
+        startTime: '',
+        endTime: '',
+        feedIds: [],
+        selectedItems: [],
+      }),
+    ).toEqual({
+      payload: null,
+      validation: {
+        days: null,
+        limit: 'Last X Articles must be a whole number greater than 0.',
+        timeRange: null,
+      },
+    })
+  })
+
+  it('allows explicit item scope to omit lookback days while still returning a bounded payload', () => {
+    expect(
+      resolveAiReprocessQueueState({
+        days: '',
+        limit: '25',
+        startTime: '',
+        endTime: '',
+        feedIds: ['feed-1'],
+        selectedItems: [{ id: 'item-7' }],
+      }),
+    ).toEqual({
+      payload: {
+        days: null,
+        limit: 25,
+        start_time: null,
+        end_time: null,
+        feed_ids: ['feed-1'],
+        item_ids: ['item-7'],
+      },
+      validation: {
+        days: null,
+        limit: null,
+        timeRange: null,
+      },
+    })
   })
 })

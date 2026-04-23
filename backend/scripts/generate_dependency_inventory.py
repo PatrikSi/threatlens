@@ -12,9 +12,12 @@ runtime packages (entries where package-lock marks "dev" as false or absent).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.metadata as metadata
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
+import shutil
 
 
 def _sorted_backend_distributions() -> list[str]:
@@ -29,7 +32,60 @@ def _sorted_backend_distributions() -> list[str]:
     return [rows[key] for key in sorted(rows)]
 
 
-def _normalized_backend_package_metadata() -> list[dict[str, object]]:
+def _classify_legal_file(path_value: str) -> str:
+    lower = PurePosixPath(path_value).name.lower()
+    if "license" in lower or "licence" in lower:
+        return "license"
+    if "notice" in lower:
+        return "notice"
+    if "copying" in lower:
+        return "copying"
+    if "authors" in lower:
+        return "authors"
+    if "copyright" in lower:
+        return "copyright"
+    return "other"
+
+
+def _copy_backend_legal_files(
+    dist: metadata.Distribution,
+    *,
+    package_name: str,
+    package_version: str,
+    legal_output_dir: Path | None,
+) -> list[dict[str, str]]:
+    copied: list[dict[str, str]] = []
+    package_files = sorted((str(file) for file in dist.files or []), key=str.lower)
+
+    for package_file in package_files:
+        if _classify_legal_file(package_file) == "other":
+            continue
+
+        source_path = Path(dist.locate_file(package_file))
+        if not source_path.is_file():
+            continue
+
+        contents = source_path.read_bytes()
+        artifact_path = PurePosixPath(package_name, package_version, package_file).as_posix()
+        if legal_output_dir is not None:
+            target_path = legal_output_dir / artifact_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(contents)
+
+        copied.append(
+            {
+                "kind": _classify_legal_file(package_file),
+                "file_name": source_path.name,
+                "source_path": PurePosixPath(package_file).as_posix(),
+                "artifact_path": artifact_path,
+                "sha256": hashlib.sha256(contents).hexdigest(),
+            }
+        )
+
+    return copied
+
+
+def _normalized_backend_package_metadata(legal_output_dir: Path | None = None) -> list[dict[str, object]]:
     rows: dict[str, dict[str, object]] = {}
     for dist in metadata.distributions():
         name = (dist.metadata.get("Name") or "").strip()
@@ -67,12 +123,26 @@ def _normalized_backend_package_metadata() -> list[dict[str, object]]:
         if author:
             row["author"] = author
 
+        redistribution_files = _copy_backend_legal_files(
+            dist,
+            package_name=name,
+            package_version=version,
+            legal_output_dir=legal_output_dir,
+        )
+        row["license_files"] = [file["file_name"] for file in redistribution_files if file["kind"] == "license"]
+        row["notice_files"] = [file["file_name"] for file in redistribution_files if file["kind"] == "notice"]
+        row["redistribution_files"] = redistribution_files
+
         if project_urls:
             row["project_urls"] = project_urls
-        if license_files:
-            row["license_files"] = license_files
         if license_classifiers:
             row["license_classifiers"] = license_classifiers
+        if license_files:
+            row["metadata_license_files"] = license_files
+        if not redistribution_files:
+            row["redistribution_note"] = (
+                "No LICENSE/NOTICE/COPYING/AUTHORS-style file was published in the installed Python distribution."
+            )
 
         rows[key] = row
 
@@ -122,6 +192,11 @@ def main() -> int:
         help="Path for backend runtime package metadata JSON generated from Python package metadata.",
     )
     parser.add_argument(
+        "--backend-legal-output-dir",
+        type=Path,
+        help="Directory for backend runtime package-published legal files copied from installed Python distributions.",
+    )
+    parser.add_argument(
         "--frontend-output",
         type=Path,
         help="Path for the resolved frontend runtime inventory.",
@@ -144,6 +219,17 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    backend_requested = any(
+        output is not None for output in (args.backend_output, args.backend_metadata_output, args.backend_legal_output_dir)
+    )
+    backend_metadata_payload: list[dict[str, object]] | None = None
+
+    if backend_requested and not args.skip_backend:
+        if args.backend_legal_output_dir is not None:
+            shutil.rmtree(args.backend_legal_output_dir, ignore_errors=True)
+            args.backend_legal_output_dir.mkdir(parents=True, exist_ok=True)
+        backend_metadata_payload = _normalized_backend_package_metadata(args.backend_legal_output_dir)
+
     if args.backend_output and not args.skip_backend:
         args.backend_output.parent.mkdir(parents=True, exist_ok=True)
         _write_inventory(
@@ -154,7 +240,7 @@ def main() -> int:
 
     if args.backend_metadata_output and not args.skip_backend:
         args.backend_metadata_output.parent.mkdir(parents=True, exist_ok=True)
-        _write_json(args.backend_metadata_output, _normalized_backend_package_metadata())
+        _write_json(args.backend_metadata_output, backend_metadata_payload or [])
 
     if args.frontend_output and not args.skip_frontend:
         args.frontend_output.parent.mkdir(parents=True, exist_ok=True)
@@ -167,11 +253,12 @@ def main() -> int:
     requested_outputs = [
         args.backend_output and not args.skip_backend,
         args.backend_metadata_output and not args.skip_backend,
+        args.backend_legal_output_dir and not args.skip_backend,
         args.frontend_output and not args.skip_frontend,
     ]
     if not any(requested_outputs):
         parser.error(
-            "No output requested. Provide --backend-output, --backend-metadata-output, and/or --frontend-output."
+            "No output requested. Provide --backend-output, --backend-metadata-output, --backend-legal-output-dir, and/or --frontend-output."
         )
 
     return 0

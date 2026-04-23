@@ -585,6 +585,7 @@ export interface NotificationWebhookDelivery {
   delivery_kind: 'live' | 'retry'
   delivery_state: 'pending' | 'sending' | 'succeeded' | 'failed'
   attempt_count: number
+  not_before: string | null
   claimed_at: string | null
   success: boolean
   status_code: number | null

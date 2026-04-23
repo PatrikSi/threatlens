@@ -6,7 +6,7 @@ import {
   isFeedScheduleDraftDirty,
   normalizeFeedScheduleDraft,
   validateFeedScheduleDraft,
-} from './FeedsPage'
+} from './feedScheduleDraft'
 
 function createFeed(overrides: Partial<Feed> = {}): Feed {
   return {

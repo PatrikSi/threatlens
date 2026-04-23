@@ -13,12 +13,16 @@ from app.models.item import Item
 from app.services.article_recovery import (
     article_fast_retryable_error_filter,
     article_fetch_repair_cutoff,
+    article_fetch_repair_floor,
     article_soft_repair_cutoff,
     article_soft_retryable_error_filter,
 )
 from app.services.dedupe import content_hash, dedupe_key
 
 logger = logging.getLogger(__name__)
+
+FEED_FAILURE_BACKOFF_MIN_SECONDS = 300
+FEED_FAILURE_BACKOFF_MAX_SECONDS = 21_600
 
 
 def clear_feed_dispatch_claim(feed: Feed) -> None:
@@ -64,6 +68,7 @@ def list_item_ids_missing_articles(
 ) -> list[uuid.UUID]:
     repair_cutoff = article_fetch_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
     soft_repair_cutoff = article_soft_repair_cutoff(dispatch_after_seconds=dispatch_after_seconds, now=now)
+    repair_floor = article_fetch_repair_floor(now=now)
     return list(
         db.scalars(
             select(Item.id)
@@ -72,11 +77,22 @@ def list_item_ids_missing_articles(
                 or_(
                     and_(
                         Article.item_id.is_(None),
+                        Item.first_seen_at >= repair_floor,
                         Item.first_seen_at <= repair_cutoff,
+                    ),
+                    and_(
+                        Article.item_id.is_not(None),
+                        Article.text.is_not(None),
+                        Article.retrieved_at.is_not(None),
+                        Article.retrieved_at < Item.updated_at,
+                        Item.status != "content_fetched",
+                        Item.updated_at >= repair_floor,
+                        Item.updated_at <= repair_cutoff,
                     ),
                     and_(
                         Article.text.is_(None),
                         Article.retrieved_at.is_not(None),
+                        Article.retrieved_at >= repair_floor,
                         or_(
                             and_(
                                 Article.retrieved_at <= repair_cutoff,
@@ -138,13 +154,31 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
 
 
 def mark_feed_failure(db: Session, feed: Feed, error: str) -> int:
-    feed.last_fetch_at = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc)
+    feed.last_fetch_at = now
     feed.error_count += 1
     feed.last_error = error
-    clear_feed_dispatch_claim(feed)
+    feed.dispatch_claimed_at = None
+    feed.dispatch_backoff_until = now + timedelta(seconds=_sustained_feed_failure_backoff_seconds(feed))
     db.add(feed)
     db.flush()
     return feed.error_count
+
+
+def _sustained_feed_failure_backoff_seconds(feed: Feed) -> int:
+    raw_interval = getattr(feed, "fetch_interval_seconds", 1800)
+    try:
+        interval_seconds = int(raw_interval)
+    except (TypeError, ValueError):
+        interval_seconds = 1800
+    interval_seconds = max(60, interval_seconds)
+
+    failure_count = max(1, int(feed.error_count or 0))
+    multiplier = 2 ** min(failure_count - 1, 5)
+    return min(
+        FEED_FAILURE_BACKOFF_MAX_SECONDS,
+        max(FEED_FAILURE_BACKOFF_MIN_SECONDS, interval_seconds) * multiplier,
+    )
 
 
 def _insert_item_with_conflict_retry(db: Session, item: Item) -> bool:

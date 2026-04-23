@@ -5,6 +5,8 @@ from typing import Annotated
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from app.services.notification_webhook_policy import normalize_notification_allow_entry
+
 _PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change-me", "changeme", "placeholder", "example-", "your-")
 
 
@@ -125,20 +127,10 @@ class Settings(BaseSettings):
     def _normalize_notification_webhook_allowed_hosts(cls, value):
         normalized: list[str] = []
         for entry in value or []:
-            candidate = str(entry).strip().lower().rstrip(".")
+            candidate = str(entry).strip()
             if not candidate:
                 continue
-            if "://" in candidate or any(marker in candidate for marker in ("/", "?", "#", "@")):
-                raise ValueError(
-                    "notification_webhook_allowed_hosts entries must be hostnames, optionally prefixed with '*.'"
-                )
-            wildcard = candidate.startswith("*.")
-            host = candidate[2:] if wildcard else candidate
-            if not host or ":" in host:
-                raise ValueError(
-                    "notification_webhook_allowed_hosts entries must be hostnames without ports, schemes, or paths"
-                )
-            normalized.append(candidate)
+            normalized.append(normalize_notification_allow_entry(candidate))
         return normalized
 
     @field_validator("auth_cookie_samesite", mode="before")

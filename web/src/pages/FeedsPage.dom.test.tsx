@@ -12,6 +12,7 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   },
   deleteMutate: vi.fn(),
   bulkDeleteMutate: vi.fn(),
+  bulkSetEnabledMutate: vi.fn(),
 }))
 
 const feedsData = [
@@ -89,6 +90,9 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useMutation: (options: { mutationFn?: unknown }) => {
     const source = String(options?.mutationFn ?? '')
+    if (source.includes('Promise.allSettled') && source.includes('payload.enabled')) {
+      return feedMutationResult(feedsPageDomMocks.bulkSetEnabledMutate)
+    }
     if (source.includes('Promise.allSettled') && source.includes('DELETE')) {
       return feedMutationResult(feedsPageDomMocks.bulkDeleteMutate)
     }
@@ -148,6 +152,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   feedsPageDomMocks.deleteMutate.mockReset()
   feedsPageDomMocks.bulkDeleteMutate.mockReset()
+  feedsPageDomMocks.bulkSetEnabledMutate.mockReset()
 })
 
 describe('FeedsPage DOM workflows', () => {
@@ -155,9 +160,15 @@ describe('FeedsPage DOM workflows', () => {
     const view = renderPage()
 
     expect(view.querySelector('label[for="feed-rss-url"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-name"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-description"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-site-url"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-language"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-fetch-interval"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-search"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-sort"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-fetch-mode-feed-1"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-interval-seconds-feed-1"]')).not.toBeNull()
 
     const searchInput = view.querySelector<HTMLInputElement>('#feed-search')
     expect(searchInput).not.toBeNull()
@@ -205,5 +216,33 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.deleteMutate).toHaveBeenCalledWith('feed-1')
+  })
+
+  it('confirms bulk enable actions before mutating filtered feeds', () => {
+    const view = renderPage()
+
+    const bulkEnableButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Enable Disabled (Filtered)'),
+    )
+    expect(bulkEnableButton).not.toBeNull()
+
+    act(() => {
+      bulkEnableButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Enable filtered feeds?')
+    expect(view.textContent).toContain('Edge Advisories')
+
+    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Enable feeds')
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(feedsPageDomMocks.bulkSetEnabledMutate).toHaveBeenCalledWith({
+      ids: ['feed-2'],
+      enabled: true,
+    })
   })
 })

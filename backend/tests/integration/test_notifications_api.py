@@ -283,6 +283,39 @@ def test_analyst_can_create_notification_webhooks_for_allowlisted_host(client: T
     assert response.json()["name"] == "Analyst webhook"
 
 
+def test_analyst_can_create_notification_webhooks_for_allowlisted_url_prefix(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.notifications.settings.notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst tenant webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/services/tenant-a/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 201
+    assert response.json()["name"] == "Analyst tenant webhook"
+
+
 def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client: TestClient, auth_headers, monkeypatch):
     monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
     monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
@@ -309,7 +342,7 @@ def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client:
     assert response.status_code == 422
     assert (
         response.json()["detail"]
-        == "Webhook destination origin 'https://evil.example.net' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination 'https://evil.example.net/notify' is not approved for analyst-managed webhook deliveries"
     )
 
 
@@ -343,7 +376,7 @@ def test_analyst_cannot_create_notification_webhooks_for_non_default_allowlisted
     assert response.status_code == 422
     assert (
         response.json()["detail"]
-        == "Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries"
     )
 
 
@@ -373,7 +406,47 @@ def test_analyst_wildcard_allowlist_does_not_include_apex_domain(client: TestCli
     assert response.status_code == 422
     assert (
         response.json()["detail"]
-        == "Webhook destination origin 'https://example.com' is not approved for analyst-managed webhook deliveries"
+        == "Webhook destination 'https://example.com/notify' is not approved for analyst-managed webhook deliveries"
+    )
+
+
+def test_analyst_cannot_create_notification_webhooks_outside_allowlisted_url_prefix(
+    client: TestClient,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.api.routes.notifications.settings.notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/services/tenant-b/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries"
     )
 
 

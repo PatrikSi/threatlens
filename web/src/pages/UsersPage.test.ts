@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import { User } from '../types/api'
-import { buildPasswordResetConfirmation, buildUserSettingsConfirmation } from './UsersPage'
+import {
+  buildCreateUserConfirmation,
+  buildPasswordResetConfirmation,
+  buildUserSettingsConfirmation,
+  syncUserSettingsDrafts,
+} from './userSettingsDraft'
 
 const BASE_USER: User = {
   id: 'user-1',
@@ -70,5 +75,102 @@ describe('buildPasswordResetConfirmation', () => {
       'The new password meets the minimum length requirement with 17 characters.',
       'Share the new password through a secure channel.',
     ])
+  })
+})
+
+describe('buildCreateUserConfirmation', () => {
+  it('trims the email and summarizes the initial access posture before creation', () => {
+    const confirmation = buildCreateUserConfirmation({
+      email: ' admin@example.com ',
+      password: 'temporary-password',
+      role: 'admin',
+      is_active: false,
+      is_approved: false,
+    })
+
+    expect(confirmation).toMatchObject({
+      title: 'Create user account?',
+      confirmLabel: 'Create user',
+      confirmTone: 'primary',
+      payload: {
+        email: 'admin@example.com',
+        password: 'temporary-password',
+        role: 'admin',
+        is_active: false,
+        is_approved: false,
+      },
+    })
+    expect(confirmation?.details).toEqual([
+      'Role: admin.',
+      'This account will have full administrative access on first sign-in.',
+      'Sign-in will stay blocked until an admin enables the account.',
+      'The account will remain pending approval after creation.',
+    ])
+  })
+})
+
+describe('syncUserSettingsDrafts', () => {
+  it('keeps dirty row drafts while syncing untouched rows to the latest server copy', () => {
+    const nextUsers: User[] = [
+      BASE_USER,
+      {
+        ...BASE_USER,
+        id: 'user-2',
+        email: 'viewer@example.com',
+        role: 'viewer',
+        is_active: false,
+      },
+    ]
+
+    expect(
+      syncUserSettingsDrafts(nextUsers, {
+        'user-1': {
+          role: 'admin',
+          isActive: false,
+          isApproved: true,
+        },
+        'user-2': {
+          role: 'viewer',
+          isActive: true,
+          isApproved: true,
+        },
+      }, {
+        'user-1': {
+          role: 'analyst',
+          isActive: true,
+          isApproved: true,
+        },
+        'user-2': {
+          role: 'viewer',
+          isActive: true,
+          isApproved: true,
+        },
+      }),
+    ).toEqual({
+      drafts: {
+        'user-1': {
+          role: 'admin',
+          isActive: false,
+          isApproved: true,
+        },
+        'user-2': {
+          role: 'viewer',
+          isActive: false,
+          isApproved: true,
+        },
+      },
+      baselines: {
+        'user-1': {
+          role: 'analyst',
+          isActive: true,
+          isApproved: true,
+        },
+        'user-2': {
+          role: 'viewer',
+          isActive: false,
+          isApproved: true,
+        },
+      },
+    })
   })
 })

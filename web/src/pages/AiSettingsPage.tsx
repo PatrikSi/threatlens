@@ -17,6 +17,12 @@ import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
+import {
+  AIReprocessQueueRequest,
+  AIReprocessScopeValidation,
+  resolveAiReprocessQueueState,
+  toApiDateTime,
+} from './aiReprocessQueueState'
 import { AISettingsDraft, createDraftFromSettings, createRequestFromDraft, DEFAULT_DRAFT } from './aiSettingsDraft'
 import { resolveVisibleRunSelection } from './aiRunSelection'
 import {
@@ -346,19 +352,10 @@ export function AiSettingsPage() {
   })
 
   const reprocessMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (payload: AIReprocessQueueRequest) =>
       apiFetch<AIReprocessResponse>('/ai/reprocess', {
         method: 'POST',
-        body: JSON.stringify({
-          days: shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedReprocessItems)
-            ? Number(reprocessDays) || 7
-            : null,
-          limit: Number(reprocessLimit) || 100,
-          start_time: toApiDateTime(reprocessStartTime),
-          end_time: toApiDateTime(reprocessEndTime),
-          feed_ids: reprocessFeedIds,
-          item_ids: selectedReprocessItems.map((item) => item.id),
-        }),
+        body: JSON.stringify(payload),
       }),
     onSuccess: (result) => {
       setNotice({ tone: 'success', message: `Queued AI reprocessing task ${result.task_id}.` })
@@ -451,6 +448,19 @@ export function AiSettingsPage() {
     const selectedIds = new Set(selectedReprocessItems.map((item) => item.id))
     return (candidateItemsQuery.data?.items ?? []).filter((item) => !selectedIds.has(item.id))
   }, [candidateItemsQuery.data?.items, selectedReprocessItems])
+
+  const reprocessQueueState = useMemo(
+    () =>
+      resolveAiReprocessQueueState({
+        days: reprocessDays,
+        limit: reprocessLimit,
+        startTime: reprocessStartTime,
+        endTime: reprocessEndTime,
+        feedIds: reprocessFeedIds,
+        selectedItems: selectedReprocessItems,
+      }),
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+  )
 
   const activeTasksLoading =
     (liveStatusQuery.isLoading && !liveStatusQuery.data) ||
@@ -669,9 +679,15 @@ export function AiSettingsPage() {
                 }}
                 onClearScope={clearReprocessScope}
                 reprocessPending={reprocessMutation.isPending}
+                reprocessValidation={reprocessQueueState.validation}
+                reprocessQueueDisabled={!reprocessQueueState.payload}
                 onQueueReprocess={() => {
+                  if (!reprocessQueueState.payload) {
+                    setNotice({ tone: 'error', message: 'Fix the reprocess scope inputs before queueing the job.' })
+                    return
+                  }
                   setNotice(null)
-                  reprocessMutation.mutate()
+                  reprocessMutation.mutate(reprocessQueueState.payload)
                 }}
                 itemSearchLoading={candidateItemsQuery.isLoading}
                 itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
@@ -1171,6 +1187,8 @@ function QueueWorkPanel({
   onRemoveItem,
   onClearScope,
   reprocessPending,
+  reprocessValidation,
+  reprocessQueueDisabled,
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
@@ -1197,11 +1215,16 @@ function QueueWorkPanel({
   onRemoveItem: (itemId: string) => void
   onClearScope: () => void
   reprocessPending: boolean
+  reprocessValidation: AIReprocessScopeValidation
+  reprocessQueueDisabled: boolean
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
 }) {
   const usingExplicitScope = !shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedItems)
+  const hasReprocessValidationError = Boolean(
+    reprocessValidation.days || reprocessValidation.limit || reprocessValidation.timeRange,
+  )
 
   return (
     <Panel title="Queue AI Work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
@@ -1245,7 +1268,7 @@ function QueueWorkPanel({
                 type="button"
                 className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
                 onClick={onQueueReprocess}
-                disabled={reprocessPending}
+                disabled={reprocessPending || reprocessQueueDisabled}
               >
                 {reprocessPending ? 'Queueing...' : 'Queue Reprocess'}
               </button>
@@ -1260,6 +1283,7 @@ function QueueWorkPanel({
                 onChange={(event) => setReprocessDays(event.target.value)}
                 inputMode="numeric"
               />
+              {reprocessValidation.days && <p className="mt-1 text-xs text-red-600">{reprocessValidation.days}</p>}
             </Field>
             <Field label="Last X Articles">
               <input
@@ -1268,6 +1292,7 @@ function QueueWorkPanel({
                 onChange={(event) => setReprocessLimit(event.target.value)}
                 inputMode="numeric"
               />
+              {reprocessValidation.limit && <p className="mt-1 text-xs text-red-600">{reprocessValidation.limit}</p>}
             </Field>
             <Field label="Start Time">
               <input
@@ -1285,6 +1310,19 @@ function QueueWorkPanel({
                 onChange={(event) => setReprocessEndTime(event.target.value)}
               />
             </Field>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-slate dark:text-white/60">
+              Blank or <code>0</code> values are rejected so the queued job cannot widen beyond the scope you review here.
+            </p>
+            {reprocessValidation.timeRange && <p className="text-xs text-red-600">{reprocessValidation.timeRange}</p>}
+            {!hasReprocessValidationError && (
+              <p className="text-xs text-slate dark:text-white/60">
+                {usingExplicitScope
+                  ? 'Explicit time or article scope is active, so lookback days are ignored for this run.'
+                  : 'Lookback days define the time window until you choose an explicit time or article scope.'}
+              </p>
+            )}
           </div>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
@@ -1630,6 +1668,8 @@ function ActivityTab({
   onRemoveItem,
   onClearScope,
   reprocessPending,
+  reprocessValidation,
+  reprocessQueueDisabled,
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
@@ -1680,6 +1720,8 @@ function ActivityTab({
   onRemoveItem: (itemId: string) => void
   onClearScope: () => void
   reprocessPending: boolean
+  reprocessValidation: AIReprocessScopeValidation
+  reprocessQueueDisabled: boolean
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
@@ -1820,6 +1862,8 @@ function ActivityTab({
             onRemoveItem={onRemoveItem}
             onClearScope={onClearScope}
             reprocessPending={reprocessPending}
+            reprocessValidation={reprocessValidation}
+            reprocessQueueDisabled={reprocessQueueDisabled}
             onQueueReprocess={onQueueReprocess}
             itemSearchLoading={itemSearchLoading}
             itemSearchError={itemSearchError}
@@ -2883,17 +2927,6 @@ function shouldUseLookbackWindow(
   selectedItems: ItemListEntry[],
 ) {
   return !startTime && !endTime && selectedItems.length === 0
-}
-
-function toApiDateTime(value: string) {
-  if (!value) {
-    return null
-  }
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) {
-    return null
-  }
-  return parsed.toISOString()
 }
 
 function canCancelRun(run: AITaskRunResponse) {

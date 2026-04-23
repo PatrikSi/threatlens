@@ -24,6 +24,7 @@ from app.services.ai_ops import AI_TASK_TYPE_DAILY_BRIEF, start_ai_task_run
 from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
+from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
 from app.tasks.feed_tasks import (
     _process_reserved_notification_deliveries,
     _scheduled_daily_ai_brief_due,
@@ -274,6 +275,66 @@ def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_dupli
     assert refreshed_duplicate.status == "running"
 
 
+def test_generate_item_ai_enrichment_task_skips_when_item_claim_reports_another_run(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="AI Feed",
+        url="https://example.com/ai-lock.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item_id = uuid.uuid4()
+    item = Item(
+        id=item_id,
+        feed_id=feed.id,
+        source_guid="ai-item-locked",
+        url="https://example.com/articles/ai-item-locked",
+        canonical_url="https://example.com/articles/ai-item-locked",
+        title="AI item locked",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ai-item-locked",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    child_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item_id,
+        metadata={"force": True},
+    )
+    db_session.commit()
+    child_run_id = child_run.id
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_item_ai_enrichment",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("the provider body should not run while the item is locked")),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._claim_item_ai_enrichment_target",
+        lambda _db, *, item_id: (None, "already_running"),
+    )
+
+    result = generate_item_ai_enrichment_task.run(str(item_id), force=True, task_run_id=str(child_run.id))
+
+    db_session.expire_all()
+    refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run_id))
+
+    assert result == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
+    assert refreshed_child is not None
+    assert refreshed_child.status == "skipped"
+    assert refreshed_child.reason == "already_running"
+
+
 def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
     brief_id = uuid.uuid4()
     brief = AIDailyBrief(
@@ -460,6 +521,64 @@ def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
     assert result == {"status": "not_modified", "feed_id": str(feed.id)}
 
 
+def test_fetch_feed_uses_decrypted_url_for_authenticated_feeds(db_session, monkeypatch):
+    plaintext_url = "https://alice:secret@example.com/feed.xml?token=alpha"
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Authenticated Feed",
+        url=plaintext_url,
+        enabled=True,
+        fetch_interval_seconds=1800,
+        last_fetch_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    class _Response:
+        status_code = 304
+        headers: dict[str, str] = {}
+        url = plaintext_url
+
+        def iter_bytes(self):
+            yield b""
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    captured: dict[str, str] = {}
+
+    def _safe_stream_with_redirects(_client, _method, url, **_kwargs):
+        captured["url"] = url
+        return _Response()
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", _safe_stream_with_redirects)
+
+    result = fetch_feed.run(str(feed.id), force=True)
+
+    assert result == {"status": "not_modified", "feed_id": str(feed.id)}
+    assert captured["url"] == plaintext_url
+
+
 def test_dispatch_due_feeds_claims_due_feed_until_worker_clears_it(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -522,6 +641,29 @@ def test_dispatch_due_feeds_releases_claim_when_enqueue_fails(db_session, monkey
     db_session.refresh(feed)
     assert feed.dispatch_claimed_at is None
     assert feed.dispatch_backoff_until is None
+
+
+def test_mark_feed_failure_applies_growing_dispatch_backoff(db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Backoff Feed",
+        url="https://example.com/backoff.xml",
+        enabled=True,
+        fetch_interval_seconds=120,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    _mark_feed_failure(db_session, feed, "http_status:503")
+    first_delay_seconds = int((feed.dispatch_backoff_until - feed.last_fetch_at).total_seconds())
+    db_session.commit()
+
+    _mark_feed_failure(db_session, feed, "http_status:503")
+    second_delay_seconds = int((feed.dispatch_backoff_until - feed.last_fetch_at).total_seconds())
+
+    assert feed.error_count == 2
+    assert first_delay_seconds >= 300
+    assert second_delay_seconds > first_delay_seconds
 
 
 def test_fetch_feed_rejects_invalid_feed_ids(db_session, monkeypatch):
@@ -805,6 +947,118 @@ def test_fetch_feed_reports_article_enqueue_failure_without_rolling_back_items(d
     assert created_item_id is not None
     assert db_session.scalar(select(Item).where(Item.id == created_item_id)) is not None
     assert db_session.scalar(select(Article).where(Article.item_id == created_item_id)) is None
+
+
+def test_dispatch_items_missing_articles_recovers_updated_items_with_existing_articles_after_enqueue_failure(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Updated Feed",
+        url="https://example.com/updated.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="updated-item",
+        url="https://example.com/articles/updated-item",
+        canonical_url="https://example.com/articles/updated-item",
+        title="Original title",
+        summary="Original summary",
+        published_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        first_seen_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        dedupe_key="updated-item",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        content_type="text/html",
+        text="Original article body.",
+        extraction_method="readable",
+        retrieved_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    class _Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+        url = "https://example.com/updated.xml"
+
+        def iter_bytes(self):
+            yield b"<rss />"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    def _upsert_updated_item(_db, _feed, _parsed):
+        item.title = "Updated title"
+        item.summary = "Updated summary"
+        item.content_hash = "2" * 64
+        item.status = "new"
+        item.last_error = None
+        _db.add(item)
+        _db.flush()
+        return item, True, False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.tasks.feed_tasks.RSSConnector.poll", lambda *_args, **_kwargs: ([{"id": "updated"}], None))
+    monkeypatch.setattr("app.tasks.feed_tasks._backfill_feed_metadata_from_body", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_updated_item)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.fetch_article.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    result = fetch_feed.run(str(feed.id), force=True)
+
+    db_session.expire_all()
+    refreshed_item = db_session.scalar(select(Item).where(Item.id == item.id))
+    refreshed_article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+
+    assert result["status"] == "ok"
+    assert result["article_enqueue_failed"] is True
+    assert refreshed_item is not None
+    assert refreshed_item.status == "new"
+    assert refreshed_article is not None
+    assert refreshed_article.text == "Original article body."
+
+    queued_item_ids: list[str] = []
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_missing_articles_after_seconds", 0)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.fetch_article.delay",
+        lambda queued_item_id: queued_item_ids.append(queued_item_id),
+    )
+
+    repair_result = dispatch_items_missing_articles.run()
+
+    assert repair_result == {"queued": 1}
+    assert queued_item_ids == [str(item.id)]
 
 
 def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch):
@@ -1111,15 +1365,13 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
 
     result = dispatch_items_missing_articles.run()
 
-    assert result == {"queued": 7}
+    assert result == {"queued": 5}
     assert set(queued_item_ids) == {
         str(failed_item.id),
         str(soft_failed_item.id),
         str(extraction_failed_item.id),
         str(old_item.id),
-        str(aged_out_missing_item.id),
         str(stale_soft_failed_item.id),
-        str(aged_out_failed_item.id),
     }
 
 

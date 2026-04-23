@@ -1,10 +1,19 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
+import {
+  buildCreateUserConfirmation,
+  buildPasswordResetConfirmation,
+  buildUserSettingsConfirmation,
+  createUserSettingsDraft,
+  CreateUserConfirmationState,
+  syncUserSettingsDrafts,
+  UserSettingsDraft,
+} from './userSettingsDraft'
 
 const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilities: string[] }> = [
   {
@@ -36,90 +45,14 @@ const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilitie
   },
 ]
 
-type UserSettingsDraft = {
-  role: User['role']
-  isActive: boolean
-  isApproved: boolean
-}
-
-type UserConfirmationState = {
-  title: string
-  description: string
-  confirmLabel: string
-  confirmTone: 'danger' | 'primary'
-  details: string[]
-  payload: UserUpdateRequest
-}
-
-export function buildUserSettingsConfirmation(user: User, draft: UserSettingsDraft): UserConfirmationState | null {
-  const payload: UserUpdateRequest = {}
-  const details: string[] = []
-
-  if (draft.role !== user.role) {
-    payload.role = draft.role
-    details.push(`Role will change from ${user.role} to ${draft.role}.`)
-    if (draft.role === 'admin') {
-      details.push('This grants full administrative access across user management, global settings, and operational controls.')
-    } else if (user.role === 'admin') {
-      details.push('This removes administrative access to user management, audit logs, and global settings.')
-    }
-  }
-
-  if (draft.isActive !== user.is_active) {
-    payload.is_active = draft.isActive
-    details.push(
-      draft.isActive ? 'Sign-in will be re-enabled for this account.' : 'Sign-in will be blocked until the account is reactivated.',
-    )
-  }
-
-  if (draft.isApproved !== user.is_approved) {
-    payload.is_approved = draft.isApproved
-    details.push(
-      draft.isApproved ? 'The account will move out of pending approval.' : 'The account will return to pending approval.',
-    )
-  }
-
-  if (!details.length) {
-    return null
-  }
-
-  return {
-    title: 'Apply privileged user changes?',
-    description: 'Review the account changes below before they are applied.',
-    confirmLabel: 'Apply user changes',
-    confirmTone: 'primary',
-    details,
-    payload,
-  }
-}
-
-export function buildPasswordResetConfirmation(user: User, nextPassword: string): UserConfirmationState | null {
-  const trimmedPassword = nextPassword.trim()
-  if (trimmedPassword.length < 8) {
-    return null
-  }
-
-  return {
-    title: 'Reset user password?',
-    description: `This immediately replaces the current password for ${user.email}.`,
-    confirmLabel: 'Reset password',
-    confirmTone: 'primary',
-    details: [
-      `You are updating credentials for ${user.email}.`,
-      'The current password will stop working as soon as you confirm.',
-      `The new password meets the minimum length requirement with ${trimmedPassword.length} characters.`,
-      'Share the new password through a secure channel.',
-    ],
-    payload: { password: trimmedPassword },
-  }
-}
-
 export function UsersPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [rowNoticeByUserId, setRowNoticeByUserId] = useState<
     Record<string, { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' }>
   >({})
+  const [settingsDraftsByUserId, setSettingsDraftsByUserId] = useState<Record<string, UserSettingsDraft>>({})
+  const settingsDraftBaselinesByUserIdRef = useRef<Record<string, UserSettingsDraft>>({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>({
     email: '',
     password: '',
@@ -127,6 +60,7 @@ export function UsersPage() {
     is_active: true,
     is_approved: true,
   })
+  const [pendingCreateConfirmation, setPendingCreateConfirmation] = useState<CreateUserConfirmationState | null>(null)
 
   const usersQuery = useQuery({
     queryKey: ['users'],
@@ -193,155 +127,224 @@ export function UsersPage() {
     )
   }, [usersQuery.data, search])
 
+  useEffect(() => {
+    const users = usersQuery.data ?? []
+    setSettingsDraftsByUserId((current) => {
+      const synced = syncUserSettingsDrafts(users, current, settingsDraftBaselinesByUserIdRef.current)
+      settingsDraftBaselinesByUserIdRef.current = synced.baselines
+      return synced.drafts
+    })
+  }, [usersQuery.data])
+
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
-    createUser.mutate(createForm)
+    const confirmation = buildCreateUserConfirmation(createForm)
+    if (!confirmation) {
+      return
+    }
+    setPendingCreateConfirmation(confirmation)
+  }
+
+  const confirmCreateUser = () => {
+    if (!pendingCreateConfirmation) {
+      return
+    }
+
+    createUser.mutate(pendingCreateConfirmation.payload)
+    setPendingCreateConfirmation(null)
   }
 
   return (
-    <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h2 className="font-display text-xl">Create User</h2>
-        <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
-          <div>
-            <label htmlFor="create-user-email" className="text-sm font-semibold">
-              Email
+    <>
+      <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <h2 className="font-display text-xl">Create User</h2>
+          <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
+            <div>
+              <label htmlFor="create-user-email" className="text-sm font-semibold">
+                Email
+              </label>
+              <input
+                id="create-user-email"
+                value={createForm.email}
+                onChange={(event) => setCreateForm((f) => ({ ...f, email: event.target.value }))}
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                type="email"
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="create-user-password" className="text-sm font-semibold">
+                Password
+              </label>
+              <input
+                id="create-user-password"
+                value={createForm.password}
+                onChange={(event) => setCreateForm((f) => ({ ...f, password: event.target.value }))}
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                type="password"
+                minLength={8}
+                required
+              />
+            </div>
+            <div>
+              <label htmlFor="create-user-role" className="text-sm font-semibold">
+                Role
+              </label>
+              <select
+                id="create-user-role"
+                value={createForm.role}
+                onChange={(event) => setCreateForm((f) => ({ ...f, role: event.target.value as User['role'] }))}
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+              >
+                <option value="viewer">viewer</option>
+                <option value="analyst">analyst</option>
+                <option value="admin">admin</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={createForm.is_active}
+                onChange={(event) => setCreateForm((f) => ({ ...f, is_active: event.target.checked }))}
+              />
+              Active
             </label>
-            <input
-              id="create-user-email"
-              value={createForm.email}
-              onChange={(event) => setCreateForm((f) => ({ ...f, email: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              type="email"
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="create-user-password" className="text-sm font-semibold">
-              Password
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={createForm.is_approved}
+                onChange={(event) => setCreateForm((f) => ({ ...f, is_approved: event.target.checked }))}
+              />
+              Approved
             </label>
-            <input
-              id="create-user-password"
-              value={createForm.password}
-              onChange={(event) => setCreateForm((f) => ({ ...f, password: event.target.value }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
-              type="password"
-              minLength={8}
-              required
-            />
-          </div>
-          <div>
-            <label htmlFor="create-user-role" className="text-sm font-semibold">
-              Role
-            </label>
-            <select
-              id="create-user-role"
-              value={createForm.role}
-              onChange={(event) => setCreateForm((f) => ({ ...f, role: event.target.value as User['role'] }))}
-              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+            <p className="text-xs text-slate dark:text-slate-300">A review step appears before the account is created.</p>
+            {createUser.isError && <p className="text-sm text-red-600">Failed to create user.</p>}
+            <button
+              className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]"
+              disabled={createUser.isPending}
             >
-              <option value="viewer">viewer</option>
-              <option value="analyst">analyst</option>
-              <option value="admin">admin</option>
-            </select>
+              Review and Create User
+            </button>
+          </form>
+        </section>
+
+        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-display text-xl">User Directory</h2>
+            <label htmlFor="user-directory-search" className="sr-only">
+              Search users
+            </label>
+            <input
+              id="user-directory-search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search users..."
+              className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
+            />
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createForm.is_active}
-              onChange={(event) => setCreateForm((f) => ({ ...f, is_active: event.target.checked }))}
-            />
-            Active
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createForm.is_approved}
-              onChange={(event) => setCreateForm((f) => ({ ...f, is_approved: event.target.checked }))}
-            />
-            Approved
-          </label>
-          {createUser.isError && <p className="text-sm text-red-600">Failed to create user.</p>}
-          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createUser.isPending}>
-            Create User
-          </button>
-        </form>
-      </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="font-display text-xl">User Directory</h2>
-          <label htmlFor="user-directory-search" className="sr-only">
-            Search users
-          </label>
-          <input
-            id="user-directory-search"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search users..."
-            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
-          />
-        </div>
+          <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
+            <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
+              <span className="inline-flex items-center gap-2">
+                <span>Role Definitions</span>
+                <span className="text-xs font-normal text-slate dark:text-slate-300">
+                  Expand for admin, analyst, and viewer access boundaries
+                </span>
+              </span>
+            </summary>
+            <div className="mt-3 grid gap-3 lg:grid-cols-3">
+              {ROLE_DEFINITIONS.map((entry) => (
+                <section
+                  key={entry.role}
+                  className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
+                >
+                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-900 dark:text-white">{entry.role}</h3>
+                  <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
+                  <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-900 dark:text-slate-200">
+                    {entry.capabilities.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+            </div>
+          </details>
 
-        <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
-          <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
-            <span className="inline-flex items-center gap-2">
-              <span>Role Definitions</span>
-              <span className="text-xs font-normal text-slate dark:text-slate-300">Expand for admin, analyst, and viewer access boundaries</span>
-            </span>
-          </summary>
-          <div className="mt-3 grid gap-3 lg:grid-cols-3">
-            {ROLE_DEFINITIONS.map((entry) => (
-              <section key={entry.role} className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-900 dark:text-white">{entry.role}</h3>
-                <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
-                <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-900 dark:text-slate-200">
-                  {entry.capabilities.map((item) => (
-                    <li key={item}>{item}</li>
-                  ))}
-                </ul>
-              </section>
+          <div className="mt-3 space-y-2">
+            {filteredUsers.map((user) => (
+              <UserRow
+                key={user.id}
+                user={user}
+                settingsDraft={settingsDraftsByUserId[user.id] ?? createUserSettingsDraft(user)}
+                onSettingsDraftChange={(draft) =>
+                  setSettingsDraftsByUserId((current) => ({
+                    ...current,
+                    [user.id]: draft,
+                  }))
+                }
+                onSave={(body) => updateUser.mutate({ id: user.id, body })}
+                saving={updateUser.isPending && updateUser.variables?.id === user.id}
+                notice={rowNoticeByUserId[user.id] ?? null}
+              />
             ))}
+
+            {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
+            {usersQuery.isError && <p className="text-sm text-red-600">{resolveUsersError(usersQuery.error)}</p>}
           </div>
-        </details>
+        </section>
+      </div>
 
-        <div className="mt-3 space-y-2">
-          {filteredUsers.map((user) => (
-            <UserRow
-              key={user.id}
-              user={user}
-              onSave={(body) => updateUser.mutate({ id: user.id, body })}
-              saving={updateUser.isPending && updateUser.variables?.id === user.id}
-              notice={rowNoticeByUserId[user.id] ?? null}
-            />
-          ))}
-
-          {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
-          {usersQuery.isError && <p className="text-sm text-red-600">{resolveUsersError(usersQuery.error)}</p>}
-        </div>
-      </section>
-    </div>
+      <ConfirmDialog
+        open={Boolean(pendingCreateConfirmation)}
+        title={pendingCreateConfirmation?.title ?? 'Create user account?'}
+        description={pendingCreateConfirmation?.description}
+        confirmLabel={pendingCreateConfirmation?.confirmLabel ?? 'Create user'}
+        confirmTone={pendingCreateConfirmation?.confirmTone ?? 'primary'}
+        onCancel={() => setPendingCreateConfirmation(null)}
+        onConfirm={confirmCreateUser}
+        confirmDisabled={!pendingCreateConfirmation}
+        isConfirming={createUser.isPending}
+      >
+        {pendingCreateConfirmation && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <p className="font-semibold text-ink dark:text-white">{pendingCreateConfirmation.payload.email}</p>
+              <p className="text-xs text-slate dark:text-white/70">
+                Password set with {pendingCreateConfirmation.payload.password.length} characters
+              </p>
+            </div>
+            <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-white/80">
+              {pendingCreateConfirmation.details.map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </ConfirmDialog>
+    </>
   )
 }
 
 function UserRow({
   user,
+  settingsDraft,
+  onSettingsDraftChange,
   onSave,
   saving,
   notice,
 }: {
   user: User
+  settingsDraft: UserSettingsDraft
+  onSettingsDraftChange: (draft: UserSettingsDraft) => void
   onSave: (payload: UserUpdateRequest) => void
   saving: boolean
   notice: { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' } | null
 }) {
   const roleInputId = `user-role-${user.id}`
   const passwordInputId = `user-reset-password-${user.id}`
-  const [role, setRole] = useState<User['role']>(user.role)
-  const [isActive, setIsActive] = useState(user.is_active)
-  const [isApproved, setIsApproved] = useState(user.is_approved)
   const [resetPassword, setResetPassword] = useState('')
-  const settingsConfirmation = buildUserSettingsConfirmation(user, { role, isActive, isApproved })
+  const settingsConfirmation = buildUserSettingsConfirmation(user, settingsDraft)
   const passwordConfirmation = buildPasswordResetConfirmation(user, resetPassword)
   const [pendingConfirmationAction, setPendingConfirmationAction] = useState<'settings' | 'password' | null>(null)
   const pendingConfirmation =
@@ -350,12 +353,6 @@ function UserRow({
       : pendingConfirmationAction === 'settings'
         ? settingsConfirmation
         : null
-
-  useEffect(() => {
-    setRole(user.role)
-    setIsActive(user.is_active)
-    setIsApproved(user.is_approved)
-  }, [user.is_active, user.is_approved, user.role])
 
   useEffect(() => {
     if (notice?.tone === 'success' && notice.action === 'password') {
@@ -394,27 +391,35 @@ function UserRow({
                 Pending approval
               </p>
             )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <label htmlFor={roleInputId} className="sr-only">
-            Role for {user.email}
-          </label>
-          <select
-            id={roleInputId}
-            value={role}
-            onChange={(event) => setRole(event.target.value as User['role'])}
-            className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-          >
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <label htmlFor={roleInputId} className="sr-only">
+              Role for {user.email}
+            </label>
+            <select
+              id={roleInputId}
+              value={settingsDraft.role}
+              onChange={(event) => onSettingsDraftChange({ ...settingsDraft, role: event.target.value as User['role'] })}
+              className="rounded border border-slate/30 bg-white px-2 py-1 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+            >
               <option value="viewer">viewer</option>
               <option value="analyst">analyst</option>
               <option value="admin">admin</option>
             </select>
             <label className="flex items-center gap-1 text-sm">
-              <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={settingsDraft.isActive}
+                onChange={(event) => onSettingsDraftChange({ ...settingsDraft, isActive: event.target.checked })}
+              />
               Active
             </label>
             <label className="flex items-center gap-1 text-sm">
-              <input type="checkbox" checked={isApproved} onChange={(event) => setIsApproved(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={settingsDraft.isApproved}
+                onChange={(event) => onSettingsDraftChange({ ...settingsDraft, isApproved: event.target.checked })}
+              />
               Approved
             </label>
             <button

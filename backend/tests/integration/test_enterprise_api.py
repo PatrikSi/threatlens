@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
@@ -19,6 +19,7 @@ from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.core.security import get_password_hash
 from app.services import auth_rate_limit
+from app.services.feed_storage import feed_url_digest
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
 
@@ -1256,7 +1257,7 @@ def test_feed_import_still_succeeds_when_backfill_enqueue_fails(client: TestClie
     assert payload["created"] == 1
     assert any("scheduler will retry later" in error for error in payload["errors"])
 
-    feed = db_session.scalar(select(Feed).where(Feed.url == "https://example.com/queued-later.xml"))
+    feed = db_session.scalar(select(Feed).where(Feed.url_digest == feed_url_digest("https://example.com/queued-later.xml")))
     assert feed is not None
 
 
@@ -1279,7 +1280,12 @@ def test_feed_import_redacts_secret_urls_in_fallback_names_and_exports(client: T
     assert import_response.status_code == 200
     assert import_response.json()["created"] == 1
 
-    feed = db_session.scalar(select(Feed).where(Feed.url == "https://alice:secret@example.com/imported.xml?token=alpha&source=partner"))
+    feed = db_session.scalar(
+        select(Feed).where(
+            Feed.url_digest
+            == feed_url_digest("https://alice:secret@example.com/imported.xml?token=alpha&source=partner")
+        )
+    )
     assert feed is not None
     assert feed.name == "https://example.com/imported.xml?token=REDACTED&source=partner"
 
@@ -1345,7 +1351,7 @@ def test_feed_create_still_succeeds_when_backfill_enqueue_fails(client: TestClie
     assert response.status_code == 201
     assert response.json()["name"] == "Backfill Later"
 
-    feed = db_session.scalar(select(Feed).where(Feed.url == "https://example.com/backfill-later.xml"))
+    feed = db_session.scalar(select(Feed).where(Feed.url_digest == feed_url_digest("https://example.com/backfill-later.xml")))
     assert feed is not None
 
 
@@ -1442,6 +1448,12 @@ def test_feed_create_redacts_secret_urls_in_read_surfaces_and_audit_logs(client:
     feed = db_session.scalar(select(Feed).where(Feed.id == create_payload["id"]))
     assert feed is not None
     assert feed.url == "https://alice:secret@example.com/path/feed.xml?token=alpha&source=partner"
+    stored_url = db_session.execute(
+        text("select url from feeds where id = :feed_id"),
+        {"feed_id": str(feed.id)},
+    ).scalar_one()
+    assert stored_url != "https://alice:secret@example.com/path/feed.xml?token=alpha&source=partner"
+    assert stored_url.startswith("enc:v1:")
 
     list_response = client.get("/feeds", headers=auth_headers["viewer"])
     assert list_response.status_code == 200

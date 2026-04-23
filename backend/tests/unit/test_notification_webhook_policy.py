@@ -2,11 +2,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from app.core.config import Settings
 from app.services.notification_webhook_policy import (
     notification_host_matches_allowlist,
     notification_origin_matches_allowlist,
     notification_target_origin,
     notification_target_host,
+    notification_target_matches_allowlist,
     validate_notification_target_for_actor,
 )
 
@@ -36,6 +38,27 @@ def test_notification_origin_matches_allowlist_requires_matching_scheme_and_port
     assert notification_origin_matches_allowlist("http://hooks.example.com/notify", "hooks.example.com") is False
 
 
+def test_notification_target_matches_allowlist_supports_path_prefixes_and_segment_boundaries():
+    allow_entry = "https://hooks.example.com/services/tenant-a"
+
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-a/notify",
+        allow_entry,
+    ) is True
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-a",
+        allow_entry,
+    ) is True
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-a/../tenant-b/notify",
+        allow_entry,
+    ) is False
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-ab/notify",
+        allow_entry,
+    ) is False
+
+
 def test_validate_notification_target_for_actor_blocks_analysts_without_allowlist():
     analyst = SimpleNamespace(role="analyst")
 
@@ -60,13 +83,19 @@ def test_validate_notification_target_for_actor_allows_admin_and_approved_analys
         allowed_hosts=("*.example.com",),
     )
 
+    validate_notification_target_for_actor(
+        "https://hooks.example.com/services/tenant-a/notify",
+        actor_user=SimpleNamespace(role="analyst"),
+        allowed_hosts=("https://hooks.example.com/services/tenant-a",),
+    )
+
 
 def test_validate_notification_target_for_actor_rejects_apex_and_non_default_ports():
     analyst = SimpleNamespace(role="analyst")
 
     with pytest.raises(
         ValueError,
-        match="Webhook destination origin 'https://example.com' is not approved for analyst-managed webhook deliveries",
+        match="Webhook destination 'https://example.com/notify' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_target_for_actor(
             "https://example.com/notify",
@@ -76,12 +105,26 @@ def test_validate_notification_target_for_actor_rejects_apex_and_non_default_por
 
     with pytest.raises(
         ValueError,
-        match="Webhook destination origin 'https://hooks.example.com:8443' is not approved for analyst-managed webhook deliveries",
+        match="Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_target_for_actor(
             "https://hooks.example.com:8443/notify",
             actor_user=analyst,
             allowed_hosts=("hooks.example.com",),
+        )
+
+
+def test_validate_notification_target_for_actor_rejects_urls_outside_approved_prefix():
+    analyst = SimpleNamespace(role="analyst")
+
+    with pytest.raises(
+        ValueError,
+        match="Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries",
+    ):
+        validate_notification_target_for_actor(
+            "https://hooks.example.com/services/tenant-b/notify",
+            actor_user=analyst,
+            allowed_hosts=("https://hooks.example.com/services/tenant-a",),
         )
 
 
@@ -99,3 +142,18 @@ def test_validate_notification_target_for_actor_fails_closed_for_missing_or_inac
             actor_user=SimpleNamespace(role="analyst", is_active=False, is_approved=True),
             allowed_hosts=("*.example.com",),
         )
+
+
+def test_settings_notification_webhook_allowlist_accepts_legacy_hosts_and_url_prefixes():
+    settings = Settings(
+        _env_file=None,
+        notification_webhook_allowed_hosts=[
+            "Hooks.Example.com.",
+            "https://Hooks.Example.com/Services/Tenant-A/../Tenant-A/",
+        ],
+    )
+
+    assert settings.notification_webhook_allowed_hosts == [
+        "hooks.example.com",
+        "https://hooks.example.com/Services/Tenant-A",
+    ]
