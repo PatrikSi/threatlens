@@ -31,9 +31,12 @@ def test_article_repair_floor_limits_reprocessing_age():
 
 def test_article_error_matchers_distinguish_fast_and_soft_retry_conditions():
     assert is_fast_retryable_article_error("http_status:503") is True
+    assert is_fast_retryable_article_error("network_or_rate_limit_error") is True
     assert is_fast_retryable_article_error("network_or_rate_limit_error:timed out") is True
+    assert is_fast_retryable_article_error("coordination_unavailable") is True
     assert is_fast_retryable_article_error("non_html_response") is False
 
     assert is_soft_retryable_article_error("non_html_response") is True
+    assert is_soft_retryable_article_error("response_too_large") is False
     assert is_soft_retryable_article_error("readability_error:no_content") is True
     assert is_soft_retryable_article_error("http_status:503") is False

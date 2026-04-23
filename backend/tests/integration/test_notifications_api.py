@@ -20,6 +20,40 @@ def allow_admin_unrestricted_webhooks(monkeypatch):
     monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
 
 
+def test_notification_webhook_policy_reflects_role_and_allowlist(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
+
+    admin_response = client.get("/notifications/webhook-policy", headers=auth_headers["admin"])
+    assert admin_response.status_code == 200
+    assert admin_response.json()["can_manage_webhooks"] is False
+    assert (
+        admin_response.json()["reason"]
+        == "Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled."
+    )
+
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
+    unrestricted_admin_response = client.get("/notifications/webhook-policy", headers=auth_headers["admin"])
+    assert unrestricted_admin_response.status_code == 200
+    assert unrestricted_admin_response.json()["can_manage_webhooks"] is True
+
+    viewer_response = client.get("/notifications/webhook-policy", headers=auth_headers["viewer"])
+    assert viewer_response.status_code == 200
+    assert viewer_response.json()["can_manage_webhooks"] is False
+    assert viewer_response.json()["reason"] == "Viewer access is read-only. Webhook settings can only be changed by operators."
+
+    analyst_response = client.get("/notifications/webhook-policy", headers=auth_headers["analyst"])
+    assert analyst_response.status_code == 200
+    assert analyst_response.json()["can_manage_webhooks"] is False
+    assert analyst_response.json()["allowed_hosts_configured"] is False
+
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
+    allowed_analyst_response = client.get("/notifications/webhook-policy", headers=auth_headers["analyst"])
+    assert allowed_analyst_response.status_code == 200
+    assert allowed_analyst_response.json()["can_manage_webhooks"] is True
+    assert allowed_analyst_response.json()["reason"] is None
+
+
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):
     admin = seed_users["admin"]
     feed = Feed(
@@ -675,6 +709,38 @@ def test_user_can_list_notification_webhook_delivery_history_with_stable_tiebrea
     assert [entry["id"] for entry in payload["deliveries"]] == [str(later_id), str(earlier_id)]
 
 
+def test_user_cannot_list_notification_webhook_delivery_history_outside_pagination_bounds(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    viewer = seed_users["viewer"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=viewer.id,
+        name="History webhook",
+        url_template="https://hooks.example.com/history",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add(webhook)
+    db_session.commit()
+
+    response = client.get(
+        f"/notifications/webhooks/{webhook.id}/deliveries?page=0&page_size=101",
+        headers=auth_headers["viewer"],
+    )
+
+    assert response.status_code == 422
+
+
 def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
     admin = seed_users["admin"]
     webhook = NotificationWebhook(
@@ -758,7 +824,7 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
     assert payload["item_title"] == "Retry item"
 
 
-def test_retry_failed_notification_webhook_delivery_returns_503_when_followup_enqueue_fails(
+def test_retry_failed_notification_webhook_delivery_warns_when_followup_enqueue_is_delayed(
     client: TestClient,
     auth_headers,
     db_session,
@@ -840,8 +906,13 @@ def test_retry_failed_notification_webhook_delivery_returns_503_when_followup_en
         headers=auth_headers["admin"],
     )
 
-    assert response.status_code == 503
-    assert response.json()["detail"] == "Webhook retry completed but follow-up failure notification enqueue failed"
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["status_code"] == 503
+    assert payload["warnings"] == [
+        "Webhook-failed notification delivery is reserved but enqueue was delayed; the recovery sweep will retry it."
+    ]
 
 
 def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(client: TestClient, auth_headers, db_session, seed_users):

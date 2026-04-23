@@ -66,27 +66,61 @@ def get_feed_metadata(
     )
 
 
-@router.get("/export", response_model=FeedExportResponse)
-def export_feeds(
+@router.get("/export", response_model=FeedExportResponse, operation_id="export_feeds_v1_feeds_export_get")
+def export_feeds_sanitized(
     db: Session = Depends(get_db),
     _user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
+    exported, warnings = _build_feed_export(db, include_sensitive_urls=False)
+    return FeedExportResponse(
+        exported_at=datetime.now(timezone.utc),
+        export_type="sanitized",
+        includes_sensitive_urls=False,
+        feeds=exported,
+        warnings=warnings,
+    )
+
+
+@router.get("/export/backup", response_model=FeedExportResponse)
+def export_feeds_backup(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
+):
+    exported, warnings = _build_feed_export(db, include_sensitive_urls=True)
+    return FeedExportResponse(
+        exported_at=datetime.now(timezone.utc),
+        export_type="backup",
+        includes_sensitive_urls=True,
+        feeds=exported,
+        warnings=warnings,
+    )
+
+
+def _build_feed_export(db: Session, *, include_sensitive_urls: bool) -> tuple[list[FeedImportEntry], list[str]]:
     feeds = db.scalars(select(Feed).order_by(Feed.created_at.asc())).all()
-    exported = [
-        FeedImportEntry(
-            name=redact_feed_url(feed.name),
-            url=redact_feed_url(feed.url),
-            description=feed.description,
-            site_url=feed.site_url,
-            language=feed.language,
-            enabled=feed.enabled,
-            fetch_mode=feed.fetch_mode,
-            fetch_interval_seconds=feed.fetch_interval_seconds,
-            schedule_cron=feed.schedule_cron,
+    exported: list[FeedImportEntry] = []
+    warnings: list[str] = []
+    for feed in feeds:
+        has_unreadable_url = bool(feed.url_decryption_error)
+        if has_unreadable_url:
+            warnings.append(f"feed {feed.id}: URL could not be decrypted and was omitted from export")
+            continue
+        feed_url = feed.url
+        exported.append(
+            FeedImportEntry(
+                name=feed.name if include_sensitive_urls else redact_feed_url(feed.name),
+                url=feed_url if include_sensitive_urls else redact_feed_url(feed_url),
+                description=feed.description,
+                site_url=feed.site_url if include_sensitive_urls else redact_feed_url(feed.site_url),
+                language=feed.language,
+                enabled=feed.enabled,
+                fetch_mode=feed.fetch_mode,
+                fetch_interval_seconds=feed.fetch_interval_seconds,
+                schedule_cron=feed.schedule_cron,
+            )
         )
-        for feed in feeds
-    ]
-    return FeedExportResponse(exported_at=datetime.now(timezone.utc), feeds=exported)
+    return exported, warnings
 
 
 @router.post("/import", response_model=FeedImportResponse)
@@ -302,7 +336,14 @@ def delete_feed(
     db.commit()
 
 
-@router.post("/{feed_id}/refresh", status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{feed_id}/refresh",
+    status_code=status.HTTP_202_ACCEPTED,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Feed not found"},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"description": "Task queue unavailable"},
+    },
+)
 def refresh_feed(
     feed_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -323,7 +364,7 @@ def refresh_feed(
             resource_type="feed",
             resource_id=str(feed_id),
             success=False,
-            metadata={"error": str(exc)},
+            metadata={"error": "task_queue_unavailable"},
         )
         db.commit()
         raise HTTPException(

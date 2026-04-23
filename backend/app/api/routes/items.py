@@ -448,7 +448,7 @@ def retry_item_article_fetch(
             resource_type="item",
             resource_id=str(item_id),
             success=False,
-            metadata={"error": str(exc)},
+            metadata={"error": "task_queue_unavailable"},
         )
         db.commit()
         raise HTTPException(

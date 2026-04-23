@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:7888342a781a8f40447dee50de1372e8168dd5ced59c1ee04ce74502fab9b4f7`
+- OpenAPI contract anchor: `openapi-sha256:65fa714280c8494ed06be4433ae2d1303f6a309eb0b1bfc88707d93300631646`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -254,9 +254,14 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Request body: `application/json` -> FeedCreate
 - Responses: `201` `application/json` -> FeedResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/feeds/export`
-- Summary: Export Feeds
+- Summary: Export Feeds Sanitized
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:feeds`
+- Responses: `200` `application/json` -> FeedExportResponse
+### `GET /v1/feeds/export/backup`
+- Summary: Export Feeds Backup
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:feeds`
 - Responses: `200` `application/json` -> FeedExportResponse
 ### `POST /v1/feeds/import`
 - Summary: Import Feeds
@@ -291,7 +296,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Token scopes: `write:feeds`
 - Parameters:
   - `feed_id` (path, required): string
-- Responses: `202` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
+- Responses: `202` `application/json` -> unspecified, `404`, `422` `application/json` -> HTTPValidationError, `503`
 
 ## Health
 
@@ -422,6 +427,11 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
 - Responses: `200` `application/json` -> array[NotificationTemplateVariable]
+### `GET /v1/notifications/webhook-policy`
+- Summary: Get Notification Webhook Policy
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:notifications`
+- Responses: `200` `application/json` -> NotificationWebhookPolicyResponse
 ### `GET /v1/notifications/webhooks`
 - Summary: List Notification Webhooks
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -462,7 +472,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
   - `webhook_id` (path, required): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
-- Responses: `200` `application/json` -> NotificationWebhookDeliveryListResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> NotificationWebhookDeliveryListResponse, `404`, `422`
 ### `POST /v1/notifications/webhooks/{webhook_id}/deliveries/{delivery_id}/retry`
 - Summary: Retry Notification Webhook Delivery
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -470,7 +480,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Parameters:
   - `webhook_id` (path, required): string
   - `delivery_id` (path, required): string
-- Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `404`, `409`, `422`
 
 ## Stats
 

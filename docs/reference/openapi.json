@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "7888342a781a8f40447dee50de1372e8168dd5ced59c1ee04ce74502fab9b4f7"
+    "x-threatlens-contract-sha256": "65fa714280c8494ed06be4433ae2d1303f6a309eb0b1bfc88707d93300631646"
   },
   "servers": [
     {
@@ -365,7 +365,7 @@
         "tags": [
           "feeds"
         ],
-        "summary": "Export Feeds",
+        "summary": "Export Feeds Sanitized",
         "operationId": "export_feeds_v1_feeds_export_get",
         "responses": {
           "200": {
@@ -389,6 +389,38 @@
         ],
         "x-threatlens-required-token-scopes": [
           "read:feeds"
+        ]
+      }
+    },
+    "/v1/feeds/export/backup": {
+      "get": {
+        "tags": [
+          "feeds"
+        ],
+        "summary": "Export Feeds Backup",
+        "operationId": "export_feeds_backup_v1_feeds_export_backup_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedExportResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:feeds"
         ]
       }
     },
@@ -588,6 +620,12 @@
                 "schema": {}
               }
             }
+          },
+          "404": {
+            "description": "Feed not found"
+          },
+          "503": {
+            "description": "Task queue unavailable"
           },
           "422": {
             "description": "Validation Error",
@@ -2992,6 +3030,38 @@
         ]
       }
     },
+    "/v1/notifications/webhook-policy": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Get Notification Webhook Policy",
+        "operationId": "get_notification_webhook_policy_v1_notifications_webhook_policy_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationWebhookPolicyResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:notifications"
+        ]
+      }
+    },
     "/v1/notifications/analytics": {
       "get": {
         "tags": [
@@ -3251,6 +3321,7 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "minimum": 1,
               "default": 1,
               "title": "Page"
             }
@@ -3261,6 +3332,8 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
               "default": 10,
               "title": "Page Size"
             }
@@ -3277,15 +3350,11 @@
               }
             }
           },
+          "404": {
+            "description": "Webhook not found"
+          },
           "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
+            "description": "Validation error"
           }
         },
         "x-threatlens-required-token-scopes": [
@@ -3341,15 +3410,14 @@
               }
             }
           },
+          "404": {
+            "description": "Webhook or delivery not found"
+          },
+          "409": {
+            "description": "Webhook delivery cannot be retried right now"
+          },
           "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
+            "description": "Validation error"
           }
         },
         "x-threatlens-required-token-scopes": [
@@ -9062,12 +9130,33 @@
             "format": "date-time",
             "title": "Exported At"
           },
+          "export_type": {
+            "type": "string",
+            "enum": [
+              "sanitized",
+              "backup"
+            ],
+            "title": "Export Type",
+            "default": "sanitized"
+          },
+          "includes_sensitive_urls": {
+            "type": "boolean",
+            "title": "Includes Sensitive Urls",
+            "default": false
+          },
           "feeds": {
             "items": {
               "$ref": "#/components/schemas/FeedImportEntry"
             },
             "type": "array",
             "title": "Feeds"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           }
         },
         "type": "object",
@@ -11043,6 +11132,13 @@
             "type": "string",
             "format": "date-time",
             "title": "Attempted At"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
           }
         },
         "type": "object",
@@ -11095,6 +11191,40 @@
           "key"
         ],
         "title": "NotificationWebhookField"
+      },
+      "NotificationWebhookPolicyResponse": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "can_manage_webhooks": {
+            "type": "boolean",
+            "title": "Can Manage Webhooks"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "allowed_hosts_configured": {
+            "type": "boolean",
+            "title": "Allowed Hosts Configured"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "can_manage_webhooks",
+          "allowed_hosts_configured"
+        ],
+        "title": "NotificationWebhookPolicyResponse"
       },
       "NotificationWebhookResponse": {
         "properties": {

@@ -36,6 +36,7 @@ from app.tasks.feed_tasks import (
     classify_item,
     dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
+    dispatch_feed_metadata_backfill,
     dispatch_items_missing_articles,
     dispatch_items_missing_ai_enrichment,
     dispatch_items_missing_iocs,
@@ -2036,6 +2037,198 @@ def test_dispatch_items_missing_ai_enrichment_skips_old_feed_backlog(db_session,
     get_settings.cache_clear()
 
 
+def test_dispatch_items_missing_ai_enrichment_skips_items_with_active_runs(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="active-enrichment-row",
+        url="https://example.com/articles/active-enrichment-row",
+        canonical_url="https://example.com/articles/active-enrichment-row",
+        title="Fortinet edge exploitation observed",
+        summary="Summary",
+        published_at=now,
+        first_seen_at=now,
+        dedupe_key="active-enrichment-row",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=[],
+        confidence=0.91,
+        scores_json={"vulnerability": 9.1},
+        matched_terms_json={"vulnerability": ["title:fortinet"]},
+        source_hash="classification-hash",
+        rules_version="v2",
+        classified_at=now,
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
+    db_session.flush()
+
+    active_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    active_run.status = "queued"
+    db_session.add(active_run)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("active runs should not be duplicated")),
+    )
+
+    result = dispatch_items_missing_ai_enrichment.run()
+
+    queued_runs = db_session.scalars(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "queued",
+        )
+    ).all()
+
+    assert result == {"queued": 0}
+    assert len(queued_runs) == 1
+    get_settings.cache_clear()
+
+
+def test_dispatch_feed_metadata_backfill_skips_old_prefix_and_finds_later_candidates(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    skipped_feed_one = Feed(
+        id=uuid.uuid4(),
+        name="Feed One",
+        url="https://example.com/feed-one.xml",
+        description="Feed one",
+        site_url="https://example.com/site-one",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        created_at=now - timedelta(hours=3),
+    )
+    skipped_feed_two = Feed(
+        id=uuid.uuid4(),
+        name="Feed Two",
+        url="https://example.com/feed-two.xml",
+        description="Feed two",
+        site_url="https://example.com/site-two",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        created_at=now - timedelta(hours=2),
+    )
+    candidate_feed = Feed(
+        id=uuid.uuid4(),
+        name="",
+        url="https://example.com/feed-three.xml",
+        description="Feed three",
+        site_url=None,
+        enabled=True,
+        fetch_interval_seconds=1800,
+        created_at=now - timedelta(hours=1),
+    )
+    db_session.add_all([skipped_feed_one, skipped_feed_two, candidate_feed])
+    db_session.commit()
+
+    queued_feed_ids: list[str] = []
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_feed_metadata_scan_limit", 1)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_feed_metadata_queue_limit", 10)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.backfill_feed_metadata.delay",
+        lambda feed_id: queued_feed_ids.append(feed_id),
+    )
+
+    result = dispatch_feed_metadata_backfill.run()
+
+    assert result == {"queued": 1}
+    assert queued_feed_ids == [str(candidate_feed.id)]
+
+
+def test_dispatch_feed_metadata_backfill_queues_url_placeholder_names_with_site_urls(db_session, monkeypatch):
+    placeholder_url = "https://example.com/placeholder.xml"
+    feed = Feed(
+        id=uuid.uuid4(),
+        name=placeholder_url,
+        url=placeholder_url,
+        description="Feed description",
+        site_url="https://example.com",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        created_at=datetime.now(timezone.utc) - timedelta(hours=1),
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    queued_feed_ids: list[str] = []
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_feed_metadata_scan_limit", 10)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_feed_metadata_queue_limit", 10)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.backfill_feed_metadata.delay",
+        lambda feed_id: queued_feed_ids.append(feed_id),
+    )
+
+    result = dispatch_feed_metadata_backfill.run()
+
+    assert result == {"queued": 1}
+    assert queued_feed_ids == [str(feed.id)]
+
+
 def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -2368,7 +2561,7 @@ def test_queue_item_ai_enrichment_run_marks_run_error_when_broker_publish_fails(
     assert run is not None
     assert run.status == "error"
     assert run.reason == "enqueue_failed"
-    assert run.error == "broker down"
+    assert run.error == "task_queue_unavailable"
 
 
 def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch):
@@ -3183,7 +3376,7 @@ def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs
     assert refreshed_child is not None
     assert refreshed_child.status == "error"
     assert refreshed_child.reason == "unexpected_error"
-    assert refreshed_child.error == "boom"
+    assert refreshed_child.error == "unexpected_error"
 
     assert refreshed_parent is not None
     assert refreshed_parent.processed_count == 1

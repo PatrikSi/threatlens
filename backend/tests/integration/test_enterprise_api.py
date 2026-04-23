@@ -1582,6 +1582,7 @@ def test_feed_import_redacts_secret_urls_in_fallback_names_and_exports(client: T
             "feeds": [
                 {
                     "url": "https://alice:secret@example.com/imported.xml?token=alpha&source=partner",
+                    "site_url": "https://alice:secret@example.com/site?token=alpha&source=partner",
                     "enabled": True,
                     "fetch_mode": "interval",
                     "fetch_interval_seconds": 1800,
@@ -1610,8 +1611,23 @@ def test_feed_import_redacts_secret_urls_in_fallback_names_and_exports(client: T
     export_response = client.get("/feeds/export", headers=auth_headers["admin"])
     assert export_response.status_code == 200
     export_payload = export_response.json()
+    assert export_payload["export_type"] == "sanitized"
+    assert export_payload["includes_sensitive_urls"] is False
     assert export_payload["feeds"][0]["name"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
     assert export_payload["feeds"][0]["url"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+    assert export_payload["feeds"][0]["site_url"] == "https://example.com/site?token=REDACTED&source=partner"
+
+    backup_response = client.get("/feeds/export/backup", headers=auth_headers["admin"])
+    assert backup_response.status_code == 200
+    backup_payload = backup_response.json()
+    assert backup_payload["export_type"] == "backup"
+    assert backup_payload["includes_sensitive_urls"] is True
+    assert backup_payload["feeds"][0]["name"] == "https://example.com/imported.xml?token=REDACTED&source=partner"
+    assert backup_payload["feeds"][0]["url"] == "https://alice:secret@example.com/imported.xml?token=alpha&source=partner"
+    assert backup_payload["feeds"][0]["site_url"] == "https://alice:secret@example.com/site?token=alpha&source=partner"
+
+    viewer_backup_response = client.get("/feeds/export/backup", headers=auth_headers["viewer"])
+    assert viewer_backup_response.status_code == 403
 
 
 def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(client: TestClient, auth_headers):
@@ -1780,6 +1796,11 @@ def test_feed_create_redacts_secret_urls_in_read_surfaces_and_audit_logs(client:
     assert export_payload["feeds"][0]["name"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
     assert export_payload["feeds"][0]["url"] == "https://example.com/path/feed.xml?token=REDACTED&source=partner"
 
+    backup_response = client.get("/feeds/export/backup", headers=auth_headers["admin"])
+    assert backup_response.status_code == 200
+    backup_payload = backup_response.json()
+    assert backup_payload["feeds"][0]["url"] == "https://alice:secret@example.com/path/feed.xml?token=alpha&source=partner"
+
     audit_response = client.get("/audit-logs?action=feeds.create&page_size=10", headers=auth_headers["admin"])
     assert audit_response.status_code == 200
     audit_payload = audit_response.json()
@@ -1843,6 +1864,35 @@ def test_feed_list_surfaces_unreadable_urls_without_failing(client: TestClient, 
     assert matching_feed["url"] == ""
     assert matching_feed["has_unreadable_url"] is True
     assert "cannot be decrypted" in matching_feed["last_error"]
+
+
+def test_feed_exports_omit_unreadable_urls_with_warnings(client: TestClient, auth_headers, db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken Export Feed",
+        url="https://example.com/broken-export.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    db_session.execute(
+        text("update feeds set url = :ciphertext where id = :feed_id"),
+        {"ciphertext": "enc:v1:not-a-valid-fernet-token", "feed_id": str(feed.id)},
+    )
+    db_session.commit()
+
+    export_response = client.get("/feeds/export", headers=auth_headers["admin"])
+    assert export_response.status_code == 200
+    export_payload = export_response.json()
+    assert export_payload["feeds"] == []
+    assert export_payload["warnings"] == [f"feed {feed.id}: URL could not be decrypted and was omitted from export"]
+
+    backup_response = client.get("/feeds/export/backup", headers=auth_headers["admin"])
+    assert backup_response.status_code == 200
+    backup_payload = backup_response.json()
+    assert backup_payload["feeds"] == []
+    assert backup_payload["warnings"] == [f"feed {feed.id}: URL could not be decrypted and was omitted from export"]
 
 
 def test_feed_import_overwrite_preserves_existing_metadata_when_fields_are_omitted(client: TestClient, auth_headers, db_session):

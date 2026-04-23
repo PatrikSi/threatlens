@@ -25,6 +25,13 @@ class NotificationTemplateVariable(BaseModel):
     example: str
 
 
+class NotificationWebhookPolicyResponse(BaseModel):
+    role: str
+    can_manage_webhooks: bool
+    reason: str | None = None
+    allowed_hosts_configured: bool
+
+
 class NotificationWebhookWrite(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     enabled: bool = True
@@ -161,6 +168,7 @@ class NotificationWebhookDeliveryResponse(BaseModel):
     response_body_preview: str | None
     error: str | None
     attempted_at: datetime
+    warnings: list[str] = Field(default_factory=list)
 
 
 class NotificationWebhookDeliveryListResponse(BaseModel):

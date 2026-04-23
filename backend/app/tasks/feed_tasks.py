@@ -11,7 +11,7 @@ import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -125,6 +125,40 @@ class CoordinationUnavailableError(RuntimeError):
 
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
 LEASE_HEARTBEAT_SUFFIX = ":heartbeat"
+
+
+def _exception_type_name(exc: BaseException) -> str:
+    return exc.__class__.__name__
+
+
+def _safe_feed_fetch_error_code(exc: BaseException) -> str:
+    if isinstance(exc, CoordinationUnavailableError):
+        return "coordination_unavailable"
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
+        return "network_timeout"
+    if isinstance(exc, RedirectError):
+        return "redirect_error"
+    if isinstance(exc, SafeFetchError):
+        return "unsafe_fetch_error"
+    return "network_error"
+
+
+def _safe_article_fetch_error_code(exc: BaseException) -> str:
+    if isinstance(exc, CoordinationUnavailableError):
+        return "coordination_unavailable"
+    if isinstance(exc, ResponseTooLargeError):
+        return "response_too_large"
+    return "network_or_rate_limit_error"
+
+
+def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
+    next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=60)
+    _clear_feed_dispatch_claim(feed)
+    feed.dispatch_backoff_until = next_attempt_at
+    feed.next_fetch_at = next_attempt_at
+    feed.last_error = "coordination_unavailable"
+    db.add(feed)
+    db.commit()
 
 
 @contextmanager
@@ -586,7 +620,7 @@ def _queue_item_ai_enrichment_run(
                 run_id=run_id,
                 status=AI_STATUS_ERROR,
                 reason="enqueue_failed",
-                error=str(exc),
+                error="task_queue_unavailable",
                 worker_name="api",
                 metadata_updates={"force": bool(force)},
             )
@@ -1092,7 +1126,15 @@ def dispatch_feed_metadata_backfill():
     with db_session() as db:
         feeds = db.scalars(
             select(Feed)
-            .where(Feed.enabled.is_(True))
+            .where(
+                Feed.enabled.is_(True),
+                or_(
+                    func.trim(Feed.name) == "",
+                    func.lower(func.trim(Feed.name)).like("http://%"),
+                    func.lower(func.trim(Feed.name)).like("https://%"),
+                    Feed.site_url.is_(None),
+                ),
+            )
             .order_by(Feed.created_at.asc())
             .limit(settings.dispatch_feed_metadata_scan_limit)
         ).all()
@@ -1416,14 +1458,14 @@ def dispatch_daily_ai_brief_generation(
                     return {"status": result.status, "reason": result.reason}
                 return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
         except CoordinationUnavailableError as exc:
-            logger.warning("daily_brief_coordination_unavailable error=%s", exc)
+            logger.warning("daily_brief_coordination_unavailable error_type=%s", _exception_type_name(exc))
             if run is not None:
                 finish_ai_task_run(
                     db,
                     run_id=run.id,
                     status=AI_STATUS_ERROR,
                     reason="coordination_unavailable",
-                    error=str(exc),
+                    error="coordination_unavailable",
                     worker_name=getattr(self.request, "hostname", None),
                 )
                 db.commit()
@@ -1436,7 +1478,7 @@ def record_beat_heartbeat():
     try:
         redis_client.set(settings.beat_heartbeat_key, now, ex=settings.beat_heartbeat_ttl_seconds)
     except redis.RedisError as exc:
-        logger.warning("beat_heartbeat_write_failed error=%s", exc)
+        logger.warning("beat_heartbeat_write_failed error_type=%s", _exception_type_name(exc))
         return {"status": "error", "reason": "redis_unavailable"}
     return {"status": "ok", "at": now}
 
@@ -1485,7 +1527,11 @@ def backfill_feed_metadata(feed_id: str):
                     db.commit()
                 return {"status": "ok", "feed_id": feed_id, "updated": changed}
     except CoordinationUnavailableError as exc:
-        logger.warning("backfill_feed_metadata_coordination_unavailable feed_id=%s error=%s", feed_id, exc)
+        logger.warning(
+            "backfill_feed_metadata_coordination_unavailable feed_id=%s error_type=%s",
+            feed_id,
+            _exception_type_name(exc),
+        )
         return {"status": "error", "reason": "coordination_unavailable", "feed_id": feed_id}
 
 
@@ -1654,25 +1700,54 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                             response_last_modified = response.headers.get("last-modified")
                         finally:
                             response.close()
-                except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError, CoordinationUnavailableError) as exc:
+                except CoordinationUnavailableError as exc:
                     try:
-                        logger.warning("feed_fetch_retrying feed_id=%s retries=%s error=%s", feed_id, self.request.retries, exc)
+                        logger.warning(
+                            "feed_fetch_retrying feed_id=%s retries=%s error_code=coordination_unavailable error_type=%s",
+                            feed_id,
+                            self.request.retries,
+                            _exception_type_name(exc),
+                        )
                         raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
                     except MaxRetriesExceededError:
-                        logger.error("feed_fetch_failed feed_id=%s error=%s", feed_id, exc)
-                        _mark_feed_failure_and_enqueue_notifications(db, feed, f"network_error:{exc}")
+                        logger.error(
+                            "feed_fetch_coordination_retries_exhausted feed_id=%s error_type=%s",
+                            feed_id,
+                            _exception_type_name(exc),
+                        )
+                        _reschedule_feed_after_coordination_failure(db, feed)
+                        return {"status": "error", "feed_id": feed_id, "reason": "coordination_unavailable"}
+                except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
+                    error_code = _safe_feed_fetch_error_code(exc)
+                    try:
+                        logger.warning(
+                            "feed_fetch_retrying feed_id=%s retries=%s error_code=%s error_type=%s",
+                            feed_id,
+                            self.request.retries,
+                            error_code,
+                            _exception_type_name(exc),
+                        )
+                        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
+                    except MaxRetriesExceededError:
+                        logger.error(
+                            "feed_fetch_failed feed_id=%s error_code=%s error_type=%s",
+                            feed_id,
+                            error_code,
+                            _exception_type_name(exc),
+                        )
+                        _mark_feed_failure_and_enqueue_notifications(db, feed, error_code)
                         return {"status": "error", "feed_id": feed_id}
                 except FeedResponseTooLargeError as exc:
-                    logger.error("feed_fetch_too_large feed_id=%s error=%s", feed_id, exc)
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, str(exc))
+                    logger.error("feed_fetch_too_large feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, "feed_response_too_large")
                     return {"status": "error", "feed_id": feed_id}
 
                 connector = RSSConnector()
                 try:
                     parsed_items, _ = connector.poll({"body": body_bytes}, None)
                 except RSSFeedParseError as exc:
-                    logger.warning("feed_fetch_invalid_content feed_id=%s error=%s", feed_id, exc)
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, str(exc))
+                    logger.warning("feed_fetch_invalid_content feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, "invalid_feed_content")
                     return {"status": "error", "feed_id": feed_id}
                 _backfill_feed_metadata_from_body(feed, body_bytes)
 
@@ -1725,7 +1800,11 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 "notification_enqueue_failed": bool(reserved_notification_delivery_ids) and not notification_enqueue_ok,
             }
     except CoordinationUnavailableError as exc:
-        logger.warning("feed_fetch_coordination_unavailable feed_id=%s error=%s", feed_id, exc)
+        logger.warning(
+            "feed_fetch_coordination_unavailable feed_id=%s error_type=%s",
+            feed_id,
+            _exception_type_name(exc),
+        )
         try:
             raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
         except MaxRetriesExceededError:
@@ -1736,8 +1815,8 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     return {"status": "error", "feed_id": feed_id}
                 feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
                 if feed is not None:
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, f"coordination_unavailable:{exc}")
-            return {"status": "error", "feed_id": feed_id}
+                    _reschedule_feed_after_coordination_failure(db, feed)
+            return {"status": "error", "feed_id": feed_id, "reason": "coordination_unavailable"}
 
 
 @celery_app.task(
@@ -1848,18 +1927,31 @@ def fetch_article(self, item_id: str):
                 last_retryable_error = exc
                 if index + 1 < len(candidate_urls):
                     logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=%s",
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=%s error_type=%s",
                         item_id,
                         target_url,
                         candidate_urls[index + 1],
-                        exc,
+                        _safe_article_fetch_error_code(exc),
+                        _exception_type_name(exc),
                     )
                     continue
                 try:
-                    logger.warning("article_fetch_retrying item_id=%s retries=%s error=%s", item_id, self.request.retries, exc)
+                    logger.warning(
+                        "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
+                        item_id,
+                        self.request.retries,
+                        _safe_article_fetch_error_code(exc),
+                        _exception_type_name(exc),
+                    )
                     raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
                 except MaxRetriesExceededError:
-                    logger.error("article_fetch_failed item_id=%s error=%s", item_id, exc)
+                    error_code = _safe_article_fetch_error_code(exc)
+                    logger.error(
+                        "article_fetch_failed item_id=%s error_code=%s error_type=%s",
+                        item_id,
+                        error_code,
+                        _exception_type_name(exc),
+                    )
                     fetch_ms = int((time.perf_counter() - start) * 1000)
                     _store_article_error(
                         db,
@@ -1868,20 +1960,25 @@ def fetch_article(self, item_id: str):
                         http_status=0,
                         content_type=None,
                         fetch_ms=fetch_ms,
-                        error=f"network_or_rate_limit_error:{exc}",
+                        error=error_code,
                     )
                     _enqueue_classification_task(item_id)
                     return {"status": "error", "item_id": item_id}
             except ResponseTooLargeError as exc:
-                logger.error("article_fetch_too_large item_id=%s target_url=%s error=%s", item_id, target_url, exc)
-                last_response_error = (target_url, 0, None, str(exc))
+                logger.error(
+                    "article_fetch_too_large item_id=%s target_url=%s error_type=%s",
+                    item_id,
+                    target_url,
+                    _exception_type_name(exc),
+                )
+                last_response_error = (target_url, 0, None, "response_too_large")
                 if index + 1 < len(candidate_urls):
                     logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=%s",
+                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=response_too_large error_type=%s",
                         item_id,
                         target_url,
                         candidate_urls[index + 1],
-                        exc,
+                        _exception_type_name(exc),
                     )
                     continue
                 fetch_ms = int((time.perf_counter() - start) * 1000)
@@ -1889,11 +1986,11 @@ def fetch_article(self, item_id: str):
                     db,
                     item,
                     final_url=target_url,
-                    http_status=0,
-                    content_type=None,
-                    fetch_ms=fetch_ms,
-                    error=str(exc),
-                )
+                        http_status=0,
+                        content_type=None,
+                        fetch_ms=fetch_ms,
+                        error="response_too_large",
+                    )
                 _enqueue_classification_task(item_id)
                 return {"status": "error", "item_id": item_id}
 
@@ -1938,6 +2035,7 @@ def fetch_article(self, item_id: str):
                     error=last_response_error[3],
                 )
             elif last_retryable_error is not None:
+                error_code = _safe_article_fetch_error_code(last_retryable_error)
                 _store_article_error(
                     db,
                     item,
@@ -1945,7 +2043,7 @@ def fetch_article(self, item_id: str):
                     http_status=0,
                     content_type=None,
                     fetch_ms=fetch_ms,
-                    error=f"network_or_rate_limit_error:{last_retryable_error}",
+                    error=error_code,
                 )
             else:
                 _store_article_error(
@@ -2292,7 +2390,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                     run_id=parsed_run_id,
                     status=AI_STATUS_ERROR,
                     reason="unexpected_error",
-                    error=str(exc),
+                    error="unexpected_error",
                     worker_name=getattr(self.request, "hostname", None),
                 )
                 db.commit()

@@ -118,7 +118,10 @@ class FeedImportResponse(BaseModel):
 
 class FeedExportResponse(BaseModel):
     exported_at: datetime
+    export_type: Literal["sanitized", "backup"] = "sanitized"
+    includes_sensitive_urls: bool = False
     feeds: list[FeedImportEntry]
+    warnings: list[str] = Field(default_factory=list)
 
 
 class FeedResponse(BaseModel):

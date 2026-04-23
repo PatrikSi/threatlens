@@ -8,7 +8,7 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 
 ### Release Contract
 
-- Current checked-in OpenAPI contract anchor: `openapi-sha256:7888342a781a8f40447dee50de1372e8168dd5ced59c1ee04ce74502fab9b4f7`
+- Current checked-in OpenAPI contract anchor: `openapi-sha256:65fa714280c8494ed06be4433ae2d1303f6a309eb0b1bfc88707d93300631646`
 - Public releases should record that contract anchor alongside the immutable `vX.Y.Z` tag and published image digests
 
 ### Added

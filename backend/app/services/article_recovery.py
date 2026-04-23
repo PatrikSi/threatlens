@@ -7,6 +7,10 @@ from sqlalchemy import or_
 from app.models.article import Article
 
 RETRYABLE_ARTICLE_HTTP_STATUSES = {429, 500, 502, 503, 504}
+RETRYABLE_ARTICLE_ERRORS = (
+    "coordination_unavailable",
+    "network_or_rate_limit_error",
+)
 RETRYABLE_ARTICLE_ERROR_PREFIXES = (
     "coordination_unavailable:",
     "network_or_rate_limit_error:",
@@ -45,6 +49,7 @@ def article_fast_retryable_error_filter():
     retryable_http_errors = [f"http_status:{status_code}" for status_code in sorted(RETRYABLE_ARTICLE_HTTP_STATUSES)]
     return or_(
         Article.error.in_(retryable_http_errors),
+        Article.error.in_(RETRYABLE_ARTICLE_ERRORS),
         *[Article.error.like(f"{prefix}%") for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES],
     )
 
@@ -59,8 +64,10 @@ def article_soft_retryable_error_filter():
 def is_fast_retryable_article_error(error: str | None) -> bool:
     if not error:
         return False
-    return error in {f"http_status:{status_code}" for status_code in RETRYABLE_ARTICLE_HTTP_STATUSES} or any(
-        error.startswith(prefix) for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES
+    return (
+        error in {f"http_status:{status_code}" for status_code in RETRYABLE_ARTICLE_HTTP_STATUSES}
+        or error in RETRYABLE_ARTICLE_ERRORS
+        or any(error.startswith(prefix) for prefix in RETRYABLE_ARTICLE_ERROR_PREFIXES)
     )
 
 

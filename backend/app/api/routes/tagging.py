@@ -212,7 +212,7 @@ def queue_tagging_reapply(
             action="tagging.reapply.queue",
             resource_type="tagging_settings",
             success=False,
-            metadata={"days": payload.days, "limit": payload.limit, "error": str(exc)},
+            metadata={"days": payload.days, "limit": payload.limit, "error": "coordination_unavailable"},
         )
         db.commit()
         raise HTTPException(
@@ -234,7 +234,7 @@ def queue_tagging_reapply(
             action="tagging.reapply.queue",
             resource_type="tagging_settings",
             success=False,
-            metadata={"days": payload.days, "limit": payload.limit, "error": str(exc)},
+            metadata={"days": payload.days, "limit": payload.limit, "error": "task_queue_unavailable"},
         )
         db.commit()
         raise HTTPException(

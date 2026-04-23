@@ -1,6 +1,7 @@
+import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -16,6 +17,7 @@ from app.schemas.notification import (
     NotificationAnalyticsResponse,
     NotificationWebhookDeliveryListResponse,
     NotificationWebhookDeliveryResponse,
+    NotificationWebhookPolicyResponse,
     NotificationTemplateVariable,
     NotificationWebhookResponse,
     NotificationWebhookTestRequest,
@@ -25,6 +27,7 @@ from app.schemas.notification import (
 from app.services.audit import record_audit
 from app.services.notification_webhooks import (
     NotificationWebhookRetryInProgressError,
+    admin_notification_webhook_unrestricted_enabled,
     apply_notification_webhook_updates,
     build_notification_webhook,
     get_notification_analytics,
@@ -40,6 +43,7 @@ from app.services.notification_webhooks import (
 from app.tasks.feed_tasks import enqueue_notification_webhook_delivery_processing
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/template-variables", response_model=list[NotificationTemplateVariable])
@@ -47,6 +51,39 @@ def get_notification_template_variables(
     _user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
 ):
     return list_template_variables()
+
+
+@router.get("/webhook-policy", response_model=NotificationWebhookPolicyResponse)
+def get_notification_webhook_policy(
+    user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
+):
+    allowed_hosts_configured = bool(get_notification_webhook_allowed_hosts())
+    admin_unrestricted_enabled = admin_notification_webhook_unrestricted_enabled()
+    if user.role == ROLE_ADMIN:
+        can_manage = allowed_hosts_configured or admin_unrestricted_enabled
+        return NotificationWebhookPolicyResponse(
+            role=user.role,
+            can_manage_webhooks=can_manage,
+            reason=None
+            if can_manage
+            else "Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled.",
+            allowed_hosts_configured=allowed_hosts_configured,
+        )
+    if user.role == ROLE_ANALYST:
+        return NotificationWebhookPolicyResponse(
+            role=user.role,
+            can_manage_webhooks=allowed_hosts_configured,
+            reason=None
+            if allowed_hosts_configured
+            else "Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.",
+            allowed_hosts_configured=allowed_hosts_configured,
+        )
+    return NotificationWebhookPolicyResponse(
+        role=user.role,
+        can_manage_webhooks=False,
+        reason="Viewer access is read-only. Webhook settings can only be changed by operators.",
+        allowed_hosts_configured=allowed_hosts_configured,
+    )
 
 
 @router.get("/analytics", response_model=NotificationAnalyticsResponse)
@@ -151,17 +188,21 @@ def delete_notification_webhook(
     db.commit()
 
 
-@router.get("/webhooks/{webhook_id}/deliveries", response_model=NotificationWebhookDeliveryListResponse)
+@router.get(
+    "/webhooks/{webhook_id}/deliveries",
+    response_model=NotificationWebhookDeliveryListResponse,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Webhook not found"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
+    },
+)
 def list_notification_webhook_deliveries(
     webhook_id: uuid.UUID,
-    page: int = 1,
-    page_size: int = 10,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
 ):
-    if page < 1 or page_size < 1 or page_size > 100:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid pagination")
-
     webhook = db.scalar(
         select(NotificationWebhook).where(NotificationWebhook.id == webhook_id, NotificationWebhook.user_id == user.id)
     )
@@ -184,7 +225,15 @@ def list_notification_webhook_deliveries(
     )
 
 
-@router.post("/webhooks/{webhook_id}/deliveries/{delivery_id}/retry", response_model=NotificationWebhookDeliveryResponse)
+@router.post(
+    "/webhooks/{webhook_id}/deliveries/{delivery_id}/retry",
+    response_model=NotificationWebhookDeliveryResponse,
+    responses={
+        status.HTTP_404_NOT_FOUND: {"description": "Webhook or delivery not found"},
+        status.HTTP_409_CONFLICT: {"description": "Webhook delivery cannot be retried right now"},
+        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
+    },
+)
 def retry_notification_webhook_delivery_route(
     webhook_id: uuid.UUID,
     delivery_id: uuid.UUID,
@@ -244,13 +293,19 @@ def retry_notification_webhook_delivery_route(
     )
     db.commit()
     db.refresh(retried)
+    response = notification_webhook_delivery_response_from_model(retried)
     if failed_delivery_reservations is not None:
         if not enqueue_notification_webhook_delivery_processing(failed_delivery_reservations.delivery_ids):
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Webhook retry completed but follow-up failure notification enqueue failed",
+            logger.warning(
+                "notification_webhook_retry_followup_enqueue_failed webhook_id=%s delivery_id=%s retried_delivery_id=%s",
+                webhook.id,
+                delivery.id,
+                retried.id,
             )
-    return notification_webhook_delivery_response_from_model(retried)
+            response.warnings.append(
+                "Webhook-failed notification delivery is reserved but enqueue was delayed; the recovery sweep will retry it."
+            )
+    return response
 
 
 @router.post("/webhooks/test", response_model=NotificationWebhookTestResponse)
