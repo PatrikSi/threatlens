@@ -20,6 +20,12 @@ def test_trusted_proxy_cidrs_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch
     assert settings.trusted_proxy_cidrs == ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
 
 
+def test_notification_webhook_admin_unrestricted_flag_parses_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+    settings = Settings(_env_file=None)
+    assert settings.notification_webhook_allow_admin_unrestricted is True
+
+
 def test_production_requires_strong_jwt_secret():
     with pytest.raises(ValueError):
         Settings(app_env="production", jwt_secret="change-me")

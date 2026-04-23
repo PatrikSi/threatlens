@@ -54,7 +54,7 @@ def _persist_rows(db_session, *rows):
 
 @pytest.fixture(autouse=True)
 def allow_admin_unrestricted_webhooks(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
 
 
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
@@ -209,7 +209,7 @@ def test_validate_notification_webhook_payload_for_actor_rejects_non_default_por
 
 def test_validate_notification_webhook_payload_for_actor_allows_admin_staging_without_allowlist(monkeypatch):
     monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-    monkeypatch.delenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", raising=False)
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
 
     payload = NotificationWebhookWrite(
         name="Admin staged webhook",
@@ -676,7 +676,7 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
 
 
 def test_test_notification_webhook_blocks_admin_targets_without_allowlist_by_default(db_session, monkeypatch):
-    monkeypatch.delenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", raising=False)
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
     monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
 
     user = User(

@@ -26,6 +26,7 @@ _EMERGENCY_MAX_ENTRIES = 10_000
 _ACCOUNT_SPRAY_IP_THRESHOLD = 3
 _LOGIN_THROTTLE_NAMESPACE = "login"
 _PASSWORD_VERIFICATION_THROTTLE_NAMESPACE = "password_verify"
+_SELF_REGISTRATION_THROTTLE_NAMESPACE = "self_register"
 _emergency_lock = threading.Lock()
 _emergency_failures: dict[str, tuple[int, float]] = {}
 _emergency_locks: dict[str, float] = {}
@@ -39,6 +40,10 @@ def check_login_throttle(email: str, ip: str) -> LoginThrottleState:
 
 def check_password_verification_throttle(email: str, ip: str) -> LoginThrottleState:
     return _check_throttle(email, ip, namespace=_PASSWORD_VERIFICATION_THROTTLE_NAMESPACE)
+
+
+def check_self_registration_throttle(email: str, ip: str) -> LoginThrottleState:
+    return _check_throttle(email, ip, namespace=_SELF_REGISTRATION_THROTTLE_NAMESPACE)
 
 
 def _check_throttle(email: str, ip: str, *, namespace: str) -> LoginThrottleState:
@@ -68,6 +73,10 @@ def record_login_failure(email: str, ip: str) -> None:
 
 def record_password_verification_failure(email: str, ip: str) -> None:
     _record_failure(email, ip, namespace=_PASSWORD_VERIFICATION_THROTTLE_NAMESPACE)
+
+
+def record_self_registration_attempt(email: str, ip: str) -> None:
+    _record_failure(email, ip, namespace=_SELF_REGISTRATION_THROTTLE_NAMESPACE)
 
 
 def _record_failure(email: str, ip: str, *, namespace: str) -> None:
@@ -202,6 +211,10 @@ def _emergency_clear_login_failures(email: str, ip: str) -> None:
 
 def _emergency_clear_password_verification_failures(email: str, ip: str) -> None:
     _emergency_clear_failures(email, ip, namespace=_PASSWORD_VERIFICATION_THROTTLE_NAMESPACE)
+
+
+def _emergency_clear_self_registration_attempts(email: str, ip: str) -> None:
+    _emergency_clear_failures(email, ip, namespace=_SELF_REGISTRATION_THROTTLE_NAMESPACE)
 
 
 def _emergency_clear_failures(email: str, ip: str, *, namespace: str) -> None:

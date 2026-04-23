@@ -32,15 +32,17 @@ def _stub_feed_task_dispatch(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_auth_emergency_state():
-    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
+    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com", "pending@example.com"):
         for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
             auth_rate_limit._emergency_clear_login_failures(email, ip)
             auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+            auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
     yield
-    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
+    for email in ("admin@example.com", "analyst@example.com", "viewer@example.com", "pending@example.com"):
         for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
             auth_rate_limit._emergency_clear_login_failures(email, ip)
             auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+            auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
 
 
 class _UnavailableRedis:
@@ -405,6 +407,31 @@ def test_register_creates_pending_user_when_enabled(client: TestClient, monkeypa
     assert payload["role"] == "viewer"
     assert payload["is_active"] is True
     assert payload["is_approved"] is False
+
+
+def test_register_is_throttled_after_anonymous_attempts(client: TestClient, monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.auth.get_settings",
+        lambda: SimpleNamespace(allow_self_registration=True),
+    )
+    monkeypatch.setattr("app.api.routes.auth.resolve_client_ip", lambda _request: "203.0.113.10")
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    first_response = client.post(
+        "/auth/register",
+        json={"email": "pending@example.com", "password": "PendingPass123!"},
+    )
+    assert first_response.status_code == 200
+
+    second_response = client.post(
+        "/auth/register",
+        json={"email": "pending-second@example.com", "password": "PendingPass123!"},
+    )
+    assert second_response.status_code == 429
+    assert second_response.headers.get("retry-after") == "120"
+    assert second_response.json()["detail"] == "Too many self-registration attempts. Try again later."
 
 
 def test_login_rejects_pending_user_with_clear_message(client: TestClient, db_session):

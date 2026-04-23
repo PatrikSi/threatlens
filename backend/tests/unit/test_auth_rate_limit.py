@@ -99,10 +99,12 @@ def _reset_emergency_state():
         ("admin@example.com", "203.0.113.11"),
         ("admin@example.com", "203.0.113.12"),
         ("admin@example.com", "203.0.113.99"),
+        ("pending@example.com", "203.0.113.10"),
         ("user@example.com", "203.0.113.10"),
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
         auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+        auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
     auth_rate_limit._pending_redis_clears.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
     yield
@@ -111,10 +113,12 @@ def _reset_emergency_state():
         ("admin@example.com", "203.0.113.11"),
         ("admin@example.com", "203.0.113.12"),
         ("admin@example.com", "203.0.113.99"),
+        ("pending@example.com", "203.0.113.10"),
         ("user@example.com", "203.0.113.10"),
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
         auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
+        auth_rate_limit._emergency_clear_self_registration_attempts(email, ip)
     auth_rate_limit._pending_redis_clears.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
 
@@ -186,6 +190,22 @@ def test_password_verification_throttle_uses_a_separate_namespace(monkeypatch):
     login_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
 
     assert verification_state.blocked is True
+    assert login_state.blocked is False
+
+
+def test_self_registration_throttle_uses_a_separate_namespace(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_self_registration_attempt("pending@example.com", "203.0.113.10")
+
+    registration_state = auth_rate_limit.check_self_registration_throttle("pending@example.com", "203.0.113.10")
+    login_state = auth_rate_limit.check_login_throttle("pending@example.com", "203.0.113.10")
+
+    assert registration_state.blocked is True
     assert login_state.blocked is False
 
 

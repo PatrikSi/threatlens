@@ -163,8 +163,23 @@ def _parse_lease_heartbeat(raw_value: str | None) -> tuple[str, float] | None:
 
 
 def _lease_takeover_stale_after_seconds(ttl_seconds: int) -> float:
-    ttl_seconds = max(1, int(ttl_seconds))
-    return max(30.0, min(120.0, ttl_seconds / 4.0))
+    return float(max(1, int(ttl_seconds)))
+
+
+def _lease_remaining_ttl_ms(key: str) -> int | None:
+    get_pttl = getattr(redis_client, "pttl", None)
+    if callable(get_pttl):
+        return int(get_pttl(key))
+
+    get_ttl = getattr(redis_client, "ttl", None)
+    if callable(get_ttl):
+        ttl_seconds = get_ttl(key)
+        if ttl_seconds is None:
+            return None
+        ttl_seconds = int(ttl_seconds)
+        return ttl_seconds * 1000 if ttl_seconds >= 0 else ttl_seconds
+
+    return None
 
 
 def _lease_heartbeat_is_stale(raw_value: str | None, *, ttl_seconds: int, now: float | None = None) -> bool:
@@ -195,6 +210,19 @@ def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_messa
                     pass
             return acquired
 
+        remaining_ttl_ms = _lease_remaining_ttl_ms(key)
+        if remaining_ttl_ms == -2:
+            acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+            if acquired:
+                try:
+                    _write_lease_heartbeat(key, ttl_seconds, token)
+                except redis.RedisError:
+                    pass
+            return acquired
+
+        if remaining_ttl_ms is None or remaining_ttl_ms >= 0:
+            return False
+
         observed_heartbeat = redis_client.get(heartbeat_key)
         if not _lease_heartbeat_is_stale(observed_heartbeat, ttl_seconds=ttl_seconds):
             return False
@@ -205,6 +233,7 @@ def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_messa
                 "local current = redis.call('get', KEYS[1]) "
                 "local current_hb = redis.call('get', KEYS[2]) "
                 "if current ~= ARGV[1] then return 0 end "
+                "if redis.call('pttl', KEYS[1]) ~= -1 then return 0 end "
                 "if ARGV[2] == '__missing__' then "
                 "  if current_hb then return 0 end "
                 "else "
@@ -338,14 +367,31 @@ def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | 
     )
 
 
+def _article_freshness_token_value(
+    article_id: uuid.UUID | None,
+    retrieved_at: datetime | None,
+) -> tuple[str | None, str | None]:
+    if article_id is None or retrieved_at is None:
+        return None, None
+
+    if retrieved_at.tzinfo is None:
+        retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
+    return str(article_id), retrieved_at.isoformat()
+
+
 def _article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
     if article is None:
         return None, None
+    return _article_freshness_token_value(article.id, article.retrieved_at)
 
-    retrieved_at = article.retrieved_at
-    if retrieved_at.tzinfo is None:
-        retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
-    return str(article.id), retrieved_at.isoformat()
+
+def _load_article_freshness_token(db: Session, *, item_id: uuid.UUID) -> tuple[str | None, str | None]:
+    row = db.execute(select(Article.id, Article.retrieved_at).where(Article.item_id == item_id)).one_or_none()
+    if row is None:
+        return None, None
+
+    article_id, retrieved_at = row
+    return _article_freshness_token_value(article_id, retrieved_at)
 
 
 def _article_was_refetched(
@@ -354,8 +400,7 @@ def _article_was_refetched(
     item_id: uuid.UUID,
     expected_token: tuple[str | None, str | None],
 ) -> bool:
-    current_article = db.scalar(select(Article).where(Article.item_id == item_id))
-    return _article_freshness_token(current_article) != expected_token
+    return _load_article_freshness_token(db, item_id=item_id) != expected_token
 
 
 def _domain_slot_key(domain: str, slot_number: int) -> str:
@@ -461,6 +506,21 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
 
 
 def _claim_item_ai_enrichment_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
+    item = db.scalar(
+        select(Item)
+        .where(Item.id == item_id)
+        .with_for_update(skip_locked=True)
+    )
+    if item is not None:
+        return item, None
+
+    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
+    if unlocked_item is None:
+        return None, "not_found"
+    return None, "already_running"
+
+
+def _claim_item_article_processing_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
     item = db.scalar(
         select(Item)
         .where(Item.id == item_id)
@@ -1869,12 +1929,12 @@ def classify_item(item_id: str):
         except ValueError:
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
-        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        item, claim_reason = _claim_item_article_processing_target(db, item_id=parsed_item_id)
         if item is None:
-            return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+            return {"status": "skipped", "reason": claim_reason or "not_found", "item_id": item_id}
 
         article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
-        article_freshness_token = _article_freshness_token(article)
+        article_freshness_token = _load_article_freshness_token(db, item_id=parsed_item_id)
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
         feed_name = feed.name if feed is not None else ""
         feed_url = feed.url if feed is not None else ""
@@ -2410,12 +2470,12 @@ def extract_item_iocs(item_id: str):
         except ValueError:
             return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
 
-        item = db.scalar(select(Item).where(Item.id == parsed_item_id))
+        item, claim_reason = _claim_item_article_processing_target(db, item_id=parsed_item_id)
         if item is None:
-            return {"status": "skipped", "reason": "not_found", "item_id": item_id}
+            return {"status": "skipped", "reason": claim_reason or "not_found", "item_id": item_id}
 
         article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
-        article_freshness_token = _article_freshness_token(article)
+        article_freshness_token = _load_article_freshness_token(db, item_id=parsed_item_id)
         extracted = extract_iocs(
             title=item.title,
             summary=item.summary,

@@ -99,4 +99,5 @@ def test_live_schema_publishes_versioned_auth_contract():
     assert "/api/v1/auth/login" in session_cookie_scheme["description"]
     assert "HttpOnly cookie sessions" in payload["info"]["description"]
     assert "publishes only `/api/v1/*` plus `/api/openapi.json`" in payload["info"]["description"]
+    assert "contact" not in payload["info"]
     assert re.fullmatch(r"[0-9a-f]{64}", payload["info"]["x-threatlens-contract-sha256"])

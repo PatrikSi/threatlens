@@ -114,6 +114,15 @@ class _HeartbeatRedis:
         self.expirations[key] = time.monotonic() + max(0, int(seconds))
         return True
 
+    def pttl(self, key: str):
+        self._purge_expired()
+        if key not in self.values:
+            return -2
+        expires_at = self.expirations.get(key)
+        if expires_at is None:
+            return -1
+        return max(0, int((expires_at - time.monotonic()) * 1000))
+
     def incr(self, key: str):
         self._purge_expired()
         current = int(self.values.get(key, 0)) + 1
@@ -146,6 +155,8 @@ class _HeartbeatRedis:
             current_token = self.values.get(key)
             current_heartbeat = self.values.get(heartbeat_key)
             if current_token != observed_token:
+                return 0
+            if self.pttl(key) != -1:
                 return 0
             if observed_heartbeat == "__missing__":
                 if current_heartbeat is not None:
@@ -184,12 +195,25 @@ def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.
         assert redis_client.expire_counts[domain_key] >= 2
 
 
-def test_feed_lock_can_take_over_a_stale_lease(monkeypatch: pytest.MonkeyPatch):
+def test_feed_lock_does_not_take_over_before_lock_ttl_expires(monkeypatch: pytest.MonkeyPatch):
     redis_client = _HeartbeatRedis()
     stale_feed_key = "threatlens:feed:lock:feed-stale"
     stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
     redis_client.set(stale_feed_key, "dead-token", ex=900)
-    redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 500:.6f}", ex=900)
+    redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
+    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+
+    with feed_lock("feed-stale", ttl_seconds=900) as acquired:
+        assert acquired is False
+        assert redis_client.get(stale_feed_key) == "dead-token"
+
+
+def test_feed_lock_can_take_over_stale_lease_without_ttl(monkeypatch: pytest.MonkeyPatch):
+    redis_client = _HeartbeatRedis()
+    stale_feed_key = "threatlens:feed:lock:feed-stale"
+    stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
+    redis_client.set(stale_feed_key, "dead-token")
+    redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
     monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
@@ -197,20 +221,18 @@ def test_feed_lock_can_take_over_a_stale_lease(monkeypatch: pytest.MonkeyPatch):
         assert redis_client.get(stale_feed_key) != "dead-token"
 
 
-def test_domain_slot_can_take_over_a_stale_slot_while_another_slot_remains_live(monkeypatch: pytest.MonkeyPatch):
+def test_domain_slot_uses_open_slot_instead_of_preempting_live_ttl_slot(monkeypatch: pytest.MonkeyPatch):
     redis_client = _HeartbeatRedis()
     stale_slot_key = "threatlens:domain:example.com:slot:1"
-    live_slot_key = "threatlens:domain:example.com:slot:2"
-    redis_client.set(stale_slot_key, "dead-token", ex=900)
-    redis_client.set(f"{stale_slot_key}:heartbeat", f"dead-token|{time.time() - 500:.6f}", ex=900)
-    redis_client.set(live_slot_key, "live-token", ex=900)
-    redis_client.set(f"{live_slot_key}:heartbeat", f"live-token|{time.time():.6f}", ex=900)
+    open_slot_key = "threatlens:domain:example.com:slot:2"
+    redis_client.set(stale_slot_key, "dead-token", ex=30)
+    redis_client.set(f"{stale_slot_key}:heartbeat", f"dead-token|{time.time() - 31:.6f}", ex=30)
     monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
     monkeypatch.setattr("app.tasks.feed_tasks.settings", SimpleNamespace(per_domain_concurrency=2))
 
     with domain_slot("example.com", max_wait_seconds=0.1):
-        assert redis_client.get(stale_slot_key) != "dead-token"
-        assert redis_client.get(live_slot_key) == "live-token"
+        assert redis_client.get(stale_slot_key) == "dead-token"
+        assert redis_client.get(open_slot_key) is not None
 
 
 def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
@@ -2196,6 +2218,28 @@ def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch
     assert classification is None
 
 
+def test_classify_item_skips_when_item_lock_is_unavailable(monkeypatch: pytest.MonkeyPatch):
+    item_id = uuid.uuid4()
+
+    @contextmanager
+    def _db_session_override():
+        yield object()
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._claim_item_article_processing_target",
+        lambda _db, *, item_id: (None, "already_running"),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.classify_item_content",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("locked items should not be classified")),
+    )
+
+    result = classify_item.run(str(item_id))
+
+    assert result == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
+
+
 def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -3297,7 +3341,7 @@ def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_se
 
 
 def test_process_reserved_notification_deliveries_schedules_retryable_failures(db_session, monkeypatch):
-    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",
@@ -3505,6 +3549,28 @@ def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeyp
     assert refreshed_item.ioc_extraction_state == "completed"
     assert len(refreshed_links) == 1
     assert refreshed_links[0].ioc_id == existing_ioc.id
+
+
+def test_extract_item_iocs_skips_when_item_lock_is_unavailable(monkeypatch: pytest.MonkeyPatch):
+    item_id = uuid.uuid4()
+
+    @contextmanager
+    def _db_session_override():
+        yield object()
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._claim_item_article_processing_target",
+        lambda _db, *, item_id: (None, "already_running"),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_iocs",
+        lambda **_kwargs: (_ for _ in ()).throw(AssertionError("locked items should not run IOC extraction")),
+    )
+
+    result = extract_item_iocs.run(str(item_id))
+
+    assert result == {"status": "skipped", "reason": "already_running", "item_id": str(item_id)}
 
 
 def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session, monkeypatch):

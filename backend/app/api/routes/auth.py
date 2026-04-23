@@ -33,10 +33,12 @@ from app.services.audit import record_audit
 from app.services.auth_rate_limit import (
     check_password_verification_throttle,
     check_login_throttle,
+    check_self_registration_throttle,
     clear_password_verification_failures,
     clear_login_failures,
     record_password_verification_failure,
     record_login_failure,
+    record_self_registration_attempt,
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -85,17 +87,26 @@ def registration_settings():
 
 
 @router.post("/register", response_model=UserResponse)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     settings = get_settings()
     if not settings.allow_self_registration:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Self-registration is disabled")
 
-    existing = db.scalar(select(User).where(User.email == payload.email.lower()))
+    email = payload.email.lower()
+    client_ip = resolve_client_ip(request)
+    throttle = check_self_registration_throttle(email, client_ip)
+    if throttle.blocked:
+        detail = "Too many self-registration attempts. Try again later."
+        headers = {"Retry-After": str(throttle.retry_after_seconds)} if throttle.retry_after_seconds else None
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
+    record_self_registration_attempt(email, client_ip)
+
+    existing = db.scalar(select(User).where(User.email == email))
     if existing is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use")
 
     user = User(
-        email=payload.email.lower(),
+        email=email,
         password_hash=get_password_hash(payload.password),
         is_active=True,
         is_approved=False,

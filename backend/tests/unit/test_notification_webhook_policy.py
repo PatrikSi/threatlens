@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.config import Settings
+from app.core.config import Settings, get_settings
 from app.services.notification_webhook_policy import (
     admin_notification_webhook_unrestricted_enabled,
     notification_host_matches_allowlist,
@@ -119,7 +119,7 @@ def test_validate_notification_target_for_actor_allows_allowlisted_admin_and_app
 
 
 def test_validate_notification_target_for_actor_allows_admin_escape_hatch(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
 
     assert admin_notification_webhook_unrestricted_enabled() is True
     validate_notification_target_for_actor(

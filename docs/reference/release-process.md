@@ -101,7 +101,7 @@ print(f"CHANGELOG.md matches docs/reference/openapi.json: {expected}")
 PY
 ```
 
-The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned by digest. Application dependencies are therefore version-pinned by source control, but the backend image still installs Debian packages from the live Bookworm apt repositories, so full byte-for-byte rebuild reproducibility is not claimed yet.
+The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned by digest, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those pinned base images and lockfile-resolved application packages.
 
 ## Files to Review Before Release
 

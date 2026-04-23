@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
+    notification_webhook_allow_admin_unrestricted: bool = False
     notification_webhook_allowed_hosts: Annotated[list[str], NoDecode] = []
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2

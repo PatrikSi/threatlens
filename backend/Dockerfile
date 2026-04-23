@@ -35,9 +35,6 @@ USER app
 
 LABEL org.opencontainers.image.title="ThreatLens API" \
       org.opencontainers.image.description="ThreatLens FastAPI backend image" \
-      org.opencontainers.image.url="Included in image under /usr/share/doc/threatlens/" \
-      org.opencontainers.image.source="Built from a local ThreatLens source checkout; public source URL not published" \
-      org.opencontainers.image.documentation="Included in image under /usr/share/doc/threatlens/README.md" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="ThreatLens contributors" \
       org.opencontainers.image.created="${BUILD_DATE}" \

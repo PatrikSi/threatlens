@@ -41,7 +41,7 @@ def test_generated_openapi_document_matches_live_schema():
     assert response.status_code == 200
     assert json.loads(generated) == response.json()
     assert response.json()["info"]["license"]["name"] == "Apache-2.0"
-    assert response.json()["info"]["contact"]["url"] == "https://github.com/PatrikSi/threatlens/issues"
+    assert "contact" not in response.json()["info"]
 
 
 def test_checked_in_api_reference_matches_generated_reference():

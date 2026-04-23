@@ -16,7 +16,7 @@ from app.schemas.notification import NotificationWebhookTestResponse
 
 @pytest.fixture(autouse=True)
 def allow_admin_unrestricted_webhooks(monkeypatch):
-    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
 
 
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):

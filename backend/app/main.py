@@ -71,10 +71,6 @@ app = FastAPI(
         {"url": API_SERVICE_ROOT, "description": "Backend service root"},
         {"url": WEB_PROXY_ROOT, "description": "Web reverse proxy root"},
     ],
-    contact={
-        "name": "ThreatLens maintainers",
-        "url": "https://github.com/PatrikSi/threatlens/issues",
-    },
     license_info={
         "name": "Apache-2.0",
         "identifier": "Apache-2.0",

@@ -1,14 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import os
 from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.user import User
-
-_ADMIN_UNRESTRICTED_WEBHOOKS_ENV = "NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED"
 
 
 @dataclass(frozen=True)
@@ -81,8 +78,9 @@ def normalize_notification_allow_entry(allow_entry: str) -> str:
 
 
 def admin_notification_webhook_unrestricted_enabled() -> bool:
-    value = os.getenv(_ADMIN_UNRESTRICTED_WEBHOOKS_ENV, "")
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    from app.core.config import get_settings
+
+    return bool(get_settings().notification_webhook_allow_admin_unrestricted)
 
 
 def validate_notification_target_for_actor(
