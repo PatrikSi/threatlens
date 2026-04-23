@@ -51,6 +51,11 @@ type TaggingReapplyRequest = {
   limit: number
 }
 
+type TaggingNotice = {
+  tone: 'success' | 'error'
+  message: string
+}
+
 export function TaggingSettingsPage() {
   const queryClient = useQueryClient()
   const [settingsDraft, setSettingsDraft] = useState<TaggingSettingsDraft>({
@@ -61,7 +66,7 @@ export function TaggingSettingsPage() {
   const [selectedRuleId, setSelectedRuleId] = useState<string | null>(null)
   const [ruleDraft, setRuleDraft] = useState<TaggingRuleDraft>(() => createDefaultRuleDraft())
   const [previewResult, setPreviewResult] = useState<TaggingRulePreviewResponse | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const [notice, setNotice] = useState<TaggingNotice | null>(null)
   const [reapplyDays, setReapplyDays] = useState('30')
   const [reapplyLimit, setReapplyLimit] = useState('0')
   const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
@@ -137,7 +142,7 @@ export function TaggingSettingsPage() {
         }),
       }),
     onSuccess: () => {
-      setNotice('Tagging settings updated.')
+      setNotice({ tone: 'success', message: 'Tagging settings updated.' })
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
@@ -159,7 +164,7 @@ export function TaggingSettingsPage() {
     onSuccess: (saved) => {
       setSelectedRuleId(saved.id)
       setRuleDraft(createDraftFromRule(saved))
-      setNotice(selectedRuleId ? 'Tagging rule updated.' : 'Tagging rule created.')
+      setNotice({ tone: 'success', message: selectedRuleId ? 'Tagging rule updated.' : 'Tagging rule created.' })
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
@@ -171,7 +176,7 @@ export function TaggingSettingsPage() {
       setSelectedRuleId(null)
       setRuleDraft(createDefaultRuleDraft())
       setPreviewResult(null)
-      setNotice('Tagging rule deleted.')
+      setNotice({ tone: 'success', message: 'Tagging rule deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['tagging', 'settings'] })
     },
   })
@@ -195,7 +200,7 @@ export function TaggingSettingsPage() {
       }),
     onSuccess: (result) => {
       setPreviewResult(result)
-      setNotice(result.total > 0 ? 'Preview loaded.' : 'No current matches for this rule.')
+      setNotice({ tone: 'success', message: result.total > 0 ? 'Preview loaded.' : 'No current matches for this rule.' })
     },
   })
 
@@ -207,7 +212,7 @@ export function TaggingSettingsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (result) => {
-      setNotice(`Retagging queued. Task ID: ${result.task_id}`)
+      setNotice({ tone: 'success', message: `Retagging queued. Task ID: ${result.task_id}` })
       setPendingReapplyRequest(null)
     },
   })
@@ -255,7 +260,7 @@ export function TaggingSettingsPage() {
 
   const onPreviewRule = () => {
     if (ruleValidationError) {
-      setNotice(ruleValidationError)
+      setNotice({ tone: 'error', message: ruleValidationError })
       return
     }
     setNotice(null)
@@ -264,7 +269,7 @@ export function TaggingSettingsPage() {
 
   const onSaveRule = () => {
     if (ruleValidationError) {
-      setNotice(ruleValidationError)
+      setNotice({ tone: 'error', message: ruleValidationError })
       return
     }
     setNotice(null)
@@ -301,6 +306,21 @@ export function TaggingSettingsPage() {
           Tune the built-in auto-tagging behavior and add custom rules that create new tags from article content.
         </p>
       </section>
+
+      {notice && (
+        <p
+          role={notice.tone === 'error' ? 'alert' : 'status'}
+          aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
+          aria-atomic="true"
+          className={`rounded-lg border px-3 py-2 text-sm ${
+            notice.tone === 'error'
+              ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200'
+              : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-300'
+          }`}
+        >
+          {notice.message}
+        </p>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
         <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -390,7 +410,9 @@ export function TaggingSettingsPage() {
           </div>
 
           {saveSettings.isError && (
-            <p className="mt-3 text-sm text-red-600">{resolveApiMessage(saveSettings.error, 'Failed to update tagging settings.')}</p>
+            <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+              {resolveApiMessage(saveSettings.error, 'Failed to update tagging settings.')}
+            </p>
           )}
         </section>
 
@@ -445,7 +467,9 @@ export function TaggingSettingsPage() {
             </button>
             {reapplyRequestDraft.error && <p className="text-sm text-amber-700 dark:text-amber-300">{reapplyRequestDraft.error}</p>}
             {reapplyTagging.isError && (
-              <p className="text-sm text-red-600">{resolveApiMessage(reapplyTagging.error, 'Failed to queue retagging.')}</p>
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+                {resolveApiMessage(reapplyTagging.error, 'Failed to queue retagging.')}
+              </p>
             )}
           </div>
         </section>
@@ -731,11 +755,22 @@ export function TaggingSettingsPage() {
               )}
             </div>
 
-            {notice && <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-300">{notice}</p>}
             {ruleValidationError && <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{ruleValidationError}</p>}
-            {saveRule.isError && <p className="mt-2 text-sm text-red-600">{resolveApiMessage(saveRule.error, 'Failed to save tagging rule.')}</p>}
-            {deleteRule.isError && <p className="mt-2 text-sm text-red-600">{resolveApiMessage(deleteRule.error, 'Failed to delete tagging rule.')}</p>}
-            {previewRule.isError && <p className="mt-2 text-sm text-red-600">{resolveApiMessage(previewRule.error, 'Failed to preview tagging rule.')}</p>}
+            {saveRule.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(saveRule.error, 'Failed to save tagging rule.')}
+              </p>
+            )}
+            {deleteRule.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(deleteRule.error, 'Failed to delete tagging rule.')}
+              </p>
+            )}
+            {previewRule.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(previewRule.error, 'Failed to preview tagging rule.')}
+              </p>
+            )}
           </section>
 
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">

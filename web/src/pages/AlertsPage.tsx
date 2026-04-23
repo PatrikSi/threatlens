@@ -190,6 +190,12 @@ export function AlertsPage() {
     })
   }
 
+  const onRequestDeleteAlert = (alert: AlertInterest) => {
+    confirmDiscardUnsavedAlertChanges(() => {
+      setPendingDeleteAlert(alert)
+    })
+  }
+
   const confirmDeleteAlert = () => {
     if (!pendingDeleteAlert) {
       return
@@ -422,7 +428,7 @@ export function AlertsPage() {
                             <button
                               type="button"
                               className="rounded border border-slate/30 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                              onClick={() => setPendingDeleteAlert(alert)}
+                              onClick={() => onRequestDeleteAlert(alert)}
                               disabled={deleteAlert.isPending || Boolean(pendingDeleteAlert)}
                             >
                               Delete

@@ -1,6 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Navigate, Route, Routes } from 'react-router-dom'
-import { Suspense, lazy, useEffect, useMemo } from 'react'
+import {
+  Navigate,
+  Outlet,
+  Route,
+  RouterProvider,
+  createBrowserRouter,
+  createRoutesFromElements,
+} from 'react-router-dom'
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
 import { AuthProvider, useAuth } from './components/AuthContext'
@@ -41,13 +48,9 @@ function createQueryClient() {
 }
 
 export default function App() {
-  return (
-    <ThemeProvider>
-      <AuthProvider>
-        <SessionScopedApp />
-      </AuthProvider>
-    </ThemeProvider>
-  )
+  const [router] = useState(() => createAppRouter())
+
+  return <RouterProvider router={router} />
 }
 
 function RouteLoadingFallback({ label }: { label: string }) {
@@ -62,20 +65,10 @@ function suspenseRoute(element: React.ReactNode, label: string) {
   return <Suspense fallback={<RouteLoadingFallback label={label} />}>{element}</Suspense>
 }
 
-function SessionScopedApp() {
-  const { sessionVersion } = useAuth()
-  const queryClient = useMemo(() => createQueryClient(), [])
-
-  useEffect(() => {
-    if (sessionVersion === 0) {
-      return
-    }
-    queryClient.clear()
-  }, [queryClient, sessionVersion])
-
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Routes>
+function createAppRouter() {
+  return createBrowserRouter(
+    createRoutesFromElements(
+      <Route element={<AppProviders />}>
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/"
@@ -130,7 +123,35 @@ function SessionScopedApp() {
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      </Route>,
+    ),
+  )
+}
+
+function AppProviders() {
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <SessionScopedProviders />
+      </AuthProvider>
+    </ThemeProvider>
+  )
+}
+
+function SessionScopedProviders() {
+  const { sessionVersion } = useAuth()
+  const queryClient = useMemo(() => createQueryClient(), [])
+
+  useEffect(() => {
+    if (sessionVersion === 0) {
+      return
+    }
+    queryClient.clear()
+  }, [queryClient, sessionVersion])
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <Outlet />
     </QueryClientProvider>
   )
 }

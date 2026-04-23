@@ -394,6 +394,7 @@ export function AiSettingsPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: (result) => {
+      clearReprocessScope()
       setNotice({ tone: 'success', message: `Queued AI reprocessing task ${result.task_id}.` })
       invalidateAiQueries(queryClient)
     },

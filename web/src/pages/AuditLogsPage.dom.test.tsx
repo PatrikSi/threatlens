@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const auditLogsDomMocks = vi.hoisted(() => ({
   exportMutate: vi.fn(),
+  exportShouldFail: false,
 }))
 
 vi.mock('@tanstack/react-query', () => ({
@@ -17,8 +18,41 @@ vi.mock('@tanstack/react-query', () => ({
     isError: false,
     error: null,
   }),
-  useMutation: () => ({
-    mutate: auditLogsDomMocks.exportMutate,
+  useMutation: (options: { onSuccess?: (payload: unknown) => void; onError?: (error: Error) => void }) => ({
+    mutate: vi.fn(() => {
+      auditLogsDomMocks.exportMutate()
+      if (auditLogsDomMocks.exportShouldFail) {
+        options.onError?.(new Error('Failed to export audit logs'))
+        return
+      }
+
+      options.onSuccess?.({
+        logs: [
+          {
+            id: 'audit-1',
+            action: 'item.updated',
+            resource_type: 'item',
+            resource_id: 'item-1',
+            actor_user_id: 'user-1',
+            success: true,
+            metadata: {},
+            created_at: '2026-04-21T10:00:00Z',
+          },
+          {
+            id: 'audit-2',
+            action: 'feed.created',
+            resource_type: 'feed',
+            resource_id: 'feed-1',
+            actor_user_id: 'user-1',
+            success: true,
+            metadata: {},
+            created_at: '2026-04-21T10:05:00Z',
+          },
+        ],
+        total: 2,
+        truncated: false,
+      })
+    }),
     isPending: false,
     isError: false,
     error: null,
@@ -49,6 +83,8 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   auditLogsDomMocks.exportMutate.mockReset()
+  auditLogsDomMocks.exportShouldFail = false
+  vi.restoreAllMocks()
 })
 
 describe('AuditLogsPage DOM workflows', () => {
@@ -61,5 +97,39 @@ describe('AuditLogsPage DOM workflows', () => {
     )
     expect(view.querySelector<HTMLInputElement>('#audit-log-action-filter')).not.toBeNull()
     expect(view.querySelector<HTMLInputElement>('#audit-log-actor-filter')).not.toBeNull()
+  })
+
+  it('announces audit export success and failure through live regions', () => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:audit-export'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const view = renderPage()
+    const exportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Export JSON'))
+    expect(exportButton).not.toBeNull()
+
+    act(() => {
+      exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('Exported 2 logs.')
+
+    auditLogsDomMocks.exportShouldFail = true
+
+    act(() => {
+      exportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const errorNotice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
+    expect(errorNotice).not.toBeNull()
+    expect(errorNotice?.textContent).toContain('Failed to export audit logs')
   })
 })

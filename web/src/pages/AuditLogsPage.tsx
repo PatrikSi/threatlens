@@ -101,8 +101,16 @@ export function AuditLogsPage() {
           </button>
         </div>
       </div>
-      {exportError && <p className="mt-2 text-sm text-red-600">{exportError}</p>}
-      {exportMessage && <p className="mt-2 text-sm text-slate dark:text-slate-300">{exportMessage}</p>}
+      {exportError && (
+        <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+          {exportError}
+        </p>
+      )}
+      {exportMessage && (
+        <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-sm text-slate dark:text-slate-300">
+          {exportMessage}
+        </p>
+      )}
 
       <div className="mt-3 overflow-x-auto">
         <table className="min-w-full text-left text-sm">

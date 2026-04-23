@@ -112,13 +112,45 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown) => void }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'tagging:rules:preview') {
-      return taggingMutationResult(taggingPageDomMocks.previewRuleMutate)
+      return taggingMutationResult(
+        vi.fn((payload: unknown) => {
+          taggingPageDomMocks.previewRuleMutate(payload)
+          options.onSuccess?.({
+            total: 1,
+            items: [
+              {
+                id: 'item-1',
+                feed_id: 'feed-1',
+                feed_name: 'Vendor advisories',
+                title: 'VPN bulletin',
+                summary: 'Recent VPN advisory.',
+                url: 'https://example.com/item-1',
+                language: 'en',
+                source_published_at: null,
+                first_seen_at: '2026-04-21T09:00:00Z',
+                content_hash: null,
+                content_length: null,
+                created_at: '2026-04-21T09:00:00Z',
+                updated_at: '2026-04-21T09:00:00Z',
+                matched_sections: ['title'],
+                current_tags: ['existing-tag'],
+                classification: 'vulnerability',
+              },
+            ],
+          })
+        }),
+      )
     }
     if (mutationKey === 'tagging:reapply') {
-      return taggingMutationResult(taggingPageDomMocks.reapplyMutate)
+      return taggingMutationResult(
+        vi.fn((payload: unknown) => {
+          taggingPageDomMocks.reapplyMutate(payload)
+          options.onSuccess?.({ task_id: 'task-retag-1' })
+        }),
+      )
     }
     if (mutationKey === 'tagging:rules:delete') {
       return taggingMutationResult(taggingPageDomMocks.deleteRuleMutate)
@@ -126,7 +158,12 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'tagging:rules:save') {
       return taggingMutationResult(taggingPageDomMocks.saveRuleMutate)
     }
-    return taggingMutationResult(taggingPageDomMocks.saveSettingsMutate)
+    return taggingMutationResult(
+      vi.fn(() => {
+        taggingPageDomMocks.saveSettingsMutate()
+        options.onSuccess?.({})
+      }),
+    )
   },
 }))
 
@@ -174,6 +211,7 @@ afterEach(() => {
   taggingPageDomMocks.previewRuleMutate.mockReset()
   taggingPageDomMocks.deleteRuleMutate.mockReset()
   taggingPageDomMocks.reapplyMutate.mockReset()
+  taggingPageDomMocks.saveSettingsMutate.mockReset()
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
@@ -318,5 +356,64 @@ describe('TaggingSettingsPage DOM workflows', () => {
     })
 
     expect(taggingPageDomMocks.reapplyMutate).toHaveBeenCalledWith({ days: 14, limit: 0 })
+  })
+
+  it('announces tagging save, preview, and reapply feedback through a polite live region', () => {
+    const view = renderPage()
+
+    const saveDefaultsButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Save defaults'),
+    )
+    expect(saveDefaultsButton).not.toBeNull()
+
+    act(() => {
+      saveDefaultsButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    let notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('Tagging settings updated.')
+
+    const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('VPN disclosures'),
+    )
+    expect(savedRuleButton).not.toBeNull()
+
+    act(() => {
+      savedRuleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const previewButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Preview rule'),
+    )
+    expect(previewButton).not.toBeNull()
+
+    act(() => {
+      previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice?.textContent).toContain('Preview loaded.')
+
+    const queueButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Queue retagging'),
+    )
+    expect(queueButton).not.toBeNull()
+
+    act(() => {
+      queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'Queue full retagging',
+    )
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice?.textContent).toContain('Retagging queued. Task ID: task-retag-1')
   })
 })

@@ -211,4 +211,56 @@ describe('AlertsPage DOM workflows', () => {
 
     expect(view.querySelector<HTMLInputElement>('#alert-interest-name')?.value).toBe('')
   })
+
+  it('discards unsaved alert edits before opening the delete confirmation', () => {
+    const view = renderPage()
+
+    const editButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Edit'))
+    expect(editButton).not.toBeNull()
+
+    act(() => {
+      editButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed alert name')
+    })
+
+    const deleteButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Delete'))
+    expect(deleteButton).not.toBeNull()
+
+    act(() => {
+      deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved alert changes?')
+    expect(pageText()).not.toContain('Delete alert interest?')
+
+    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Delete alert interest?')
+    expect(pageText()).toContain('VPN advisories')
+
+    const confirmDeleteButton = Array.from(document.querySelectorAll('button'))
+      .filter((button) => button.textContent?.includes('Delete alert'))
+      .at(-1)
+    expect(confirmDeleteButton).not.toBeNull()
+
+    act(() => {
+      confirmDeleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(alertsPageDomMocks.deleteMutate).toHaveBeenCalledWith('alert-1')
+  })
 })

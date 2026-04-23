@@ -198,6 +198,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     page_size: 12,
   },
   cancelMutate: vi.fn(),
+  reprocessMutate: vi.fn(),
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -296,7 +297,7 @@ vi.mock('@tanstack/react-query', () => ({
   useMutation: (options: {
     mutationKey?: unknown
     onMutate?: (value: string) => void
-    onSuccess?: (result: unknown, value: string) => void
+    onSuccess?: (result: unknown, value: unknown) => void
     onSettled?: () => void
   }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
@@ -316,6 +317,14 @@ vi.mock('@tanstack/react-query', () => ({
             runId,
           )
           options.onSettled?.()
+        }),
+      )
+    }
+    if (mutationKey === 'ai:reprocess') {
+      return aiMutationResult(
+        vi.fn((payload: unknown) => {
+          aiSettingsPageDomMocks.reprocessMutate(payload)
+          options.onSuccess?.({ task_id: 'task-reprocess-1' }, payload)
         }),
       )
     }
@@ -381,6 +390,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   aiSettingsPageDomMocks.cancelMutate.mockReset()
+  aiSettingsPageDomMocks.reprocessMutate.mockReset()
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -463,6 +473,50 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(pageText()).toContain('Lookback Days must be a whole number greater than 0')
     expect(queueButton?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('resets the reprocess scope after queueing work successfully', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const lookbackInput = getLabeledInput('Lookback Days') as HTMLInputElement | null
+    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
+    const queueButton = getButton('Queue Reprocess')
+
+    expect(lookbackInput).not.toBeNull()
+    expect(startTimeInput).not.toBeNull()
+    expect(queueButton).not.toBeNull()
+
+    act(() => {
+      setInputValue(lookbackInput!, '14')
+      setInputValue(startTimeInput!, '2026-04-21T08:30')
+    })
+
+    expect(lookbackInput?.value).toBe('14')
+    expect(startTimeInput?.value).toBe('2026-04-21T08:30')
+
+    act(() => {
+      queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(aiSettingsPageDomMocks.reprocessMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        days: null,
+        limit: 100,
+        end_time: null,
+        feed_ids: [],
+        item_ids: [],
+      }),
+    )
+    expect(lookbackInput?.value).toBe('7')
+    expect(startTimeInput?.value).toBe('')
+
+    const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('Queued AI reprocessing task task-reprocess-1.')
   })
 
   it('warns on blocked navigation when a reprocess scope is in progress', () => {

@@ -82,8 +82,16 @@ export function AccountPage() {
               required
             />
           </div>
-          {changePassword.isError && <p className="text-sm text-red-600">Failed to change password.</p>}
-          {changePassword.isSuccess && <p className="text-sm text-green-600">Password updated.</p>}
+          {changePassword.isError && (
+            <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+              Failed to change password.
+            </p>
+          )}
+          {changePassword.isSuccess && (
+            <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-green-600">
+              Password updated.
+            </p>
+          )}
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={changePassword.isPending}>
             Update password
           </button>
