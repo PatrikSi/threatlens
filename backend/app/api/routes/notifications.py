@@ -33,6 +33,9 @@ from app.services.notification_webhooks import (
     get_notification_analytics,
     get_notification_webhook_allowed_hosts,
     list_template_variables,
+    NOTIFICATION_DELIVERY_FAILED,
+    NOTIFICATION_DELIVERY_PENDING,
+    NOTIFICATION_DELIVERY_SENDING,
     notification_webhook_delivery_response_from_model,
     notification_webhook_response_from_model,
     reserve_webhook_failed_notification_deliveries,
@@ -272,9 +275,16 @@ def retry_notification_webhook_delivery_route(
         retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
     except NotificationWebhookRetryInProgressError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if retried.delivery_state in {NOTIFICATION_DELIVERY_PENDING, NOTIFICATION_DELIVERY_SENDING}:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Webhook retry is already queued or in progress",
+        )
     failed_delivery_reservations = (
         reserve_webhook_failed_notification_deliveries(db, failed_delivery=retried)
-        if not retried.success and retried.event_type_snapshot != "webhook_failed"
+        if retried.delivery_state == NOTIFICATION_DELIVERY_FAILED
+        and not retried.success
+        and retried.event_type_snapshot != "webhook_failed"
         else None
     )
     record_audit(
