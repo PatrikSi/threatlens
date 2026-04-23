@@ -241,6 +241,7 @@ export function NotificationsPage() {
       setFormNotice(null)
       setTestResult(null)
       setPendingDeliveryRetry(null)
+      retryDelivery.reset()
     })
   }
 
@@ -255,6 +256,7 @@ export function NotificationsPage() {
       setFormNotice(null)
       setTestResult(null)
       setPendingDeliveryRetry(null)
+      retryDelivery.reset()
     })
   }
 

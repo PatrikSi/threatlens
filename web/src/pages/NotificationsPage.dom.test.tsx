@@ -42,6 +42,7 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
   deleteMutate: vi.fn(),
   testMutate: vi.fn(),
   retryMutate: vi.fn(),
+  retryReset: vi.fn(),
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -52,13 +53,13 @@ const routerMocks = vi.hoisted(() => ({
   })),
 }))
 
-function notificationMutationResult(mutate: ReturnType<typeof vi.fn>) {
+function notificationMutationResult(mutate: ReturnType<typeof vi.fn>, reset = vi.fn()) {
   return {
     mutate,
     isPending: false,
     isError: false,
     error: null,
-    reset: vi.fn(),
+    reset,
   }
 }
 
@@ -204,7 +205,7 @@ vi.mock('@tanstack/react-query', () => ({
       return notificationMutationResult(notificationsPageDomMocks.testMutate)
     }
     if (mutationKey === 'notifications:webhooks:retry-delivery') {
-      return notificationMutationResult(notificationsPageDomMocks.retryMutate)
+      return notificationMutationResult(notificationsPageDomMocks.retryMutate, notificationsPageDomMocks.retryReset)
     }
     if (mutationKey === 'notifications:webhooks:delete') {
       return notificationMutationResult(notificationsPageDomMocks.deleteMutate)
@@ -268,6 +269,7 @@ afterEach(() => {
   notificationsPageDomMocks.saveMutate.mockReset()
   notificationsPageDomMocks.testMutate.mockReset()
   notificationsPageDomMocks.retryMutate.mockReset()
+  notificationsPageDomMocks.retryReset.mockReset()
   notificationsPageDomMocks.currentUser.data.role = 'admin'
   notificationsPageDomMocks.webhookPolicy.role = 'admin'
   notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = true
@@ -337,6 +339,7 @@ describe('NotificationsPage DOM workflows', () => {
     })
 
     expect(savedWebhookButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(notificationsPageDomMocks.retryReset).toHaveBeenCalledTimes(1)
     expect(view.querySelector('label[for="headers-0-key"]')?.textContent).toContain('Headers row 1 key')
     expect(view.querySelector('label[for="headers-0-value"]')?.textContent).toContain('Headers row 1 value')
     expect(view.querySelector('label[for="query-parameters-0-key"]')?.textContent).toContain(

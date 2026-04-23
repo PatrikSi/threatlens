@@ -435,6 +435,18 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
   })
 
+  it('blocks saving AI settings when the saved settings failed to load', () => {
+    aiSettingsPageDomMocks.settingsError = true
+    renderPage()
+
+    act(() => {
+      getButton('Configuration')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('AI settings could not be loaded. Refresh before saving changes.')
+    expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 

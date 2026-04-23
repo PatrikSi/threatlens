@@ -182,6 +182,16 @@ export function AiSettingsPage() {
     queryFn: () => apiFetch<AISettings>('/ai/settings'),
     enabled: aiEnabled,
   })
+  const settingsReadyToSave = Boolean(settingsQuery.data) && !settingsQuery.isLoading && !settingsQuery.isError
+  const settingsSaveBlockedReason = (() => {
+    if (settingsQuery.isError) {
+      return 'AI settings could not be loaded. Refresh before saving changes.'
+    }
+    if (!settingsReadyToSave) {
+      return 'AI settings are still loading. Wait for the saved configuration before saving changes.'
+    }
+    return null
+  })()
   const aiConfigured = settingsQuery.data?.ai_configured ?? false
   const queueWorkBlockedReason = (() => {
     if (aiEnabled && settingsQuery.isError) {
@@ -805,7 +815,16 @@ export function AiSettingsPage() {
                 isError={settingsQuery.isError}
                 errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
                 savePending={saveMutation.isPending}
+                saveDisabled={!settingsReadyToSave}
+                saveDisabledReason={settingsSaveBlockedReason}
                 onSave={() => {
+                  if (!settingsReadyToSave) {
+                    setNotice({
+                      tone: 'error',
+                      message: settingsSaveBlockedReason ?? 'AI settings must load before saving changes.',
+                    })
+                    return
+                  }
                   setNotice(null)
                   saveMutation.mutate(createRequestFromDraft(draft))
                 }}
@@ -2381,6 +2400,8 @@ function ConfigurationTab({
   isError,
   errorMessage,
   savePending,
+  saveDisabled,
+  saveDisabledReason,
   onSave,
   onTestConnection,
   testPending,
@@ -2397,6 +2418,8 @@ function ConfigurationTab({
   isError: boolean
   errorMessage: string
   savePending: boolean
+  saveDisabled: boolean
+  saveDisabledReason: string | null
   onSave: () => void
   onTestConnection: () => void
   testPending: boolean
@@ -2657,10 +2680,16 @@ function ConfigurationTab({
             type="button"
             className="mt-4 w-full rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
             onClick={onSave}
-            disabled={savePending}
+            disabled={savePending || saveDisabled}
+            title={saveDisabledReason ?? undefined}
           >
             {savePending ? 'Saving...' : 'Save Settings'}
           </button>
+          {saveDisabledReason && (
+            <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {saveDisabledReason}
+            </p>
+          )}
         </div>
       </div>
     </div>
