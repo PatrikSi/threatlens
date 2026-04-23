@@ -204,6 +204,7 @@ export function DashboardPage() {
   const addWindowTriggerRef = useRef<HTMLButtonElement | null>(null)
   const addWindowMenuRef = useRef<HTMLDivElement | null>(null)
   const addWindowFirstActionRef = useRef<HTMLButtonElement | null>(null)
+  const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
@@ -1397,6 +1398,13 @@ export function DashboardPage() {
     }
   }
 
+  const openImportViewsPicker = () => {
+    if (isImportingViews) {
+      return
+    }
+    importViewsInputRef.current?.click()
+  }
+
   const updateWindowRssFilters = (
     windowId: string,
     updater: (current: DashboardRssWindowFilters) => DashboardRssWindowFilters,
@@ -2248,9 +2256,11 @@ export function DashboardPage() {
                 <>
                   {!windowLayout.controls_collapsed && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={`${windowLayout.title} feed filters`}>
                       <button
                         type="button"
+                        aria-pressed={rssFilters.selected_feed_ids.length === 0}
+                        aria-label={`${windowLayout.title} all feeds`}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_feed_ids.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
@@ -2267,6 +2277,7 @@ export function DashboardPage() {
                           <button
                             key={feed.id}
                             type="button"
+                            aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
                             }`}
@@ -2286,9 +2297,11 @@ export function DashboardPage() {
                       })}
                       </div>
 
-                      <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                      <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={`${windowLayout.title} tag filters`}>
                       <button
                         type="button"
+                        aria-pressed={rssFilters.selected_tags.length === 0}
+                        aria-label={`${windowLayout.title} all tags`}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_tags.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
@@ -2303,12 +2316,13 @@ export function DashboardPage() {
                         .map((tag) => {
                           const active = rssFilters.selected_tags.includes(tag.name)
                           return (
-                            <button
-                              key={tag.id}
-                              type="button"
-                              className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
-                                active
-                                  ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
+                          <button
+                            key={tag.id}
+                            type="button"
+                            aria-pressed={active}
+                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
+                              active
+                                ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
                                   : 'border-slate/20 dark:border-cyan-900/40'
                               }`}
                               onClick={() =>
@@ -2377,9 +2391,14 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40">
+                      <div
+                        className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40"
+                        role="group"
+                        aria-label={`${windowLayout.title} view mode`}
+                      >
                         <button
                           type="button"
+                          aria-pressed={rssFilters.view_mode === 'expanded'}
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${rssFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'expanded' }), false)}
                         >
@@ -2387,6 +2406,7 @@ export function DashboardPage() {
                         </button>
                         <button
                           type="button"
+                          aria-pressed={rssFilters.view_mode === 'compact'}
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${rssFilters.view_mode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'compact' }), false)}
                         >
@@ -2818,9 +2838,14 @@ export function DashboardPage() {
                 <>
                   {!windowLayout.controls_collapsed && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                    <div
+                      className="flex items-center gap-2 overflow-x-auto pb-1"
+                      role="group"
+                      aria-label={`${windowLayout.title} alert category filters`}
+                    >
                       <button
                         type="button"
+                        aria-pressed={alertFilters.selected_categories.length === 0}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_categories.length === 0
                             ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
@@ -2836,6 +2861,7 @@ export function DashboardPage() {
                           <button
                             key={category}
                             type="button"
+                            aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
                             }`}
@@ -2854,9 +2880,14 @@ export function DashboardPage() {
                       })}
                     </div>
 
-                    <div className="mt-2 flex items-center gap-2 overflow-x-auto pb-1">
+                    <div
+                      className="mt-2 flex items-center gap-2 overflow-x-auto pb-1"
+                      role="group"
+                      aria-label={`${windowLayout.title} alert interest filters`}
+                    >
                       <button
                         type="button"
+                        aria-pressed={alertFilters.selected_alert_ids.length === 0}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_alert_ids.length === 0
                             ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
@@ -2872,6 +2903,7 @@ export function DashboardPage() {
                           <button
                             key={interest.id}
                             type="button"
+                            aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active
                                 ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
@@ -2942,9 +2974,14 @@ export function DashboardPage() {
                         <option value="first_seen_desc">Seen newest</option>
                         <option value="first_seen_asc">Seen oldest</option>
                       </select>
-                      <div className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40">
+                      <div
+                        className="flex w-full rounded border border-slate/20 p-0.5 sm:w-auto dark:border-cyan-900/40"
+                        role="group"
+                        aria-label={`${windowLayout.title} alert view mode`}
+                      >
                         <button
                           type="button"
+                          aria-pressed={alertFilters.view_mode === 'expanded'}
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertFilters.view_mode === 'expanded' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'expanded' }), false)}
                         >
@@ -2952,6 +2989,7 @@ export function DashboardPage() {
                         </button>
                         <button
                           type="button"
+                          aria-pressed={alertFilters.view_mode === 'compact'}
                           className={`flex-1 rounded px-2 py-1 text-xs font-semibold sm:flex-none ${alertFilters.view_mode === 'compact' ? 'bg-cyan/15 text-cyan' : ''}`}
                           onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, view_mode: 'compact' }), false)}
                         >
@@ -3293,19 +3331,26 @@ export function DashboardPage() {
             >
               Export JSON
             </button>
-            <label className="rounded border border-slate/20 px-3 py-1.5 text-xs dark:border-cyan-900/40">
+            <button
+              type="button"
+              className="rounded border border-slate/20 px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40"
+              onClick={openImportViewsPicker}
+              disabled={isImportingViews}
+            >
               Import JSON
-              <input
-                type="file"
-                accept="application/json"
-                className="hidden"
-                aria-label="Import saved dashboard views JSON"
-                onChange={(event) => {
-                  void importViewsFile(event)
-                }}
-                disabled={isImportingViews}
-              />
-            </label>
+            </button>
+            <input
+              ref={importViewsInputRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              tabIndex={-1}
+              aria-label="Import saved dashboard views JSON"
+              onChange={(event) => {
+                void importViewsFile(event)
+              }}
+              disabled={isImportingViews}
+            />
             {isImportingViews && <span className="text-xs text-slate dark:text-slate-300">Importing...</span>}
             {importViewsError && <span className="text-xs text-red-600">{importViewsError}</span>}
             {importViewsResult && <span className="text-xs text-emerald-600">{importViewsResult}</span>}

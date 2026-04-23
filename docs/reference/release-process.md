@@ -7,7 +7,7 @@ ThreatLens treats the checked-in API, dependency, and governance artifacts as pa
 Before publishing a public tag, image, or source release:
 
 1. Verify the public repository paths in `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` still point to the active ThreatLens GitHub repository and maintainer profile.
-2. Before the first public OSS tag, enable GitHub private vulnerability reporting and verify that `https://github.com/PatrikSi/threatlens/security/advisories/new` opens from the repository UI. If that path is still unavailable, update `SECURITY.md` before tagging so the release does not imply a private reporting channel that is not live.
+2. Verify `SECURITY.md` still matches the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository UI exposes it and maintainers have verified it; otherwise keep the policy on the public issue-based coordination path.
 3. Regenerate the API and dependency artifacts described below.
 4. Copy the current OpenAPI contract anchor from `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) into the release notes and changelog entry for the published tag.
 5. Run the contract-anchor guard below to confirm `CHANGELOG.md` matches the checked-in schema.
@@ -37,8 +37,8 @@ When a change affects shipped runtime dependencies, bundled assets, or redistrib
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
 ./backend/.venv/bin/python scripts/sync_compliance_bundle.py
-BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-VCS_REF="$(git rev-parse HEAD)"
+export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export VCS_REF="$(git rev-parse HEAD)"
 BACKEND_IMAGE=$(docker build \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
@@ -64,7 +64,7 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   cp -R /usr/share/doc/threatlens/frontend-os-package-legal /src/docs/reference/frontend-os-package-legal'
 ```
 
-That sequence intentionally refreshes the checked-in backend runtime lockfile, syncs the mirrored compliance bundle used by the backend/web build contexts, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles.
+That sequence intentionally refreshes the checked-in backend runtime lockfile, syncs the mirrored compliance bundle used by the backend/web build contexts, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The standard `docker compose build` and `docker compose up --build` flow now forwards those same exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI provenance labels.
 
 ## Contract-Anchor Guard
 

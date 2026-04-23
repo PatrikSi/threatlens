@@ -31,7 +31,12 @@ Refresh the backend runtime lockfile and regenerate those inventory files and le
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
 ./backend/.venv/bin/python scripts/sync_compliance_bundle.py
-BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
+export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export VCS_REF="$(git rev-parse HEAD)"
+BACKEND_IMAGE=$(docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg VCS_REF="$VCS_REF" \
+  -q -f backend/Dockerfile backend)
 docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   rm -rf /src/docs/reference/backend-runtime-package-legal /src/docs/reference/backend-os-package-legal &&
   cp /usr/share/doc/threatlens/backend-runtime-dependencies.txt /src/docs/reference/backend-runtime-dependencies.txt &&
@@ -39,7 +44,10 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   cp -R /usr/share/doc/threatlens/backend-runtime-package-legal /src/docs/reference/backend-runtime-package-legal &&
   cp /usr/share/doc/threatlens/backend-os-packages.txt /src/docs/reference/backend-os-packages.txt &&
   cp -R /usr/share/doc/threatlens/backend-os-package-legal /src/docs/reference/backend-os-package-legal'
-WEB_IMAGE=$(docker build -q -f web/Dockerfile web)
+WEB_IMAGE=$(docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg VCS_REF="$VCS_REF" \
+  -q -f web/Dockerfile web)
 docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   rm -rf /src/docs/reference/frontend-runtime-package-legal /src/docs/reference/frontend-os-package-legal &&
   cp /usr/share/doc/threatlens/frontend-runtime-dependencies.txt /src/docs/reference/frontend-runtime-dependencies.txt &&
@@ -50,7 +58,7 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   cp -R /usr/share/doc/threatlens/frontend-os-package-legal /src/docs/reference/frontend-os-package-legal'
 ```
 
-The backend and frontend runtime inventories, metadata inventories, and legal bundles are intentionally copied from the built container images rather than from local development environments so they reflect the redistributed Python, npm, Debian, and Alpine layers shipped by the repository Dockerfiles. ThreatLens still does not publish external supply-chain attestations, but the checked-in notice set covers both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles.
+The backend and frontend runtime inventories, metadata inventories, and legal bundles are intentionally copied from the built container images rather than from local development environments so they reflect the redistributed Python, npm, Debian, and Alpine layers shipped by the repository Dockerfiles. The standard `docker compose build` and `docker compose up --build` flow now forwards those same exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image, so the default compose path and the explicit compliance rebuild commands use matching OCI provenance labels. ThreatLens still does not publish external supply-chain attestations, but the checked-in notice set covers both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles.
 
 Bundled license texts shipped in this repository:
 

@@ -42,7 +42,7 @@ Legacy route behavior:
   - `daily_digest`
 - Saved webhook list with create/edit/delete
 - Create, update, test, and retry actions are always allowed for `admin` users.
-- Analysts can only create, update, test, or retry when an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and the target origin matches that allowlist. Plain host entries approve the default `https` origin only, and `*.suffix` does not include the apex `suffix`.
+- Analysts can only create, update, test, or retry when an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and the target matches that allowlist's scheme, host, port, and any optional path prefix. Plain host entries default to `https`, exact `host:port` or full URL prefix entries can allow non-default ports or tenant-scoped paths, and `*.suffix` does not include the apex `suffix`.
 - Delete remains available to webhook owners with operator access so analysts can remove stale webhooks even when outbound egress is locked down.
 - Viewers can still see their own notification analytics and delivery history when scopes permit.
 - Webhook configuration fields:
@@ -140,6 +140,6 @@ Legacy route behavior:
 - Protected by authenticated route guard.
 - Notifications analytics/list/history are available to authenticated users for their own webhooks.
 - Notifications delete additionally requires operator access.
-- Notifications create/update/test/retry require `admin`, or `analyst` plus an approved origin from `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
+- Notifications create/update/test/retry require `admin`, or `analyst` plus a target approved by `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
 - Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
 - AI is a nested admin-only settings page at `/settings/ai`, with `/ai` redirecting there for backward compatibility.

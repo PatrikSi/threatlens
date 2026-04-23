@@ -452,6 +452,63 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.activeElement?.textContent).toContain('RSS Panel')
   })
 
+  it('exposes pressed state for dashboard filter chips and view-mode toggles', () => {
+    const view = renderPage()
+
+    const allFeedsButton = view.querySelector<HTMLButtonElement>('[aria-label="RSS Panel 1 all feeds"]')
+    const allTagsButton = view.querySelector<HTMLButtonElement>('[aria-label="RSS Panel 1 all tags"]')
+    const viewModeGroup = view.querySelector('[aria-label="RSS Panel 1 view mode"]')
+    const expandedButton = Array.from(viewModeGroup?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((button) =>
+      button.textContent?.trim() === 'Expanded',
+    )
+    const compactButton = Array.from(viewModeGroup?.querySelectorAll<HTMLButtonElement>('button') ?? []).find((button) =>
+      button.textContent?.trim() === 'Compact',
+    )
+    const expandedPressed = expandedButton?.getAttribute('aria-pressed')
+    const compactPressed = compactButton?.getAttribute('aria-pressed')
+
+    expect(allFeedsButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(allTagsButton?.getAttribute('aria-pressed')).toBe('true')
+    expect([expandedPressed, compactPressed].sort()).toEqual(['false', 'true'])
+
+    act(() => {
+      ;(expandedPressed === 'true' ? compactButton : expandedButton)?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect([expandedButton?.getAttribute('aria-pressed'), compactButton?.getAttribute('aria-pressed')].sort()).toEqual([
+      'false',
+      'true',
+    ])
+    expect(expandedButton?.getAttribute('aria-pressed')).not.toBe(expandedPressed)
+    expect(compactButton?.getAttribute('aria-pressed')).not.toBe(compactPressed)
+  })
+
+  it('uses a keyboard-focusable button to open saved-view JSON import', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Views')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const importButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Import JSON')
+    const importInput = document.querySelector<HTMLInputElement>('[aria-label="Import saved dashboard views JSON"]')
+    const clickSpy = vi.fn()
+
+    expect(importButton?.tagName).toBe('BUTTON')
+    expect(importInput).not.toBeNull()
+
+    Object.defineProperty(importInput!, 'click', {
+      configurable: true,
+      value: clickSpy,
+    })
+
+    act(() => {
+      importButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(clickSpy).toHaveBeenCalledTimes(1)
+  })
+
   it('offers keyboard-accessible panel resize controls while editing free-layout dashboards', () => {
     const view = renderPage()
 

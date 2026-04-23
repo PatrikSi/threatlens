@@ -54,8 +54,8 @@ Outbound webhook governance:
 
 - Admins can always manage their own notification webhooks.
 - Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
-- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts or `*.suffix` patterns, for example `hooks.slack.com,*.logic.azure.com`.
-- Plain host entries approve the default `https` origin for that host. Explicit non-default ports are rejected for analyst-managed webhooks, and `*.suffix` only matches subdomains, not the apex `suffix`.
+- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts, exact `host:port` pairs, wildcard subdomains, or full `http(s)` URL prefixes, for example `hooks.slack.com,https://hooks.example.com/services/tenant-a,*.logic.azure.com`.
+- Plain host entries approve the default `https` origin for that host. Use an explicit `host:port` or full URL prefix entry to allow a non-default port or a tenant-scoped path, and `*.suffix` only matches subdomains, not the apex `suffix`.
 
 Secure defaults in the shipped template:
 
@@ -108,6 +108,8 @@ Community and reporting paths:
 Start everything:
 
 ```bash
+export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export VCS_REF="$(git rev-parse HEAD)"
 docker compose up --build -d
 ```
 
@@ -119,6 +121,7 @@ Startup flow for `docker-compose.yml`:
 - `worker` and `beat` keep schema/admin startup mutations disabled.
 - Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
+- `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image so the standard `docker compose build` and `docker compose up --build` flow stamps OCI labels with the checked-out revision and build time. If you do not export them first, those labels fall back to `unknown`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
 - Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
@@ -245,7 +248,8 @@ docker build -q -f web/Dockerfile web
 - Runtime smoke:
 
 ```bash
-docker compose up -d --build api worker beat web
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" VCS_REF="$(git rev-parse HEAD)" \
+  docker compose up -d --build api worker beat web
 curl http://localhost:3000/api/v1/health/ready
 ```
 
@@ -325,7 +329,7 @@ curl -X POST http://localhost:3000/api/v1/notifications/webhooks \
   }'
 ```
 
-If the caller is an `analyst`, the webhook origin must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`: plain host entries map to the default `https` origin, explicit non-default ports are rejected, and `*.suffix` does not include the apex `suffix`. Admin-managed webhooks are not constrained by that allowlist.
+If the caller is an `analyst`, the webhook target must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`: plain host entries map to the default `https` origin, exact `host:port` or full URL prefix entries can approve non-default ports or tenant-scoped paths, and `*.suffix` does not include the apex `suffix`. Admin-managed webhooks are not constrained by that allowlist.
 
 Queue a Daily Brief after AI is configured:
 

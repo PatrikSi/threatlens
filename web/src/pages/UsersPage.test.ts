@@ -5,6 +5,7 @@ import {
   buildCreateUserConfirmation,
   buildPasswordResetConfirmation,
   buildUserSettingsConfirmation,
+  resolveSelfLockoutWarnings,
   syncUserSettingsDrafts,
 } from './userSettingsDraft'
 
@@ -40,6 +41,7 @@ describe('buildUserSettingsConfirmation', () => {
       title: 'Apply privileged user changes?',
       confirmLabel: 'Apply user changes',
       confirmTone: 'primary',
+      warnings: [],
       payload: {
         role: 'admin',
         is_active: false,
@@ -52,6 +54,67 @@ describe('buildUserSettingsConfirmation', () => {
       'Sign-in will be blocked until the account is reactivated.',
       'The account will return to pending approval.',
     ])
+  })
+
+  it('elevates self-lockout changes when an admin is editing their own access posture', () => {
+    const adminUser: User = {
+      ...BASE_USER,
+      email: 'admin@example.com',
+      role: 'admin',
+    }
+
+    const confirmation = buildUserSettingsConfirmation(
+      adminUser,
+      {
+        role: 'viewer',
+        isActive: false,
+        isApproved: false,
+      },
+      {
+        id: 'user-1',
+        role: 'admin',
+      },
+    )
+
+    expect(confirmation).toMatchObject({
+      title: 'Apply self-access changes?',
+      confirmLabel: 'Apply self-access changes',
+      confirmTone: 'danger',
+      payload: {
+        role: 'viewer',
+        is_active: false,
+        is_approved: false,
+      },
+    })
+    expect(confirmation?.warnings).toEqual([
+      'You are removing your own admin access. Another admin may need to restore your role before you can manage users, audit logs, AI settings, feeds, or tags again.',
+      'You are disabling your own account. Your current session can stop working on the next authorization check.',
+      'You are sending your own account back to pending approval. Another admin must approve it before you can sign in again.',
+    ])
+  })
+})
+
+describe('resolveSelfLockoutWarnings', () => {
+  it('stays quiet when the acting user is changing another account', () => {
+    expect(
+      resolveSelfLockoutWarnings(
+        {
+          id: 'user-1',
+          role: 'admin',
+          is_active: true,
+          is_approved: true,
+        },
+        {
+          role: 'viewer',
+          isActive: false,
+          isApproved: false,
+        },
+        {
+          id: 'admin-2',
+          role: 'admin',
+        },
+      ),
+    ).toEqual([])
   })
 })
 

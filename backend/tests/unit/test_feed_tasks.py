@@ -872,6 +872,28 @@ def test_enqueue_notification_webhook_delivery_processing_chunks_large_batches(m
     ]
 
 
+def test_enqueue_notification_webhook_delivery_processing_uses_countdown_apply_async(monkeypatch):
+    queued_batches: list[tuple[list[list[str]], int]] = []
+    delivery_ids = [uuid.uuid4() for _ in range(3)]
+
+    def _fake_apply_async(*, args, countdown):
+        queued_batches.append((args, countdown))
+
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.notification_delivery_enqueue_batch_size", 2)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.process_notification_webhook_deliveries.apply_async",
+        _fake_apply_async,
+    )
+
+    result = enqueue_notification_webhook_delivery_processing(delivery_ids, countdown=15)
+
+    assert result is True
+    assert queued_batches == [
+        ([[str(delivery_ids[0]), str(delivery_ids[1])]], 15),
+        ([[str(delivery_ids[2])]], 15),
+    ]
+
+
 def test_fetch_feed_reports_article_enqueue_failure_without_rolling_back_items(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),

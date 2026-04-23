@@ -1,3 +1,16 @@
+x-backend-build: &backend-build
+  context: ./backend
+  args:
+    BUILD_DATE: ${BUILD_DATE:-unknown}
+    VCS_REF: ${VCS_REF:-unknown}
+
+x-web-build: &web-build
+  context: ./web
+  args:
+    BUILD_DATE: ${BUILD_DATE:-unknown}
+    VCS_REF: ${VCS_REF:-unknown}
+    VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}
+
 services:
   db:
     image: postgres:16@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f
@@ -33,8 +46,7 @@ services:
       - backplane
 
   api:
-    build:
-      context: ./backend
+    build: *backend-build
     restart: unless-stopped
     env_file:
       - .env
@@ -66,8 +78,7 @@ services:
       - backplane
 
   worker:
-    build:
-      context: ./backend
+    build: *backend-build
     restart: unless-stopped
     env_file:
       - .env
@@ -99,8 +110,7 @@ services:
       - backplane
 
   beat:
-    build:
-      context: ./backend
+    build: *backend-build
     restart: unless-stopped
     env_file:
       - .env
@@ -132,10 +142,7 @@ services:
       - backplane
 
   web:
-    build:
-      context: ./web
-      args:
-        VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}
+    build: *web-build
     restart: unless-stopped
     depends_on:
       api:

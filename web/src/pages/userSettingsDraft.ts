@@ -12,6 +12,7 @@ export type UserConfirmationState = {
   confirmLabel: string
   confirmTone: 'danger' | 'primary'
   details: string[]
+  warnings: string[]
   payload: UserUpdateRequest
 }
 
@@ -24,7 +25,41 @@ export type CreateUserConfirmationState = {
   payload: UserCreateRequest
 }
 
-export function buildUserSettingsConfirmation(user: User, draft: UserSettingsDraft): UserConfirmationState | null {
+type ActingUserContext = Pick<User, 'id' | 'role'> | null | undefined
+
+export function resolveSelfLockoutWarnings(
+  user: Pick<User, 'id' | 'role' | 'is_active' | 'is_approved'>,
+  draft: UserSettingsDraft,
+  actingUser?: ActingUserContext,
+): string[] {
+  if (!actingUser || actingUser.role !== 'admin' || actingUser.id !== user.id || user.role !== 'admin') {
+    return []
+  }
+
+  const warnings: string[] = []
+
+  if (draft.role !== user.role) {
+    warnings.push(
+      'You are removing your own admin access. Another admin may need to restore your role before you can manage users, audit logs, AI settings, feeds, or tags again.',
+    )
+  }
+
+  if (draft.isActive !== user.is_active && !draft.isActive) {
+    warnings.push('You are disabling your own account. Your current session can stop working on the next authorization check.')
+  }
+
+  if (draft.isApproved !== user.is_approved && !draft.isApproved) {
+    warnings.push('You are sending your own account back to pending approval. Another admin must approve it before you can sign in again.')
+  }
+
+  return warnings
+}
+
+export function buildUserSettingsConfirmation(
+  user: User,
+  draft: UserSettingsDraft,
+  actingUser?: ActingUserContext,
+): UserConfirmationState | null {
   const payload: UserUpdateRequest = {}
   const details: string[] = []
 
@@ -56,12 +91,17 @@ export function buildUserSettingsConfirmation(user: User, draft: UserSettingsDra
     return null
   }
 
+  const warnings = resolveSelfLockoutWarnings(user, draft, actingUser)
+
   return {
-    title: 'Apply privileged user changes?',
-    description: 'Review the account changes below before they are applied.',
-    confirmLabel: 'Apply user changes',
-    confirmTone: 'primary',
+    title: warnings.length ? 'Apply self-access changes?' : 'Apply privileged user changes?',
+    description: warnings.length
+      ? 'Review these changes carefully. They can remove your own administrative access and may require another admin to recover.'
+      : 'Review the account changes below before they are applied.',
+    confirmLabel: warnings.length ? 'Apply self-access changes' : 'Apply user changes',
+    confirmTone: warnings.length ? 'danger' : 'primary',
     details,
+    warnings,
     payload,
   }
 }
@@ -83,6 +123,7 @@ export function buildPasswordResetConfirmation(user: User, nextPassword: string)
       `The new password meets the minimum length requirement with ${trimmedPassword.length} characters.`,
       'Share the new password through a secure channel.',
     ],
+    warnings: [],
     payload: { password: trimmedPassword },
   }
 }

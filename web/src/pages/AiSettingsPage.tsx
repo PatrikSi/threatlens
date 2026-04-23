@@ -557,6 +557,9 @@ export function AiSettingsPage() {
       </section>
       {notice && (
         <p
+          role={notice.tone === 'error' ? 'alert' : 'status'}
+          aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
+          aria-atomic="true"
           className={`rounded px-3 py-2 text-sm ${
             notice.tone === 'success'
               ? 'border border-cyan/20 bg-cyan/10 text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100'

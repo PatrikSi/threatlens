@@ -11,6 +11,27 @@ const usersPageDomMocks = vi.hoisted(() => ({
     invalidateQueries: vi.fn(),
   },
   mutate: vi.fn(),
+  currentUser: {
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin',
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-20T10:00:00Z',
+      created_at: '2026-04-19T10:00:00Z',
+      features: {
+        ai_enabled: false,
+        ai_configured: false,
+        ai_summary_enabled: false,
+        ai_relevance_enabled: false,
+        ai_daily_brief_enabled: false,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
   usersData: [
     {
       id: 'user-1',
@@ -61,6 +82,10 @@ vi.mock('react-router-dom', async () => {
     useBlocker: routerMocks.useBlocker,
   }
 })
+
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => usersPageDomMocks.currentUser,
+}))
 
 import { UsersPage } from './UsersPage'
 
@@ -118,6 +143,27 @@ afterEach(() => {
       created_at: '2026-04-19T10:00:00Z',
     },
   ]
+  usersPageDomMocks.currentUser = {
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin',
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-20T10:00:00Z',
+      created_at: '2026-04-19T10:00:00Z',
+      features: {
+        ai_enabled: false,
+        ai_configured: false,
+        ai_summary_enabled: false,
+        ai_relevance_enabled: false,
+        ai_daily_brief_enabled: false,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }
   usersPageDomMocks.mutate.mockReset()
   routerMocks.blocker.state = 'unblocked'
   routerMocks.blocker.proceed.mockReset()
@@ -214,6 +260,92 @@ describe('UsersPage DOM workflows', () => {
     expect(usersPageDomMocks.mutate).toHaveBeenCalledWith({
       id: 'user-1',
       body: { role: 'admin' },
+    })
+  })
+
+  it('warns admins before they lock themselves out by changing their own role, active state, or approval', () => {
+    usersPageDomMocks.currentUser = {
+      data: {
+        id: 'admin-1',
+        email: 'admin@example.com',
+        role: 'admin',
+        is_active: true,
+        is_approved: true,
+        approved_at: '2026-04-20T10:00:00Z',
+        created_at: '2026-04-19T10:00:00Z',
+        features: {
+          ai_enabled: false,
+          ai_configured: false,
+          ai_summary_enabled: false,
+          ai_relevance_enabled: false,
+          ai_daily_brief_enabled: false,
+        },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+    }
+    usersPageDomMocks.usersData = [
+      {
+        id: 'admin-1',
+        email: 'admin@example.com',
+        role: 'admin',
+        is_active: true,
+        is_approved: true,
+        approved_at: '2026-04-20T10:00:00Z',
+        created_at: '2026-04-19T10:00:00Z',
+      },
+    ]
+
+    const view = renderPage()
+    const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-admin-1')
+    const controls = roleSelect?.parentElement
+    const rowCheckboxes = Array.from(controls?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])
+    const activeCheckbox = rowCheckboxes[0]
+    const approvedCheckbox = rowCheckboxes[1]
+    const reviewButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Review user changes'),
+    )
+
+    expect(roleSelect).not.toBeNull()
+    expect(activeCheckbox).not.toBeNull()
+    expect(approvedCheckbox).not.toBeNull()
+    expect(reviewButton).not.toBeNull()
+
+    act(() => {
+      setSelectValue(roleSelect!, 'viewer')
+      activeCheckbox!.click()
+      approvedCheckbox!.click()
+    })
+
+    expect(pageText()).toContain('Self-access warning')
+    expect(pageText()).toContain('You are removing your own admin access.')
+    expect(pageText()).toContain('You are disabling your own account.')
+    expect(pageText()).toContain('You are sending your own account back to pending approval.')
+
+    act(() => {
+      reviewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Apply self-access changes?')
+    expect(pageText()).toContain('Lockout risk')
+
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Apply self-access changes'),
+    )
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(usersPageDomMocks.mutate).toHaveBeenCalledWith({
+      id: 'admin-1',
+      body: {
+        role: 'viewer',
+        is_active: false,
+        is_approved: false,
+      },
     })
   })
 

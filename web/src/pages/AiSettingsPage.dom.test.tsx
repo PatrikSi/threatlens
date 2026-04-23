@@ -293,10 +293,31 @@ vi.mock('@tanstack/react-query', () => ({
 
     return baseResult
   },
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: {
+    mutationKey?: unknown
+    onMutate?: (value: string) => void
+    onSuccess?: (result: unknown, value: string) => void
+    onSettled?: () => void
+  }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'ai:ops:runs:cancel') {
-      return aiMutationResult(aiSettingsPageDomMocks.cancelMutate)
+      return aiMutationResult(
+        vi.fn((runId: string) => {
+          options.onMutate?.(runId)
+          aiSettingsPageDomMocks.cancelMutate(runId)
+          options.onSuccess?.(
+            {
+              ...aiSettingsPageDomMocks.queuedRunsData.items[0],
+              id: runId,
+              status: 'skipped',
+              reason: 'canceled',
+              finished_at: '2026-04-21T10:02:00Z',
+            },
+            runId,
+          )
+          options.onSettled?.()
+        }),
+      )
     }
     return aiMutationResult(vi.fn())
   },
@@ -394,6 +415,9 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(aiSettingsPageDomMocks.cancelMutate).toHaveBeenCalledWith('run-queued-1')
+    const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('Daily Brief canceled.')
   })
 
   it('blocks reprocess queueing when the lookback scope becomes blank', () => {

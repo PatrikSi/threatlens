@@ -16,15 +16,11 @@ Repository issues and discussions are best-effort community support channels, no
 
 If no public tag exists yet, use the deployed commit SHA, container image digest, and checked-in OpenAPI contract digest as your release anchor when reporting issues.
 
-## Private Reporting
+## Reporting
 
-ThreatLens does not currently promise a dedicated private security inbox before the first public OSS release. The first public tagged release should only advertise GitHub private vulnerability reporting after maintainers enable it and verify that the repository UI exposes the advisory form.
+ThreatLens does not currently publish a dedicated private security inbox or a verified GitHub private advisory form. Do not assume `https://github.com/PatrikSi/threatlens/security/advisories/new` is live unless this file is updated to list it and the repository UI exposes it.
 
-If the repository UI shows GitHub private vulnerability reporting, use:
-
-- `https://github.com/PatrikSi/threatlens/security/advisories/new`
-
-If that page returns `404`, the repository UI does not show a private reporting form, or no public tag has been published yet, ThreatLens does not currently publish a separate security inbox or ticketing system in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
+For now, use the public issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 
@@ -40,7 +36,9 @@ Use the first public message only to share:
 - affected commit, branch, tag, or container image
 - a short impact summary
 - whether you need an urgent maintainer response because the issue is being exploited or exposes live credentials
-- a request for a non-public follow-up channel
+- a request for non-public follow-up if the issue needs deeper coordination
+
+Maintainers may continue coordination through a non-public channel after the initial report, but ThreatLens does not currently guarantee or pre-publish a separate private contact path in-repo.
 
 Once you have a private path, include as much of the following as you can:
 
@@ -49,8 +47,6 @@ Once you have a private path, include as much of the following as you can:
 - reproduction steps or proof of concept
 - impact assessment
 - any mitigations or configuration changes already identified
-
-For the first public OSS release, treat private vulnerability reporting as a release gate: either the GitHub advisory form must be live and verified, or this policy must be updated before tagging so the repository does not imply a private reporting path that does not exist.
 
 ## Response Targets
 

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -12,6 +13,7 @@ import {
   buildUserSettingsConfirmation,
   createUserSettingsDraft,
   CreateUserConfirmationState,
+  resolveSelfLockoutWarnings,
   syncUserSettingsDrafts,
   UserSettingsDraft,
 } from './userSettingsDraft'
@@ -56,6 +58,7 @@ const DEFAULT_CREATE_USER_FORM: UserCreateRequest = {
 
 export function UsersPage() {
   const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
   const [search, setSearch] = useState('')
   const [rowNoticeByUserId, setRowNoticeByUserId] = useState<
     Record<string, { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' }>
@@ -325,6 +328,7 @@ export function UsersPage() {
                     [user.id]: draft,
                   }))
                 }
+                actingUser={currentUserQuery.data ?? null}
                 onSave={(body) => updateUser.mutate({ id: user.id, body })}
                 saving={updateUser.isPending && updateUser.variables?.id === user.id}
                 notice={rowNoticeByUserId[user.id] ?? null}
@@ -375,6 +379,7 @@ function UserRow({
   onSettingsDraftChange,
   passwordDraft,
   onPasswordDraftChange,
+  actingUser,
   onSave,
   saving,
   notice,
@@ -384,13 +389,15 @@ function UserRow({
   onSettingsDraftChange: (draft: UserSettingsDraft) => void
   passwordDraft: string
   onPasswordDraftChange: (value: string) => void
+  actingUser: Pick<User, 'id' | 'role'> | null
   onSave: (payload: UserUpdateRequest) => void
   saving: boolean
   notice: { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' } | null
 }) {
   const roleInputId = `user-role-${user.id}`
   const passwordInputId = `user-reset-password-${user.id}`
-  const settingsConfirmation = buildUserSettingsConfirmation(user, settingsDraft)
+  const selfLockoutWarnings = resolveSelfLockoutWarnings(user, settingsDraft, actingUser)
+  const settingsConfirmation = buildUserSettingsConfirmation(user, settingsDraft, actingUser)
   const passwordConfirmation = buildPasswordResetConfirmation(user, passwordDraft)
   const [pendingConfirmationAction, setPendingConfirmationAction] = useState<'settings' | 'password' | null>(null)
   const pendingConfirmation =
@@ -492,6 +499,16 @@ function UserRow({
             Review password reset
           </button>
         </div>
+        {selfLockoutWarnings.length > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/90 p-3 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
+            <p className="font-semibold">Self-access warning</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {selfLockoutWarnings.map((warning) => (
+                <li key={warning}>{warning}</li>
+              ))}
+            </ul>
+          </div>
+        )}
         {notice && (
           <p
             role={notice.tone === 'error' ? 'alert' : 'status'}
@@ -521,6 +538,16 @@ function UserRow({
               <p className="font-semibold text-ink dark:text-white">{user.email}</p>
               <p className="text-xs text-slate dark:text-white/70">Role: {user.role}</p>
             </div>
+            {pendingConfirmation.warnings.length > 0 && (
+              <div className="rounded-lg border border-red-300/60 bg-red-50/90 p-3 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-100">
+                <p className="font-semibold">Lockout risk</p>
+                <ul className="mt-2 list-disc space-y-1 pl-4">
+                  {pendingConfirmation.warnings.map((warning) => (
+                    <li key={warning}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700 dark:text-white/80">
               {pendingConfirmation.details.map((detail) => (
                 <li key={detail}>{detail}</li>
