@@ -57,12 +57,13 @@ const feedsData = [
     last_success_at: null,
     error_count: 0,
     last_error: null,
+    has_unreadable_url: false,
     created_at: '2026-04-21T10:00:00Z',
   },
   {
     id: 'feed-2',
-    name: 'Edge Advisories',
-    url: 'https://example.com/edge.xml',
+    name: 'Orange Cyberdefense',
+    url: '',
     description: null,
     site_url: null,
     language: null,
@@ -75,7 +76,8 @@ const feedsData = [
     last_fetch_at: null,
     last_success_at: null,
     error_count: 0,
-    last_error: null,
+    last_error: 'Stored feed URL cannot be decrypted.',
+    has_unreadable_url: true,
     created_at: '2026-04-20T10:00:00Z',
   },
 ] as const
@@ -92,7 +94,7 @@ function feedMutationResult(mutate: ReturnType<typeof vi.fn>) {
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => feedsPageDomMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
-    const [scope] = queryKey
+    const [scope, key] = queryKey
     const baseResult = {
       isLoading: false,
       isError: false,
@@ -104,6 +106,55 @@ vi.mock('@tanstack/react-query', () => ({
       return {
         ...baseResult,
         data: feedsData,
+      }
+    }
+
+    if (scope === 'health' && key === 'encrypted-data') {
+      return {
+        ...baseResult,
+        data: {
+          ok: false,
+          status: 'critical',
+          scanned_at: '2026-04-23T08:00:00Z',
+          warnings: [],
+          require_explicit_app_data_encryption_key: true,
+          using_derived_app_data_encryption_key: false,
+          startup_scan: {
+            completed_at: '2026-04-23T07:59:00Z',
+            status: 'critical',
+            error: null,
+            total_unreadable_records: 1,
+            total_unreadable_fields: 1,
+          },
+          feeds: {
+            total_records: 2,
+            encrypted_records: 2,
+            unreadable_records: 1,
+            encrypted_fields: 2,
+            unreadable_fields: 1,
+          },
+          notification_webhooks: {
+            total_records: 0,
+            encrypted_records: 0,
+            unreadable_records: 0,
+            encrypted_fields: 0,
+            unreadable_fields: 0,
+          },
+          notification_delivery_snapshots: {
+            total_records: 0,
+            encrypted_records: 0,
+            unreadable_records: 0,
+            encrypted_fields: 0,
+            unreadable_fields: 0,
+          },
+          summary: {
+            total_records: 2,
+            encrypted_records: 2,
+            unreadable_records: 1,
+            encrypted_fields: 2,
+            unreadable_fields: 1,
+          },
+        },
       }
     }
 
@@ -149,17 +200,21 @@ vi.mock('@tanstack/react-query', () => ({
     }
     if (mutationKey === 'feeds:bulk-delete') {
       return feedMutationResult(
-        vi.fn((feeds: Array<(typeof feedsData)[number]>) => {
+        vi.fn(
+          (
+            feeds: Array<(typeof feedsData)[number]>,
+            mutateOptions?: { onSuccess?: (result: unknown, variables: unknown) => void },
+          ) => {
           feedsPageDomMocks.bulkDeleteMutate(feeds)
-          options.onSuccess?.(
+          const result =
             feedsPageDomMocks.bulkDeleteResult ?? {
               attempted: feeds.length,
               succeeded: feeds.length,
               failed: 0,
               failedFeedNames: [],
-            },
-            feeds,
-          )
+            }
+          options.onSuccess?.(result, feeds)
+          mutateOptions?.onSuccess?.(result, feeds)
         }),
       )
     }
@@ -267,6 +322,7 @@ describe('FeedsPage DOM workflows', () => {
     expect(view.querySelector('label[for="feed-language"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-fetch-interval"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-search"]')).not.toBeNull()
+    expect(view.querySelector('label[for="feed-status-filter"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-sort"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-fetch-mode-feed-1"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-interval-seconds-feed-1"]')).not.toBeNull()
@@ -366,7 +422,7 @@ describe('FeedsPage DOM workflows', () => {
       attempted: 1,
       succeeded: 0,
       failed: 1,
-      failedFeedNames: ['Edge Advisories'],
+      failedFeedNames: ['Orange Cyberdefense'],
     }
 
     const bulkEnableButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -379,7 +435,7 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Enable filtered feeds?')
-    expect(pageText()).toContain('Edge Advisories')
+    expect(pageText()).toContain('Orange Cyberdefense')
 
     const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Enable feeds')
     expect(confirmButton).not.toBeNull()
@@ -389,10 +445,10 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.bulkSetEnabledMutate).toHaveBeenCalledWith({
-      feeds: [expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' })],
+      feeds: [expect.objectContaining({ id: 'feed-2', name: 'Orange Cyberdefense' })],
       enabled: true,
     })
-    expect(pageText()).toContain('Enabled 0/1 feed. Failed: Edge Advisories.')
+    expect(pageText()).toContain('Enabled 0/1 feed. Failed: Orange Cyberdefense.')
   })
 
   it('reports failed feed names after a partial bulk refresh', () => {
@@ -401,7 +457,7 @@ describe('FeedsPage DOM workflows', () => {
       attempted: 2,
       succeeded: 1,
       failed: 1,
-      failedFeedNames: ['Edge Advisories'],
+      failedFeedNames: ['Orange Cyberdefense'],
     }
 
     const bulkRefreshButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -415,9 +471,9 @@ describe('FeedsPage DOM workflows', () => {
 
     expect(feedsPageDomMocks.bulkRefreshMutate).toHaveBeenCalledWith([
       expect.objectContaining({ id: 'feed-1', name: 'Vendor Advisories' }),
-      expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' }),
+      expect.objectContaining({ id: 'feed-2', name: 'Orange Cyberdefense' }),
     ])
-    expect(pageText()).toContain('Refresh queued for 1/2 feeds. Failed: Edge Advisories.')
+    expect(pageText()).toContain('Refresh queued for 1/2 feeds. Failed: Orange Cyberdefense.')
   })
 
   it('reports failed feed names after a partial bulk delete', () => {
@@ -426,7 +482,7 @@ describe('FeedsPage DOM workflows', () => {
       attempted: 1,
       succeeded: 0,
       failed: 1,
-      failedFeedNames: ['Edge Advisories'],
+      failedFeedNames: ['Orange Cyberdefense'],
     }
 
     const bulkDeleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
@@ -439,7 +495,7 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Delete filtered disabled feeds?')
-    expect(pageText()).toContain('Edge Advisories')
+    expect(pageText()).toContain('Orange Cyberdefense')
 
     const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete feeds')
     expect(confirmButton).not.toBeNull()
@@ -449,9 +505,54 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.bulkDeleteMutate).toHaveBeenCalledWith([
-      expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' }),
+      expect.objectContaining({ id: 'feed-2', name: 'Orange Cyberdefense' }),
     ])
-    expect(pageText()).toContain('Deleted 0/1 feed. Failed: Edge Advisories.')
+    expect(pageText()).toContain('Deleted 0/1 feed. Failed: Orange Cyberdefense.')
+  })
+
+  it('surfaces unreadable feed warnings, filters broken feeds, and confirms bulk broken-feed deletion', () => {
+    const view = renderPage()
+
+    expect(pageText()).toContain('1 stored feed has unreadable encrypted URLs.')
+    expect(pageText()).toContain('Delete Broken Feeds')
+
+    const showBrokenButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Show Broken Feeds'),
+    )
+    expect(showBrokenButton).not.toBeNull()
+
+    act(() => {
+      showBrokenButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const statusFilter = view.querySelector<HTMLSelectElement>('#feed-status-filter')
+    expect(statusFilter?.value).toBe('broken')
+    expect(pageText()).toContain('Showing 1 of 2 feeds')
+    expect(pageText()).toContain('Broken URL')
+
+    const deleteBrokenButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Delete Broken (Filtered)'),
+    )
+    expect(deleteBrokenButton).not.toBeNull()
+
+    act(() => {
+      deleteBrokenButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Delete broken feeds?')
+    expect(pageText()).toContain('Orange Cyberdefense')
+
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete feeds')
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(feedsPageDomMocks.bulkDeleteMutate).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'feed-2', name: 'Orange Cyberdefense', has_unreadable_url: true }),
+    ])
+    expect(pageText()).toContain('Deleted broken 1/1 feed.')
   })
 
   it('shows an import preflight summary and requires confirmation before overwrite imports', async () => {

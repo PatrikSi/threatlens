@@ -56,6 +56,7 @@ const taggingPageDomMocks = vi.hoisted(() => ({
       last_success_at: null,
       error_count: 0,
       last_error: null,
+      has_unreadable_url: false,
       created_at: '2026-04-20T10:00:00Z',
     },
   ],

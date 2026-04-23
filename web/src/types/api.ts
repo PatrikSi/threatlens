@@ -390,7 +390,46 @@ export interface Feed {
   last_success_at: string | null
   error_count: number
   last_error: string | null
+  has_unreadable_url: boolean
   created_at: string
+}
+
+export interface EncryptedDataInventoryCategory {
+  total_records: number
+  encrypted_records: number
+  unreadable_records: number
+  encrypted_fields: number
+  unreadable_fields: number
+}
+
+export interface EncryptedDataStartupScan {
+  completed_at: string | null
+  status: 'healthy' | 'warning' | 'critical' | null
+  error: string | null
+  total_unreadable_records: number | null
+  total_unreadable_fields: number | null
+}
+
+export interface EncryptedDataInventorySummary {
+  total_records: number
+  encrypted_records: number
+  unreadable_records: number
+  encrypted_fields: number
+  unreadable_fields: number
+}
+
+export interface EncryptedDataInventoryResponse {
+  ok: boolean
+  status: 'healthy' | 'warning' | 'critical'
+  scanned_at: string
+  warnings: string[]
+  require_explicit_app_data_encryption_key: boolean
+  using_derived_app_data_encryption_key: boolean
+  startup_scan: EncryptedDataStartupScan
+  feeds: EncryptedDataInventoryCategory
+  notification_webhooks: EncryptedDataInventoryCategory
+  notification_delivery_snapshots: EncryptedDataInventoryCategory
+  summary: EncryptedDataInventorySummary
 }
 
 export interface FeedMetadataResponse {

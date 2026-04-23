@@ -5,7 +5,14 @@ import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
-import { Feed, FeedExportResponse, FeedImportEntry, FeedImportResponse, FeedMetadataResponse } from '../types/api'
+import {
+  EncryptedDataInventoryResponse,
+  Feed,
+  FeedExportResponse,
+  FeedImportEntry,
+  FeedImportResponse,
+  FeedMetadataResponse,
+} from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 import {
@@ -20,6 +27,7 @@ import {
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
 type FeedFetchMode = FeedScheduleDraft['fetchMode']
+type FeedStatusFilter = 'all' | 'enabled' | 'disabled' | 'broken'
 type FeedSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 type FeedSaveState = {
@@ -30,6 +38,11 @@ type FeedSaveState = {
 type PendingBulkSetEnabledAction = {
   enabled: boolean
   feeds: Feed[]
+}
+
+type PendingBulkDeleteAction = {
+  feeds: Feed[]
+  kind: 'disabled' | 'broken'
 }
 
 type FeedImportPreviewSummary = {
@@ -72,6 +85,7 @@ export function FeedsPage() {
 
   const [search, setSearch] = useState('')
   const [sort, setSort] = useState<FeedSort>('created_desc')
+  const [statusFilter, setStatusFilter] = useState<FeedStatusFilter>('all')
 
   const [overwriteExisting, setOverwriteExisting] = useState(false)
   const [importData, setImportData] = useState<FeedImportEntry[] | null>(null)
@@ -81,7 +95,7 @@ export function FeedsPage() {
   const [lastImportResult, setLastImportResult] = useState<FeedImportResponse | null>(null)
   const [managementNotice, setManagementNotice] = useState('')
   const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
-  const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<Feed[] | null>(null)
+  const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<PendingBulkDeleteAction | null>(null)
   const [pendingBulkSetEnabled, setPendingBulkSetEnabled] = useState<PendingBulkSetEnabledAction | null>(null)
   const [pendingImportReview, setPendingImportReview] = useState<FeedImportPreviewSummary | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
@@ -93,6 +107,22 @@ export function FeedsPage() {
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
+  })
+
+  const encryptedDataHealthQuery = useQuery({
+    queryKey: ['health', 'encrypted-data'],
+    queryFn: async () => {
+      try {
+        return await apiFetch<EncryptedDataInventoryResponse>('/health/encrypted-data')
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 503 && error.detail && typeof error.detail === 'object') {
+          return error.detail as EncryptedDataInventoryResponse
+        }
+        throw error
+      }
+    },
+    enabled: canDelete,
+    refetchInterval: 60_000,
   })
 
   const detectMetadata = useMutation({
@@ -175,6 +205,7 @@ export function FeedsPage() {
     onSuccess: () => {
       setManagementNotice('Feed deleted.')
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      void queryClient.invalidateQueries({ queryKey: ['health', 'encrypted-data'] })
     },
   })
 
@@ -215,10 +246,6 @@ export function FeedsPage() {
     mutationFn: async (feeds: Feed[]) => {
       const settled = await Promise.allSettled(feeds.map((feed) => apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' })))
       return summarizeBulkResults(feeds, settled)
-    },
-    onSuccess: (result) => {
-      setManagementNotice(formatBulkResultNotice('Deleted', result))
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
 
@@ -262,15 +289,28 @@ export function FeedsPage() {
   const filteredFeeds = useMemo(() => {
     const term = search.trim().toLowerCase()
     const source = feedsQuery.data ?? []
+    const filteredByStatus = source.filter((feed) => {
+      if (statusFilter === 'enabled') return feed.enabled
+      if (statusFilter === 'disabled') return !feed.enabled
+      if (statusFilter === 'broken') return feed.has_unreadable_url
+      return true
+    })
 
     const filtered = term
-      ? source.filter((feed) => {
-          const haystack = [feed.name, feed.url, feed.description || '', feed.site_url || '', feed.language || '']
+      ? filteredByStatus.filter((feed) => {
+          const haystack = [
+            feed.name,
+            feed.url,
+            feed.description || '',
+            feed.site_url || '',
+            feed.language || '',
+            feed.last_error || '',
+          ]
             .join(' ')
             .toLowerCase()
           return haystack.includes(term)
         })
-      : source.slice()
+      : filteredByStatus.slice()
 
     filtered.sort((a, b) => {
       if (sort === 'name_asc') return a.name.localeCompare(b.name)
@@ -281,17 +321,19 @@ export function FeedsPage() {
     })
 
     return filtered
-  }, [feedsQuery.data, search, sort])
+  }, [feedsQuery.data, search, sort, statusFilter])
 
   const feedStats = useMemo(() => {
     const allFeeds = feedsQuery.data ?? []
     const enabled = allFeeds.filter((feed) => feed.enabled).length
     const unhealthy = allFeeds.filter((feed) => Boolean(feed.last_error) || feed.error_count > 0).length
+    const broken = allFeeds.filter((feed) => feed.has_unreadable_url).length
     return {
       total: allFeeds.length,
       enabled,
       disabled: allFeeds.length - enabled,
       unhealthy,
+      broken,
     }
   }, [feedsQuery.data])
 
@@ -388,14 +430,21 @@ export function FeedsPage() {
   }
 
   const onConfirmBulkDeleteFeeds = () => {
-    if (!pendingBulkDeleteFeeds?.length) {
+    if (!pendingBulkDeleteFeeds?.feeds.length) {
       return
     }
 
-    const feeds = pendingBulkDeleteFeeds
+    const { feeds, kind } = pendingBulkDeleteFeeds
     setPendingBulkDeleteFeeds(null)
     setManagementNotice('')
-    bulkDeleteFeeds.mutate(feeds)
+    bulkDeleteFeeds.mutate(feeds, {
+      onSuccess: (result) => {
+        const actionLabel = kind === 'broken' ? 'Deleted broken' : 'Deleted'
+        setManagementNotice(formatBulkResultNotice(actionLabel, result))
+        void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+        void queryClient.invalidateQueries({ queryKey: ['health', 'encrypted-data'] })
+      },
+    })
   }
 
   const onConfirmBulkSetEnabled = () => {
@@ -500,6 +549,12 @@ export function FeedsPage() {
   const visibleFeedIds = filteredFeeds.map((feed) => feed.id)
   const visibleDisabledFeedIds = filteredFeeds.filter((feed) => !feed.enabled).map((feed) => feed.id)
   const visibleEnabledFeedIds = filteredFeeds.filter((feed) => feed.enabled).map((feed) => feed.id)
+  const visibleBrokenFeedIds = filteredFeeds.filter((feed) => feed.has_unreadable_url).map((feed) => feed.id)
+  const brokenFeeds = (feedsQuery.data ?? []).filter((feed) => feed.has_unreadable_url)
+  const unreadableFeedInventoryCount = encryptedDataHealthQuery.data?.feeds.unreadable_records ?? brokenFeeds.length
+  const hasUnreadableFeedWarning = unreadableFeedInventoryCount > 0
+  const showDerivedKeyWarning =
+    canDelete && encryptedDataHealthQuery.data?.using_derived_app_data_encryption_key && !encryptedDataHealthQuery.isError
   const importPreviewSummary = useMemo(
     () => buildFeedImportPreviewSummary(importData, feedsQuery.data ?? [], overwriteExisting),
     [feedsQuery.data, importData, overwriteExisting],
@@ -530,7 +585,13 @@ export function FeedsPage() {
 
   const onRequestBulkDeleteFeeds = (feeds: Feed[]) => {
     confirmDiscardUnsavedFeedScheduleChanges(() => {
-      setPendingBulkDeleteFeeds(feeds)
+      setPendingBulkDeleteFeeds({ feeds, kind: 'disabled' })
+    })
+  }
+
+  const onRequestBulkDeleteBrokenFeeds = (feeds: Feed[]) => {
+    confirmDiscardUnsavedFeedScheduleChanges(() => {
+      setPendingBulkDeleteFeeds({ feeds, kind: 'broken' })
     })
   }
 
@@ -751,44 +812,107 @@ export function FeedsPage() {
         </div>
 
         <p className="mt-2 text-xs text-slate dark:text-slate-300">
-          Showing {filteredFeeds.length} of {feedStats.total} feeds · {feedStats.enabled} enabled · {feedStats.disabled} disabled · {feedStats.unhealthy} with errors
+          Showing {filteredFeeds.length} of {feedStats.total} feeds · {feedStats.enabled} enabled · {feedStats.disabled} disabled
+          · {feedStats.unhealthy} with errors · {feedStats.broken} unreadable URL
         </p>
 
-        <div className="mt-2 flex flex-wrap items-center gap-3">
-          <label htmlFor="feed-search" className="sr-only">
-            Search feeds
-          </label>
-          <input
-            id="feed-search"
-            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search feeds"
-          />
-          <label htmlFor="feed-sort" className="sr-only">
-            Sort feeds
-          </label>
-          <select
-            id="feed-sort"
-            className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
-            value={sort}
-            onChange={(event) => setSort(event.target.value as FeedSort)}
-          >
-            <option value="created_desc">Newest created</option>
-            <option value="name_asc">Name A-Z</option>
-            <option value="name_desc">Name Z-A</option>
-            <option value="last_fetch_desc">Last fetched newest</option>
-            <option value="last_fetch_asc">Last fetched oldest</option>
-          </select>
-          <label className="flex w-full items-center gap-2 text-xs text-slate sm:w-auto dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={overwriteExisting}
-              onChange={(event) => setOverwriteExisting(event.target.checked)}
-              disabled={!canManage}
-            />
-            Overwrite existing on import
-          </label>
+        {canDelete && hasUnreadableFeedWarning && (
+          <div className="mt-3 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-3 text-sm text-amber-950 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+            <p className="font-semibold">
+              {unreadableFeedInventoryCount} stored feed{unreadableFeedInventoryCount === 1 ? ' has' : 's have'} unreadable
+              encrypted URLs.
+            </p>
+            <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-200/90">
+              ThreatLens can keep running, but those feeds cannot refresh until the original `APP_DATA_ENCRYPTION_KEY` is
+              restored through `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` or the feeds are recreated.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                className="rounded border border-amber-400/80 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-transparent dark:text-amber-100"
+                onClick={() => setStatusFilter('broken')}
+              >
+                Show Broken Feeds
+              </button>
+              <button
+                type="button"
+                className="rounded border border-red-400 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-50 dark:border-red-700 dark:text-red-300"
+                disabled={!brokenFeeds.length || bulkDeleteFeeds.isPending || Boolean(pendingDeleteFeed) || Boolean(pendingBulkDeleteFeeds)}
+                onClick={() => onRequestBulkDeleteBrokenFeeds(brokenFeeds)}
+              >
+                Delete Broken Feeds
+              </button>
+            </div>
+          </div>
+        )}
+
+        {showDerivedKeyWarning && (
+          <div className="mt-3 rounded-lg border border-sky-300/70 bg-sky-50 px-3 py-3 text-sm text-sky-950 dark:border-sky-900/60 dark:bg-sky-950/25 dark:text-sky-100">
+            <p className="font-semibold">This deployment is using a derived development encryption key.</p>
+            <p className="mt-1 text-xs text-sky-900/90 dark:text-sky-200/90">
+              Set an explicit persistent `APP_DATA_ENCRYPTION_KEY` before relying on durable data. The bundled compose
+              deployment now expects that key to be configured on purpose.
+            </p>
+          </div>
+        )}
+
+        <div className="mt-2">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
+            <div>
+              <label htmlFor="feed-search" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+                Search
+              </label>
+              <input
+                id="feed-search"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Name, URL, language, or error"
+              />
+            </div>
+            <div>
+              <label htmlFor="feed-status-filter" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+                Status
+              </label>
+              <select
+                id="feed-status-filter"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value as FeedStatusFilter)}
+              >
+                <option value="all">All feeds</option>
+                <option value="enabled">Enabled only</option>
+                <option value="disabled">Disabled only</option>
+                <option value="broken">Unreadable URL only</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="feed-sort" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+                Sort
+              </label>
+              <select
+                id="feed-sort"
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                value={sort}
+                onChange={(event) => setSort(event.target.value as FeedSort)}
+              >
+                <option value="created_desc">Newest created</option>
+                <option value="name_asc">Name A-Z</option>
+                <option value="name_desc">Name Z-A</option>
+                <option value="last_fetch_desc">Last fetched newest</option>
+                <option value="last_fetch_asc">Last fetched oldest</option>
+              </select>
+            </div>
+            <label className="flex items-end gap-2 text-xs text-slate dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={overwriteExisting}
+                onChange={(event) => setOverwriteExisting(event.target.checked)}
+                disabled={!canManage}
+              />
+              Overwrite existing on import
+            </label>
+          </div>
         </div>
 
         <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
@@ -844,6 +968,21 @@ export function FeedsPage() {
               onClick={() => onRequestBulkDeleteFeeds(filteredFeeds.filter((feed) => !feed.enabled))}
             >
               Delete Disabled (Filtered)
+            </button>
+          )}
+          {canDelete && (
+            <button
+              type="button"
+              className="rounded border border-red-300 px-3 py-1.5 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+              disabled={
+                !visibleBrokenFeedIds.length ||
+                bulkDeleteFeeds.isPending ||
+                Boolean(pendingDeleteFeed) ||
+                Boolean(pendingBulkDeleteFeeds)
+              }
+              onClick={() => onRequestBulkDeleteBrokenFeeds(filteredFeeds.filter((feed) => feed.has_unreadable_url))}
+            >
+              Delete Broken (Filtered)
             </button>
           )}
         </div>
@@ -914,6 +1053,11 @@ export function FeedsPage() {
             {managementNotice}
           </p>
         )}
+        {canDelete && encryptedDataHealthQuery.isError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
+            Failed to load encrypted data health.
+          </p>
+        )}
         {(bulkRefreshFeeds.isError || bulkSetEnabled.isError || bulkDeleteFeeds.isError || deleteFeed.isError) && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
             One or more management actions failed.
@@ -931,12 +1075,18 @@ export function FeedsPage() {
             const scheduleNotice = saveState !== 'idle' ? validationMessage || saveMessage || feedSaveStatusText(saveState) : null
             const scheduleHint =
               !scheduleNotice && isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : null
+            const displayUrl = feed.url.trim() || 'URL unavailable until the original encryption key is restored.'
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold">{feed.name}</p>
+                    {feed.has_unreadable_url && (
+                      <span className="rounded-full border border-red-300/70 bg-red-100/80 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+                        Broken URL
+                      </span>
+                    )}
                     {isDirty && (
                       <span className="rounded-full border border-amber-300/70 bg-amber-100/80 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
                         Unsaved schedule
@@ -946,7 +1096,7 @@ export function FeedsPage() {
                       {health.label}
                     </span>
                   </div>
-                  <p className="text-xs text-slate dark:text-slate-300">{feed.url}</p>
+                  <p className="text-xs text-slate dark:text-slate-300">{displayUrl}</p>
                   {feed.description && <p className="mt-1 text-xs text-slate dark:text-slate-300">{feed.description}</p>}
                   <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate dark:text-slate-300">
                     {feed.site_url && <span>Site: {feed.site_url}</span>}
@@ -959,7 +1109,7 @@ export function FeedsPage() {
                   <button
                     className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
                     onClick={() => refreshFeed.mutate(feed.id)}
-                    disabled={!canManage}
+                    disabled={!canManage || feed.has_unreadable_url}
                   >
                     Refresh
                   </button>
@@ -1100,7 +1250,9 @@ export function FeedsPage() {
 
           {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading feeds...</p>}
           {feedsQuery.isError && <p className="text-sm text-red-600">Failed to load feeds.</p>}
-          {!feedsQuery.isLoading && !filteredFeeds.length && <p className="text-sm text-slate dark:text-slate-300">No feeds match your search.</p>}
+          {!feedsQuery.isLoading && !filteredFeeds.length && (
+            <p className="text-sm text-slate dark:text-slate-300">No feeds match your current filters.</p>
+          )}
         </div>
       </section>
 
@@ -1152,7 +1304,9 @@ export function FeedsPage() {
                   {pendingImportReview.matchingExistingFeeds.map((feed) => (
                     <li key={feed.id} className="space-y-0.5">
                       <p className="text-sm font-semibold text-ink dark:text-white">{feed.name}</p>
-                      <p className="break-all font-mono text-[11px] text-slate dark:text-white/65">{feed.url}</p>
+                      <p className="break-all font-mono text-[11px] text-slate dark:text-white/65">
+                        {feed.url.trim() || 'URL unavailable until the original encryption key is restored.'}
+                      </p>
                     </li>
                   ))}
                 </ul>
@@ -1205,15 +1359,21 @@ export function FeedsPage() {
         {pendingDeleteFeed && (
           <div className="space-y-2">
             <p className="font-semibold text-ink dark:text-white">{pendingDeleteFeed.name}</p>
-            <p className="break-all font-mono text-xs text-slate dark:text-white/65">{pendingDeleteFeed.url}</p>
+            <p className="break-all font-mono text-xs text-slate dark:text-white/65">
+              {pendingDeleteFeed.url.trim() || 'URL unavailable until the original encryption key is restored.'}
+            </p>
           </div>
         )}
       </ConfirmDialog>
 
       <ConfirmDialog
-        open={Boolean(pendingBulkDeleteFeeds?.length)}
-        title="Delete filtered disabled feeds?"
-        description="This permanently removes every disabled feed in the current filtered view."
+        open={Boolean(pendingBulkDeleteFeeds?.feeds.length)}
+        title={pendingBulkDeleteFeeds?.kind === 'broken' ? 'Delete broken feeds?' : 'Delete filtered disabled feeds?'}
+        description={
+          pendingBulkDeleteFeeds?.kind === 'broken'
+            ? 'This permanently removes feeds whose stored URLs can no longer be decrypted.'
+            : 'This permanently removes every disabled feed in the current filtered view.'
+        }
         confirmLabel="Delete feeds"
         onCancel={() => setPendingBulkDeleteFeeds(null)}
         onConfirm={onConfirmBulkDeleteFeeds}
@@ -1224,12 +1384,13 @@ export function FeedsPage() {
           <div className="space-y-3">
             <p>
               You are about to delete{' '}
-              <span className="font-semibold text-ink dark:text-white">{pendingBulkDeleteFeeds.length}</span> disabled feed
-              {pendingBulkDeleteFeeds.length === 1 ? '' : 's'} from this view.
+              <span className="font-semibold text-ink dark:text-white">{pendingBulkDeleteFeeds.feeds.length}</span>{' '}
+              {pendingBulkDeleteFeeds.kind === 'broken' ? 'broken' : 'disabled'} feed
+              {pendingBulkDeleteFeeds.feeds.length === 1 ? '' : 's'} from this view.
             </p>
             <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
               <ul className="space-y-1">
-                {pendingBulkDeleteFeeds.map((feed) => (
+                {pendingBulkDeleteFeeds.feeds.map((feed) => (
                   <li key={feed.id} className="break-all font-mono text-xs text-slate-700 dark:text-white/70">
                     {feed.name}
                   </li>
@@ -1382,7 +1543,11 @@ function buildFeedImportPreviewSummary(
     return null
   }
 
-  const existingByUrl = new Map(existingFeeds.map((feed) => [feed.url.trim().toLowerCase(), feed] as const))
+  const existingByUrl = new Map(
+    existingFeeds
+      .filter((feed) => feed.url.trim())
+      .map((feed) => [feed.url.trim().toLowerCase(), feed] as const),
+  )
   const uniqueUrls = new Set<string>()
   const matchingExistingFeeds: Feed[] = []
   let duplicateEntries = 0
