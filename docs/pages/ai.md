@@ -72,6 +72,7 @@ All API paths on this page are relative to the published `/api/v1` base.
   - feed filters
   - last `N` items
   - exact item selection
+- Automatic item enrichment is limited to items recently published and recently first seen; older feed backlog is handled through the scoped reprocess action.
 
 ## Dashboard Integration
 

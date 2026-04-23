@@ -111,6 +111,7 @@ class Settings(BaseSettings):
     dispatch_items_missing_iocs_batch_size: int = 200
     dispatch_items_missing_ai_enrichment_batch_size: int = 200
     dispatch_items_failed_ai_enrichment_after_seconds: int = 3600
+    ai_auto_enrich_new_item_max_age_hours: int = 24
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
     dispatch_ai_reprocess_batch_size: int = 100

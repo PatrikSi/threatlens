@@ -1799,6 +1799,98 @@ def test_dispatch_items_missing_ai_enrichment_requeues_failed_rows_after_backoff
     get_settings.cache_clear()
 
 
+def test_dispatch_items_missing_ai_enrichment_skips_old_feed_backlog(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="old-feed-backlog",
+        url="https://example.com/articles/old-feed-backlog",
+        canonical_url="https://example.com/articles/old-feed-backlog",
+        title="Old Fortinet edge exploitation observed",
+        summary="Summary",
+        published_at=now - timedelta(days=10),
+        first_seen_at=now,
+        dedupe_key="old-feed-backlog",
+        content_hash="9" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=[],
+        confidence=0.91,
+        scores_json={"vulnerability": 9.1},
+        matched_terms_json={"vulnerability": ["title:fortinet"]},
+        source_hash="classification-hash",
+        rules_version="v2",
+        classified_at=now,
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.ai_auto_enrich_new_item_max_age_hours", 24)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")),
+    )
+
+    result = dispatch_items_missing_ai_enrichment.run()
+
+    queued_run = db_session.scalar(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "queued",
+        )
+    )
+
+    assert result == {"queued": 0}
+    assert queued_run is None
+    get_settings.cache_clear()
+
+
 def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -2199,6 +2291,79 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     assert captured["item_id"] == str(item.id)
     assert captured["force"] == "False"
     assert captured["task_run_id"]
+
+
+def test_classify_item_skips_ai_enrichment_for_old_feed_backlog(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="old-auto-ai-backlog",
+        url="https://example.com/articles/old-auto-ai-backlog",
+        canonical_url="https://example.com/articles/old-auto-ai-backlog",
+        title="Fortinet exploitation observed",
+        summary="Summary",
+        published_at=now - timedelta(days=10),
+        first_seen_at=now,
+        dedupe_key="old-auto-ai-backlog",
+        content_hash="d" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed Fortinet exploitation in the wild.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.ai_auto_enrich_new_item_max_age_hours", 24)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: SimpleNamespace(
+            ai_enabled=True,
+            ai_configured=True,
+            auto_enrich_new_items=True,
+            model="local-threat-model",
+        ),
+    )
+    monkeypatch.setattr("app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks.delay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("old backlog should not be auto-enriched")),
+    )
+
+    result = classify_item.run(str(item.id))
+
+    skipped_run = db_session.scalar(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "skipped",
+        )
+    )
+
+    assert result["status"] == "ok"
+    assert result["ai_enqueue_failed"] is False
+    assert skipped_run is not None
+    assert skipped_run.reason == "outside_auto_enrich_new_item_window"
 
 
 def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch):
@@ -3098,6 +3263,106 @@ def test_reprocess_recent_ai_items_can_target_specific_items(db_session, monkeyp
     refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
     assert refreshed_parent is not None
     assert refreshed_parent.target_count == 2
+    get_settings.cache_clear()
+
+
+def test_reprocess_recent_ai_items_can_target_old_published_items_explicitly(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="explicit-old-item",
+        url="https://example.com/articles/explicit-old-item",
+        canonical_url="https://example.com/articles/explicit-old-item",
+        title="Explicit old article",
+        summary="Summary",
+        published_at=now - timedelta(days=30),
+        first_seen_at=now - timedelta(days=30),
+        dedupe_key="explicit-old-item",
+        content_hash="e" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed Fortinet exploitation in the wild.",
+        extraction_method="readable",
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    scheduled: list[tuple[str, bool, str | None]] = []
+
+    class _FakeTask:
+        def __init__(self, task_id: str):
+            self.id = task_id
+
+    def _fake_delay(item_id: str, force: bool = False, task_run_id: str | None = None):
+        scheduled.append((item_id, force, task_run_id))
+        return _FakeTask(f"child-{len(scheduled)}")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": None, "limit": 1},
+    )
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(
+        None,
+        1,
+        None,
+        None,
+        None,
+        [str(item.id)],
+        task_run_id=str(parent_run.id),
+    )
+
+    assert result["queued"] == 1
+    assert len(scheduled) == 1
+    assert scheduled[0][0] == str(item.id)
+    assert scheduled[0][1] is True
+    assert scheduled[0][2]
     get_settings.cache_clear()
 
 

@@ -108,6 +108,7 @@ IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
 ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
+AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
 
 
 class ResponseTooLargeError(Exception):
@@ -638,6 +639,35 @@ def _safe_queue_item_ai_enrichment_run(
     return True
 
 
+def _coerce_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _auto_ai_enrich_new_item_window_hours() -> int:
+    try:
+        return max(0, int(settings.ai_auto_enrich_new_item_max_age_hours))
+    except (TypeError, ValueError):
+        return 24
+
+
+def _auto_ai_enrich_new_item_cutoff(now: datetime | None = None) -> datetime:
+    current_time = now or datetime.now(timezone.utc)
+    return current_time - timedelta(hours=_auto_ai_enrich_new_item_window_hours())
+
+
+def _item_is_recent_auto_ai_enrichment_candidate(item: Item, *, now: datetime | None = None) -> bool:
+    cutoff = _auto_ai_enrich_new_item_cutoff(now)
+    published_at = _coerce_utc(item.published_at)
+    first_seen_at = _coerce_utc(item.first_seen_at)
+    if published_at is None or first_seen_at is None:
+        return False
+    return published_at >= cutoff and first_seen_at >= cutoff
+
+
 def _get_ai_run_stop_reason(run_id: uuid.UUID | None) -> str | None:
     if run_id is None:
         return None
@@ -984,7 +1014,10 @@ def dispatch_items_missing_ai_enrichment():
             return {"queued": 0, "reason": "ai_not_configured"}
         if not active.auto_enrich_new_items:
             return {"queued": 0, "reason": "auto_enrich_disabled"}
-        error_recovery_cutoff = datetime.now(timezone.utc) - timedelta(
+        now = datetime.now(timezone.utc)
+        auto_enrich_cutoff = _auto_ai_enrich_new_item_cutoff(now)
+        auto_enrich_window_hours = _auto_ai_enrich_new_item_window_hours()
+        error_recovery_cutoff = now - timedelta(
             seconds=max(0, int(settings.dispatch_items_failed_ai_enrichment_after_seconds))
         )
 
@@ -1002,6 +1035,10 @@ def dispatch_items_missing_ai_enrichment():
             .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
             .where(
                 Item.status == "content_fetched",
+                Item.published_at.is_not(None),
+                Item.published_at >= auto_enrich_cutoff,
+                Item.first_seen_at >= auto_enrich_cutoff,
+                ItemClassification.classified_at >= auto_enrich_cutoff,
                 Article.text.is_not(None),
                 Article.text != "",
                 or_(
@@ -1023,7 +1060,11 @@ def dispatch_items_missing_ai_enrichment():
             trigger_source=AI_TRIGGER_AUTO,
             reason=None,
             model=getattr(active, "model", None),
-            metadata={"recovery": "missing_or_failed_enrichment", "force": False},
+            metadata={
+                "recovery": "recent_missing_or_failed_enrichment",
+                "force": False,
+                "auto_enrich_new_item_max_age_hours": auto_enrich_window_hours,
+            },
         ):
             queued += 1
 
@@ -1979,6 +2020,8 @@ def classify_item(item_id: str):
             ai_enrichment_skip_reason = "no_article"
         elif not (article.text or "").strip():
             ai_enrichment_skip_reason = "no_article_text"
+        elif not _item_is_recent_auto_ai_enrichment_candidate(item):
+            ai_enrichment_skip_reason = AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON
         queue_ai_enrichment = ai_enrichment_skip_reason is None
 
         result = classify_item_content(

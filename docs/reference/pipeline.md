@@ -137,7 +137,8 @@ The classifier uses weighted regex/token rules for each category and applies fee
 
 ## AI Enrichment and Daily Briefing
 
-- When AI is enabled/configured and `auto_enrich_new_items` is on, new items queue AI enrichment after ingestion/classification.
+- When AI is enabled/configured and `auto_enrich_new_items` is on, items queue AI enrichment after ingestion/classification only when they are recently published and recently first seen according to `AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS`.
+- Older feed backlog is left alone unless an admin explicitly queues AI reprocess by lookback, time range, feed, count, or exact item selection.
 - Item enrichment stores:
   - AI summary text
   - relevance score

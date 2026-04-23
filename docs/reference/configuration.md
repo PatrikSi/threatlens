@@ -78,6 +78,9 @@
 | `DISPATCH_ITEMS_MISSING_ARTICLES_AFTER_SECONDS` (`dispatch_items_missing_articles_after_seconds`) | `300` | Grace period before missing or retryable article fetches are eligible for repair dispatch. |
 | `DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE` (`dispatch_unclassified_items_batch_size`) | `200` | Max unclassified items queued each beat cycle. |
 | `DISPATCH_ITEMS_MISSING_IOCS_BATCH_SIZE` (`dispatch_items_missing_iocs_batch_size`) | `200` | Max IOC-backfill items queued each beat cycle. |
+| `DISPATCH_ITEMS_MISSING_AI_ENRICHMENT_BATCH_SIZE` (`dispatch_items_missing_ai_enrichment_batch_size`) | `200` | Max recent AI enrichment repair items queued each beat cycle. |
+| `DISPATCH_ITEMS_FAILED_AI_ENRICHMENT_AFTER_SECONDS` (`dispatch_items_failed_ai_enrichment_after_seconds`) | `3600` | Grace period before failed AI enrichment rows become eligible for automatic retry. |
+| `AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS` (`ai_auto_enrich_new_item_max_age_hours`) | `24` | Automatic AI enrichment only queues items whose feed `published_at` and local `first_seen_at` are both inside this window; use manual AI reprocess for older backfills. |
 | `DISPATCH_FEED_METADATA_SCAN_LIMIT` (`dispatch_feed_metadata_scan_limit`) | `250` | Feed scan cap for metadata backfill beat cycle. |
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
