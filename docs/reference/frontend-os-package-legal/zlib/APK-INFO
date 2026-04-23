@@ -1,0 +1,23 @@
+C:Q18LkPdjZ6xRtKPnBDLtAObcpqdDI=
+P:zlib
+V:1.3.1-r2
+A:x86_64
+S:53979
+I:104280
+T:A compression/decompression Library
+U:https://zlib.net/
+L:Zlib
+o:zlib
+m:Natanael Copa <ncopa@alpinelinux.org>
+t:1726658779
+c:4c2722e7ecc1c5e3ba882429044a101497121223
+D:so:libc.musl-x86_64.so.1
+p:so:libz.so.1=1.3.1
+F:usr
+F:usr/lib
+R:libz.so.1
+a:0:0:777
+Z:Q1IdZs3QiCHWQV7Ve3k69boHQ4Skw=
+R:libz.so.1.3.1
+a:0:0:755
+Z:Q1N2aSAUwB/flulMpTUX6Bpj9eD90=

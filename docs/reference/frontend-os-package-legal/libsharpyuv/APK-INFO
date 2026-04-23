@@ -1,0 +1,23 @@
+C:Q1AlTBQBjFW8cl3vMf3+NFaqpmJN8=
+P:libsharpyuv
+V:1.4.0-r0
+A:x86_64
+S:12323
+I:26240
+T:Libraries for working with WebP images (libsharpyuv library)
+U:https://developers.google.com/speed/webp
+L:BSD-3-Clause
+o:libwebp
+m:Natanael Copa <ncopa@alpinelinux.org>
+t:1721195017
+c:9e9632efda29b66bba6f82b0010a94660831760e
+D:so:libc.musl-x86_64.so.1
+p:so:libsharpyuv.so.0=0.1.0
+F:usr
+F:usr/lib
+R:libsharpyuv.so.0
+a:0:0:777
+Z:Q1DLzKDgRd8E+BkMEuaXpN36YjR3o=
+R:libsharpyuv.so.0.1.0
+a:0:0:755
+Z:Q1Zt4rH+P1JBCaT6DFntAePPgA9+4=

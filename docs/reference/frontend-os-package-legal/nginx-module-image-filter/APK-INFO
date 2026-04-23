@@ -1,0 +1,31 @@
+C:Q1oRcZ2des7LQSJD6+AjzsxXzZZbY=
+P:nginx-module-image-filter
+V:1.27.5-r1
+A:x86_64
+S:13743
+I:47905
+T:nginx image filter dynamic module
+U:https://nginx.org/
+L:2-clause BSD-like license
+o:nginx-module-image-filter
+m:NGINX Packaging <nginx-packaging@f5.com>
+t:1744808194
+c:
+D:nginx~1.27.5 nginx-r1.27.5 /bin/sh so:libc.musl-x86_64.so.1 so:libgd.so.3
+p:nginx-module-image-filter-r1.27.5
+r:nginx-mod-http-image-filter
+F:usr
+F:usr/lib
+F:usr/lib/nginx
+F:usr/lib/nginx/modules
+R:ngx_http_image_filter_module-debug.so
+a:0:0:755
+Z:Q127HrhLVI31OmXbk/kOHBeX5Lnpk=
+R:ngx_http_image_filter_module.so
+a:0:0:755
+Z:Q1f01IKsiNVcbrOvLA9yYSVh3hSTA=
+F:usr/share
+F:usr/share/licenses
+F:usr/share/licenses/nginx-module-image-filter
+R:COPYRIGHT
+Z:Q16CwUo00x5oz6k8OET68GSCXHG20=

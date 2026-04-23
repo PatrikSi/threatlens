@@ -1,0 +1,23 @@
+C:Q1xRdTdd5tdWHZWZUlc4uPGcbwxn8=
+P:freetype
+V:2.13.3-r0
+A:x86_64
+S:348724
+I:661632
+T:TrueType font rendering library
+U:https://www.freetype.org/
+L:FTL OR GPL-2.0-or-later
+o:freetype
+m:Carlo Landmeter <clandmeter@alpinelinux.org>
+t:1725507848
+c:9404f86086f8e5c970b156336e71c56828a1e587
+D:so:libbrotlidec.so.1 so:libbz2.so.1 so:libc.musl-x86_64.so.1 so:libpng16.so.16 so:libz.so.1
+p:so:libfreetype.so.6=6.20.2
+F:usr
+F:usr/lib
+R:libfreetype.so.6
+a:0:0:777
+Z:Q1sDahzm7jS6thGzaXUVamIDkRQMI=
+R:libfreetype.so.6.20.2
+a:0:0:755
+Z:Q1rl03mw5zTzPNTEm8PqQUjlgshnk=

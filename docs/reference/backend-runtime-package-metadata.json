@@ -2,8 +2,10 @@
   {
     "name": "alembic",
     "version": "1.16.4",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "A database migration tool for SQLAlchemy.",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -32,9 +34,11 @@
     "name": "amqp",
     "version": "5.3.1",
     "license": "BSD",
+    "license_source": "license",
     "summary": "Low-level AMQP client for Python (fork of amqplib).",
     "home_page": "http://github.com/celery/py-amqp",
     "author": "Barry Pederson",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -58,7 +62,8 @@
   {
     "name": "annotated-types",
     "version": "0.7.0",
-    "license": "OSI Approved :: MIT License",
+    "license": "MIT",
+    "license_source": "classifier",
     "summary": "Reusable constraint types to use with typing.Annotated",
     "license_files": [
       "LICENSE"
@@ -88,8 +93,10 @@
   {
     "name": "anyio",
     "version": "4.13.0",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "High-level concurrency and networking framework on top of asyncio or Trio",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -117,9 +124,11 @@
     "name": "babel",
     "version": "2.18.0",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "Internationalization utilities",
     "home_page": "https://babel.pocoo.org/",
     "author": "Armin Ronacher",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE",
       "LICENSE.unicode"
@@ -154,10 +163,12 @@
   {
     "name": "bcrypt",
     "version": "4.0.1",
-    "license": "Apache License, Version 2.0",
+    "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Modern password hashing for your software and your servers",
     "home_page": "https://github.com/pyca/bcrypt/",
     "author": "The Python Cryptographic Authority developers",
+    "metadata_license": "Apache License, Version 2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -181,8 +192,10 @@
   {
     "name": "beautifulsoup4",
     "version": "4.13.4",
-    "license": "MIT License",
+    "license": "MIT",
+    "license_source": "license",
     "summary": "Screen-scraping library",
+    "metadata_license": "MIT License",
     "license_files": [
       "LICENSE"
     ],
@@ -219,9 +232,11 @@
     "name": "billiard",
     "version": "4.2.4",
     "license": "BSD",
+    "license_source": "license",
     "summary": "Python multiprocessing fork with improvements and bugfixes",
     "home_page": "https://github.com/celery/billiard",
     "author": "R Oudkerk / Python Software Foundation",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -246,9 +261,11 @@
     "name": "celery",
     "version": "5.5.3",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "Distributed Task Queue.",
     "home_page": "https://docs.celeryq.dev/",
     "author": "Ask Solem",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -280,9 +297,11 @@
     "name": "certifi",
     "version": "2026.2.25",
     "license": "MPL-2.0",
+    "license_source": "license",
     "summary": "Python package for providing Mozilla's CA Bundle.",
     "home_page": "https://github.com/certifi/python-certifi",
     "author": "Kenneth Reitz",
+    "metadata_license": "MPL-2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -309,9 +328,11 @@
   {
     "name": "cffi",
     "version": "2.0.0",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Foreign Function Interface for Python calling C code.",
     "author": "Armin Rigo, Maciej Fijalkowski",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -348,8 +369,10 @@
   {
     "name": "chardet",
     "version": "7.4.1",
-    "license": "Unknown",
+    "license": "0BSD",
+    "license_source": "license_expression",
     "summary": "Universal character encoding detector",
+    "metadata_license_expression": "0BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -378,7 +401,9 @@
     "name": "charset-normalizer",
     "version": "3.4.7",
     "license": "MIT",
+    "license_source": "license",
     "summary": "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet.",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -405,8 +430,10 @@
   {
     "name": "click",
     "version": "8.3.2",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "Composable command line interface toolkit",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -435,9 +462,11 @@
     "name": "click-didyoumean",
     "version": "0.3.1",
     "license": "MIT",
+    "license_source": "license",
     "summary": "Enables git-like *did-you-mean* feature in click",
     "home_page": "https://github.com/click-contrib/click-didyoumean",
     "author": "Timo Furrer",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -462,9 +491,11 @@
     "name": "click-plugins",
     "version": "1.1.1.2",
     "license": "New BSD",
+    "license_source": "license",
     "summary": "An extension module for click to enable registering CLI commands via setuptools entry-points.",
     "home_page": "https://github.com/click-contrib/click-plugins",
     "author": "Kevin Wurster, Sean Gillies",
+    "metadata_license": "New BSD",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -497,9 +528,11 @@
     "name": "click-repl",
     "version": "0.3.0",
     "license": "MIT",
+    "license_source": "license",
     "summary": "REPL plugin for Click",
     "home_page": "https://github.com/untitaker/click-repl",
     "author": "Markus Unterwaditzer",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -520,8 +553,10 @@
   {
     "name": "courlan",
     "version": "1.3.2",
-    "license": "Apache 2.0",
+    "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Clean, filter and sample URLs to optimize data collection \u2013 includes spam, content type and language filters.",
+    "metadata_license": "Apache 2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -550,10 +585,12 @@
   {
     "name": "croniter",
     "version": "3.0.3",
-    "license": "MIT License",
+    "license": "MIT",
+    "license_source": "license",
     "summary": "croniter provides iteration for datetime object with cron like format",
     "home_page": "http://github.com/kiorky/croniter",
     "author": "Matsumoto Taichi, kiorky",
+    "metadata_license": "MIT License",
     "license_files": [
       "LICENSE"
     ],
@@ -577,8 +614,10 @@
   {
     "name": "cryptography",
     "version": "46.0.7",
-    "license": "Unknown",
+    "license": "Apache-2.0 OR BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "cryptography is a package which provides cryptographic recipes and primitives to Python developers.",
+    "metadata_license_expression": "Apache-2.0 OR BSD-3-Clause",
     "license_files": [
       "LICENSE",
       "LICENSE.APACHE",
@@ -624,8 +663,10 @@
   {
     "name": "cssselect",
     "version": "1.4.0",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "cssselect parses CSS3 Selectors and translates them to XPath 1.0",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -658,9 +699,11 @@
     "name": "dateparser",
     "version": "1.4.0",
     "license": "BSD",
+    "license_source": "license",
     "summary": "Date parsing library designed to parse dates from HTML pages",
     "home_page": "https://github.com/scrapinghub/dateparser",
     "author": "Scrapinghub",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -696,7 +739,9 @@
     "name": "dnspython",
     "version": "2.8.0",
     "license": "ISC",
+    "license_source": "license",
     "summary": "DNS toolkit",
+    "metadata_license": "ISC",
     "license_files": [
       "LICENSE"
     ],
@@ -727,9 +772,11 @@
     "name": "ecdsa",
     "version": "0.19.2",
     "license": "MIT",
+    "license_source": "license",
     "summary": "ECDSA cryptographic signature library (pure python)",
     "home_page": "http://github.com/tlsfuzzer/python-ecdsa",
     "author": "Brian Warner",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -751,9 +798,11 @@
     "name": "email_validator",
     "version": "2.2.0",
     "license": "Unlicense",
+    "license_source": "license",
     "summary": "A robust email address syntax and deliverability validation library.",
     "home_page": "https://github.com/JoshData/python-email-validator",
     "author": "Joshua Tauberer",
+    "metadata_license": "Unlicense",
     "license_files": [
       "LICENSE"
     ],
@@ -777,7 +826,8 @@
   {
     "name": "fastapi",
     "version": "0.116.1",
-    "license": "OSI Approved :: MIT License",
+    "license": "MIT",
+    "license_source": "classifier",
     "summary": "FastAPI framework, high performance, easy to learn, fast to code, ready for production",
     "license_files": [
       "LICENSE"
@@ -807,9 +857,11 @@
     "name": "feedparser",
     "version": "6.0.11",
     "license": "BSD-2-Clause",
+    "license_source": "license",
     "summary": "Universal feed parser, handles RSS 0.9x, RSS 1.0, RSS 2.0, CDF, Atom 0.3, and Atom 1.0 feeds",
     "home_page": "https://github.com/kurtmckee/feedparser",
     "author": "Kurt McKee",
+    "metadata_license": "BSD-2-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -833,8 +885,10 @@
   {
     "name": "greenlet",
     "version": "3.4.0",
-    "license": "Unknown",
+    "license": "MIT AND PSF-2.0",
+    "license_source": "license_expression",
     "summary": "Lightweight in-process concurrent programming",
+    "metadata_license_expression": "MIT AND PSF-2.0",
     "license_files": [
       "LICENSE",
       "LICENSE.PSF"
@@ -872,9 +926,11 @@
     "name": "h11",
     "version": "0.16.0",
     "license": "MIT",
+    "license_source": "license",
     "summary": "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1",
     "home_page": "https://github.com/python-hyper/h11",
     "author": "Nathaniel J. Smith",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -898,8 +954,10 @@
   {
     "name": "htmldate",
     "version": "1.9.4",
-    "license": "Apache 2.0",
+    "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Fast and robust extraction of original and updated publication dates from URLs and web pages.",
+    "metadata_license": "Apache 2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -929,8 +987,10 @@
   {
     "name": "httpcore",
     "version": "1.0.9",
-    "license": "OSI Approved :: BSD License",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "A minimal low-level HTTP client.",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.md"
     ],
@@ -959,8 +1019,10 @@
   {
     "name": "httptools",
     "version": "0.7.1",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "A collection of framework independent HTTP protocol utils.",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -985,7 +1047,9 @@
     "name": "httpx",
     "version": "0.28.1",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "The next generation HTTP client.",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE.md"
     ],
@@ -1012,8 +1076,10 @@
   {
     "name": "idna",
     "version": "3.11",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "Internationalized Domain Names in Applications (IDNA)",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.md"
     ],
@@ -1039,10 +1105,12 @@
   {
     "name": "jusText",
     "version": "3.0.2",
-    "license": "The BSD 2-Clause License",
+    "license": "BSD-2-Clause",
+    "license_source": "license",
     "summary": "Heuristic based boilerplate removal tool",
     "home_page": "https://github.com/miso-belica/jusText",
     "author": "Jan Pomik\u00e1lek",
+    "metadata_license": "The BSD 2-Clause License",
     "license_files": [
       "LICENSE.rst"
     ],
@@ -1067,9 +1135,11 @@
     "name": "kombu",
     "version": "5.5.4",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "Messaging library for Python.",
     "home_page": "https://kombu.readthedocs.io",
     "author": "Ask Solem",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -1097,9 +1167,11 @@
     "name": "lxml",
     "version": "6.0.3",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "Powerful and Pythonic XML processing library combining libxml2/libxslt with the ElementTree API.",
     "home_page": "https://lxml.de/",
     "author": "lxml dev team",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt",
       "LICENSES.txt"
@@ -1134,9 +1206,11 @@
     "name": "lxml_html_clean",
     "version": "0.4.4",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "HTML cleaner from lxml project",
     "home_page": "https://github.com/fedora-python/lxml_html_clean/",
     "author": "Lum\u00edr Balhar",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1161,9 +1235,11 @@
     "name": "Mako",
     "version": "1.3.10",
     "license": "MIT",
+    "license_source": "license",
     "summary": "A super-fast templating language that borrows the best ideas from the existing templating languages.",
     "home_page": "https://www.makotemplates.org/",
     "author": "Mike Bayer",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1191,8 +1267,10 @@
   {
     "name": "MarkupSafe",
     "version": "3.0.3",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "Safely add untrusted strings to HTML/XML markup.",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1220,8 +1298,10 @@
   {
     "name": "packaging",
     "version": "26.0",
-    "license": "Unknown",
+    "license": "Apache-2.0 OR BSD-2-Clause",
+    "license_source": "license_expression",
     "summary": "Core utilities for Python packages",
+    "metadata_license_expression": "Apache-2.0 OR BSD-2-Clause",
     "license_files": [
       "LICENSE",
       "LICENSE.APACHE",
@@ -1265,9 +1345,11 @@
     "name": "passlib",
     "version": "1.7.4",
     "license": "BSD",
+    "license_source": "license",
     "summary": "comprehensive password hashing framework supporting over 30 schemes",
     "home_page": "https://passlib.readthedocs.io",
     "author": "Eli Collins",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -1286,7 +1368,9 @@
     "name": "pip",
     "version": "25.0.1",
     "license": "MIT",
+    "license_source": "license",
     "summary": "The PyPA recommended tool for installing Python packages.",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1325,6 +1409,7 @@
     "name": "prompt_toolkit",
     "version": "3.0.52",
     "license": "OSI Approved :: BSD License",
+    "license_source": "classifier",
     "summary": "Library for building powerful interactive command lines in Python",
     "author": "Jonathan Slenders",
     "license_files": [
@@ -1363,9 +1448,11 @@
     "name": "psycopg",
     "version": "3.2.9",
     "license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "license_source": "license",
     "summary": "PostgreSQL database adapter for Python",
     "home_page": "https://psycopg.org/psycopg3/",
     "author": "Daniele Varrazzo",
+    "metadata_license": "GNU Lesser General Public License v3 (LGPLv3)",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1399,9 +1486,11 @@
     "name": "psycopg-binary",
     "version": "3.2.9",
     "license": "GNU Lesser General Public License v3 (LGPLv3)",
+    "license_source": "license",
     "summary": "PostgreSQL database adapter for Python -- C optimisation distribution",
     "home_page": "https://psycopg.org/psycopg3/",
     "author": "Daniele Varrazzo",
+    "metadata_license": "GNU Lesser General Public License v3 (LGPLv3)",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1435,7 +1524,9 @@
     "name": "pyasn1",
     "version": "0.6.3",
     "license": "BSD-2-Clause",
+    "license_source": "license",
     "summary": "Pure-Python implementation of ASN.1 types and DER/BER/CER codecs (X.208)",
+    "metadata_license": "BSD-2-Clause",
     "license_files": [
       "LICENSE.rst"
     ],
@@ -1463,8 +1554,10 @@
   {
     "name": "pycparser",
     "version": "3.0",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "C parser in Python",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -1488,8 +1581,10 @@
   {
     "name": "pydantic",
     "version": "2.12.5",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Data validation using Python type hints",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1517,9 +1612,11 @@
   {
     "name": "pydantic_core",
     "version": "2.41.5",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Core functionality for Pydantic validation and serialization",
     "home_page": "https://github.com/pydantic/pydantic-core",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1545,8 +1642,10 @@
   {
     "name": "pydantic-settings",
     "version": "2.10.1",
-    "license": "OSI Approved :: MIT License",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Settings management using Pydantic",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1578,9 +1677,11 @@
     "name": "python-dateutil",
     "version": "2.9.0.post0",
     "license": "Dual License",
+    "license_source": "license",
     "summary": "Extensions to the standard Python datetime module",
     "home_page": "https://github.com/dateutil/dateutil",
     "author": "Gustavo Niemeyer",
+    "metadata_license": "Dual License",
     "license_files": [
       "LICENSE"
     ],
@@ -1610,7 +1711,9 @@
     "name": "python-dotenv",
     "version": "1.2.2",
     "license": "BSD-3-Clause",
+    "license_source": "license",
     "summary": "Read key-value pairs from a .env file and set them as environment variables",
+    "metadata_license": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],
@@ -1635,9 +1738,11 @@
     "name": "python-jose",
     "version": "3.5.0",
     "license": "MIT",
+    "license_source": "license",
     "summary": "JOSE implementation in Python",
     "home_page": "http://github.com/mpdavis/python-jose",
     "author": "Michael Davis",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1667,8 +1772,10 @@
   {
     "name": "python-multipart",
     "version": "0.0.20",
-    "license": "OSI Approved :: Apache Software License",
+    "license": "Apache-2.0",
+    "license_source": "license_expression",
     "summary": "A streaming multipart parser for Python",
+    "metadata_license_expression": "Apache-2.0",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1699,9 +1806,11 @@
     "name": "pytz",
     "version": "2026.1.post1",
     "license": "MIT",
+    "license_source": "license",
     "summary": "World timezone definitions, modern and historical",
     "home_page": "http://pythonhosted.org/pytz",
     "author": "Stuart Bishop",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1726,9 +1835,11 @@
     "name": "PyYAML",
     "version": "6.0.3",
     "license": "MIT",
+    "license_source": "license",
     "summary": "YAML parser and emitter for Python",
     "home_page": "https://pyyaml.org/",
     "author": "Kirill Simonov",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1759,10 +1870,12 @@
   {
     "name": "readability-lxml",
     "version": "0.8.4.1",
-    "license": "Apache License 2.0",
+    "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "fast html to text parser (article readability tool) with python 3 support",
     "home_page": "http://github.com/buriy/python-readability",
     "author": "Yuri Baburov",
+    "metadata_license": "Apache License 2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -1783,8 +1896,10 @@
   {
     "name": "redis",
     "version": "6.2.0",
-    "license": "OSI Approved :: MIT License",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Python client for Redis database and key-value store",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1815,8 +1930,10 @@
   {
     "name": "regex",
     "version": "2026.4.4",
-    "license": "Unknown",
+    "license": "Apache-2.0 AND CNRI-Python",
+    "license_source": "license_expression",
     "summary": "Alternative regular expression module, to replace re.",
+    "metadata_license_expression": "Apache-2.0 AND CNRI-Python",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -1841,8 +1958,10 @@
     "name": "rsa",
     "version": "4.9.1",
     "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Pure-Python RSA implementation",
     "author": "Sybren A. St\u00fcvel",
+    "metadata_license": "Apache-2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -1868,9 +1987,11 @@
     "name": "sgmllib3k",
     "version": "1.0.0",
     "license": "BSD License",
+    "license_source": "license",
     "summary": "Py3k port of sgmllib.",
     "home_page": "http://hg.hardcoded.net/sgmllib",
     "author": "Hardcoded Software",
+    "metadata_license": "BSD License",
     "license_files": [],
     "notice_files": [],
     "redistribution_files": [],
@@ -1883,9 +2004,11 @@
     "name": "six",
     "version": "1.17.0",
     "license": "MIT",
+    "license_source": "license",
     "summary": "Python 2 and 3 compatibility utilities",
     "home_page": "https://github.com/benjaminp/six",
     "author": "Benjamin Peterson",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1909,8 +2032,10 @@
   {
     "name": "soupsieve",
     "version": "2.8.3",
-    "license": "OSI Approved :: MIT License",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "A modern CSS selector implementation for Beautiful Soup.",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE.md"
     ],
@@ -1938,9 +2063,11 @@
     "name": "SQLAlchemy",
     "version": "2.0.42",
     "license": "MIT",
+    "license_source": "license",
     "summary": "Database Abstraction Library",
     "home_page": "https://www.sqlalchemy.org",
     "author": "Mike Bayer",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -1965,8 +2092,10 @@
   {
     "name": "starlette",
     "version": "0.47.3",
-    "license": "OSI Approved :: BSD License",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "The little ASGI library that shines.",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.md"
     ],
@@ -1997,8 +2126,10 @@
   {
     "name": "tld",
     "version": "0.13.2",
-    "license": "Unknown",
+    "license": "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later",
+    "license_source": "license_expression",
     "summary": "Extract the top-level domain (TLD) from the URL given.",
+    "metadata_license_expression": "MPL-1.1 OR GPL-2.0-only OR LGPL-2.1-or-later",
     "license_files": [
       "LICENSE.rst",
       "LICENSE_GPL2.0.txt",
@@ -2052,8 +2183,10 @@
   {
     "name": "trafilatura",
     "version": "2.0.0",
-    "license": "Apache 2.0",
+    "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Python & Command-line tool to gather text and metadata on the Web: Crawling, scraping, extraction, output as CSV, JSON, HTML, MD, TXT, XML.",
+    "metadata_license": "Apache 2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -2083,8 +2216,10 @@
   {
     "name": "typing_extensions",
     "version": "4.15.0",
-    "license": "Unknown",
+    "license": "PSF-2.0",
+    "license_source": "license_expression",
     "summary": "Backported and Experimental Type Hints for Python 3.9+",
+    "metadata_license_expression": "PSF-2.0",
     "license_files": [
       "LICENSE"
     ],
@@ -2113,8 +2248,10 @@
   {
     "name": "typing-inspection",
     "version": "0.4.2",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Runtime typing introspection tools",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -2142,9 +2279,11 @@
     "name": "tzdata",
     "version": "2026.1",
     "license": "Apache-2.0",
+    "license_source": "license",
     "summary": "Provider of IANA time zone data",
     "home_page": "https://github.com/python/tzdata",
     "author": "Python Software Foundation",
+    "metadata_license": "Apache-2.0",
     "license_files": [
       "LICENSE",
       "LICENSE_APACHE"
@@ -2180,7 +2319,9 @@
     "name": "tzlocal",
     "version": "5.3.1",
     "license": "MIT",
+    "license_source": "license",
     "summary": "tzinfo object for the local timezone",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -2209,8 +2350,10 @@
   {
     "name": "urllib3",
     "version": "2.6.3",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "HTTP library with thread-safe connection pooling, file post, and more.",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE.txt"
     ],
@@ -2237,8 +2380,10 @@
   {
     "name": "uvicorn",
     "version": "0.35.0",
-    "license": "OSI Approved :: BSD License",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "The lightning-fast ASGI server.",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE.md"
     ],
@@ -2268,8 +2413,10 @@
   {
     "name": "uvloop",
     "version": "0.22.1",
-    "license": "MIT License",
+    "license": "MIT",
+    "license_source": "license",
     "summary": "Fast implementation of asyncio event loop on top of libuv",
+    "metadata_license": "MIT License",
     "license_files": [
       "LICENSE-APACHE",
       "LICENSE-MIT"
@@ -2307,9 +2454,11 @@
     "name": "vine",
     "version": "5.1.0",
     "license": "BSD",
+    "license_source": "license",
     "summary": "Python promises.",
     "home_page": "https://github.com/celery/vine",
     "author": "Ask Solem",
+    "metadata_license": "BSD",
     "license_files": [
       "LICENSE"
     ],
@@ -2334,8 +2483,10 @@
     "name": "watchfiles",
     "version": "1.1.1",
     "license": "MIT",
+    "license_source": "license",
     "summary": "Simple, modern and high performance file watching and code reload in python.",
     "home_page": "https://github.com/samuelcolvin/watchfiles",
+    "metadata_license": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -2366,8 +2517,10 @@
   {
     "name": "wcwidth",
     "version": "0.6.0",
-    "license": "Unknown",
+    "license": "MIT",
+    "license_source": "license_expression",
     "summary": "Measures the displayed width of unicode strings in a terminal",
+    "metadata_license_expression": "MIT",
     "license_files": [
       "LICENSE"
     ],
@@ -2391,8 +2544,10 @@
   {
     "name": "websockets",
     "version": "16.0",
-    "license": "Unknown",
+    "license": "BSD-3-Clause",
+    "license_source": "license_expression",
     "summary": "An implementation of the WebSocket Protocol (RFC 6455 & 7692)",
+    "metadata_license_expression": "BSD-3-Clause",
     "license_files": [
       "LICENSE"
     ],

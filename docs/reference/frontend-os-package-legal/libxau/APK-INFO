@@ -1,0 +1,23 @@
+C:Q1lfpTNxRtAURI0XOX0xKJAb+xfho=
+P:libxau
+V:1.0.11-r4
+A:x86_64
+S:5561
+I:13936
+T:X11 authorisation library
+U:https://xorg.freedesktop.org/
+L:MIT
+o:libxau
+m:Natanael Copa <ncopa@alpinelinux.org>
+t:1712871550
+c:614e9166706cec427fc3d907b8d981390a42e088
+D:so:libc.musl-x86_64.so.1
+p:so:libXau.so.6=6.0.0
+F:usr
+F:usr/lib
+R:libXau.so.6
+a:0:0:777
+Z:Q1eRQ7CbvRwi4nDENQuH+Lxadbl1s=
+R:libXau.so.6.0.0
+a:0:0:755
+Z:Q1rLsAEFwN1P+RM/KHg7/tmTB2BJ0=

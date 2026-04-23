@@ -83,13 +83,20 @@ Release-contract artifacts shipped in the repo:
 - Runtime package metadata inventories: `docs/reference/backend-runtime-package-metadata.json`, `docs/reference/frontend-runtime-package-metadata.json`
 - Backend runtime package legal artifacts: `docs/reference/backend-runtime-package-legal/`
 - Frontend runtime package legal artifacts: `docs/reference/frontend-runtime-package-legal/`
-- Image OS package notice artifacts: `docs/reference/backend-os-packages.txt`, `docs/reference/backend-os-package-legal/`, `docs/reference/frontend-os-packages.txt`, `docs/reference/frontend-os-package-metadata.tsv`
+- Image OS package notice artifacts: `docs/reference/backend-os-packages.txt`, `docs/reference/backend-os-package-legal/`, `docs/reference/frontend-os-packages.txt`, `docs/reference/frontend-os-package-metadata.tsv`, `docs/reference/frontend-os-package-legal/`
 - Release/support workflow: `docs/reference/release-process.md`
 - Third-party notices: `THIRD_PARTY_NOTICES.md`
 - Bundled common license texts: `docs/licenses/`
 - Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
 
-Repository-hosted support and reporting paths:
+Project status and support posture:
+
+- ThreatLens is developed in public and accepts issues and pull requests on GitHub.
+- Tagged releases, when published, are the preferred upgrade anchors for operators.
+- Until the first public tag exists, pin the exact commit SHA and container image digest you deploy. The default branch is the active community development line, not a separate LTS channel.
+- Repository issues, discussions, and pull requests are best-effort community channels rather than a contractual support SLA.
+
+Community and reporting paths:
 
 - Questions and bug reports: `https://github.com/PatrikSi/threatlens/issues`
 - Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
@@ -114,7 +121,7 @@ Startup flow for `docker-compose.yml`:
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
-- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, and `frontend-os-package-metadata.tsv`.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
 - The shipped proxy defaults only trust explicit proxy hops you configure. If you need the API to preserve browser IPs through the bundled web proxy or another reverse proxy, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
@@ -406,14 +413,14 @@ Notes:
 - `docs/reference/backend-runtime-package-legal/` preserves wheel-published legal files harvested from installed backend runtime dependencies when those files are present in the redistributed Python distributions.
 - `docs/reference/frontend-runtime-package-legal/` preserves the package-published legal files harvested from installed frontend runtime dependencies.
 - `docs/reference/backend-os-packages.txt` plus `docs/reference/backend-os-package-legal/` document the Debian packages and copied package copyright files redistributed by the built backend image.
-- `docs/reference/frontend-os-packages.txt` plus `docs/reference/frontend-os-package-metadata.tsv` document the Alpine packages redistributed by the built web image.
+- `docs/reference/frontend-os-packages.txt`, `docs/reference/frontend-os-package-metadata.tsv`, and `docs/reference/frontend-os-package-legal/` document the Alpine packages redistributed by the built web image.
 - Built backend images also include `/usr/share/doc/threatlens/backend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/backend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/backend-runtime-package-legal/`, `/usr/share/doc/threatlens/backend-os-packages.txt`, `/usr/share/doc/threatlens/backend-os-package-legal/`, `/usr/share/doc/threatlens/backend-requirements.txt`, and `/usr/share/doc/threatlens/backend-requirements-lock.txt`.
-- Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/frontend-runtime-package-legal/`, `/usr/share/doc/threatlens/frontend-package-lock.json`, `/usr/share/doc/threatlens/frontend-os-packages.txt`, and `/usr/share/doc/threatlens/frontend-os-package-metadata.tsv`.
+- Built web images also include `/usr/share/doc/threatlens/frontend-runtime-dependencies.txt`, `/usr/share/doc/threatlens/frontend-runtime-package-metadata.json`, `/usr/share/doc/threatlens/frontend-runtime-package-legal/`, `/usr/share/doc/threatlens/frontend-package-lock.json`, `/usr/share/doc/threatlens/frontend-os-packages.txt`, `/usr/share/doc/threatlens/frontend-os-package-metadata.tsv`, and `/usr/share/doc/threatlens/frontend-os-package-legal/`.
 - `backend/requirements-lock.txt` pins the backend Python application dependency layer installed by `backend/Dockerfile`; it is not a complete inventory of every Debian package redistributed in the final image.
 - `docs/licenses/OFL-1.1.txt` covers the bundled Source Sans 3 and Space Grotesk font files shipped in `web/public/fonts/`.
 - `LICENSE` provides the Apache-2.0 license text used by the project and third-party Apache-2.0 components.
-- `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, and `docs/licenses/Unlicense.txt` are bundled as common third-party runtime license references for the shipped stack.
-- `docs/licenses/LGPL-3.0.txt` and `docs/licenses/GPL-3.0.txt` are shipped for the `psycopg[binary]` backend dependency. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
+- `docs/licenses/Apache-2.0.txt`, `docs/licenses/MIT.txt`, `docs/licenses/BSD-2-Clause.txt`, `docs/licenses/BSD-3-Clause.txt`, `docs/licenses/ISC.txt`, `docs/licenses/MPL-2.0.txt`, `docs/licenses/MPL-1.1.txt`, `docs/licenses/Unlicense.txt`, `docs/licenses/GPL-2.0.txt`, `docs/licenses/GPL-3.0.txt`, `docs/licenses/LGPL-2.1.txt`, and `docs/licenses/LGPL-3.0.txt` are bundled as shared license-family references for the shipped application stack and committed assets.
+- Package-specific runtime and OS-layer legal bundles remain the authoritative per-package redistribution records. If your redistribution program prefers locally linked PostgreSQL client libraries, rebuild the backend image with a non-binary psycopg install before distributing.
 
 ## User Management (admin only)
 

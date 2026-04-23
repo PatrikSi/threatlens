@@ -1,0 +1,45 @@
+C:Q1o+CPB1LGjB8xeUuiZ6pDWkKjR68=
+P:nginx-module-njs
+V:1.27.5.0.8.10-r1
+A:x86_64
+S:4174918
+I:9445908
+T:nginx njs dynamic modules
+U:https://nginx.org/
+L:2-clause BSD-like license
+o:nginx-module-njs
+m:NGINX Packaging <nginx-packaging@f5.com>
+t:1744808205
+c:
+D:nginx~1.27.5 nginx-r1.27.5 /bin/sh so:libc.musl-x86_64.so.1 so:libcrypto.so.3 so:libedit.so.0 so:libpcre2-8.so.0 so:libxml2.so.2 so:libz.so.1
+p:nginx-module-njs-r1.27.5 cmd:njs=1.27.5.0.8.10-r1
+r:nginx-mod-http-js
+F:usr
+F:usr/bin
+R:njs
+a:0:0:755
+Z:Q1qNmeiijHxseuPH/c6Mt4A6Pp65c=
+F:usr/lib
+F:usr/lib/nginx
+F:usr/lib/nginx/modules
+R:ngx_http_js_module-debug.so
+a:0:0:755
+Z:Q1V16WKk8fyFa43utpGCgni4oECuE=
+R:ngx_http_js_module.so
+a:0:0:755
+Z:Q1FAOqmPYRvRtIhdBQLoCnRRKbj6I=
+R:ngx_stream_js_module-debug.so
+a:0:0:755
+Z:Q1x7CR2/eXe0jTu260Rh4ZnUAM1/4=
+R:ngx_stream_js_module.so
+a:0:0:755
+Z:Q1l23LA6r76eAF1fhOewBrjFnmJ9k=
+F:usr/share
+F:usr/share/doc
+F:usr/share/doc/nginx-module-njs
+R:CHANGES
+Z:Q1oHaR82OhNtzIWoHjSgFwnvxq1wY=
+F:usr/share/licenses
+F:usr/share/licenses/nginx-module-njs
+R:COPYRIGHT
+Z:Q1yFhpHLaB/N4PZKAhv4yhvToP8Hc=

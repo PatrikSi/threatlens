@@ -157,6 +157,15 @@ def test_validate_notification_target_for_actor_fails_closed_for_missing_or_inac
         )
 
 
+def test_validate_notification_target_for_actor_rejects_roles_without_outbound_authority():
+    with pytest.raises(ValueError, match="no longer authorized to manage outbound deliveries"):
+        validate_notification_target_for_actor(
+            "https://hooks.example.com/notify",
+            actor_user=SimpleNamespace(role="viewer", is_active=True, is_approved=True),
+            allowed_hosts=("*.example.com",),
+        )
+
+
 def test_settings_notification_webhook_allowlist_accepts_legacy_hosts_and_url_prefixes():
     settings = Settings(
         _env_file=None,

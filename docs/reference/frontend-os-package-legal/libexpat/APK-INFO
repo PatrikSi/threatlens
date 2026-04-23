@@ -1,0 +1,23 @@
+C:Q1ZJopLClQADC5XI/wW7hDCGzAmpI=
+P:libexpat
+V:2.7.0-r0
+A:x86_64
+S:58271
+I:132800
+T:XML Parser library written in C (libraries)
+U:https://libexpat.github.io/
+L:MIT
+o:expat
+m:Carlo Landmeter <clandmeter@alpinelinux.org>
+t:1742155148
+c:6b8bc07f26b221e11bb5cd6b34535d3985cac606
+D:so:libc.musl-x86_64.so.1
+p:so:libexpat.so.1=1.10.1
+F:usr
+F:usr/lib
+R:libexpat.so.1
+a:0:0:777
+Z:Q1U8vy00ewgXXuum7Ma3ImdS9mTj8=
+R:libexpat.so.1.10.1
+a:0:0:755
+Z:Q1M+R2kusERB6lV2nthujqyjGF07M=

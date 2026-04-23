@@ -5,7 +5,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
-from app.core.rbac import ROLE_ADMIN
+from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -284,6 +284,11 @@ def test_notification_webhook_route(
 def _require_notification_webhook_egress_authority(user: User) -> None:
     if user.role == ROLE_ADMIN:
         return
+    if user.role != ROLE_ANALYST:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins and analysts can manage notification webhooks",
+        )
     if get_notification_webhook_allowed_hosts():
         return
     raise HTTPException(

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 
+from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.user import User
 
 
@@ -88,8 +89,12 @@ def validate_notification_target_for_actor(
     if not getattr(actor_user, "is_active", True) or not getattr(actor_user, "is_approved", True):
         raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
 
-    if getattr(actor_user, "role", None) == "admin":
+    actor_role = getattr(actor_user, "role", None)
+    if actor_role == ROLE_ADMIN:
         return
+
+    if actor_role != ROLE_ANALYST:
+        raise ValueError("Webhook owner is no longer authorized to manage outbound deliveries")
 
     if not allowed_hosts:
         raise ValueError(

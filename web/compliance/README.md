@@ -19,3 +19,5 @@ including:
 - `frontend-runtime-package-legal/` for package-published frontend legal files
 - `frontend-os-packages.txt` for redistributed Alpine packages
 - `frontend-os-package-metadata.tsv` for the shipped Alpine package metadata set
+- `frontend-os-package-legal/` for per-package Alpine `APK-INFO` records plus any runtime `/usr/share/licenses/<package>/` trees
+- `web/compliance/generate_frontend_os_package_artifacts.sh` is the shared generator for the frontend OS package inventory, metadata, and legal bundle

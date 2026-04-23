@@ -1112,6 +1112,73 @@ def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner
     assert attempt.delivery.error == "policy_error:Webhook owner is no longer active and approved for outbound delivery"
 
 
+def test_process_notification_webhook_delivery_fails_closed_for_downgraded_owner_role(db_session, monkeypatch):
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
+
+    user = User(
+        id=uuid.uuid4(),
+        email="analyst@example.com",
+        password_hash="hashed",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Restricted webhook",
+        url_template="https://hooks.example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body=None,
+        response_body_preview=None,
+        error=None,
+        delivery_state="pending",
+        attempt_count=0,
+        attempted_at=datetime.now(timezone.utc),
+    )
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook, delivery)
+    user.role = "viewer"
+    db_session.add(user)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+    )
+
+    attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
+
+    assert attempt.claimed is True
+    assert attempt.result.success is False
+    assert attempt.result.error == "Webhook owner is no longer authorized to manage outbound deliveries"
+    assert attempt.delivery.delivery_state == "failed"
+    assert attempt.delivery.status_code is None
+    assert attempt.delivery.error == "policy_error:Webhook owner is no longer authorized to manage outbound deliveries"
+
+
 def test_presend_render_failures_stay_pending_until_processed(db_session, monkeypatch):
     user = User(
         id=uuid.uuid4(),
@@ -1444,9 +1511,13 @@ def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_cont
     assert retried.success is True
     assert retried.rendered_method == "PATCH"
     assert any(header.key == "X-ThreatLens-Delivery-ID" for header in captured["rendered_headers"])
+    assert any(
+        header.key == "X-ThreatLens-Delivery-ID" and header.value == str(retried.id)
+        for header in captured["rendered_headers"]
+    )
     assert any(header.key == "X-Retry" and header.value == "Threat report" for header in captured["rendered_headers"])
     assert any(
-        header.key == "X-ThreatLens-Delivery-ID" and header.value == str(original_delivery.id)
+        header.key == "X-ThreatLens-Source-Delivery-ID" and header.value == str(original_delivery.id)
         for header in captured["rendered_headers"]
     )
 
@@ -1490,7 +1561,10 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
         timeout_seconds=12,
         rendered_url="https://example.com/historical?token=abc",
         rendered_method="POST",
-        rendered_headers_json=[{"key": "Content-Type", "value": "application/json"}],
+        rendered_headers_json=[
+            {"key": "Content-Type", "value": "application/json"},
+            {"key": "X-ThreatLens-Delivery-ID", "value": "stale-delivery-id"},
+        ],
         rendered_query_params_json=[{"key": "token", "value": "abc"}],
         rendered_body='{"title":"ThreatLens"}',
         response_body_preview="server error",
@@ -1506,6 +1580,7 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
         captured["url"] = rendered.url
         captured["query_param_pairs"] = list(rendered.query_param_pairs)
         captured["raw_body"] = rendered.raw_body
+        captured["rendered_headers"] = list(rendered.headers)
         return NotificationWebhookTestResponse(
             success=True,
             status_code=204,
@@ -1528,6 +1603,14 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
     assert captured["raw_body"] == b'{"title":"ThreatLens"}'
     assert retried.delivery_kind == "retry"
     assert retried.delivery_state == "succeeded"
+    assert any(
+        header.key == "X-ThreatLens-Delivery-ID" and header.value == str(retried.id)
+        for header in captured["rendered_headers"]
+    )
+    assert any(
+        header.key == "X-ThreatLens-Source-Delivery-ID" and header.value == str(original_delivery.id)
+        for header in captured["rendered_headers"]
+    )
 
 
 def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(db_session, monkeypatch):

@@ -1,0 +1,21 @@
+C:Q1SPWhbg+j7CzNF4vEWU1w+zpjswU=
+P:gettext-envsubst
+V:0.22.5-r0
+A:x86_64
+S:18606
+I:38816
+T:GNU gettext envsubst binary
+U:https://www.gnu.org/software/gettext/gettext.html
+L:GPL-3.0-or-later AND LGPL-2.1-or-later AND MIT
+o:gettext
+m:Carlo Landmeter <clandmeter@alpinelinux.org>
+t:1711559489
+c:c49ded5d54b708768165f7a99589464cd5c5eeee
+k:100
+D:so:libc.musl-x86_64.so.1 so:libintl.so.8
+p:envsubst cmd:envsubst=0.22.5-r0
+F:usr
+F:usr/bin
+R:envsubst
+a:0:0:755
+Z:Q1puYJVNwk8sgMQG6gA+33ckHHHLg=

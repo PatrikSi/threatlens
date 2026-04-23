@@ -2,7 +2,7 @@
 
 All notable changes to ThreatLens should be documented in this file.
 
-The format is based on Keep a Changelog. Public releases should be cut as immutable tags in `vX.Y.Z` format. `main` tracks unreleased development between tags. Only the latest published tag is considered a supported release line; older tags remain historical references for upgrade context.
+The format is based on Keep a Changelog. Public releases should be cut as immutable tags in `vX.Y.Z` format. `main` tracks unreleased development between tags. Until the first public tag exists, this `Unreleased` section documents the current public state and the deployed commit SHA plus image digest should be treated as the operator's upgrade anchor.
 
 ## [Unreleased]
 
@@ -25,4 +25,6 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 - Refreshed third-party notices for bundled OFL fonts and `psycopg[binary]` redistribution guidance
 - Added shipped OS package notice artifacts and a discoverable backend legal bundle under `/usr/share/doc/threatlens/`
 - Documented trust boundaries and outbound data flows more explicitly
-- Replaced local-only maintainer contacts with explicit non-routable placeholders plus a public-release gating policy
+- Added a shipped frontend Alpine OS legal bundle and aligned the checked-in compliance artifacts with the actual built web image contents
+- Improved backend machine-readable dependency metadata by preferring published `License-Expression` values over avoidable `Unknown` placeholders
+- Tightened release, support, and governance language so the public repo can be used responsibly before the first immutable tag exists

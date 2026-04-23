@@ -1,0 +1,37 @@
+C:Q1WKoLyHISTFis7BDQtmQn3hhljmg=
+P:nginx-module-geoip
+V:1.27.5-r1
+A:x86_64
+S:10160
+I:64313
+T:nginx GeoIP dynamic modules
+U:https://nginx.org/
+L:2-clause BSD-like license
+o:nginx-module-geoip
+m:NGINX Packaging <nginx-packaging@f5.com>
+t:1744808183
+c:
+D:nginx~1.27.5 nginx-r1.27.5 /bin/sh so:libGeoIP.so.1 so:libc.musl-x86_64.so.1
+p:nginx-module-geoip-r1.27.5
+r:nginx-mod-http-geoip
+F:usr
+F:usr/lib
+F:usr/lib/nginx
+F:usr/lib/nginx/modules
+R:ngx_http_geoip_module-debug.so
+a:0:0:755
+Z:Q1L2xjZGKq/3rTpCVABWeiH31mKLA=
+R:ngx_http_geoip_module.so
+a:0:0:755
+Z:Q1wrESW+yy4pwmH5VqWn1hc10Hc00=
+R:ngx_stream_geoip_module-debug.so
+a:0:0:755
+Z:Q1nw5i/cWXVrXD4+XviuMmNljxUGc=
+R:ngx_stream_geoip_module.so
+a:0:0:755
+Z:Q10+JpzaymF7xxeHoPJLHc0SSg60w=
+F:usr/share
+F:usr/share/licenses
+F:usr/share/licenses/nginx-module-geoip
+R:COPYRIGHT
+Z:Q16CwUo00x5oz6k8OET68GSCXHG20=

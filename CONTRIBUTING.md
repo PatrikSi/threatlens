@@ -47,6 +47,7 @@ If your change ships new dependencies, bundled assets, or new runtime behavior, 
 - `docs/reference/backend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-legal/`
+- `docs/reference/frontend-os-package-legal/`
 
 If you add bundled font or media assets, document the exact upstream source and license terms. If you change packaged backend dependencies, re-check whether redistribution guidance needs to change. If you change packaged frontend dependencies, regenerate the frontend package-legal bundle instead of hand-editing files under `docs/reference/frontend-runtime-package-legal/`.
 
@@ -62,15 +63,22 @@ If your change affects shipped dependencies, bundled assets, or release-complian
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
 ./backend/.venv/bin/python scripts/sync_compliance_bundle.py
 BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
-docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" \
-  python backend/scripts/generate_dependency_inventory.py \
-  --backend-output docs/reference/backend-runtime-dependencies.txt \
-  --backend-metadata-output docs/reference/backend-runtime-package-metadata.json \
-  --frontend-output docs/reference/frontend-runtime-dependencies.txt
-docker run --rm -v "$PWD":/src -w /src/web node:22.20.0-alpine \
-  sh -lc 'npm ci >/dev/null && node ./scripts/generate_runtime_package_metadata.mjs \
-    --output /src/docs/reference/frontend-runtime-package-metadata.json \
-    --legal-output-dir /src/docs/reference/frontend-runtime-package-legal'
+docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
+  rm -rf /src/docs/reference/backend-runtime-package-legal /src/docs/reference/backend-os-package-legal &&
+  cp /usr/share/doc/threatlens/backend-runtime-dependencies.txt /src/docs/reference/backend-runtime-dependencies.txt &&
+  cp /usr/share/doc/threatlens/backend-runtime-package-metadata.json /src/docs/reference/backend-runtime-package-metadata.json &&
+  cp -R /usr/share/doc/threatlens/backend-runtime-package-legal /src/docs/reference/backend-runtime-package-legal &&
+  cp /usr/share/doc/threatlens/backend-os-packages.txt /src/docs/reference/backend-os-packages.txt &&
+  cp -R /usr/share/doc/threatlens/backend-os-package-legal /src/docs/reference/backend-os-package-legal'
+WEB_IMAGE=$(docker build -q -f web/Dockerfile web)
+docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
+  rm -rf /src/docs/reference/frontend-runtime-package-legal /src/docs/reference/frontend-os-package-legal &&
+  cp /usr/share/doc/threatlens/frontend-runtime-dependencies.txt /src/docs/reference/frontend-runtime-dependencies.txt &&
+  cp /usr/share/doc/threatlens/frontend-runtime-package-metadata.json /src/docs/reference/frontend-runtime-package-metadata.json &&
+  cp -R /usr/share/doc/threatlens/frontend-runtime-package-legal /src/docs/reference/frontend-runtime-package-legal &&
+  cp /usr/share/doc/threatlens/frontend-os-packages.txt /src/docs/reference/frontend-os-packages.txt &&
+  cp /usr/share/doc/threatlens/frontend-os-package-metadata.tsv /src/docs/reference/frontend-os-package-metadata.tsv &&
+  cp -R /usr/share/doc/threatlens/frontend-os-package-legal /src/docs/reference/frontend-os-package-legal'
 ```
 
 Before merging release-contract changes, review at least:
@@ -83,6 +91,7 @@ Before merging release-contract changes, review at least:
 - `docs/reference/backend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-metadata.json`
 - `docs/reference/frontend-runtime-package-legal/`
+- `docs/reference/frontend-os-package-legal/`
 - `docs/reference/release-process.md`
 - `backend/requirements-lock.txt`
 - `backend/compliance/`

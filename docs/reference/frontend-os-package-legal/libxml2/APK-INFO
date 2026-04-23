@@ -1,0 +1,23 @@
+C:Q1yNWTM5HlMtrhSwbMS+KHFamJWz0=
+P:libxml2
+V:2.13.4-r5
+A:x86_64
+S:495124
+I:1080288
+T:XML parsing library, version 2
+U:https://gitlab.gnome.org/GNOME/libxml2
+L:MIT
+o:libxml2
+m:Carlo Landmeter <clandmeter@alpinelinux.org>
+t:1741646868
+c:c9b177afb6ad46a0857b45194c1b0ac7aba123ab
+D:so:libc.musl-x86_64.so.1 so:liblzma.so.5 so:libz.so.1
+p:so:libxml2.so.2=2.13.4
+F:usr
+F:usr/lib
+R:libxml2.so.2
+a:0:0:777
+Z:Q1tNeyDED61Z7kWkJZ+w6omdwdUk0=
+R:libxml2.so.2.13.4
+a:0:0:755
+Z:Q1DjqoZtjvztw/LFrjp+TFI920eZI=

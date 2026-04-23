@@ -1,0 +1,23 @@
+C:Q1qA5iKoTuSj9TBipRa7ix2SpgSXs=
+P:libmd
+V:1.1.0-r0
+A:x86_64
+S:23076
+I:51120
+T:Message Digest functions from BSD systems
+U:https://www.hadrons.org/software/libmd/
+L:BSD-3-Clause AND BSD-2-Clause AND ISC AND Beerware AND Public Domain
+o:libmd
+m:omni <omni+alpine@hack.org>
+t:1686713172
+c:73e716067b9edc32c4cc7818cb7d206e57fdde15
+D:so:libc.musl-x86_64.so.1
+p:so:libmd.so.0=0.1.0
+F:usr
+F:usr/lib
+R:libmd.so.0
+a:0:0:777
+Z:Q10yTQ9wHxyAoajH3/JIa/d1PbnGM=
+R:libmd.so.0.1.0
+a:0:0:755
+Z:Q1Ejzft+5GNlSm77LBJDMpQlO2DUk=

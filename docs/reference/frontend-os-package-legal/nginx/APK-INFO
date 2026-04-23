@@ -1,0 +1,77 @@
+C:Q1L4GrvgCxk1XuYkkxasAizaGUPA4=
+P:nginx
+V:1.27.5-r1
+A:x86_64
+S:1228425
+I:2710908
+T:High performance web server
+U:https://nginx.org/
+L:2-clause BSD-like license
+o:nginx
+m:NGINX Packaging <nginx-packaging@f5.com>
+t:1744808134
+c:
+k:1
+D:/bin/sh so:libc.musl-x86_64.so.1 so:libcrypto.so.3 so:libpcre2-8.so.0 so:libssl.so.3 so:libz.so.1
+p:nginx-r1.27.5 cmd:nginx-debug=1.27.5-r1 cmd:nginx=1.27.5-r1
+r:nginx-common nginx-initscripts nginx-lua nginx-rtmp
+F:etc
+F:etc/init.d
+R:nginx
+a:0:0:755
+Z:Q1pp0qhsM2empwyMrtnv2Iv1xvGbc=
+R:nginx-debug
+a:0:0:755
+Z:Q1zNGe5H+Ljo7MSJVMhEqMrxWUI2A=
+F:etc/logrotate.d
+R:nginx
+Z:Q1tkX1C+sitBz15kswh0BvDKNu6qA=
+F:etc/nginx
+R:fastcgi.conf
+Z:Q1y/WW3bNDOo4NMl88GIvsnBu3RrM=
+R:fastcgi_params
+Z:Q12jjioN3tg4r74OrebLg3rDD9gEY=
+R:mime.types
+Z:Q1m4XlCRAYRVCR1/E1xKFgrZSHUWo=
+R:modules
+a:0:0:777
+Z:Q1w/AsqB9/LGveP4eLMXbyJcd4HH0=
+R:nginx.conf
+Z:Q1vbcmUFascmATtP0y9QovMPboZHo=
+R:scgi_params
+Z:Q1N5weKipf+4yRoHMo1Mm+K8WHmf0=
+R:uwsgi_params
+Z:Q1zC/NtGBdysI9WfZniJzL39xuNmg=
+F:etc/nginx/conf.d
+R:default.conf
+Z:Q1Vlpgj84H/kloD6df5Q6ggFOKlp8=
+F:run
+F:usr
+F:usr/lib
+F:usr/lib/nginx
+F:usr/lib/nginx/modules
+F:usr/sbin
+R:nginx
+a:0:0:755
+Z:Q1mcSjk/u74sLg7FZG2f1Sa3bsInM=
+R:nginx-debug
+a:0:0:755
+Z:Q1IMLnGJNv0ZIawouw7S9YB38CY5Q=
+F:usr/share
+F:usr/share/licenses
+F:usr/share/licenses/nginx
+R:COPYRIGHT
+Z:Q16CwUo00x5oz6k8OET68GSCXHG20=
+F:usr/share/man
+F:usr/share/man/man8
+R:nginx.8.gz
+Z:Q1uDB4msIHdFUuVaqLpwD38T2WxCU=
+F:usr/share/nginx
+F:usr/share/nginx/html
+R:50x.html
+Z:Q1g1ud7EGcAUIOeGAlJ6n7qMRjUhw=
+R:index.html
+Z:Q1xRo/Dm3k64AtVjCUHD/Z4dDvrks=
+F:var
+F:var/log
+F:var/log/nginx

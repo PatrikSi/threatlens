@@ -1,0 +1,34 @@
+C:Q1fJAgapbtyA+EMPgCire9d2dPY+w=
+P:libxslt
+V:1.1.42-r2
+A:x86_64
+S:138475
+I:333688
+T:XML stylesheet transformation library
+U:http://xmlsoft.org/XSLT/
+L:X11
+o:libxslt
+m:Natanael Copa <ncopa@alpinelinux.org>
+t:1741967222
+c:dab69828342ba8e073aeff49d41670f9091ddb62
+D:so:libc.musl-x86_64.so.1 so:libgcrypt.so.20 so:libxml2.so.2
+p:so:libexslt.so.0=0.8.23 so:libxslt.so.1=1.1.42 cmd:xsltproc=1.1.42-r2
+F:usr
+F:usr/bin
+R:xsltproc
+a:0:0:755
+Z:Q1ezZNbT51qJYUv3qlMtF7/iWiQ98=
+F:usr/lib
+R:libexslt.so.0
+a:0:0:777
+Z:Q1wG3yh+Y+x3au39vWHDrnXM8nq0w=
+R:libexslt.so.0.8.23
+a:0:0:755
+Z:Q19+LLkYubY8HnD8WdjV/jVOuxPhY=
+R:libxslt.so.1
+a:0:0:777
+Z:Q1jPgYqh3sZujxvIboga+k/qQneqU=
+R:libxslt.so.1.1.42
+a:0:0:755
+Z:Q1/aVSVO6hP/tx0p/W+CiDPy6D9so=
+F:usr/lib/libxslt-plugins

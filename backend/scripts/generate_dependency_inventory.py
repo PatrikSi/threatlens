@@ -21,6 +21,17 @@ import shutil
 import subprocess
 
 
+_LICENSE_VALUE_NORMALIZATION = {
+    "Apache 2.0": "Apache-2.0",
+    "Apache License 2.0": "Apache-2.0",
+    "Apache License, Version 2.0": "Apache-2.0",
+    "MIT License": "MIT",
+    "OSI Approved :: Apache Software License": "Apache-2.0",
+    "OSI Approved :: MIT License": "MIT",
+    "The BSD 2-Clause License": "BSD-2-Clause",
+}
+
+
 def _sorted_backend_distributions() -> list[str]:
     rows: dict[str, str] = {}
     for dist in metadata.distributions():
@@ -125,6 +136,35 @@ def _copy_backend_os_legal_files(legal_output_dir: Path | None) -> list[dict[str
     return copied
 
 
+def _normalize_license_value(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized.upper() == "UNKNOWN":
+        return ""
+    return _LICENSE_VALUE_NORMALIZATION.get(normalized, normalized)
+
+
+def _resolved_backend_license(
+    dist: metadata.Distribution,
+    license_classifiers: list[str],
+) -> tuple[str, str]:
+    license_expression = _normalize_license_value((dist.metadata.get("License-Expression") or "").strip())
+    if license_expression:
+        return license_expression, "license_expression"
+
+    metadata_license = _normalize_license_value((dist.metadata.get("License") or "").strip())
+    if metadata_license:
+        return metadata_license, "license"
+
+    if license_classifiers:
+        classifier_value = _normalize_license_value(
+            license_classifiers[-1].removeprefix("License :: ").strip()
+        )
+        if classifier_value:
+            return classifier_value, "classifier"
+
+    return "Unknown", "unknown"
+
+
 def _normalized_backend_package_metadata(legal_output_dir: Path | None = None) -> list[dict[str, object]]:
     rows: dict[str, dict[str, object]] = {}
     for dist in metadata.distributions():
@@ -141,14 +181,13 @@ def _normalized_backend_package_metadata(legal_output_dir: Path | None = None) -
             for value in dist.metadata.get_all("Classifier") or []
             if value.startswith("License :: ")
         ]
-        license_value = (dist.metadata.get("License") or "").strip()
-        if not license_value or license_value.upper() == "UNKNOWN":
-            license_value = license_classifiers[-1].removeprefix("License :: ").strip() if license_classifiers else "Unknown"
+        license_value, license_source = _resolved_backend_license(dist, license_classifiers)
 
         row: dict[str, object] = {
             "name": name,
             "version": version,
             "license": license_value,
+            "license_source": license_source,
         }
 
         summary = (dist.metadata.get("Summary") or "").strip()
@@ -162,6 +201,14 @@ def _normalized_backend_package_metadata(legal_output_dir: Path | None = None) -
         author = (dist.metadata.get("Author") or "").strip()
         if author:
             row["author"] = author
+
+        metadata_license = (dist.metadata.get("License") or "").strip()
+        if metadata_license:
+            row["metadata_license"] = metadata_license
+
+        license_expression = (dist.metadata.get("License-Expression") or "").strip()
+        if license_expression:
+            row["metadata_license_expression"] = license_expression
 
         redistribution_files = _copy_backend_legal_files(
             dist,

@@ -2,17 +2,19 @@
 
 ## Supported Code Lines
 
-ThreatLens support status follows immutable public tags. The default branch is active development and may be ahead of the latest supported release. If no public tag has been published yet, every branch, commit, and container build should be treated as preview-only.
+ThreatLens uses immutable public tags when maintainers cut a release. The default branch is the active public development line and receives best-effort community support. Until the first public tag exists, operators should pin the exact commit SHA and image digest they deploy; there is not yet a separate stable release branch.
 
 Support expectations:
 
 | Code Line | Supported |
 |---|---|
-| Latest published tag | Yes |
-| `main` / default branch | Preview of the next release |
+| Latest published tag | Yes, when tags exist |
+| `main` / default branch | Current public development line with best-effort support |
 | Older tags, snapshots, and forks | Historical reference only |
 
 Repository issues and discussions are best-effort community support channels, not a contractual support SLA.
+
+If no public tag exists yet, use the deployed commit SHA, container image digest, and checked-in OpenAPI contract digest as your release anchor when reporting issues.
 
 ## Private Reporting
 
@@ -20,7 +22,7 @@ Preferred private path, if this repository has it enabled:
 
 - GitHub private vulnerability reporting: `https://github.com/PatrikSi/threatlens/security/advisories/new`
 
-If that page returns `404` or the repository UI does not show a private reporting form, no private reporting channel is currently published in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
+If that page returns `404` or the repository UI does not show a private reporting form, ThreatLens does not currently publish a separate security inbox or ticketing system in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 

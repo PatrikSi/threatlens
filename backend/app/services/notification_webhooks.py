@@ -68,6 +68,7 @@ settings = get_settings()
 FEED_FAILING_NOTIFICATION_THRESHOLD = 3
 FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS = 12
 DAILY_DIGEST_WINDOW_HOURS = 24
+THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
 
 TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
     NotificationTemplateVariable(key="event.type", description="Notification event type.", example="rss_item_new"),
@@ -323,6 +324,7 @@ def render_notification_request(
     event_type: NotificationEventType | None = None,
     triggered_at: datetime | None = None,
     delivery_id: uuid.UUID | None = None,
+    source_delivery_id: uuid.UUID | None = None,
     alert_context: AlertMatchContext | None = None,
     failed_webhook_context: FailedWebhookContext | None = None,
     digest_context: DailyDigestContext | None = None,
@@ -345,7 +347,11 @@ def render_notification_request(
     rendered_query_params = [_render_field(field, context) for field in payload.query_params]
     rendered_headers = [_render_field(field, context) for field in payload.headers]
     headers_dict = canonicalize_headers(rendered_headers)
-    headers_dict[THREATLENS_DELIVERY_ID_HEADER] = str(delivery_uuid)
+    _apply_notification_delivery_headers(
+        headers_dict,
+        delivery_id=delivery_uuid,
+        source_delivery_id=source_delivery_id,
+    )
     query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
 
     body_text: str | None = None
@@ -789,7 +795,6 @@ def reserve_notification_webhook_delivery(
     feed_name: str | None = None,
     source_delivery_id: uuid.UUID | None = None,
     scope_key: str | None = None,
-    render_delivery_id: uuid.UUID | None = None,
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery:
     payload = notification_webhook_write_from_model(webhook)
@@ -804,7 +809,8 @@ def reserve_notification_webhook_delivery(
             item=item,
             event_type=event_type,
             triggered_at=queued_at,
-            delivery_id=render_delivery_id or delivery_id,
+            delivery_id=delivery_id,
+            source_delivery_id=source_delivery_id,
             alert_context=alert_context,
             failed_webhook_context=failed_webhook_context,
             digest_context=digest_context,
@@ -944,7 +950,6 @@ def _reserve_notification_webhook_delivery_from_current_context(
         feed_name=delivery.feed_name_snapshot,
         source_delivery_id=delivery.source_delivery_id or delivery.id,
         scope_key=delivery.scope_key,
-        render_delivery_id=delivery.source_delivery_id or delivery.id,
         not_before=not_before,
     )
 
@@ -2046,7 +2051,11 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
     saved_url = _decrypt_notification_text(delivery.rendered_url) or ""
     replay_url, query_param_pairs = _restore_saved_request_target(saved_url, rendered_query_params)
     headers_dict = canonicalize_headers(rendered_headers)
-    headers_dict.setdefault(THREATLENS_DELIVERY_ID_HEADER, str(delivery.source_delivery_id or delivery.id))
+    _apply_notification_delivery_headers(
+        headers_dict,
+        delivery_id=delivery.id,
+        source_delivery_id=delivery.source_delivery_id,
+    )
     rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
     body_text = _decrypt_notification_text(delivery.rendered_body)
     return RenderedNotificationRequest(
@@ -2062,6 +2071,19 @@ def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> Re
         raw_body=body_text.encode("utf-8") if body_text is not None else None,
         timeout_seconds=delivery.timeout_seconds,
     )
+
+
+def _apply_notification_delivery_headers(
+    headers_dict: dict[str, str],
+    *,
+    delivery_id: uuid.UUID,
+    source_delivery_id: uuid.UUID | None,
+) -> None:
+    headers_dict[THREATLENS_DELIVERY_ID_HEADER] = str(delivery_id)
+    if source_delivery_id is not None and source_delivery_id != delivery_id:
+        headers_dict[THREATLENS_SOURCE_DELIVERY_ID_HEADER] = str(source_delivery_id)
+        return
+    headers_dict.pop(THREATLENS_SOURCE_DELIVERY_ID_HEADER, None)
 
 
 def _get_active_notification_webhook_user(
