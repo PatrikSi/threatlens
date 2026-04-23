@@ -607,6 +607,9 @@ def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):
     result = fetch_feed.run(str(feed.id))
 
     assert result == {"status": "skipped", "reason": "not_due", "feed_id": str(feed.id)}
+    db_session.refresh(feed)
+    assert feed.next_fetch_at is not None
+    assert feed.next_fetch_at > datetime.now(timezone.utc)
 
 
 def test_fetch_feed_force_bypasses_due_check(db_session, monkeypatch):
@@ -779,6 +782,34 @@ def test_dispatch_due_feeds_releases_claim_when_enqueue_fails(db_session, monkey
     db_session.refresh(feed)
     assert feed.dispatch_claimed_at is None
     assert feed.dispatch_backoff_until is None
+
+
+def test_dispatch_due_feeds_uses_persisted_next_fetch_at(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Future Feed",
+        url="https://example.com/future.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        last_fetch_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        next_fetch_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.fetch_feed.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("future feed should not be queued")),
+    )
+
+    result = dispatch_due_feeds.run()
+
+    assert result == {"queued": 0}
 
 
 def test_mark_feed_failure_applies_growing_dispatch_backoff(db_session):
@@ -1693,6 +1724,120 @@ def test_dispatch_items_missing_ai_enrichment_requeues_classified_items_without_
 
     assert result == {"queued": 1}
     assert queued_run is not None
+    get_settings.cache_clear()
+
+
+def test_dispatch_items_missing_ai_enrichment_recovers_stale_inflight_runs_without_live_snapshot(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="stale-inflight-ai-run",
+        url="https://example.com/articles/stale-inflight-ai-run",
+        canonical_url="https://example.com/articles/stale-inflight-ai-run",
+        title="Fortinet edge exploitation observed",
+        summary="Summary",
+        published_at=now,
+        first_seen_at=now,
+        dedupe_key="stale-inflight-ai-run",
+        content_hash="9" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=[],
+        confidence=0.91,
+        scores_json={"vulnerability": 9.1},
+        matched_terms_json={"vulnerability": ["title:fortinet"]},
+        source_hash="classification-hash",
+        rules_version="v2",
+        classified_at=now,
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
+    db_session.flush()
+
+    stale_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=stale_run.id, worker_name="celery@test", celery_task_id="stale-task-id")
+    stale_time = now - timedelta(hours=1)
+    stale_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == stale_run.id))
+    assert stale_run is not None
+    stale_run.queued_at = stale_time
+    stale_run.started_at = stale_time
+    stale_run.created_at = stale_time
+    stale_run.updated_at = stale_time
+    db_session.add(stale_run)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+    monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-3"),
+    )
+
+    result = dispatch_items_missing_ai_enrichment.run()
+
+    refreshed_stale_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == stale_run.id))
+    queued_runs = db_session.scalars(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "queued",
+        )
+    ).all()
+
+    assert result == {"queued": 1}
+    assert refreshed_stale_run is not None
+    assert refreshed_stale_run.status == "error"
+    assert refreshed_stale_run.reason == "stale_task_snapshot_unavailable"
+    assert len(queued_runs) == 1
     get_settings.cache_clear()
 
 

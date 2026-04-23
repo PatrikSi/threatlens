@@ -40,6 +40,7 @@
 - `last_modified: text?`
 - `last_fetch_at: timestamptz?`
 - `last_success_at: timestamptz?`
+- `next_fetch_at: timestamptz?`
 - `error_count: int`
 - `last_error: text?`
 - `created_at: timestamptz`
@@ -51,6 +52,7 @@
 - `source_guid: text?`
 - `url: text`
 - `canonical_url: text?`
+- `url_domain: string(253)?`
 - `title: text`
 - `summary: text?`
 - `published_at: timestamptz?`
@@ -61,7 +63,7 @@
 - `last_error: text?`
 - `updated_at: timestamptz`
 
-Indexes include feed/source/canonical/published/first_seen/content hash and partial unique `(feed_id, source_guid)` when GUID exists.
+Indexes include feed/source/canonical/domain/published/first_seen/status/content hash, feed-time composites, PostgreSQL trigram text-search helpers, and partial unique `(feed_id, source_guid)` when GUID exists.
 
 ### `Article`
 

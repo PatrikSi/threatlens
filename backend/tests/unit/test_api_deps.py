@@ -100,3 +100,28 @@ def test_require_token_scopes_enforces_missing_api_token_scope():
 
     assert excinfo.value.status_code == 403
     assert excinfo.value.detail == "Insufficient token scope"
+
+
+def test_require_token_scopes_allows_empty_scope_api_token_when_legacy_bypass_enabled(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(allow_legacy_unscoped_tokens=True))
+    checker = deps.require_token_scopes("write:feeds")
+    request = _make_request(client_host="127.0.0.1")
+    request.state.token_scopes = []
+    request.state.auth_credential_kind = deps.AUTH_API_TOKEN
+    user = object()
+
+    assert checker(request=request, user=user) is user
+
+
+def test_require_token_scopes_rejects_empty_scope_api_token_when_legacy_bypass_disabled(monkeypatch):
+    monkeypatch.setattr(deps, "get_settings", lambda: SimpleNamespace(allow_legacy_unscoped_tokens=False))
+    checker = deps.require_token_scopes("write:feeds")
+    request = _make_request(client_host="127.0.0.1")
+    request.state.token_scopes = []
+    request.state.auth_credential_kind = deps.AUTH_API_TOKEN
+
+    with pytest.raises(deps.HTTPException) as excinfo:
+        checker(request=request, user=object())
+
+    assert excinfo.value.status_code == 403
+    assert excinfo.value.detail == "Insufficient token scope"

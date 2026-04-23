@@ -7,14 +7,24 @@ from app.core.config import Settings
 from app.main import API_SERVICE_PREFIX, app, _build_openapi_visibility_kwargs, _mount_api_routers, _should_mount_legacy_api_aliases
 
 
+def _production_settings(**overrides) -> Settings:
+    kwargs = {
+        "app_env": "production",
+        "database_url": "postgresql+psycopg://threatlens:strong-db-pass@db:5432/threatlens",
+        "redis_url": "redis://:strong-redis-pass@redis:6379/0",
+        "postgres_password": "strong-db-pass",
+        "redis_password": "strong-redis-pass",
+        "jwt_secret": "x" * 48,
+        "app_data_encryption_key": "y" * 48,
+        "admin_password": "StrongPass123!",
+        "auth_cookie_secure": True,
+    }
+    kwargs.update(overrides)
+    return Settings(**kwargs)
+
+
 def test_build_openapi_visibility_kwargs_hides_docs_ui_in_production_by_default():
-    settings = Settings(
-        app_env="production",
-        jwt_secret="x" * 48,
-        app_data_encryption_key="y" * 48,
-        admin_password="StrongPass123!",
-        auth_cookie_secure=True,
-    )
+    settings = _production_settings()
 
     assert _build_openapi_visibility_kwargs(settings) == {
         "docs_url": None,
@@ -23,14 +33,7 @@ def test_build_openapi_visibility_kwargs_hides_docs_ui_in_production_by_default(
 
 
 def test_build_openapi_visibility_kwargs_allows_opt_in_docs_in_production():
-    settings = Settings(
-        app_env="production",
-        jwt_secret="x" * 48,
-        app_data_encryption_key="y" * 48,
-        admin_password="StrongPass123!",
-        auth_cookie_secure=True,
-        expose_api_docs_in_production=True,
-    )
+    settings = _production_settings(expose_api_docs_in_production=True)
 
     assert _build_openapi_visibility_kwargs(settings) == {}
 
@@ -43,18 +46,7 @@ def test_build_openapi_visibility_kwargs_keeps_docs_in_development():
 
 def test_should_mount_legacy_api_aliases_only_outside_production():
     assert _should_mount_legacy_api_aliases(Settings(app_env="development")) is True
-    assert (
-        _should_mount_legacy_api_aliases(
-            Settings(
-                app_env="production",
-                jwt_secret="x" * 48,
-                app_data_encryption_key="y" * 48,
-                admin_password="StrongPass123!",
-                auth_cookie_secure=True,
-            )
-        )
-        is False
-    )
+    assert _should_mount_legacy_api_aliases(_production_settings()) is False
 
 
 def test_mount_api_routers_can_skip_unversioned_aliases():
@@ -99,5 +91,7 @@ def test_live_schema_publishes_versioned_auth_contract():
     assert "/api/v1/auth/login" in session_cookie_scheme["description"]
     assert "HttpOnly cookie sessions" in payload["info"]["description"]
     assert "publishes only `/api/v1/*` plus `/api/openapi.json`" in payload["info"]["description"]
+    assert payload["paths"]["/v1/feeds"]["get"]["x-threatlens-required-token-scopes"] == ["read:feeds"]
+    assert payload["paths"]["/v1/feeds"]["post"]["x-threatlens-required-token-scopes"] == ["write:feeds"]
     assert "contact" not in payload["info"]
     assert re.fullmatch(r"[0-9a-f]{64}", payload["info"]["x-threatlens-contract-sha256"])

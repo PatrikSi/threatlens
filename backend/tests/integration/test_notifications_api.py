@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -755,6 +756,92 @@ def test_user_can_retry_notification_webhook_delivery(client: TestClient, auth_h
     assert payload["success"] is True
     assert payload["status_code"] == 204
     assert payload["item_title"] == "Retry item"
+
+
+def test_retry_failed_notification_webhook_delivery_returns_503_when_followup_enqueue_fails(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    monkeypatch,
+    seed_users,
+):
+    admin = seed_users["admin"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=admin.id,
+        name="Retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=admin.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
+        success=False,
+        status_code=500,
+        duration_ms=51,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"Retry"}',
+        response_body_preview="HTTP 500",
+        error="HTTP 500",
+    )
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+
+    def _fake_retry(db, *, webhook, delivery):
+        retried = NotificationWebhookDelivery(
+            id=uuid.uuid4(),
+            webhook_id=webhook.id,
+            user_id=webhook.user_id,
+            event_type_snapshot=delivery.event_type_snapshot,
+            delivery_kind="retry",
+            delivery_state="failed",
+            attempt_count=1,
+            success=False,
+            status_code=503,
+            duration_ms=12,
+            timeout_seconds=delivery.timeout_seconds,
+            rendered_url=delivery.rendered_url,
+            rendered_method=delivery.rendered_method,
+            rendered_headers_json=delivery.rendered_headers_json,
+            rendered_query_params_json=delivery.rendered_query_params_json,
+            rendered_body=delivery.rendered_body,
+            response_body_preview="unavailable",
+            error="HTTP 503",
+        )
+        db.add(retried)
+        db.flush()
+        return retried
+
+    monkeypatch.setattr("app.api.routes.notifications.retry_notification_webhook_delivery", _fake_retry)
+    monkeypatch.setattr(
+        "app.api.routes.notifications.reserve_webhook_failed_notification_deliveries",
+        lambda *_args, **_kwargs: SimpleNamespace(delivery_ids=[uuid.uuid4()]),
+    )
+    monkeypatch.setattr("app.api.routes.notifications.enqueue_notification_webhook_delivery_processing", lambda _ids: False)
+
+    response = client.post(
+        f"/notifications/webhooks/{webhook.id}/deliveries/{delivery.id}/retry",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Webhook retry completed but follow-up failure notification enqueue failed"
 
 
 def test_user_cannot_retry_notification_webhook_delivery_while_in_progress(client: TestClient, auth_headers, db_session, seed_users):

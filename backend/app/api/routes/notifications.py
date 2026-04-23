@@ -245,7 +245,11 @@ def retry_notification_webhook_delivery_route(
     db.commit()
     db.refresh(retried)
     if failed_delivery_reservations is not None:
-        enqueue_notification_webhook_delivery_processing(failed_delivery_reservations.delivery_ids)
+        if not enqueue_notification_webhook_delivery_processing(failed_delivery_reservations.delivery_ids):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Webhook retry completed but follow-up failure notification enqueue failed",
+            )
     return notification_webhook_delivery_response_from_model(retried)
 
 

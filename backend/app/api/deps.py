@@ -107,6 +107,8 @@ def require_token_scopes(*required_scopes: str):
             return user
 
         granted = set(token_scopes)
+        if not granted and get_settings().allow_legacy_unscoped_tokens:
+            return user
 
         for required_scope in required_scopes:
             if not has_required_scope(granted, required_scope):
@@ -114,6 +116,7 @@ def require_token_scopes(*required_scopes: str):
 
         return user
 
+    _checker._threatlens_required_scopes = tuple(required_scopes)
     return _checker
 
 

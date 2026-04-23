@@ -81,6 +81,9 @@ def render_api_reference_markdown(
             if summary:
                 lines.append(f"- Summary: {summary}")
             lines.append(f"- Auth: {_format_security_requirements(operation.get('security', []))}")
+            token_scopes = operation.get("x-threatlens-required-token-scopes") or []
+            if token_scopes:
+                lines.append(f"- Token scopes: {', '.join(f'`{scope}`' for scope in token_scopes)}")
             parameters = operation.get("parameters", [])
             if parameters:
                 lines.append("- Parameters:")

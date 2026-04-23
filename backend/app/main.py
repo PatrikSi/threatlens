@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.routing import APIRoute
 
 from app.core.config import Settings, get_settings
 from app.db import session as db_session
@@ -28,6 +29,7 @@ OPENAPI_PROXY_PATH = "/api/openapi.json"
 API_TOKEN_SECURITY_SCHEME_NAME = "ApiTokenBearer"
 SESSION_COOKIE_SECURITY_SCHEME_NAME = "SessionCookieAuth"
 OPENAPI_CONTRACT_ANCHOR_FIELD = "x-threatlens-contract-sha256"
+OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD = "x-threatlens-required-token-scopes"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
     feeds.router,
@@ -164,7 +166,41 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
 _mount_api_routers(app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings))
 
 
-def _apply_published_security_contract(schema: dict[str, Any]) -> dict[str, Any]:
+def _collect_route_token_scopes(route: APIRoute) -> tuple[str, ...]:
+    scopes: list[str] = []
+    stack = [route.dependant]
+    while stack:
+        dependant = stack.pop()
+        call = getattr(dependant, "call", None)
+        required = getattr(call, "_threatlens_required_scopes", ())
+        for scope in required or ():
+            if scope not in scopes:
+                scopes.append(scope)
+        stack.extend(getattr(dependant, "dependencies", []) or [])
+    return tuple(scopes)
+
+
+def _route_required_token_scopes_by_operation(application: FastAPI) -> dict[tuple[str, str], tuple[str, ...]]:
+    required_by_operation: dict[tuple[str, str], tuple[str, ...]] = {}
+    for route in application.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        scopes = _collect_route_token_scopes(route)
+        if not scopes:
+            continue
+        for method in route.methods or []:
+            method_key = method.lower()
+            if method_key in {"head", "options"}:
+                continue
+            required_by_operation[(route.path, method_key)] = scopes
+    return required_by_operation
+
+
+def _apply_published_security_contract(
+    schema: dict[str, Any],
+    *,
+    required_scopes_by_operation: dict[tuple[str, str], tuple[str, ...]] | None = None,
+) -> dict[str, Any]:
     components = schema.setdefault("components", {})
     security_schemes = components.setdefault("securitySchemes", {})
     security_schemes.pop("OAuth2PasswordBearer", None)
@@ -188,12 +224,16 @@ def _apply_published_security_contract(schema: dict[str, Any]) -> dict[str, Any]
         ),
     }
 
-    for path_item in schema.get("paths", {}).values():
+    required_scopes_by_operation = required_scopes_by_operation or {}
+    for path, path_item in schema.get("paths", {}).items():
         if not isinstance(path_item, dict):
             continue
-        for operation in path_item.values():
+        for method, operation in path_item.items():
             if not isinstance(operation, dict):
                 continue
+            required_scopes = required_scopes_by_operation.get((path, method.lower()))
+            if required_scopes:
+                operation[OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD] = list(required_scopes)
             security = operation.get("security")
             if not security:
                 continue
@@ -233,7 +273,10 @@ def custom_openapi() -> dict[str, Any]:
         contact=app.contact,
         license_info=app.license_info,
     )
-    schema = _apply_published_security_contract(schema)
+    schema = _apply_published_security_contract(
+        schema,
+        required_scopes_by_operation=_route_required_token_scopes_by_operation(app),
+    )
     app.openapi_schema = _apply_contract_anchor(schema)
     return app.openapi_schema
 

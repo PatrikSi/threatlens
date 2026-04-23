@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -10,6 +10,7 @@ from app.services.feed_storage import encrypt_feed_url, feed_url_digest, try_dec
 
 class Feed(Base):
     __tablename__ = "feeds"
+    __table_args__ = (Index("ix_feeds_enabled_next_fetch_at", "enabled", "next_fetch_at"),)
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
@@ -26,6 +27,7 @@ class Feed(Base):
     last_modified: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_fetch_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dispatch_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     dispatch_backoff_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

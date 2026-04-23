@@ -1,12 +1,13 @@
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
@@ -155,6 +156,97 @@ def test_run_daily_brief_generation_returns_skipped_result_when_window_is_empty(
     assert result.brief is None
     assert result.items_considered == 0
     assert result.items_selected == 0
+
+
+def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_session, ai_enabled_env, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    now = datetime.now(timezone.utc)
+    db_session.add(feed)
+    db_session.flush()
+    for index in range(8):
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"brief-cap-{index}",
+            url=f"https://example.com/articles/brief-cap-{index}",
+            canonical_url=f"https://example.com/articles/brief-cap-{index}",
+            title=f"Daily brief cap item {index}",
+            summary="Summary",
+            published_at=now - timedelta(minutes=index),
+            first_seen_at=now - timedelta(minutes=index),
+            dedupe_key=f"brief-cap-{index}",
+            content_hash=f"{index}" * 64,
+            status="content_fetched",
+        )
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(
+            ItemClassification(
+                item_id=item.id,
+                primary_category="vulnerability",
+                secondary_categories=[],
+                confidence=0.8,
+                scores_json={"vulnerability": 8},
+                matched_terms_json={"vulnerability": ["title:brief"]},
+                source_hash=f"classification-{index}",
+                rules_version="v2",
+                classified_at=now,
+            )
+        )
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_max_items=5,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    monkeypatch.setattr(get_settings(), "ai_daily_brief_source_audit_limit", 6)
+
+    captured: dict[str, int] = {}
+
+    def _fake_call(active, *, messages):
+        _ = active
+        captured["prompt_item_mentions"] = sum(str(message.get("content", "")).count("Daily brief cap item") for message in messages)
+        return AICompletionResult(
+            payload={
+                "title": "Daily Brief",
+                "brief_text": "Brief text",
+                "key_points": ["Point"],
+                "recommended_actions": ["Action"],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=10,
+            prompt_tokens=10,
+            completion_tokens=10,
+            total_tokens=20,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fake_call)
+
+    result = run_daily_brief_generation(db_session, force=True)
+    db_session.commit()
+
+    source_rows = db_session.scalars(select(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == result.brief.id)).all()
+    assert result.items_considered == 6
+    assert result.items_selected == 5
+    assert result.brief.item_count == 8
+    assert len(source_rows) == 6
+    assert sum(1 for row in source_rows if row.included) == 5
+    assert captured["prompt_item_mentions"] == 5
 
 
 def test_daily_brief_retry_budget_never_shrinks_after_truncation():

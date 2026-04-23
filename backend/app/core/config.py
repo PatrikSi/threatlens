@@ -2,6 +2,7 @@ import hashlib
 import secrets
 from functools import lru_cache
 from typing import Annotated
+from urllib.parse import urlsplit
 
 from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -9,6 +10,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from app.services.notification_webhook_policy import normalize_notification_allow_entry
 
 _PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change-me", "changeme", "placeholder", "example-", "your-")
+_DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
+_DEFAULT_REDIS_URL = "redis://redis:6379/0"
 
 
 def _looks_like_placeholder_secret(value: str | None) -> bool:
@@ -20,6 +23,46 @@ def _looks_like_placeholder_secret(value: str | None) -> bool:
     if normalized == "admin123":
         return True
     return any(normalized.startswith(prefix) for prefix in _PLACEHOLDER_SECRET_PREFIXES)
+
+
+def _looks_like_default_service_password(value: str | None) -> bool:
+    if value is None:
+        return True
+    normalized = value.strip().lower()
+    if not normalized:
+        return True
+    return normalized in {"postgres", "redis", "password"} or _looks_like_placeholder_secret(normalized)
+
+
+def _url_password(value: str | None) -> str | None:
+    if not value:
+        return None
+    try:
+        return urlsplit(value).password
+    except ValueError:
+        return None
+
+
+def _database_url_uses_weak_default(value: str | None) -> bool:
+    if not value:
+        return True
+    normalized = value.strip()
+    if normalized == _DEFAULT_DATABASE_URL:
+        return True
+    try:
+        parts = urlsplit(normalized)
+    except ValueError:
+        return True
+    return (parts.username or "").lower() == "postgres" and (parts.password or "") == "postgres"
+
+
+def _redis_url_is_passwordless_or_default(value: str | None) -> bool:
+    if not value:
+        return True
+    normalized = value.strip()
+    if normalized == _DEFAULT_REDIS_URL:
+        return True
+    return _looks_like_default_service_password(_url_password(normalized))
 
 
 def _generate_runtime_secret() -> str:
@@ -48,8 +91,10 @@ class Settings(BaseSettings):
     _app_data_encryption_key_was_derived: bool = PrivateAttr(default=False)
 
     app_env: str = "development"
-    database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
-    redis_url: str = "redis://redis:6379/0"
+    database_url: str = _DEFAULT_DATABASE_URL
+    redis_url: str = _DEFAULT_REDIS_URL
+    postgres_password: str | None = None
+    redis_password: str | None = None
     jwt_secret: str = ""
     app_data_encryption_key: str | None = None
     app_data_encryption_previous_keys: Annotated[list[str], NoDecode] = []
@@ -112,6 +157,7 @@ class Settings(BaseSettings):
     dispatch_items_missing_ai_enrichment_batch_size: int = 200
     dispatch_items_failed_ai_enrichment_after_seconds: int = 3600
     ai_auto_enrich_new_item_max_age_hours: int = 24
+    ai_daily_brief_source_audit_limit: int = 500
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
     dispatch_ai_reprocess_batch_size: int = 100
@@ -234,6 +280,14 @@ class Settings(BaseSettings):
                 raise ValueError("auth_require_csrf must be true in production")
             if self.allow_legacy_unscoped_tokens:
                 raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
+            if _database_url_uses_weak_default(self.database_url):
+                raise ValueError("database_url must use explicit non-default database credentials in production")
+            if _looks_like_default_service_password(self.postgres_password):
+                raise ValueError("postgres_password must be explicitly set to a non-default value in production")
+            if _redis_url_is_passwordless_or_default(self.redis_url):
+                raise ValueError("redis_url must include a non-default password in production")
+            if _looks_like_default_service_password(self.redis_password):
+                raise ValueError("redis_password must be explicitly set to a non-default value in production")
         if self.seed_admin_on_startup and _looks_like_placeholder_secret(self.admin_password):
             raise ValueError("admin_password must not use a default or placeholder value when seed_admin_on_startup is enabled")
         return self

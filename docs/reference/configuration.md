@@ -26,8 +26,10 @@
 | Variable | Default | Purpose |
 |---|---:|---|
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
-| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. |
-| `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. |
+| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. |
+| `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. This code default is development-only; production requires a password-bearing Redis URL. |
+| `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Postgres service password used by the bundled compose stack. Production requires an explicit non-default value. |
+| `REDIS_PASSWORD` (`redis_password`) | _(empty)_ | Redis service password used by the bundled compose stack. Production requires an explicit non-default value. |
 | `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values fall back to a deterministic development-only secret derived from the local runtime settings; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values fall back to a deterministic development-only key derived from the local runtime settings unless `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. |
@@ -81,6 +83,7 @@
 | `DISPATCH_ITEMS_MISSING_AI_ENRICHMENT_BATCH_SIZE` (`dispatch_items_missing_ai_enrichment_batch_size`) | `200` | Max recent AI enrichment repair items queued each beat cycle. |
 | `DISPATCH_ITEMS_FAILED_AI_ENRICHMENT_AFTER_SECONDS` (`dispatch_items_failed_ai_enrichment_after_seconds`) | `3600` | Grace period before failed AI enrichment rows become eligible for automatic retry. |
 | `AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS` (`ai_auto_enrich_new_item_max_age_hours`) | `24` | Automatic AI enrichment only queues items whose feed `published_at` and local `first_seen_at` are both inside this window; use manual AI reprocess for older backfills. |
+| `AI_DAILY_BRIEF_SOURCE_AUDIT_LIMIT` (`ai_daily_brief_source_audit_limit`) | `500` | Max daily-brief candidate source rows loaded, prompted, and stored for source audit trails before applying the smaller brief item cap. |
 | `DISPATCH_FEED_METADATA_SCAN_LIMIT` (`dispatch_feed_metadata_scan_limit`) | `250` | Feed scan cap for metadata backfill beat cycle. |
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
@@ -109,6 +112,10 @@ When `APP_ENV` is `production` or `prod`:
 - `JWT_SECRET` must not be `change-me` and must be at least 32 chars.
 - `APP_DATA_ENCRYPTION_KEY` must be set and be at least 32 chars.
 - `ADMIN_PASSWORD` must not remain `admin123`.
+- `DATABASE_URL` must not use the default `postgres:postgres` credentials.
+- `POSTGRES_PASSWORD` must be set to a non-default value.
+- `REDIS_URL` must include a non-default password.
+- `REDIS_PASSWORD` must be set to a non-default value.
 - `AUTH_COOKIE_SECURE` must be `true`.
 - `/docs` and `/redoc` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
 - `/openapi.json` remains available so the machine-readable API contract is always published.
@@ -120,6 +127,7 @@ Outside production:
 ## Compose Notes
 
 - `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
+- `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation rather than silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - `worker`, `ai-worker`, and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.

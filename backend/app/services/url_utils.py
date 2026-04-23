@@ -59,6 +59,17 @@ def _normalize_hostname(hostname: str) -> str:
     return hostname.strip().lower().rstrip(".")
 
 
+def extract_url_domain(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        hostname = urlsplit(url.strip()).hostname
+    except ValueError:
+        return None
+    normalized = _normalize_hostname(hostname or "")
+    return normalized[:253] or None
+
+
 def _build_netloc(*, scheme: str, hostname: str, port: int | None, username: str | None = None, password: str | None = None) -> str:
     credentials = ""
     if username:

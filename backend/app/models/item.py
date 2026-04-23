@@ -15,8 +15,12 @@ class Item(Base):
         Index("ix_items_feed_id", "feed_id"),
         Index("ix_items_source_guid", "source_guid"),
         Index("ix_items_canonical_url", "canonical_url"),
+        Index("ix_items_url_domain", "url_domain"),
         Index("ix_items_published_at", "published_at"),
         Index("ix_items_first_seen_at", "first_seen_at"),
+        Index("ix_items_status_first_seen_at", "status", "first_seen_at"),
+        Index("ix_items_feed_first_seen_at", "feed_id", "first_seen_at"),
+        Index("ix_items_feed_published_at", "feed_id", "published_at"),
         Index("ix_items_content_hash", "content_hash"),
         Index("ix_items_ioc_extraction_state", "ioc_extraction_state"),
         Index(
@@ -33,6 +37,7 @@ class Item(Base):
     source_guid: Mapped[str | None] = mapped_column(Text, nullable=True)
     url: Mapped[str] = mapped_column(Text, nullable=False)
     canonical_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url_domain: Mapped[str | None] = mapped_column(String(253), nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

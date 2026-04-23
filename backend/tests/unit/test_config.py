@@ -7,6 +7,23 @@ def isolated_settings(**kwargs) -> Settings:
     return Settings(_env_file=None, **kwargs)
 
 
+def production_settings_kwargs(**overrides):
+    kwargs = {
+        "app_env": "production",
+        "database_url": "postgresql+psycopg://threatlens:strong-db-pass@db:5432/threatlens",
+        "redis_url": "redis://:strong-redis-pass@redis:6379/0",
+        "postgres_password": "strong-db-pass",
+        "redis_password": "strong-redis-pass",
+        "jwt_secret": "x" * 48,
+        "app_data_encryption_key": "y" * 48,
+        "admin_password": "StrongPass123!",
+        "auth_cookie_secure": True,
+        "auth_require_csrf": True,
+    }
+    kwargs.update(overrides)
+    return kwargs
+
+
 def test_cors_origins_parses_csv():
     settings = isolated_settings(cors_origins="http://localhost:3000, https://threatlens.local")
     assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
@@ -32,17 +49,13 @@ def test_notification_webhook_admin_unrestricted_flag_parses_from_env(monkeypatc
 
 def test_production_requires_strong_jwt_secret():
     with pytest.raises(ValueError):
-        isolated_settings(app_env="production", jwt_secret="change-me")
+        isolated_settings(**production_settings_kwargs(jwt_secret="change-me"))
 
 
 def test_production_requires_dedicated_data_encryption_key():
     with pytest.raises(ValueError):
         isolated_settings(
-            app_env="production",
-            jwt_secret="x" * 48,
-            admin_password="StrongPass123!",
-            auth_cookie_secure=True,
-            auth_require_csrf=True,
+            **production_settings_kwargs(app_data_encryption_key=None),
         )
 
 
@@ -57,12 +70,7 @@ def test_non_production_can_require_explicit_data_encryption_key():
 
 def test_production_rejects_default_admin_password():
     with pytest.raises(ValueError):
-        isolated_settings(
-            app_env="production",
-            jwt_secret="x" * 48,
-            app_data_encryption_key="y" * 48,
-            admin_password="admin123",
-        )
+        isolated_settings(**production_settings_kwargs(admin_password="admin123"))
 
 
 def test_admin_seeding_rejects_default_admin_password():
@@ -79,14 +87,7 @@ def test_admin_seeding_rejects_default_admin_password():
     ],
 )
 def test_production_rejects_placeholder_secret_values(field_name: str, field_value: str):
-    kwargs = {
-        "app_env": "production",
-        "jwt_secret": "x" * 48,
-        "app_data_encryption_key": "y" * 48,
-        "admin_password": "StrongPass123!",
-        "auth_cookie_secure": True,
-        "auth_require_csrf": True,
-    }
+    kwargs = production_settings_kwargs()
     kwargs[field_name] = field_value
     with pytest.raises(ValueError):
         isolated_settings(**kwargs)
@@ -94,38 +95,34 @@ def test_production_rejects_placeholder_secret_values(field_name: str, field_val
 
 def test_production_requires_secure_auth_cookie():
     with pytest.raises(ValueError):
-        isolated_settings(
-            app_env="production",
-            jwt_secret="x" * 48,
-            app_data_encryption_key="y" * 48,
-            admin_password="StrongPass123!",
-            auth_cookie_secure=False,
-        )
+        isolated_settings(**production_settings_kwargs(auth_cookie_secure=False))
 
 
 def test_production_requires_csrf_for_cookie_auth():
     with pytest.raises(ValueError):
-        isolated_settings(
-            app_env="production",
-            jwt_secret="x" * 48,
-            app_data_encryption_key="y" * 48,
-            admin_password="StrongPass123!",
-            auth_cookie_secure=True,
-            auth_require_csrf=False,
-        )
+        isolated_settings(**production_settings_kwargs(auth_require_csrf=False))
 
 
 def test_production_rejects_legacy_unscoped_token_bypass():
     with pytest.raises(ValueError):
-        isolated_settings(
-            app_env="production",
-            jwt_secret="x" * 48,
-            app_data_encryption_key="y" * 48,
-            admin_password="StrongPass123!",
-            auth_cookie_secure=True,
-            auth_require_csrf=True,
-            allow_legacy_unscoped_tokens=True,
-        )
+        isolated_settings(**production_settings_kwargs(allow_legacy_unscoped_tokens=True))
+
+
+@pytest.mark.parametrize(
+    ("field_name", "field_value", "message"),
+    [
+        ("database_url", "postgresql+psycopg://postgres:postgres@db:5432/threatlens", "database_url"),
+        ("postgres_password", None, "postgres_password"),
+        ("postgres_password", "postgres", "postgres_password"),
+        ("redis_url", "redis://redis:6379/0", "redis_url"),
+        ("redis_url", "redis://:redis@redis:6379/0", "redis_url"),
+        ("redis_password", None, "redis_password"),
+        ("redis_password", "redis", "redis_password"),
+    ],
+)
+def test_production_rejects_weak_database_and_redis_defaults(field_name: str, field_value: str | None, message: str):
+    with pytest.raises(ValueError, match=message):
+        isolated_settings(**production_settings_kwargs(**{field_name: field_value}))
 
 
 def test_bootstrap_mutation_flags_default_off():

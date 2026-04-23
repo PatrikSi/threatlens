@@ -87,7 +87,7 @@ from app.services.notification_webhooks import (
 )
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
-from app.services.url_utils import is_fetchable_url, normalize_url
+from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
 from app.tasks.feed_task_notifications import (
     dispatch_feed_failing_notification_batch as _dispatch_feed_failing_notification_batch,
@@ -356,6 +356,7 @@ def _claim_feed_for_dispatch(db: Session, *, feed_id: uuid.UUID, now: datetime) 
         now=now,
         claim_seconds=settings.dispatch_feed_claim_seconds,
         is_feed_due=_is_feed_due,
+        next_fetch_at=_next_feed_fetch_at,
     )
 
 
@@ -910,9 +911,21 @@ def dispatch_due_feeds():
     queued = 0
 
     with db_session() as db:
-        feed_ids = db.scalars(select(Feed.id).where(Feed.enabled.is_(True)).order_by(Feed.created_at.asc())).all()
+        batch_size = max(0, int(settings.dispatch_due_feeds_batch_size))
+        if batch_size <= 0:
+            return {"queued": 0}
+        feed_ids = db.scalars(
+            select(Feed.id)
+            .where(
+                Feed.enabled.is_(True),
+                or_(Feed.next_fetch_at.is_(None), Feed.next_fetch_at <= now),
+                or_(Feed.dispatch_backoff_until.is_(None), Feed.dispatch_backoff_until <= now),
+            )
+            .order_by(Feed.next_fetch_at.asc(), Feed.created_at.asc())
+            .limit(batch_size * 5)
+        ).all()
         for feed_id in feed_ids:
-            if queued >= settings.dispatch_due_feeds_batch_size:
+            if queued >= batch_size:
                 break
             if not _claim_feed_for_dispatch(db, feed_id=feed_id, now=now):
                 db.rollback()
@@ -925,6 +938,7 @@ def dispatch_due_feeds():
                 claimed_feed = db.scalar(select(Feed).where(Feed.id == feed_id))
                 if claimed_feed is not None:
                     _clear_feed_dispatch_claim(claimed_feed)
+                    claimed_feed.next_fetch_at = _next_feed_fetch_at(claimed_feed, datetime.now(timezone.utc))
                     db.add(claimed_feed)
                 db.commit()
                 continue
@@ -1014,6 +1028,7 @@ def dispatch_items_missing_ai_enrichment():
             return {"queued": 0, "reason": "ai_not_configured"}
         if not active.auto_enrich_new_items:
             return {"queued": 0, "reason": "auto_enrich_disabled"}
+        _reconcile_stale_ai_runs(db)
         now = datetime.now(timezone.utc)
         auto_enrich_cutoff = _auto_ai_enrich_new_item_cutoff(now)
         auto_enrich_window_hours = _auto_ai_enrich_new_item_window_hours()
@@ -1475,11 +1490,26 @@ def backfill_feed_metadata(feed_id: str):
 
 
 def _is_feed_due(feed: Feed, now: datetime) -> bool:
+    next_fetch_at = _next_feed_fetch_at(feed, now)
+    return next_fetch_at is not None and next_fetch_at <= now
+
+
+def _next_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
+    if not getattr(feed, "enabled", True):
+        return None
+
+    backoff_until = getattr(feed, "dispatch_backoff_until", None)
+    if backoff_until is not None:
+        if backoff_until.tzinfo is None:
+            backoff_until = backoff_until.replace(tzinfo=timezone.utc)
+        if backoff_until > now:
+            return backoff_until
+
     if feed.fetch_mode == "schedule":
-        return _is_scheduled_feed_due(feed, now)
+        return _next_scheduled_feed_fetch_at(feed, now)
 
     if feed.last_fetch_at is None:
-        return True
+        return now
 
     last_fetch_at = feed.last_fetch_at
     if last_fetch_at.tzinfo is None:
@@ -1492,25 +1522,34 @@ def _is_feed_due(feed: Feed, now: datetime) -> bool:
         interval_seconds = 1800
     interval_seconds = max(60, interval_seconds)
 
-    elapsed = (now - last_fetch_at).total_seconds()
-    return elapsed >= interval_seconds
+    next_fetch_at = last_fetch_at + timedelta(seconds=interval_seconds)
+    return now if next_fetch_at <= now else next_fetch_at
 
 
 def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
+    next_run = _next_scheduled_feed_fetch_at(feed, now)
+    return next_run is not None and next_run <= now
+
+
+def _next_scheduled_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
     if not feed.schedule_cron:
-        return False
+        return None
 
     base = feed.last_fetch_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
     if base.tzinfo is None:
         base = base.replace(tzinfo=timezone.utc)
 
     if not croniter.is_valid(feed.schedule_cron):
-        return False
+        return None
 
     next_run = croniter(feed.schedule_cron, base).get_next(datetime)
     if next_run.tzinfo is None:
         next_run = next_run.replace(tzinfo=timezone.utc)
-    return next_run <= now
+    return now if next_run <= now else next_run
+
+
+def _refresh_feed_next_fetch_at(feed: Feed, now: datetime) -> None:
+    feed.next_fetch_at = _next_feed_fetch_at(feed, now)
 
 
 @celery_app.task(
@@ -1536,11 +1575,14 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 if feed is None or not feed.enabled:
                     if feed is not None:
                         _clear_feed_dispatch_claim(feed)
+                        feed.next_fetch_at = None
                         db.add(feed)
                         db.commit()
                     return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
-                if not force and not _is_feed_due(feed, datetime.now(timezone.utc)):
+                now = datetime.now(timezone.utc)
+                if not force and not _is_feed_due(feed, now):
                     _clear_feed_dispatch_claim(feed)
+                    _refresh_feed_next_fetch_at(feed, now)
                     db.add(feed)
                     db.commit()
                     return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
@@ -1591,6 +1633,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                                 feed.error_count = 0
                                 feed.last_error = None
                                 _clear_feed_dispatch_claim(feed)
+                                _refresh_feed_next_fetch_at(feed, now)
                                 db.add(feed)
                                 db.commit()
                                 return {"status": "not_modified", "feed_id": feed_id}
@@ -1663,6 +1706,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 feed.error_count = 0
                 feed.last_error = None
                 _clear_feed_dispatch_claim(feed)
+                _refresh_feed_next_fetch_at(feed, now)
 
                 db.add(feed)
                 db.commit()
@@ -1969,6 +2013,7 @@ def fetch_article(self, item_id: str):
 
         if canonical and is_fetchable_url(canonical, allow_private_network=settings.allow_private_network_fetch):
             item.canonical_url = canonical
+        item.url_domain = extract_url_domain(item.canonical_url or item.url)
 
         if article.text:
             item.status = "content_fetched"

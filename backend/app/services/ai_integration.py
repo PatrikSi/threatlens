@@ -457,6 +457,8 @@ def run_daily_brief_generation(
             items_selected=0,
         )
 
+    source_audit_limit = max(active.daily_brief_max_items, int(get_settings().ai_daily_brief_source_audit_limit or 0))
+    source_audit_limit = max(1, min(int(total_items), source_audit_limit))
     item_rows_all = db.execute(
         select(
             Item.id,
@@ -476,6 +478,7 @@ def run_daily_brief_generation(
         .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
         .where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
         .order_by(ItemAIEnrichment.relevance_score.desc().nullslast(), Item.first_seen_at.desc())
+        .limit(source_audit_limit)
     ).all()
     item_rows = item_rows_all[: active.daily_brief_max_items]
     if not item_rows:

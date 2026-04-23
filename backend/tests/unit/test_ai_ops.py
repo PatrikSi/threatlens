@@ -220,7 +220,7 @@ def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(mon
     assert scheduled_tasks == []
 
 
-def test_list_ai_task_runs_keeps_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
     item = _create_item(db_session, source_guid="snapshot-unavailable")
 
     run = queue_ai_task_run(
@@ -249,11 +249,12 @@ def test_list_ai_task_runs_keeps_stale_runs_when_live_snapshot_unavailable(db_se
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert refreshed is not None
-    assert refreshed.status == AI_STATUS_RUNNING
-    assert refreshed.finished_at is None
-    assert "stale_snapshot_available" not in (refreshed.metadata_json or {})
+    assert refreshed.status == AI_STATUS_ERROR
+    assert refreshed.reason == "stale_task_snapshot_unavailable"
+    assert refreshed.finished_at is not None
+    assert (refreshed.metadata_json or {})["stale_snapshot_available"] is False
 
-    assert response.items[0].status == AI_STATUS_RUNNING
+    assert response.items[0].status == AI_STATUS_ERROR
 
 
 def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
@@ -304,7 +305,7 @@ def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_s
     )
     start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
 
-    stale_time = datetime.now(timezone.utc) - timedelta(minutes=20)
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=5)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert run is not None
     run.status = AI_STATUS_RUNNING
@@ -393,6 +394,70 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_sessi
     assert refreshed_enrichment.status == AI_STATUS_ERROR
     assert refreshed_enrichment.error == "Task no longer appears in Celery and did not report completion"
     assert refreshed_enrichment.generated_at is not None
+
+
+def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as_error(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="snapshot-unavailable-stale-item",
+        url="https://example.com/articles/snapshot-unavailable-stale-item",
+        title="Stale AI task",
+        dedupe_key="snapshot-unavailable-stale-item",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    enrichment = ItemAIEnrichment(
+        item_id=item.id,
+        status="pending",
+        source_hash="hash",
+        relevance_reasons_json=[],
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(enrichment)
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="stale-task")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+
+    list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    refreshed_enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+
+    assert refreshed_run is not None
+    assert refreshed_run.status == AI_STATUS_ERROR
+    assert refreshed_run.reason == "stale_task_snapshot_unavailable"
+
+    assert refreshed_enrichment is not None
+    assert refreshed_enrichment.status == AI_STATUS_ERROR
+    assert refreshed_enrichment.error == "Task exceeded the stale-run grace period while Celery inspection was unavailable"
 
 
 def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(db_session, monkeypatch):

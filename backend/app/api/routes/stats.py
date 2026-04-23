@@ -1,8 +1,6 @@
 import uuid
-from collections import Counter
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import Integer, case, cast, func, select
@@ -427,18 +425,6 @@ def _ensure_aware(value: datetime) -> datetime:
     return value
 
 
-def _extract_domain(url: str | None) -> str | None:
-    if not url:
-        return None
-
-    try:
-        hostname = urlsplit(url).hostname
-    except ValueError:
-        return None
-
-    return hostname.lower() if hostname else None
-
-
 def _load_top_domains(
     db: Session,
     *,
@@ -450,38 +436,18 @@ def _load_top_domains(
     if limit <= 0:
         return []
 
-    dialect_name = db.bind.dialect.name if db.bind is not None else ""
-    if dialect_name == "postgresql":
-        domain_base = func.coalesce(Item.canonical_url, Item.url)
-        no_scheme = func.regexp_replace(domain_base, "^[a-zA-Z]+://", "")
-        host_with_port = func.split_part(no_scheme, "/", 1)
-        host = func.lower(func.split_part(host_with_port, ":", 1))
-        query = (
-            select(host.label("domain"), func.count(Item.id).label("count"))
-            .where(
-                timeline_at >= window_start,
-                Item.status == "content_fetched",
-                host.is_not(None),
-                host != "",
-            )
-            .group_by(host)
-            .order_by(func.count(Item.id).desc())
-            .limit(limit)
+    query = (
+        select(Item.url_domain.label("domain"), func.count(Item.id).label("count"))
+        .where(
+            timeline_at >= window_start,
+            Item.status == "content_fetched",
+            Item.url_domain.is_not(None),
+            Item.url_domain != "",
         )
-        if item_filters:
-            query = query.where(*item_filters)
-        return [DomainPoint(domain=domain, count=int(count or 0)) for domain, count in db.execute(query) if domain]
-
-    # SQLite test environment fallback.
-    domain_query = select(Item.canonical_url, Item.url).where(
-        timeline_at >= window_start,
-        Item.status == "content_fetched",
+        .group_by(Item.url_domain)
+        .order_by(func.count(Item.id).desc())
+        .limit(limit)
     )
     if item_filters:
-        domain_query = domain_query.where(*item_filters)
-    domain_counter: Counter[str] = Counter()
-    for canonical_url, item_url in db.execute(domain_query):
-        domain = _extract_domain(canonical_url or item_url)
-        if domain:
-            domain_counter[domain] += 1
-    return [DomainPoint(domain=domain, count=count) for domain, count in domain_counter.most_common(limit)]
+        query = query.where(*item_filters)
+    return [DomainPoint(domain=domain, count=int(count or 0)) for domain, count in db.execute(query) if domain]

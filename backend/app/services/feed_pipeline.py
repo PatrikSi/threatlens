@@ -18,7 +18,7 @@ from app.services.article_recovery import (
     article_soft_retryable_error_filter,
 )
 from app.services.dedupe import content_hash, dedupe_key
-from app.services.url_utils import normalize_url
+from app.services.url_utils import extract_url_domain, normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +38,7 @@ def claim_feed_for_dispatch(
     now: datetime,
     claim_seconds: int,
     is_feed_due: Callable[[Feed, datetime], bool],
+    next_fetch_at: Callable[[Feed, datetime], datetime | None],
 ) -> bool:
     feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
     if feed is None or not feed.enabled:
@@ -48,13 +49,20 @@ def claim_feed_for_dispatch(
         if backoff_until.tzinfo is None:
             backoff_until = backoff_until.replace(tzinfo=timezone.utc)
         if backoff_until > now:
+            feed.next_fetch_at = backoff_until
+            db.add(feed)
+            db.flush()
             return False
 
     if not is_feed_due(feed, now):
+        feed.next_fetch_at = next_fetch_at(feed, now)
+        db.add(feed)
+        db.flush()
         return False
 
     feed.dispatch_claimed_at = now
     feed.dispatch_backoff_until = now + timedelta(seconds=max(60, int(claim_seconds)))
+    feed.next_fetch_at = None
     db.add(feed)
     db.flush()
     return True
@@ -115,6 +123,7 @@ def list_item_ids_missing_articles(
 
 def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:
     item_url = normalize_url(parsed.url) or ""
+    item_domain = extract_url_domain(item_url)
     key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
     hash_value = content_hash(parsed.title, parsed.summary, item_url)
 
@@ -124,6 +133,7 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
             feed_id=feed.id,
             source_guid=parsed.guid,
             url=item_url,
+            url_domain=item_domain,
             title=parsed.title,
             summary=parsed.summary,
             published_at=parsed.published_at,
@@ -141,6 +151,7 @@ def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool
 
     if item.content_hash != hash_value:
         item.url = item_url or item.url
+        item.url_domain = item_domain or item.url_domain
         item.title = parsed.title
         item.summary = parsed.summary
         item.published_at = parsed.published_at
@@ -161,6 +172,7 @@ def mark_feed_failure(db: Session, feed: Feed, error: str) -> int:
     feed.last_error = error
     feed.dispatch_claimed_at = None
     feed.dispatch_backoff_until = now + timedelta(seconds=_sustained_feed_failure_backoff_seconds(feed))
+    feed.next_fetch_at = feed.dispatch_backoff_until
     db.add(feed)
     db.flush()
     return feed.error_count

@@ -42,6 +42,8 @@ The provided `docker-compose.yml` expects a real `.env` file. If you deploy with
 
 You'll need to configure at least:
 
+- `POSTGRES_PASSWORD`
+- `REDIS_PASSWORD`
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_SECRET`
@@ -223,7 +225,7 @@ docker compose exec redis sh -lc \
 
 4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to the exact proxy hops you control so IP-based auth throttling can walk the preserved chain back to the real client IP. The bundled compose file already trusts its reserved `web` frontend subnet `172.31.240.0/24`.
 
-5. If you change `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, or `REDIS_PASSWORD` after the stack has already initialized its Docker volumes, update `DATABASE_URL` and `REDIS_URL` to match and then either migrate the stored service state or recreate those volumes. Older local `.env` files that omit the explicit Postgres/Redis credential variables continue to fall back to the backend-compatible `postgres` / `redis://redis:6379/0` defaults, but the production-oriented `.env.example` values should be treated as the canonical long-term settings for new installs.
+5. If you change `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, or `REDIS_PASSWORD` after the stack has already initialized its Docker volumes, update `DATABASE_URL` and `REDIS_URL` to match and then either migrate the stored service state or recreate those volumes. Production startup now requires explicit Postgres and Redis credentials; older local `.env` files that omit `POSTGRES_PASSWORD` or `REDIS_PASSWORD` must be updated before using the production compose profile.
 
 ### Logs
 

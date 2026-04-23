@@ -930,54 +930,37 @@ def _reconcile_stale_ai_runs(
     changed = False
     reconciled_count = 0
 
-    if can_reconcile_missing_live_tasks:
-        stale_item_runs = list(
-            db.scalars(
-                select(AITaskRun)
-                .where(
-                    AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
-                    AITaskRun.finished_at.is_(None),
-                    AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
-                )
-                .order_by(AITaskRun.created_at.asc())
+    unfinished_leaf_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.task_type.in_([AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_DAILY_BRIEF]),
+                AITaskRun.finished_at.is_(None),
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
             )
+            .order_by(AITaskRun.created_at.asc())
         )
-        for run in stale_item_runs:
+    )
+    for run in unfinished_leaf_runs:
+        if can_reconcile_missing_live_tasks:
             if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
                 continue
-            _finish_reconciled_stale_run(
-                db,
-                run=run,
-                snapshot_available=can_reconcile_missing_live_tasks,
-                stale_reason="stale_task_lost",
-                stale_error="Task no longer appears in Celery and did not report completion",
-            )
-            changed = True
-            reconciled_count += 1
-
-        stale_daily_brief_runs = list(
-            db.scalars(
-                select(AITaskRun)
-                .where(
-                    AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
-                    AITaskRun.finished_at.is_(None),
-                    AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
-                )
-                .order_by(AITaskRun.created_at.asc())
-            )
-        )
-        for run in stale_daily_brief_runs:
-            if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+            stale_reason = "stale_task_lost"
+            stale_error = "Task no longer appears in Celery and did not report completion"
+        else:
+            if not _is_unfinished_run_past_stale_grace(run, stale_before):
                 continue
-            _finish_reconciled_stale_run(
-                db,
-                run=run,
-                snapshot_available=can_reconcile_missing_live_tasks,
-                stale_reason="stale_task_lost",
-                stale_error="Task no longer appears in Celery and did not report completion",
-            )
-            changed = True
-            reconciled_count += 1
+            stale_reason = "stale_task_snapshot_unavailable"
+            stale_error = "Task exceeded the stale-run grace period while Celery inspection was unavailable"
+        _finish_reconciled_stale_run(
+            db,
+            run=run,
+            snapshot_available=can_reconcile_missing_live_tasks,
+            stale_reason=stale_reason,
+            stale_error=stale_error,
+        )
+        changed = True
+        reconciled_count += 1
 
     stale_parent_runs = list(
         db.scalars(
@@ -1107,6 +1090,10 @@ def _extract_positional_item_id(task_name: str, args: list[Any]) -> Any:
 def _is_stale_unfinished_run(run: AITaskRun, live_task_ids: set[str], stale_before: datetime) -> bool:
     if run.celery_task_id and run.celery_task_id in live_task_ids:
         return False
+    return _is_unfinished_run_past_stale_grace(run, stale_before)
+
+
+def _is_unfinished_run_past_stale_grace(run: AITaskRun, stale_before: datetime) -> bool:
     reference = run.updated_at or run.started_at or run.queued_at or run.created_at
     return _coerce_utc(reference) < stale_before
 
