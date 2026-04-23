@@ -159,7 +159,7 @@ export function TokensPage() {
             Generate Token
           </button>
           {createToken.isError && (
-            <p className="text-sm text-red-600">
+            <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
               {createToken.error instanceof ApiError ? createToken.error.message : 'Failed to create token.'}
             </p>
           )}
@@ -205,7 +205,12 @@ export function TokensPage() {
 
         <div className="mt-3 space-y-2">
           {revocationNotice && (
-            <p className={`text-sm ${revocationNotice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
+            <p
+              role={revocationNotice.tone === 'error' ? 'alert' : 'status'}
+              aria-live={revocationNotice.tone === 'error' ? 'assertive' : 'polite'}
+              aria-atomic="true"
+              className={`text-sm ${revocationNotice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}
+            >
               {revocationNotice.message}
             </p>
           )}
@@ -261,7 +266,11 @@ export function TokensPage() {
             <p className="text-xs text-slate dark:text-white/70">
               Expires: {pendingRevocation.expires_at ? formatDateTime(pendingRevocation.expires_at) : 'Never'}
             </p>
-            {revocationNotice?.tone === 'error' && <p className="text-sm text-red-600">{revocationNotice.message}</p>}
+            {revocationNotice?.tone === 'error' && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+                {revocationNotice.message}
+              </p>
+            )}
           </div>
         )}
       </ConfirmDialog>

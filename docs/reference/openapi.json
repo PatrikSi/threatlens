@@ -14,7 +14,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "efb50fb515b26bc7c202220bc476010718f63685a96c77992569e6c2a2f7c79b"
+    "x-threatlens-contract-sha256": "6d6cfeb5d79d18fc7b1bb4715309513d8efb93ce740eca37a72e10145c48710e"
   },
   "servers": [
     {
@@ -4449,7 +4449,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
       }
     },
     "/v1/health/ready": {
@@ -4468,7 +4476,15 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
       }
     },
     "/v1/health/live": {

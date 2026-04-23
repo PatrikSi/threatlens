@@ -16,13 +16,18 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   importMutate: vi.fn(),
 }))
 
-const routerMocks = vi.hoisted(() => ({
-  useBlocker: vi.fn(() => ({
-    state: 'unblocked' as const,
+const routerMocks = vi.hoisted(() => {
+  const blocker = {
+    state: 'unblocked' as 'unblocked' | 'blocked',
     proceed: vi.fn(),
     reset: vi.fn(),
-  })),
-}))
+  }
+
+  return {
+    blocker,
+    useBlocker: vi.fn(() => ({ ...blocker })),
+  }
+})
 
 const feedsData = [
   {
@@ -151,6 +156,12 @@ function pageText() {
   return document.body.textContent ?? ''
 }
 
+function rerenderPage() {
+  act(() => {
+    root?.render(<FeedsPage />)
+  })
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -183,6 +194,9 @@ afterEach(() => {
   feedsPageDomMocks.bulkDeleteMutate.mockReset()
   feedsPageDomMocks.bulkSetEnabledMutate.mockReset()
   feedsPageDomMocks.importMutate.mockReset()
+  routerMocks.blocker.state = 'unblocked'
+  routerMocks.blocker.proceed.mockReset()
+  routerMocks.blocker.reset.mockReset()
 })
 
 describe('FeedsPage DOM workflows', () => {
@@ -246,7 +260,7 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(pageText()).toContain('Discard unsaved changes?')
-    expect(pageText()).toContain('You have unsaved feed schedule changes. Leave without saving?')
+    expect(pageText()).toContain('You have unsaved feed changes. Leave without saving?')
     expect(pageText()).not.toContain('Delete feed?')
 
     const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
@@ -269,6 +283,23 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.deleteMutate).toHaveBeenCalledWith('feed-1')
+  })
+
+  it('treats a dirty create-feed draft as unsaved work before navigation', () => {
+    const view = renderPage()
+
+    const urlInput = view.querySelector<HTMLInputElement>('#feed-rss-url')
+    expect(urlInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(urlInput!, 'https://example.com/new-feed.xml')
+    })
+
+    routerMocks.blocker.state = 'blocked'
+    rerenderPage()
+
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('You have unsaved feed changes. Leave without saving?')
   })
 
   it('confirms bulk enable actions before mutating filtered feeds', () => {

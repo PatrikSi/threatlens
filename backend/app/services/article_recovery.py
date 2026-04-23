@@ -19,7 +19,7 @@ SOFT_REPAIRABLE_ARTICLE_ERRORS = (
 )
 SOFT_REPAIRABLE_ARTICLE_ERROR_PREFIXES = ("readability_error:",)
 ARTICLE_REPAIR_SOFT_RETRY_DELAY = timedelta(hours=1)
-ARTICLE_REPAIR_MAX_AGE = timedelta(days=1)
+_EARLIEST_ARTICLE_REPAIR_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def article_fetch_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | None = None) -> datetime:
@@ -28,8 +28,8 @@ def article_fetch_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | 
 
 
 def article_fetch_repair_floor(*, now: datetime | None = None) -> datetime:
-    current_time = now or datetime.now(timezone.utc)
-    return current_time - ARTICLE_REPAIR_MAX_AGE
+    _ = now
+    return _EARLIEST_ARTICLE_REPAIR_AT
 
 
 def article_soft_repair_cutoff(*, dispatch_after_seconds: int, now: datetime | None = None) -> datetime:

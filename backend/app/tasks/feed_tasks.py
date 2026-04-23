@@ -787,6 +787,9 @@ def dispatch_items_missing_ai_enrichment():
             return {"queued": 0, "reason": "ai_not_configured"}
         if not active.auto_enrich_new_items:
             return {"queued": 0, "reason": "auto_enrich_disabled"}
+        error_recovery_cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=max(0, int(settings.dispatch_items_failed_ai_enrichment_after_seconds))
+        )
 
         in_flight_enrichment_run = exists(
             select(AITaskRun.id).where(
@@ -804,7 +807,13 @@ def dispatch_items_missing_ai_enrichment():
                 Item.status == "content_fetched",
                 Article.text.is_not(None),
                 Article.text != "",
-                ItemAIEnrichment.item_id.is_(None),
+                or_(
+                    ItemAIEnrichment.item_id.is_(None),
+                    and_(
+                        ItemAIEnrichment.status == "error",
+                        ItemAIEnrichment.updated_at <= error_recovery_cutoff,
+                    ),
+                ),
                 ~in_flight_enrichment_run,
             )
             .order_by(ItemClassification.classified_at.asc(), Item.first_seen_at.asc())
@@ -817,7 +826,7 @@ def dispatch_items_missing_ai_enrichment():
             trigger_source=AI_TRIGGER_AUTO,
             reason=None,
             model=getattr(active, "model", None),
-            metadata={"recovery": "missing_enrichment_row", "force": False},
+            metadata={"recovery": "missing_or_failed_enrichment", "force": False},
         ):
             queued += 1
 

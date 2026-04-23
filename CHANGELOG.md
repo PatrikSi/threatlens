@@ -8,7 +8,7 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 
 ### Release Contract
 
-- Current checked-in OpenAPI contract anchor: `openapi-sha256:57889821ca2b4d37f7696600fc30057ab5614353f3643584c8ffad698887a227`
+- Current checked-in OpenAPI contract anchor: `openapi-sha256:6d6cfeb5d79d18fc7b1bb4715309513d8efb93ce740eca37a72e10145c48710e`
 - Public releases should record that contract anchor alongside the immutable `vX.Y.Z` tag and published image digests
 
 ### Added
@@ -28,3 +28,4 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 - Added a shipped frontend Alpine OS legal bundle and aligned the checked-in compliance artifacts with the actual built web image contents
 - Improved backend machine-readable dependency metadata by preferring published `License-Expression` values over avoidable `Unknown` placeholders
 - Tightened release, support, and governance language so the public repo can be used responsibly before the first immutable tag exists
+- Added a release-time guard command so `CHANGELOG.md` can be checked against the checked-in OpenAPI contract anchor before tagging

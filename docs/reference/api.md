@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:efb50fb515b26bc7c202220bc476010718f63685a96c77992569e6c2a2f7c79b`
+- OpenAPI contract anchor: `openapi-sha256:6d6cfeb5d79d18fc7b1bb4715309513d8efb93ce740eca37a72e10145c48710e`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -264,7 +264,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ### `GET /v1/health`
 - Summary: Health
-- Auth: none
+- Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/beat`
 - Summary: Beat
@@ -280,7 +280,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/ready`
 - Summary: Ready
-- Auth: none
+- Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/worker`
 - Summary: Worker

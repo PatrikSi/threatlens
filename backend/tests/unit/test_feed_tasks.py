@@ -14,6 +14,7 @@ from app.models.alert_interest import AlertInterest
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -1369,8 +1370,10 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
 
     result = dispatch_items_missing_articles.run()
 
-    assert result == {"queued": 5}
+    assert result == {"queued": 7}
     assert set(queued_item_ids) == {
+        str(aged_out_failed_item.id),
+        str(aged_out_missing_item.id),
         str(failed_item.id),
         str(soft_failed_item.id),
         str(extraction_failed_item.id),
@@ -1467,6 +1470,109 @@ def test_dispatch_items_missing_ai_enrichment_requeues_classified_items_without_
 
     assert result == {"queued": 1}
     assert queued_run is not None
+    get_settings.cache_clear()
+
+
+def test_dispatch_items_missing_ai_enrichment_requeues_failed_rows_after_backoff(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="failed-enrichment-row",
+        url="https://example.com/articles/failed-enrichment-row",
+        canonical_url="https://example.com/articles/failed-enrichment-row",
+        title="Fortinet edge exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="failed-enrichment-row",
+        content_hash="8" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=[],
+        confidence=0.91,
+        scores_json={"vulnerability": 9.1},
+        matched_terms_json={"vulnerability": ["title:fortinet"]},
+        source_hash="classification-hash",
+        rules_version="v2",
+        classified_at=datetime.now(timezone.utc),
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
+    db_session.flush()
+
+    failed_enrichment = ItemAIEnrichment(
+        item_id=item.id,
+        status="error",
+        source_hash="existing-source-hash",
+        error="provider unavailable",
+        generated_at=datetime.now(timezone.utc) - timedelta(hours=2),
+        updated_at=datetime.now(timezone.utc) - timedelta(hours=2),
+    )
+    db_session.add(failed_enrichment)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings.dispatch_items_failed_ai_enrichment_after_seconds", 60)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-2"),
+    )
+
+    result = dispatch_items_missing_ai_enrichment.run()
+
+    queued_runs = db_session.scalars(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "queued",
+        )
+    ).all()
+
+    assert result == {"queued": 1}
+    assert len(queued_runs) == 1
     get_settings.cache_clear()
 
 

@@ -46,6 +46,14 @@ const ROLE_DEFINITIONS: Array<{ role: User['role']; summary: string; capabilitie
   },
 ]
 
+const DEFAULT_CREATE_USER_FORM: UserCreateRequest = {
+  email: '',
+  password: '',
+  role: 'viewer',
+  is_active: true,
+  is_approved: true,
+}
+
 export function UsersPage() {
   const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
@@ -55,13 +63,7 @@ export function UsersPage() {
   const [settingsDraftsByUserId, setSettingsDraftsByUserId] = useState<Record<string, UserSettingsDraft>>({})
   const [passwordDraftsByUserId, setPasswordDraftsByUserId] = useState<Record<string, string>>({})
   const settingsDraftBaselinesByUserIdRef = useRef<Record<string, UserSettingsDraft>>({})
-  const [createForm, setCreateForm] = useState<UserCreateRequest>({
-    email: '',
-    password: '',
-    role: 'viewer',
-    is_active: true,
-    is_approved: true,
-  })
+  const [createForm, setCreateForm] = useState<UserCreateRequest>(DEFAULT_CREATE_USER_FORM)
   const [pendingCreateConfirmation, setPendingCreateConfirmation] = useState<CreateUserConfirmationState | null>(null)
 
   const usersQuery = useQuery({
@@ -76,7 +78,7 @@ export function UsersPage() {
         body: JSON.stringify(payload),
       }),
     onSuccess: () => {
-      setCreateForm({ email: '', password: '', role: 'viewer', is_active: true, is_approved: true })
+      setCreateForm(DEFAULT_CREATE_USER_FORM)
       void queryClient.invalidateQueries({ queryKey: ['users'] })
     },
   })
@@ -159,8 +161,9 @@ export function UsersPage() {
     () => Object.values(passwordDraftsByUserId).some((value) => value.trim().length > 0),
     [passwordDraftsByUserId],
   )
+  const hasUnsavedCreateUserChanges = isCreateUserFormDirty(createForm)
   const confirmDiscardUnsavedUserSettingsChanges = useUnsavedChangesWarning(
-    hasUnsavedUserSettingsChanges || hasUnsavedPasswordDrafts,
+    hasUnsavedUserSettingsChanges || hasUnsavedPasswordDrafts || hasUnsavedCreateUserChanges,
     'Discard unsaved user changes?',
   )
 
@@ -247,7 +250,11 @@ export function UsersPage() {
               Approved
             </label>
             <p className="text-xs text-slate dark:text-slate-300">A review step appears before the account is created.</p>
-            {createUser.isError && <p className="text-sm text-red-600">Failed to create user.</p>}
+            {createUser.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+                Failed to create user.
+              </p>
+            )}
             <button
               className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]"
               disabled={createUser.isPending}
@@ -486,7 +493,12 @@ function UserRow({
           </button>
         </div>
         {notice && (
-          <p className={`mt-2 text-sm ${notice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
+          <p
+            role={notice.tone === 'error' ? 'alert' : 'status'}
+            aria-live={notice.tone === 'error' ? 'assertive' : 'polite'}
+            aria-atomic="true"
+            className={`mt-2 text-sm ${notice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}
+          >
             {notice.message}
           </p>
         )}
@@ -554,4 +566,14 @@ function hasDirtyUserSettingsDrafts(
       draft.isApproved !== baseline.isApproved
     )
   })
+}
+
+function isCreateUserFormDirty(form: UserCreateRequest) {
+  return (
+    form.email !== DEFAULT_CREATE_USER_FORM.email ||
+    form.password !== DEFAULT_CREATE_USER_FORM.password ||
+    form.role !== DEFAULT_CREATE_USER_FORM.role ||
+    form.is_active !== DEFAULT_CREATE_USER_FORM.is_active ||
+    form.is_approved !== DEFAULT_CREATE_USER_FORM.is_approved
+  )
 }

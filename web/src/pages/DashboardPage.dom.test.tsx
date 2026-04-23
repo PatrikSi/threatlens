@@ -279,6 +279,12 @@ function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: str
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function setSelectValue(select: HTMLSelectElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')
+  descriptor?.set?.call(select, value)
+  select.dispatchEvent(new Event('change', { bubbles: true }))
+}
+
 beforeEach(() => {
   dashboardPageDomMocks.views = [
     createSavedView(
@@ -444,6 +450,32 @@ describe('DashboardPage DOM workflows', () => {
     const menu = document.querySelector('[role="menu"][aria-label="Add dashboard panel"]')
     expect(menu).not.toBeNull()
     expect(document.activeElement?.textContent).toContain('RSS Panel')
+  })
+
+  it('offers keyboard-accessible panel resize controls while editing free-layout dashboards', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const layoutSelect = view.querySelector<HTMLSelectElement>('[aria-label="RSS Panel 1 panel layout"]')
+    expect(layoutSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(layoutSelect!, 'free')
+    })
+
+    expect(pageText()).toContain('Keyboard panel controls')
+    expect(document.querySelector('[aria-label="Move RSS Panel 1 left"]')).not.toBeNull()
+    const widerButton = document.querySelector<HTMLButtonElement>('[aria-label="Make RSS Panel 1 wider"]')
+    expect(widerButton).not.toBeNull()
+
+    act(() => {
+      widerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.querySelector('[aria-label="Make RSS Panel 1 taller"]')).not.toBeNull()
   })
 
   it('does not auto-mark unread items as read on expansion and tracks dirty note drafts', () => {

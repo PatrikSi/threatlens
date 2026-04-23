@@ -6,9 +6,8 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_optional_current_user
+from app.api.deps import get_admin_user, get_optional_current_user
 from app.core.config import get_settings
-from app.core.rbac import ROLE_ADMIN
 from app.db.session import get_db
 from app.models.user import User
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
@@ -18,13 +17,13 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("")
-def health(db: Session = Depends(get_db)):
-    return _readiness_response(db)
+def health(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
+    return _readiness_response(db, detailed=_is_admin_user(user))
 
 
 @router.get("/ready")
-def ready(db: Session = Depends(get_db)):
-    return _readiness_response(db)
+def ready(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
+    return _readiness_response(db, detailed=_is_admin_user(user))
 
 
 @router.get("/live")
@@ -33,31 +32,23 @@ def live():
 
 
 @router.get("/worker")
-def worker(user: User | None = Depends(get_optional_current_user)):
-    detailed = _is_admin_user(user)
-    return _worker_health_response(detailed=detailed)
+def worker(_admin: User = Depends(get_admin_user)):
+    return _worker_health_response(detailed=True)
 
 
 @router.get("/beat")
-def beat(user: User | None = Depends(get_optional_current_user)):
-    detailed = _is_admin_user(user)
-    return _beat_health_response(detailed=detailed)
+def beat(_admin: User = Depends(get_admin_user)):
+    return _beat_health_response(detailed=True)
 
 
 @router.get("/notifications")
-def notifications(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
+def notifications(db: Session = Depends(get_db), _admin: User = Depends(get_admin_user)):
     snapshot = get_notification_delivery_queue_snapshot(db)
     status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    payload = snapshot.model_dump()
-    if not _is_admin_user(user):
-        payload = {
-            "ok": snapshot.ok,
-            "status": snapshot.status,
-        }
-    return JSONResponse(status_code=status_code, content=payload)
+    return JSONResponse(status_code=status_code, content=snapshot.model_dump())
 
 
-def _readiness_response(db: Session):
+def _readiness_response(db: Session, *, detailed: bool):
     settings = get_settings()
     db_ok = _database_health_ok(db)
     redis_ok = _redis_health_ok(settings)
@@ -66,15 +57,19 @@ def _readiness_response(db: Session):
 
     ok = db_ok and redis_ok and worker_ok and beat_ok
     status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    payload = {"ok": ok}
+    if detailed:
+        payload.update(
+            {
+                "db": db_ok,
+                "redis": redis_ok,
+                "worker": worker_ok,
+                "beat": beat_ok,
+            }
+        )
     return JSONResponse(
         status_code=status_code,
-        content={
-            "ok": ok,
-            "db": db_ok,
-            "redis": redis_ok,
-            "worker": worker_ok,
-            "beat": beat_ok,
-        },
+        content=payload,
     )
 
 
@@ -108,7 +103,7 @@ def _beat_health_response(*, detailed: bool):
 
 
 def _is_admin_user(user: User | None) -> bool:
-    return user is not None and user.role == ROLE_ADMIN
+    return user is not None and user.role == "admin"
 
 
 def _database_health_ok(db: Session) -> bool:

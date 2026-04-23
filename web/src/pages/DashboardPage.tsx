@@ -68,6 +68,10 @@ const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
 const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
+const KEYBOARD_PANEL_MOVE_STEP = 24
+const KEYBOARD_PANEL_RESIZE_STEP = 32
+const ROLLING_WINDOW_FIELD_CLASS =
+  'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[#041612]'
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Floating (Advanced)' },
@@ -1229,6 +1233,38 @@ export function DashboardPage() {
     window.addEventListener('mouseup', onUp)
   }
 
+  const adjustFreeWindowRect = (
+    windowId: string,
+    patch: Partial<Pick<PanelRect, 'x' | 'y' | 'width' | 'height'>>,
+  ) => {
+    if (!isWideLayout) {
+      return
+    }
+
+    const { width, height } = getWindowContainerDimensions(rootRef.current)
+    setWindows((current) =>
+      current.map((window) => {
+        if (window.id !== windowId || window.snap !== 'free') {
+          return window
+        }
+
+        return {
+          ...window,
+          rect: normalizePanelRect(
+            {
+              x: window.rect.x + (patch.x ?? 0),
+              y: window.rect.y + (patch.y ?? 0),
+              width: window.rect.width + (patch.width ?? 0),
+              height: window.rect.height + (patch.height ?? 0),
+            },
+            width,
+            height,
+          ),
+        }
+      }),
+    )
+  }
+
   const saveCurrentView = () => {
     const name = savedViewName.trim()
     if (!name) return
@@ -1688,7 +1724,7 @@ export function DashboardPage() {
             </select>
             {dashboardTimeRange === 'days' && (
               <>
-                <label className="flex h-8 w-full items-center rounded border border-slate/20 bg-white px-2 text-xs sm:w-[138px] dark:border-cyan-900/40 dark:bg-[#041612]">
+                <label className={`${ROLLING_WINDOW_FIELD_CLASS} h-8 text-xs sm:w-[138px] dark:bg-[#041612]`}>
                   <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
                   <input
                     type="number"
@@ -1697,7 +1733,7 @@ export function DashboardPage() {
                     value={dashboardRollingDays}
                     onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
                     aria-label="Dashboard rolling time window in days"
-                    className="w-full bg-transparent text-xs outline-none"
+                    className="w-full bg-transparent text-xs focus-visible:outline-none"
                   />
                   <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
                 </label>
@@ -1935,8 +1971,16 @@ export function DashboardPage() {
             </>
           )}
         </div>
-        {viewSaveError && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{viewSaveError}</p>}
-        {viewSavePending && <p className="mt-2 text-sm text-cyan-700 dark:text-cyan-300">Saving the current layout. Editing is temporarily locked until the request finishes.</p>}
+        {viewSaveError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600 dark:text-red-300">
+            {viewSaveError}
+          </p>
+        )}
+        {viewSavePending && (
+          <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-sm text-cyan-700 dark:text-cyan-300">
+            Saving the current layout. Editing is temporarily locked until the request finishes.
+          </p>
+        )}
       </div>
 
       <div
@@ -2119,6 +2163,84 @@ export function DashboardPage() {
                         </button>
                       </>
                     )}
+                    {isEditMode && isWideLayout && windowLayout.snap === 'free' && (
+                      <div
+                        role="group"
+                        aria-label={`${windowLayout.title} keyboard layout controls`}
+                        className="w-full rounded border border-slate/20 bg-white/80 p-2 text-[11px] dark:border-cyan-900/40 dark:bg-[#041612]/85"
+                      >
+                        <p className="font-semibold text-slate-800 dark:text-white/80">Keyboard panel controls</p>
+                        <p className="mt-1 text-slate dark:text-white/60">
+                          Position {resolvedRect.x}, {resolvedRect.y} · Size {resolvedRect.width} x {resolvedRect.height}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { x: -KEYBOARD_PANEL_MOVE_STEP })}
+                            aria-label={`Move ${windowLayout.title} left`}
+                          >
+                            Left
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { x: KEYBOARD_PANEL_MOVE_STEP })}
+                            aria-label={`Move ${windowLayout.title} right`}
+                          >
+                            Right
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { y: -KEYBOARD_PANEL_MOVE_STEP })}
+                            aria-label={`Move ${windowLayout.title} up`}
+                          >
+                            Up
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { y: KEYBOARD_PANEL_MOVE_STEP })}
+                            aria-label={`Move ${windowLayout.title} down`}
+                          >
+                            Down
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { width: -KEYBOARD_PANEL_RESIZE_STEP })}
+                            aria-label={`Make ${windowLayout.title} narrower`}
+                          >
+                            Narrower
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { width: KEYBOARD_PANEL_RESIZE_STEP })}
+                            aria-label={`Make ${windowLayout.title} wider`}
+                          >
+                            Wider
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { height: -KEYBOARD_PANEL_RESIZE_STEP })}
+                            aria-label={`Make ${windowLayout.title} shorter`}
+                          >
+                            Shorter
+                          </button>
+                          <button
+                            type="button"
+                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
+                            onClick={() => adjustFreeWindowRect(windowLayout.id, { height: KEYBOARD_PANEL_RESIZE_STEP })}
+                            aria-label={`Make ${windowLayout.title} taller`}
+                          >
+                            Taller
+                          </button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               </div>
 
@@ -2228,7 +2350,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       {effectiveWindowTimeFilter.time_range === 'days' && (
-                        <label className="flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                        <label className={`${ROLLING_WINDOW_FIELD_CLASS} sm:w-[150px] dark:bg-[#072019]`}>
                           <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
                           <input
                             type="number"
@@ -2237,7 +2359,7 @@ export function DashboardPage() {
                             value={effectiveWindowTimeFilter.rolling_days}
                             onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
                             aria-label={`${windowLayout.title} rolling time window in days`}
-                            className="w-full bg-transparent outline-none"
+                            className="w-full bg-transparent focus-visible:outline-none"
                           />
                           <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
                         </label>
@@ -2479,6 +2601,9 @@ export function DashboardPage() {
                                     </div>
                                     {itemActionFeedbackByItemId[detail.id] && (
                                       <p
+                                        role={itemActionFeedbackByItemId[detail.id]?.tone === 'error' ? 'alert' : 'status'}
+                                        aria-live={itemActionFeedbackByItemId[detail.id]?.tone === 'error' ? 'assertive' : 'polite'}
+                                        aria-atomic="true"
                                         className={`mt-2 text-xs ${
                                           itemActionFeedbackByItemId[detail.id]?.tone === 'success'
                                             ? 'text-emerald-700 dark:text-emerald-300'
@@ -2573,6 +2698,9 @@ export function DashboardPage() {
                                           </button>
                                           {articleRetryFeedbackByItemId[detail.id] && (
                                             <span
+                                              role={articleRetryFeedbackByItemId[detail.id]?.tone === 'error' ? 'alert' : 'status'}
+                                              aria-live={articleRetryFeedbackByItemId[detail.id]?.tone === 'error' ? 'assertive' : 'polite'}
+                                              aria-atomic="true"
                                               className={`text-xs ${
                                                 articleRetryFeedbackByItemId[detail.id]?.tone === 'success'
                                                   ? 'text-emerald-700 dark:text-emerald-300'
@@ -2787,7 +2915,7 @@ export function DashboardPage() {
                         <option value="custom">Custom</option>
                       </select>
                       {effectiveWindowTimeFilter.time_range === 'days' && (
-                        <label className="flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-[150px] dark:border-cyan-900/40 dark:bg-[#072019]">
+                        <label className={`${ROLLING_WINDOW_FIELD_CLASS} sm:w-[150px] dark:bg-[#072019]`}>
                           <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
                           <input
                             type="number"
@@ -2796,7 +2924,7 @@ export function DashboardPage() {
                             value={effectiveWindowTimeFilter.rolling_days}
                             onChange={(event) => updateWindowRollingDays(windowLayout.id, event.target.value)}
                             aria-label={`${windowLayout.title} rolling time window in days`}
-                            className="w-full bg-transparent outline-none"
+                            className="w-full bg-transparent focus-visible:outline-none"
                           />
                           <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
                         </label>

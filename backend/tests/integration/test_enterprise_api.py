@@ -1096,7 +1096,7 @@ def test_health_live_endpoint(client: TestClient):
     assert response.json() == {"ok": True}
 
 
-def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkeypatch):
+def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkeypatch, auth_headers):
     fresh_heartbeat = datetime.now(timezone.utc).isoformat()
 
     class _RedisClient:
@@ -1117,7 +1117,11 @@ def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkey
     response = client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json() == {
+    assert response.json() == {"ok": False}
+
+    admin_response = client.get("/health/ready", headers=auth_headers["admin"])
+    assert admin_response.status_code == 503
+    assert admin_response.json() == {
         "ok": False,
         "db": True,
         "redis": True,
@@ -1126,7 +1130,7 @@ def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkey
     }
 
 
-def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypatch):
+def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypatch, auth_headers):
     stale_heartbeat = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
 
     class _RedisClient:
@@ -1147,7 +1151,11 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
     response = client.get("/health/ready")
 
     assert response.status_code == 503
-    assert response.json() == {
+    assert response.json() == {"ok": False}
+
+    admin_response = client.get("/health/ready", headers=auth_headers["admin"])
+    assert admin_response.status_code == 503
+    assert admin_response.json() == {
         "ok": False,
         "db": True,
         "redis": True,
@@ -1185,8 +1193,7 @@ def test_health_worker_endpoint_hides_worker_details_from_public(client: TestCli
 
     response = client.get("/health/worker")
 
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.status_code == 401
 
 
 def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClient, auth_headers, monkeypatch):
@@ -1217,8 +1224,7 @@ def test_health_beat_endpoint_hides_internal_details_from_public(client: TestCli
 
     response = client.get("/health/beat")
 
-    assert response.status_code == 503
-    assert response.json() == {"ok": False}
+    assert response.status_code == 401
 
 
 def test_health_notifications_endpoint_reports_stale_queue(client: TestClient, auth_headers, db_session, seed_users):
@@ -1337,8 +1343,7 @@ def test_health_notifications_endpoint_hides_queue_counts_from_public(client: Te
 
     response = client.get("/health/notifications")
 
-    assert response.status_code == 503
-    assert response.json() == {"ok": False, "status": "degraded"}
+    assert response.status_code == 401
 
 
 def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, monkeypatch):

@@ -60,6 +60,18 @@ def test_checked_in_openapi_document_matches_generated_schema():
     assert OPENAPI_SCHEMA_PATH.read_text(encoding="utf-8") == build_openapi_schema_document(app)
 
 
+def test_changelog_release_contract_anchor_matches_checked_in_openapi_document():
+    expected = json.loads(OPENAPI_SCHEMA_PATH.read_text(encoding="utf-8"))["info"]["x-threatlens-contract-sha256"]
+    changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+    match = re.search(
+        r"Current checked-in OpenAPI contract anchor: `openapi-sha256:(?P<digest>[0-9a-f]{64})`",
+        changelog,
+    )
+
+    assert match is not None
+    assert match.group("digest") == expected
+
+
 def test_frontend_notification_delivery_type_includes_not_before_contract_field():
     delivery_schema = app.openapi()["components"]["schemas"]["NotificationWebhookDeliveryResponse"]
 

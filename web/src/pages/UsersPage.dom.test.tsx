@@ -282,6 +282,23 @@ describe('UsersPage DOM workflows', () => {
     expect(routerMocks.blocker.proceed).toHaveBeenCalledTimes(1)
   })
 
+  it('treats a dirty create-user form as unsaved work before navigation', () => {
+    const view = renderPage()
+
+    const emailInput = view.querySelector<HTMLInputElement>('#create-user-email')
+    expect(emailInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(emailInput!, 'new-analyst@example.com')
+    })
+
+    routerMocks.blocker.state = 'blocked'
+    rerenderPage()
+
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved user changes?')
+  })
+
   it('keeps password-reset drafts when filtering rows and treats them as unsaved changes', () => {
     const view = renderPage()
 

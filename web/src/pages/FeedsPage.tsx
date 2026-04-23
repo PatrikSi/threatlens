@@ -503,12 +503,22 @@ export function FeedsPage() {
     () => buildFeedImportPreviewSummary(importData, feedsQuery.data ?? [], overwriteExisting),
     [feedsQuery.data, importData, overwriteExisting],
   )
+  const hasUnsavedCreateFeedChanges = isNewFeedFormDirty({
+    name,
+    url,
+    description,
+    siteUrl,
+    language,
+    fetchMode,
+    interval,
+    scheduleCron,
+  })
   const hasUnsavedFeedScheduleChanges = (feedsQuery.data ?? []).some((feed) =>
     isFeedScheduleDraftDirty(feed, feedDrafts[feed.id] ?? feedToScheduleDraft(feed)),
   )
   const confirmDiscardUnsavedFeedScheduleChanges = useUnsavedChangesWarning(
-    hasUnsavedFeedScheduleChanges,
-    'You have unsaved feed schedule changes. Leave without saving?',
+    hasUnsavedFeedScheduleChanges || hasUnsavedCreateFeedChanges,
+    'You have unsaved feed changes. Leave without saving?',
   )
 
   const onRequestDeleteFeed = (feed: Feed) => {
@@ -571,7 +581,11 @@ export function FeedsPage() {
                 Detect
               </button>
             </div>
-            {detectMetadata.isError && <p className="mt-1 text-xs text-red-600">Failed to detect feed metadata.</p>}
+            {detectMetadata.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-1 text-xs text-red-600">
+                Failed to detect feed metadata.
+              </p>
+            )}
           </div>
 
           <div>
@@ -687,7 +701,11 @@ export function FeedsPage() {
           >
             Add Feed
           </button>
-          {createFeed.isError && <p className="text-sm text-red-600">Failed to add feed.</p>}
+          {createFeed.isError && (
+            <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+              Failed to add feed.
+            </p>
+          )}
         </form>
       </section>
 
@@ -851,10 +869,23 @@ export function FeedsPage() {
             )}
           </div>
         )}
-        {importError && <p className="mt-2 text-xs text-red-600">Import parse error: {importError}</p>}
-        {importWarning && <p className="mt-2 text-xs text-amber-600">{importWarning}</p>}
+        {importError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
+            Import parse error: {importError}
+          </p>
+        )}
+        {importWarning && (
+          <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-amber-600">
+            {importWarning}
+          </p>
+        )}
         {lastImportResult && (
-          <div className="mt-2 rounded border border-slate/20 bg-white/60 px-2 py-2 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-200">
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mt-2 rounded border border-slate/20 bg-white/60 px-2 py-2 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-200"
+          >
             <p>
               Import result: created {lastImportResult.created}, updated {lastImportResult.updated}, skipped {lastImportResult.skipped}, errors {lastImportResult.errors.length}
             </p>
@@ -873,11 +904,19 @@ export function FeedsPage() {
           </div>
         )}
         {importFeeds.isError && (
-          <p className="mt-2 text-xs text-red-600">Import failed: {resolveMutationError(importFeeds.error)}</p>
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
+            Import failed: {resolveMutationError(importFeeds.error)}
+          </p>
         )}
-        {managementNotice && <p className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{managementNotice}</p>}
+        {managementNotice && (
+          <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
+            {managementNotice}
+          </p>
+        )}
         {(bulkRefreshFeeds.isError || bulkSetEnabled.isError || bulkDeleteFeeds.isError || deleteFeed.isError) && (
-          <p className="mt-2 text-xs text-red-600">One or more management actions failed.</p>
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
+            One or more management actions failed.
+          </p>
         )}
 
         <div className="mt-3 space-y-2">
@@ -888,10 +927,9 @@ export function FeedsPage() {
             const saveMessage = feedSaveState[feed.id]?.message
             const validationMessage = validateFeedScheduleDraft(draft)
             const isDirty = isFeedScheduleDraftDirty(feed, draft)
-            const scheduleNotice =
-              validationMessage ||
-              saveMessage ||
-              (isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : saveState !== 'idle' ? feedSaveStatusText(saveState) : null)
+            const scheduleNotice = saveState !== 'idle' ? validationMessage || saveMessage || feedSaveStatusText(saveState) : null
+            const scheduleHint =
+              !scheduleNotice && isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : null
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1037,8 +1075,19 @@ export function FeedsPage() {
                 </div>
               )}
 
+              {canManage && scheduleHint && (
+                <p className={`mt-1 text-[11px] ${feedSaveStatusClass(saveState, isDirty)}`}>
+                  {scheduleHint}
+                </p>
+              )}
+
               {canManage && scheduleNotice && (
-                <p className={`mt-1 text-[11px] ${validationMessage ? 'text-red-600' : feedSaveStatusClass(saveState, isDirty)}`}>
+                <p
+                  role={saveState === 'error' ? 'alert' : 'status'}
+                  aria-live={saveState === 'error' ? 'assertive' : 'polite'}
+                  aria-atomic="true"
+                  className={`mt-1 text-[11px] ${validationMessage ? 'text-red-600' : feedSaveStatusClass(saveState, isDirty)}`}
+                >
                   {scheduleNotice}
                 </p>
               )}
@@ -1231,6 +1280,28 @@ function timestamp(value: string | null): number {
 
 function formatDate(value: string | null): string {
   return value ? formatDateTime(value) : 'Never'
+}
+
+function isNewFeedFormDirty(form: {
+  name: string
+  url: string
+  description: string
+  siteUrl: string
+  language: string
+  fetchMode: FeedFetchMode
+  interval: number
+  scheduleCron: string
+}) {
+  return (
+    form.name !== '' ||
+    form.url !== '' ||
+    form.description !== '' ||
+    form.siteUrl !== '' ||
+    form.language !== '' ||
+    form.fetchMode !== 'interval' ||
+    form.interval !== 1800 ||
+    form.scheduleCron !== '0 * * * *'
+  )
 }
 
 function parseImportEntries(payload: unknown): FeedImportEntry[] {

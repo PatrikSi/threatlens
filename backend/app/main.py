@@ -50,6 +50,10 @@ def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str
     return {}
 
 
+def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
+    return active_settings.app_env.lower() not in {"production", "prod"}
+
+
 app = FastAPI(
     title="ThreatLens API",
     version="0.1.0",
@@ -134,13 +138,14 @@ def _normalize_request_id(raw_request_id: str | None) -> str:
     return sanitized[:128]
 
 
-def _mount_api_routers(application: FastAPI) -> None:
+def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) -> None:
     for router in API_ROUTERS:
         application.include_router(router, prefix=API_SERVICE_PREFIX)
-        application.include_router(router, include_in_schema=False)
+        if include_legacy_aliases:
+            application.include_router(router, include_in_schema=False)
 
 
-_mount_api_routers(app)
+_mount_api_routers(app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings))
 
 
 def _apply_published_security_contract(schema: dict[str, Any]) -> dict[str, Any]:

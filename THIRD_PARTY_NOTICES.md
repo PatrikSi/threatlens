@@ -31,7 +31,12 @@ Refresh the backend runtime lockfile and regenerate those inventory files and le
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
 ./backend/.venv/bin/python scripts/sync_compliance_bundle.py
-BACKEND_IMAGE=$(docker build -q -f backend/Dockerfile backend)
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+VCS_REF="$(git rev-parse HEAD)"
+BACKEND_IMAGE=$(docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg VCS_REF="$VCS_REF" \
+  -q -f backend/Dockerfile backend)
 docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   rm -rf /src/docs/reference/backend-runtime-package-legal /src/docs/reference/backend-os-package-legal &&
   cp /usr/share/doc/threatlens/backend-runtime-dependencies.txt /src/docs/reference/backend-runtime-dependencies.txt &&
@@ -39,7 +44,10 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   cp -R /usr/share/doc/threatlens/backend-runtime-package-legal /src/docs/reference/backend-runtime-package-legal &&
   cp /usr/share/doc/threatlens/backend-os-packages.txt /src/docs/reference/backend-os-packages.txt &&
   cp -R /usr/share/doc/threatlens/backend-os-package-legal /src/docs/reference/backend-os-package-legal'
-WEB_IMAGE=$(docker build -q -f web/Dockerfile web)
+WEB_IMAGE=$(docker build \
+  --build-arg BUILD_DATE="$BUILD_DATE" \
+  --build-arg VCS_REF="$VCS_REF" \
+  -q -f web/Dockerfile web)
 docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   rm -rf /src/docs/reference/frontend-runtime-package-legal /src/docs/reference/frontend-os-package-legal &&
   cp /usr/share/doc/threatlens/frontend-runtime-dependencies.txt /src/docs/reference/frontend-runtime-dependencies.txt &&

@@ -18,11 +18,13 @@ If no public tag exists yet, use the deployed commit SHA, container image digest
 
 ## Private Reporting
 
-Preferred private path, if this repository has it enabled:
+ThreatLens does not currently promise a dedicated private security inbox before the first public OSS release. The first public tagged release should only advertise GitHub private vulnerability reporting after maintainers enable it and verify that the repository UI exposes the advisory form.
 
-- GitHub private vulnerability reporting: `https://github.com/PatrikSi/threatlens/security/advisories/new`
+If the repository UI shows GitHub private vulnerability reporting, use:
 
-If that page returns `404` or the repository UI does not show a private reporting form, ThreatLens does not currently publish a separate security inbox or ticketing system in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
+- `https://github.com/PatrikSi/threatlens/security/advisories/new`
+
+If that page returns `404`, the repository UI does not show a private reporting form, or no public tag has been published yet, ThreatLens does not currently publish a separate security inbox or ticketing system in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 
@@ -47,6 +49,8 @@ Once you have a private path, include as much of the following as you can:
 - reproduction steps or proof of concept
 - impact assessment
 - any mitigations or configuration changes already identified
+
+For the first public OSS release, treat private vulnerability reporting as a release gate: either the GitHub advisory form must be live and verified, or this policy must be updated before tagging so the repository does not imply a private reporting path that does not exist.
 
 ## Response Targets
 

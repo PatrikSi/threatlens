@@ -753,15 +753,30 @@ export function NotificationsPage() {
             </div>
 
             {formNotice && (
-              <p className={`mt-3 text-sm ${testResult && !testResult.success ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-300'}`}>
+              <p
+                role={testResult && !testResult.success ? 'alert' : 'status'}
+                aria-live={testResult && !testResult.success ? 'assertive' : 'polite'}
+                aria-atomic="true"
+                className={`mt-3 text-sm ${testResult && !testResult.success ? 'text-red-600' : 'text-emerald-700 dark:text-emerald-300'}`}
+              >
                 {formNotice}
               </p>
             )}
-            {saveWebhook.isError && <p className="mt-2 text-sm text-red-600">{resolveApiMessage(saveWebhook.error, 'Failed to save webhook.')}</p>}
-            {deleteWebhook.isError && (
-              <p className="mt-2 text-sm text-red-600">{resolveApiMessage(deleteWebhook.error, 'Failed to delete webhook.')}</p>
+            {saveWebhook.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(saveWebhook.error, 'Failed to save webhook.')}
+              </p>
             )}
-            {testWebhook.isError && <p className="mt-2 text-sm text-red-600">{resolveApiMessage(testWebhook.error, 'Failed to test webhook.')}</p>}
+            {deleteWebhook.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(deleteWebhook.error, 'Failed to delete webhook.')}
+              </p>
+            )}
+            {testWebhook.isError && (
+              <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+                {resolveApiMessage(testWebhook.error, 'Failed to test webhook.')}
+              </p>
+            )}
           </section>
 
           <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
@@ -826,7 +841,11 @@ export function NotificationsPage() {
                     </div>
                   )}
 
-                  {testResult.error && <p className="text-sm text-red-600">{testResult.error}</p>}
+                  {testResult.error && (
+                    <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
+                      {testResult.error}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <p className="mt-3 text-sm text-slate dark:text-white/70">
