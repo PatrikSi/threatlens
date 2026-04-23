@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.user import User
+
+_ADMIN_UNRESTRICTED_WEBHOOKS_ENV = "NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED"
 
 
 @dataclass(frozen=True)
@@ -77,6 +80,11 @@ def normalize_notification_allow_entry(allow_entry: str) -> str:
     return parsed_allow_entry.canonical
 
 
+def admin_notification_webhook_unrestricted_enabled() -> bool:
+    value = os.getenv(_ADMIN_UNRESTRICTED_WEBHOOKS_ENV, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def validate_notification_target_for_actor(
     url: str,
     *,
@@ -90,8 +98,20 @@ def validate_notification_target_for_actor(
         raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
 
     actor_role = getattr(actor_user, "role", None)
+    target = _parse_notification_target(url)
+
     if actor_role == ROLE_ADMIN:
-        return
+        if admin_notification_webhook_unrestricted_enabled():
+            return
+        if not allowed_hosts:
+            raise ValueError(
+                "Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled"
+            )
+        if any(notification_target_matches_allowlist(target, entry) for entry in allowed_hosts):
+            return
+        raise ValueError(
+            f"Webhook destination '{target.canonical_target}' is not approved for admin-managed webhook deliveries"
+        )
 
     if actor_role != ROLE_ANALYST:
         raise ValueError("Webhook owner is no longer authorized to manage outbound deliveries")
@@ -101,7 +121,6 @@ def validate_notification_target_for_actor(
             "Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured"
         )
 
-    target = _parse_notification_target(url)
     if any(notification_target_matches_allowlist(target, entry) for entry in allowed_hosts):
         return
     raise ValueError(

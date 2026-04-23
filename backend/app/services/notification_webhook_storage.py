@@ -11,7 +11,14 @@ from app.schemas.notification import (
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
 )
-from app.services.secret_storage import decrypt_json, decrypt_text, encrypt_json, encrypt_text
+from app.services.secret_storage import (
+    decrypt_json,
+    decrypt_text,
+    encrypt_json,
+    encrypt_json_if_legacy,
+    encrypt_text,
+    encrypt_text_if_legacy,
+)
 from app.services.url_utils import redact_feed_url
 
 SENSITIVE_HEADER_NAMES = frozenset(
@@ -41,6 +48,40 @@ def encrypt_notification_text(value: str | None) -> str | None:
 
 def encrypt_notification_json(value) -> dict[str, str]:
     return encrypt_json(value)
+
+
+def upgrade_notification_webhook_secret_storage(webhook: NotificationWebhook) -> bool:
+    changed = False
+
+    webhook.url_template, updated = encrypt_text_if_legacy(webhook.url_template)
+    changed = changed or updated
+    webhook.query_params_json, updated = encrypt_json_if_legacy(webhook.query_params_json)
+    changed = changed or updated
+    webhook.headers_json, updated = encrypt_json_if_legacy(webhook.headers_json)
+    changed = changed or updated
+    webhook.body_fields_json, updated = encrypt_json_if_legacy(webhook.body_fields_json)
+    changed = changed or updated
+    webhook.body_template, updated = encrypt_text_if_legacy(webhook.body_template)
+    changed = changed or updated
+
+    return changed
+
+
+def upgrade_notification_webhook_delivery_secret_storage(delivery: NotificationWebhookDelivery) -> bool:
+    changed = False
+
+    delivery.rendered_url, updated = encrypt_text_if_legacy(delivery.rendered_url)
+    changed = changed or updated
+    delivery.rendered_headers_json, updated = encrypt_json_if_legacy(delivery.rendered_headers_json)
+    changed = changed or updated
+    delivery.rendered_query_params_json, updated = encrypt_json_if_legacy(delivery.rendered_query_params_json)
+    changed = changed or updated
+    delivery.rendered_body, updated = encrypt_text_if_legacy(delivery.rendered_body)
+    changed = changed or updated
+    delivery.response_body_preview, updated = encrypt_text_if_legacy(delivery.response_body_preview)
+    changed = changed or updated
+
+    return changed
 
 
 def notification_fields_from_storage(value) -> list[NotificationWebhookField]:
@@ -115,6 +156,7 @@ def redact_notification_test_response(
 
 
 def notification_webhook_write_from_model(webhook: NotificationWebhook) -> NotificationWebhookWrite:
+    upgrade_notification_webhook_secret_storage(webhook)
     return NotificationWebhookWrite(
         name=webhook.name,
         enabled=webhook.enabled,
@@ -158,6 +200,7 @@ def notification_webhook_response_from_model(webhook: NotificationWebhook) -> No
 def notification_webhook_delivery_response_from_model(
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookDeliveryResponse:
+    upgrade_notification_webhook_delivery_secret_storage(delivery)
     rendered_headers = redact_notification_field_values(notification_fields_from_storage(delivery.rendered_headers_json))
     rendered_query_params = redact_notification_query_params(
         notification_fields_from_storage(delivery.rendered_query_params_json)

@@ -52,6 +52,11 @@ def _persist_rows(db_session, *rows):
         db_session.flush()
 
 
+@pytest.fixture(autouse=True)
+def allow_admin_unrestricted_webhooks(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+
+
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
     payload = NotificationWebhookWrite(
         name="Example",
@@ -200,6 +205,28 @@ def test_validate_notification_webhook_payload_for_actor_rejects_non_default_por
         match="Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries",
     ):
         validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
+
+
+def test_validate_notification_webhook_payload_for_actor_allows_admin_staging_without_allowlist(monkeypatch):
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+    monkeypatch.delenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", raising=False)
+
+    payload = NotificationWebhookWrite(
+        name="Admin staged webhook",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        body_mode="none",
+    )
+    admin = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        password_hash="x",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+
+    validate_notification_webhook_payload_for_actor(payload, set(), actor_user=admin)
 
 
 def test_notification_webhook_write_extracts_query_params_from_url_template():
@@ -646,6 +673,41 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
     assert result.rendered_query_params == [NotificationWebhookField(key="token", value="REDACTED")]
     assert result.rendered_body == f"Stored body withheld ({len(request_body)} chars)"
     assert result.response_body_preview == f"Stored body withheld ({len(response_body)} chars)"
+
+
+def test_test_notification_webhook_blocks_admin_targets_without_allowlist_by_default(db_session, monkeypatch):
+    monkeypatch.delenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", raising=False)
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+
+    user = User(
+        id=uuid.uuid4(),
+        email="admin@example.com",
+        password_hash="x",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    payload = NotificationWebhookWrite(
+        name="Example",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        body_mode="none",
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+    )
+
+    result = run_test_notification_webhook(db_session, user=user, payload=payload)
+
+    assert result.success is False
+    assert (
+        result.error
+        == "Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled"
+    )
 
 
 def test_render_notification_request_defaults_raw_json_to_application_json():

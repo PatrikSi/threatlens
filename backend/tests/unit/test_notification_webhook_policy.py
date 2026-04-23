@@ -4,6 +4,7 @@ import pytest
 
 from app.core.config import Settings
 from app.services.notification_webhook_policy import (
+    admin_notification_webhook_unrestricted_enabled,
     notification_host_matches_allowlist,
     notification_origin_matches_allowlist,
     notification_target_origin,
@@ -83,11 +84,25 @@ def test_validate_notification_target_for_actor_blocks_analysts_without_allowlis
         )
 
 
-def test_validate_notification_target_for_actor_allows_admin_and_approved_analyst_hosts():
+def test_validate_notification_target_for_actor_blocks_admin_without_allowlist_by_default():
+    admin = SimpleNamespace(role="admin")
+
+    with pytest.raises(
+        ValueError,
+        match="Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
+    ):
+        validate_notification_target_for_actor(
+            "https://hooks.example.com/notify",
+            actor_user=admin,
+            allowed_hosts=(),
+        )
+
+
+def test_validate_notification_target_for_actor_allows_allowlisted_admin_and_approved_analyst_hosts():
     validate_notification_target_for_actor(
         "https://hooks.example.com/notify",
         actor_user=SimpleNamespace(role="admin"),
-        allowed_hosts=(),
+        allowed_hosts=("hooks.example.com",),
     )
 
     validate_notification_target_for_actor(
@@ -100,6 +115,17 @@ def test_validate_notification_target_for_actor_allows_admin_and_approved_analys
         "https://hooks.example.com/services/tenant-a/notify",
         actor_user=SimpleNamespace(role="analyst"),
         allowed_hosts=("https://hooks.example.com/services/tenant-a",),
+    )
+
+
+def test_validate_notification_target_for_actor_allows_admin_escape_hatch(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
+
+    assert admin_notification_webhook_unrestricted_enabled() is True
+    validate_notification_target_for_actor(
+        "https://hooks.example.com/notify",
+        actor_user=SimpleNamespace(role="admin"),
+        allowed_hosts=(),
     )
 
 

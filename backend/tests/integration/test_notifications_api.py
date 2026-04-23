@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -11,6 +12,11 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.services.notification_webhooks import NotificationWebhookRetryInProgressError
 from app.schemas.notification import NotificationWebhookTestResponse
+
+
+@pytest.fixture(autouse=True)
+def allow_admin_unrestricted_webhooks(monkeypatch):
+    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
 
 
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):

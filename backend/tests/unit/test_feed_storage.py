@@ -1,3 +1,4 @@
+import hashlib
 import uuid
 
 from app.models.feed import Feed
@@ -30,3 +31,9 @@ def test_feed_url_digest_keeps_authenticated_variants_distinct():
 
     assert token_a != token_b
     assert user_a != user_b
+
+
+def test_feed_url_digest_is_not_plain_sha256_of_url():
+    url = "https://alice:secret@example.com/path/feed.xml?token=alpha"
+
+    assert feed_url_digest(url) != hashlib.sha256(url.encode("utf-8")).hexdigest()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 from typing import Any
 
@@ -55,6 +56,30 @@ def is_encrypted_json(value: Any) -> bool:
     return _is_encrypted_json(value)
 
 
+def is_encrypted_text(value: str | None) -> bool:
+    return isinstance(value, str) and value.startswith(_ENCRYPTED_TEXT_PREFIX)
+
+
+def encrypt_text_if_legacy(value: str | None) -> tuple[str | None, bool]:
+    if value is None or is_encrypted_text(value):
+        return value, False
+    return encrypt_text(value), True
+
+
+def encrypt_json_if_legacy(value: Any) -> tuple[Any, bool]:
+    if value is None or _is_encrypted_json(value):
+        return value, False
+    return encrypt_json(value), True
+
+
+def keyed_hexdigest(value: str | None, *, purpose: str) -> str | None:
+    if value is None:
+        return None
+    secret = _hashing_secret()
+    payload = f"{purpose}\x00{value}".encode("utf-8")
+    return hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+
+
 def _is_encrypted_json(value: Any) -> bool:
     return isinstance(value, dict) and set(value.keys()) == {_ENCRYPTED_JSON_KEY} and isinstance(value[_ENCRYPTED_JSON_KEY], str)
 
@@ -84,6 +109,14 @@ def _decryption_fernets() -> list[Fernet]:
         _append(previous_key)
 
     return [_build_fernet(secret) for secret in candidates]
+
+
+def _hashing_secret() -> str:
+    settings = get_settings()
+    secret = (settings.app_data_encryption_key or "").strip()
+    if not secret:
+        raise ValueError("app_data_encryption_key must be configured before hashing stored data")
+    return secret
 
 
 def _build_fernet(secret: str) -> Fernet:

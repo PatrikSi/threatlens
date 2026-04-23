@@ -13,7 +13,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.core.rbac import ROLE_ANALYST
+from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
@@ -39,6 +39,7 @@ from app.services.notification_webhook_http import (
     default_raw_content_type,
 )
 from app.services.notification_webhook_policy import (
+    admin_notification_webhook_unrestricted_enabled,
     validate_notification_target_for_actor,
 )
 from app.services.notification_webhook_storage import (
@@ -61,6 +62,7 @@ from app.services.notification_webhook_storage import (
     redact_notification_field_values as _redact_notification_field_values,
     redact_notification_query_params as _redact_notification_query_params,
     redact_notification_test_response as _redact_notification_test_response,
+    upgrade_notification_webhook_delivery_secret_storage as _upgrade_notification_webhook_delivery_secret_storage,
 )
 from app.services.url_utils import is_fetchable_url, normalize_url, redact_feed_url
 
@@ -300,6 +302,8 @@ def validate_notification_webhook_payload_for_actor(
     actor_user: User | SimpleNamespace | None,
 ) -> None:
     validate_notification_webhook_payload(payload, available_feed_ids)
+    if getattr(actor_user, "role", None) == ROLE_ADMIN:
+        return
     validate_notification_target_for_actor(
         payload.url_template,
         actor_user=actor_user,
@@ -312,6 +316,7 @@ def validate_notification_delivery_target_for_actor(
     *,
     actor_user: User | SimpleNamespace | None,
 ) -> None:
+    _upgrade_notification_webhook_delivery_secret_storage(delivery)
     rendered_url = _decrypt_notification_text(delivery.rendered_url) or ""
     validate_notification_target_for_actor(
         rendered_url,
@@ -1813,9 +1818,12 @@ def _send_rendered_notification_request(*args, **kwargs):
 
 
 def _redirect_allowlist_entries_for_actor(actor_user: User | SimpleNamespace | None) -> tuple[str, ...]:
-    if getattr(actor_user, "role", None) != ROLE_ANALYST:
-        return ()
-    return get_notification_webhook_allowed_hosts()
+    actor_role = getattr(actor_user, "role", None)
+    if actor_role == ROLE_ANALYST:
+        return get_notification_webhook_allowed_hosts()
+    if actor_role == ROLE_ADMIN and not admin_notification_webhook_unrestricted_enabled():
+        return get_notification_webhook_allowed_hosts()
+    return ()
 
 
 def _restore_saved_request_target(
@@ -1836,6 +1844,7 @@ def _restore_saved_request_target(
 
 
 def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> NotificationWebhookTestResponse:
+    _upgrade_notification_webhook_delivery_secret_storage(delivery)
     rendered_headers = _notification_fields_from_storage(delivery.rendered_headers_json)
     rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
     return NotificationWebhookTestResponse(
@@ -2059,6 +2068,7 @@ def _claim_notification_webhook_delivery(
         and delivery.status_code is None
         and delivery.error is not None
     )
+    _upgrade_notification_webhook_delivery_secret_storage(delivery)
     delivery.delivery_state = NOTIFICATION_DELIVERY_SENDING
     delivery.claimed_at = current_time
     delivery.attempt_count = max(int(delivery.attempt_count or 0), 0) + 1
@@ -2102,6 +2112,7 @@ def _finalize_notification_webhook_delivery(
 
 
 def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> RenderedNotificationRequest:
+    _upgrade_notification_webhook_delivery_secret_storage(delivery)
     rendered_headers = _notification_fields_from_storage(delivery.rendered_headers_json)
     rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
     saved_url = _decrypt_notification_text(delivery.rendered_url) or ""

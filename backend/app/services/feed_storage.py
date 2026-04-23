@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-
 
 def encrypt_feed_url(value: str) -> str:
     from app.services.secret_storage import encrypt_text
@@ -22,4 +20,6 @@ def feed_url_digest(value: str | None) -> str | None:
     plaintext = decrypt_feed_url(value)
     if plaintext is None:
         return None
-    return hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
+    from app.services.secret_storage import keyed_hexdigest
+
+    return keyed_hexdigest(plaintext, purpose="feed-url-digest")

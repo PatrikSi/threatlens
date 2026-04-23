@@ -1,7 +1,9 @@
+import hashlib
+
 import pytest
 
 from app.core.config import get_settings
-from app.services.secret_storage import decrypt_json, decrypt_text, encrypt_json, encrypt_text
+from app.services.secret_storage import decrypt_json, decrypt_text, encrypt_json, encrypt_text, keyed_hexdigest
 
 
 @pytest.fixture(autouse=True)
@@ -53,3 +55,15 @@ def test_secret_storage_can_decrypt_ciphertext_with_previous_key_ring(monkeypatc
     get_settings.cache_clear()
 
     assert decrypt_text(legacy_ciphertext) == "carry-forward"
+
+
+def test_keyed_hexdigest_uses_application_secret(monkeypatch: pytest.MonkeyPatch):
+    plaintext = "https://alice:secret@example.com/path/feed.xml?token=alpha"
+    monkeypatch.setenv("APP_DATA_ENCRYPTION_KEY", "digest-storage-secret-" + "x" * 32)
+
+    digest = keyed_hexdigest(plaintext, purpose="feed-url-digest")
+
+    assert digest is not None
+    assert digest == keyed_hexdigest(plaintext, purpose="feed-url-digest")
+    assert digest != keyed_hexdigest(plaintext, purpose="other-purpose")
+    assert digest != hashlib.sha256(plaintext.encode("utf-8")).hexdigest()
