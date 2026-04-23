@@ -127,9 +127,12 @@ def test_admin_can_queue_tagging_reapply(client: TestClient, auth_headers, monke
     class _FakeTask:
         id = "retag-task-123"
 
-    def _fake_delay(days: int, limit: int):
+    monkeypatch.setattr("app.api.routes.tagging.claim_tagging_reapply_dispatch", lambda: "dispatch-token-1")
+
+    def _fake_delay(days: int, limit: int, dispatch_token: str):
         captured["days"] = days
         captured["limit"] = limit
+        captured["dispatch_token"] = dispatch_token
         return _FakeTask()
 
     monkeypatch.setattr("app.api.routes.tagging.reapply_recent_item_tags.delay", _fake_delay)
@@ -141,10 +144,26 @@ def test_admin_can_queue_tagging_reapply(client: TestClient, auth_headers, monke
     )
     assert response.status_code == 200
     assert response.json() == {"task_id": "retag-task-123", "queued": True}
-    assert captured == {"days": 14, "limit": 250}
+    assert captured == {"days": 14, "limit": 250, "dispatch_token": "dispatch-token-1"}
+
+
+def test_tagging_reapply_returns_409_when_run_is_already_queued_or_in_progress(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.tagging.claim_tagging_reapply_dispatch", lambda: None)
+
+    response = client.post(
+        "/tagging/reapply",
+        json={"days": 14, "limit": 250},
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "A tagging reapply run is already queued or in progress"
 
 
 def test_tagging_reapply_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr("app.api.routes.tagging.claim_tagging_reapply_dispatch", lambda: "dispatch-token-1")
+    released_tokens: list[str] = []
+    monkeypatch.setattr("app.api.routes.tagging.release_tagging_reapply_dispatch", lambda token: released_tokens.append(token))
     monkeypatch.setattr(
         "app.api.routes.tagging.reapply_recent_item_tags.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
@@ -158,3 +177,4 @@ def test_tagging_reapply_returns_503_when_broker_publish_fails(client: TestClien
 
     assert response.status_code == 503
     assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
+    assert released_tokens == ["dispatch-token-1"]

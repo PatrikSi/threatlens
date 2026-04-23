@@ -105,6 +105,8 @@ DOMAIN_SLOT_TTL_SECONDS = 30
 DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
 IOC_EXTRACTION_STATE_COMPLETED = "completed"
 IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
+TAGGING_REAPPLY_COMMIT_INTERVAL = 50
+TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 
 
 class ResponseTooLargeError(Exception):
@@ -651,6 +653,78 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
                 1,
                 key,
                 token,
+            )
+            redis_client.delete(_lease_heartbeat_key(key))
+        except redis.RedisError:
+            pass
+
+
+def claim_tagging_reapply_dispatch(ttl_seconds: int = 900) -> str | None:
+    key = TAGGING_REAPPLY_LOCK_KEY
+    token = secrets.token_hex(16)
+
+    try:
+        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+        if not acquired:
+            acquired = _try_take_stale_lease(
+                key,
+                ttl_seconds,
+                token,
+                error_message="tagging reapply lock unavailable",
+            )
+    except redis.RedisError as exc:
+        raise CoordinationUnavailableError("tagging reapply lock unavailable") from exc
+    return token if acquired else None
+
+
+def release_tagging_reapply_dispatch(token: str) -> None:
+    try:
+        redis_client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            TAGGING_REAPPLY_LOCK_KEY,
+            token,
+        )
+        redis_client.delete(_lease_heartbeat_key(TAGGING_REAPPLY_LOCK_KEY))
+    except redis.RedisError:
+        return
+
+
+@contextmanager
+def tagging_reapply_lock(ttl_seconds: int = 900, token: str | None = None):
+    key = TAGGING_REAPPLY_LOCK_KEY
+    resolved_token = token or secrets.token_hex(16)
+
+    acquired = False
+    try:
+        if token and redis_client.get(key) == token:
+            acquired = True
+        else:
+            acquired = bool(redis_client.set(key, resolved_token, nx=True, ex=ttl_seconds))
+        if not acquired:
+            acquired = _try_take_stale_lease(
+                key,
+                ttl_seconds,
+                resolved_token,
+                error_message="tagging reapply lock unavailable",
+            )
+    except redis.RedisError as exc:
+        raise CoordinationUnavailableError("tagging reapply lock unavailable") from exc
+
+    if not acquired:
+        yield False
+        return
+
+    try:
+        with _redis_lease_heartbeat(key, ttl_seconds, resolved_token):
+            yield True
+    finally:
+        try:
+            redis_client.eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                key,
+                resolved_token,
             )
             redis_client.delete(_lease_heartbeat_key(key))
         except redis.RedisError:
@@ -2415,7 +2489,7 @@ def extract_item_iocs(item_id: str):
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def reapply_recent_item_tags(days: int = 30, limit: int = 0):
+def reapply_recent_item_tags(days: int = 30, limit: int = 0, dispatch_token: str | None = None):
     if days <= 0:
         return {"status": "skipped", "reason": "invalid_days", "days": days}
     if limit < 0:
@@ -2424,66 +2498,76 @@ def reapply_recent_item_tags(days: int = 30, limit: int = 0):
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     processed = 0
 
-    with db_session() as db:
-        query = (
-            select(Item.id)
-            .where(Item.first_seen_at >= cutoff)
-            .order_by(Item.first_seen_at.desc())
-        )
-        if limit:
-            query = query.limit(limit)
+    try:
+        with tagging_reapply_lock(token=dispatch_token) as acquired:
+            if not acquired:
+                return {"status": "skipped", "reason": "already_running", "days": days, "limit": limit}
 
-        item_ids = list(db.scalars(query).all())
-        for item_id_value in item_ids:
-            item = db.scalar(select(Item).where(Item.id == item_id_value))
-            if item is None:
-                continue
-
-            article = db.scalar(select(Article).where(Article.item_id == item.id))
-            classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item.id))
-            feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-            if feed is None:
-                continue
-
-            if classification is None:
-                result = classify_item_content(
-                    title=item.title,
-                    summary=item.summary,
-                    article_text=article.text if article else None,
-                    feed_name=feed.name,
+            with db_session() as db:
+                query = (
+                    select(Item.id)
+                    .where(Item.first_seen_at >= cutoff)
+                    .order_by(Item.first_seen_at.desc())
                 )
-                classification = ItemClassification(item_id=item.id)
-                classification.primary_category = result.primary_category
-                classification.secondary_categories = result.secondary_categories
-                classification.confidence = result.confidence
-                classification.scores_json = result.scores
-                classification.matched_terms_json = result.matched_terms
-                classification.source_hash = result.source_hash
-                classification.rules_version = result.rules_version
-                classification.classified_at = datetime.now(timezone.utc)
-                db.add(classification)
+                if limit:
+                    query = query.limit(limit)
 
-            feedback_adjustments = load_feedback_adjustments(
-                db,
-                tag_names=[classification.primary_category, *(classification.secondary_categories or [])],
-            )
-            sync_item_algorithm_tags(
-                db,
-                item_id=item.id,
-                primary_category=classification.primary_category,
-                secondary_categories=classification.secondary_categories,
-                feed_id=item.feed_id,
-                classification_confidence=classification.confidence,
-                title=item.title,
-                summary=item.summary,
-                article_text=article.text if article else None,
-                feed_name=feed.name,
-                feed_url=feed.url,
-                feedback_adjustments=feedback_adjustments,
-            )
-            processed += 1
+                for item_id_value in db.scalars(query):
+                    item = db.scalar(select(Item).where(Item.id == item_id_value))
+                    if item is None:
+                        continue
 
-        db.commit()
+                    article = db.scalar(select(Article).where(Article.item_id == item.id))
+                    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item.id))
+                    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
+                    if feed is None:
+                        continue
+
+                    if classification is None:
+                        result = classify_item_content(
+                            title=item.title,
+                            summary=item.summary,
+                            article_text=article.text if article else None,
+                            feed_name=feed.name,
+                        )
+                        classification = ItemClassification(item_id=item.id)
+                        classification.primary_category = result.primary_category
+                        classification.secondary_categories = result.secondary_categories
+                        classification.confidence = result.confidence
+                        classification.scores_json = result.scores
+                        classification.matched_terms_json = result.matched_terms
+                        classification.source_hash = result.source_hash
+                        classification.rules_version = result.rules_version
+                        classification.classified_at = datetime.now(timezone.utc)
+                        db.add(classification)
+
+                    feedback_adjustments = load_feedback_adjustments(
+                        db,
+                        tag_names=[classification.primary_category, *(classification.secondary_categories or [])],
+                    )
+                    sync_item_algorithm_tags(
+                        db,
+                        item_id=item.id,
+                        primary_category=classification.primary_category,
+                        secondary_categories=classification.secondary_categories,
+                        feed_id=item.feed_id,
+                        classification_confidence=classification.confidence,
+                        title=item.title,
+                        summary=item.summary,
+                        article_text=article.text if article else None,
+                        feed_name=feed.name,
+                        feed_url=feed.url,
+                        feedback_adjustments=feedback_adjustments,
+                    )
+                    processed += 1
+
+                    if processed % TAGGING_REAPPLY_COMMIT_INTERVAL == 0:
+                        db.commit()
+                        db.expire_all()
+
+                db.commit()
+    except CoordinationUnavailableError:
+        return {"status": "error", "reason": "coordination_unavailable", "days": days, "limit": limit}
 
     return {
         "status": "ok",

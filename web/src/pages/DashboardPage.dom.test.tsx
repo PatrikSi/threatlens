@@ -288,6 +288,32 @@ function setSelectValue(select: HTMLSelectElement, value: string) {
   select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
+function createJsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+}
+
+async function flushAsyncWork() {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 0))
+  })
+}
+
+async function uploadFile(input: HTMLInputElement, file: File) {
+  Object.defineProperty(input, 'files', {
+    configurable: true,
+    value: [file],
+  })
+  act(() => {
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await flushAsyncWork()
+}
+
 beforeEach(() => {
   dashboardPageDomMocks.views = [
     createSavedView(
@@ -331,6 +357,7 @@ afterEach(() => {
   dashboardPageDomMocks.queryClient.invalidateQueries.mockReset()
   dashboardPageDomMocks.queryClient.setQueriesData.mockReset()
   dashboardPageDomMocks.queryClient.setQueryData.mockReset()
+  vi.unstubAllGlobals()
 })
 
 describe('DashboardPage DOM workflows', () => {
@@ -495,6 +522,68 @@ describe('DashboardPage DOM workflows', () => {
     expect(view.querySelector('[aria-label="Notes Panel 1 scratch notes"]')).toBeNull()
     expect(getSelect('Load saved dashboard view')?.value).toBe('view-rss')
     expect(getButton('Edit Layout')).not.toBeNull()
+  })
+
+  it('labels saved-view load and delete actions with the view name in Manage Saved Views', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Views')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.querySelector('[aria-label="Load saved view RSS intel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Delete saved view RSS intel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Load saved view Imported Notes"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Delete saved view Imported Notes"]')).not.toBeNull()
+  })
+
+  it('reports both completed imports and the exact saved view that failed during a partial import', async () => {
+    renderPage()
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({
+          id: 'imported-1',
+          name: 'Alpha View',
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: 'A saved view with that name already exists.' }), {
+          status: 409,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }),
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    act(() => {
+      getButton('Views')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const fileInput = document.querySelector<HTMLInputElement>('[aria-label="Import saved dashboard views JSON"]')
+    expect(fileInput).not.toBeNull()
+
+    const file = new File(
+      [
+        JSON.stringify({
+          views: [
+            { name: 'Alpha View', query_json: { windows: [] } },
+            { name: 'Bravo View', query_json: { windows: [] } },
+          ],
+        }),
+      ],
+      'views.json',
+      { type: 'application/json' },
+    )
+
+    await uploadFile(fileInput!, file)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(pageText()).toContain('Imported 1 saved view before the import stopped: "Alpha View".')
+    expect(pageText()).toContain('Failed to import "Bravo View": A saved view with that name already exists.')
+    expect(dashboardPageDomMocks.queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ['views'] })
   })
 
   it('wires the Add Panel menu with expanded state and keyboard navigation', () => {

@@ -71,6 +71,10 @@ FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS = 12
 DAILY_DIGEST_WINDOW_HOURS = 24
 THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
 
+
+class NotificationWebhookRetryInProgressError(RuntimeError):
+    pass
+
 TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
     NotificationTemplateVariable(key="event.type", description="Notification event type.", example="rss_item_new"),
     NotificationTemplateVariable(
@@ -1154,6 +1158,19 @@ def retry_notification_webhook_delivery(
     webhook: NotificationWebhook,
     delivery: NotificationWebhookDelivery,
 ) -> NotificationWebhookDelivery:
+    retry_root_id = _notification_delivery_retry_root_id(delivery)
+    if not try_acquire_notification_delivery_lock(
+        db,
+        webhook_id=webhook.id,
+        event_type=delivery.event_type_snapshot,
+        delivery_kind="retry",
+        source_delivery_id=retry_root_id,
+    ):
+        reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+        if reusable_retry is not None:
+            return reusable_retry
+        raise NotificationWebhookRetryInProgressError("Webhook retry is already queued or in progress")
+
     reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
     if reusable_retry is not None:
         return reusable_retry
@@ -1175,6 +1192,23 @@ def reserve_retryable_notification_webhook_delivery(
     chain_attempt_count = _notification_delivery_chain_attempt_count(db, retry_root_id=retry_root_id)
     max_attempts = max(1, int(settings.notification_delivery_retry_max_attempts))
     if chain_attempt_count >= max_attempts:
+        return None
+
+    if not try_acquire_notification_delivery_lock(
+        db,
+        webhook_id=webhook.id,
+        event_type=delivery.event_type_snapshot,
+        delivery_kind="retry",
+        source_delivery_id=retry_root_id,
+    ):
+        reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+        if reusable_retry is not None:
+            countdown_seconds = None if reusable_retry.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED else 0
+            return NotificationWebhookRetryReservation(
+                delivery=reusable_retry,
+                created=False,
+                countdown_seconds=countdown_seconds,
+            )
         return None
 
     reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)

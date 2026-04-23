@@ -202,7 +202,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
 
 const routerMocks = vi.hoisted(() => ({
   useBlocker: vi.fn(() => ({
-    state: 'unblocked' as const,
+    state: 'unblocked' as 'unblocked' | 'blocked',
     proceed: vi.fn(),
     reset: vi.fn(),
   })),
@@ -354,6 +354,18 @@ function pageText() {
   return document.body.textContent ?? ''
 }
 
+function getButton(text: string) {
+  return Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text)) ?? null
+}
+
+function getLabeledInput(labelText: string) {
+  return (
+    Array.from(document.querySelectorAll('label'))
+      .find((label) => label.textContent?.includes(labelText))
+      ?.querySelector('input') ?? null
+  )
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -369,6 +381,12 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   aiSettingsPageDomMocks.cancelMutate.mockReset()
+  routerMocks.useBlocker.mockReset()
+  routerMocks.useBlocker.mockImplementation(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  }))
 })
 
 describe('AiSettingsPage DOM workflows', () => {
@@ -423,7 +441,7 @@ describe('AiSettingsPage DOM workflows', () => {
   it('blocks reprocess queueing when the lookback scope becomes blank', () => {
     const view = renderPage()
 
-    const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
+    const jobsTab = getButton('Jobs')
     expect(jobsTab).not.toBeNull()
 
     act(() => {
@@ -445,6 +463,69 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(pageText()).toContain('Lookback Days must be a whole number greater than 0')
     expect(queueButton?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('warns on blocked navigation when a reprocess scope is in progress', () => {
+    const proceed = vi.fn()
+    const reset = vi.fn()
+    routerMocks.useBlocker.mockReturnValue({
+      state: 'blocked' as const,
+      proceed,
+      reset,
+    })
+
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
+    expect(startTimeInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(startTimeInput!, '2026-04-21T08:30')
+    })
+
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('You have a reprocess scope in progress. Leave without queueing or clearing it?')
+
+    act(() => {
+      getButton('Discard changes')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(proceed).toHaveBeenCalledTimes(1)
+    expect(reset).not.toHaveBeenCalled()
+  })
+
+  it('confirms before clearing a built reprocess scope', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const lookbackInput = getLabeledInput('Lookback Days') as HTMLInputElement | null
+    expect(lookbackInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(lookbackInput!, '14')
+    })
+
+    expect(lookbackInput?.value).toBe('14')
+
+    act(() => {
+      getButton('Clear Scope')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Clear reprocess scope?')
+    expect(lookbackInput?.value).toBe('14')
+
+    act(() => {
+      getButton('Clear scope')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(lookbackInput?.value).toBe('7')
   })
 
   it('labels connection testing as a saved-config action and blocks it while the draft is dirty', () => {

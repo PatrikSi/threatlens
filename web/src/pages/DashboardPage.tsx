@@ -163,6 +163,38 @@ function resolveDashboardViewSaveError(error: unknown) {
   return 'Failed to save the dashboard view. Your edits are still open.'
 }
 
+function resolveSavedViewImportError(error: unknown) {
+  if (error instanceof ApiError && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Unable to import this saved view.'
+}
+
+function summarizeSavedViewNames(names: string[]) {
+  const quotedNames = names.map((name) => `"${name}"`)
+  if (quotedNames.length <= 3) {
+    return quotedNames.join(', ')
+  }
+  return `${quotedNames.slice(0, 3).join(', ')}, and ${quotedNames.length - 3} more`
+}
+
+function formatSavedViewImportResult(importedNames: string[], partial = false) {
+  const count = importedNames.length
+  const label = `saved view${count === 1 ? '' : 's'}`
+  const namesSummary = summarizeSavedViewNames(importedNames)
+  if (partial) {
+    return `Imported ${count} ${label} before the import stopped: ${namesSummary}.`
+  }
+  return `Imported ${count} ${label}: ${namesSummary}.`
+}
+
+function formatSavedViewImportFailure(viewName: string, error: unknown) {
+  return `Failed to import "${viewName}": ${resolveSavedViewImportError(error)}`
+}
+
 export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -1458,16 +1490,25 @@ export function DashboardPage() {
         throw new Error('No saved views found in file')
       }
 
-      let created = 0
+      const importedNames: string[] = []
       for (const entry of entries) {
-        await apiFetch('/views', {
-          method: 'POST',
-          body: JSON.stringify(entry),
-        })
-        created += 1
+        try {
+          await apiFetch('/views', {
+            method: 'POST',
+            body: JSON.stringify(entry),
+          })
+          importedNames.push(entry.name)
+        } catch (error) {
+          if (importedNames.length) {
+            setImportViewsResult(formatSavedViewImportResult(importedNames, true))
+            await queryClient.invalidateQueries({ queryKey: ['views'] })
+          }
+          setImportViewsError(formatSavedViewImportFailure(entry.name, error))
+          return
+        }
       }
 
-      setImportViewsResult(`Imported ${created} saved view${created === 1 ? '' : 's'}.`)
+      setImportViewsResult(formatSavedViewImportResult(importedNames))
       await queryClient.invalidateQueries({ queryKey: ['views'] })
     } catch (error) {
       setImportViewsError((error as Error).message || 'Failed to import saved views')
@@ -3486,6 +3527,7 @@ export function DashboardPage() {
                     type="button"
                     className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
                     onClick={() => requestSavedViewLoad(view.id)}
+                    aria-label={`Load saved view ${view.name}`}
                   >
                     Load
                   </button>
@@ -3494,6 +3536,7 @@ export function DashboardPage() {
                     className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
                     onClick={() => setPendingViewDelete(view)}
                     disabled={deleteView.isPending || Boolean(pendingViewDelete)}
+                    aria-label={`Delete saved view ${view.name}`}
                   >
                     Delete
                   </button>

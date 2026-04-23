@@ -24,6 +24,7 @@ from app.schemas.notification import (
 )
 from app.services.audit import record_audit
 from app.services.notification_webhooks import (
+    NotificationWebhookRetryInProgressError,
     apply_notification_webhook_updates,
     build_notification_webhook,
     get_notification_analytics,
@@ -218,7 +219,10 @@ def retry_notification_webhook_delivery_route(
 
     _require_notification_webhook_egress_authority(user)
 
-    retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
+    try:
+        retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
+    except NotificationWebhookRetryInProgressError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     failed_delivery_reservations = (
         reserve_webhook_failed_notification_deliveries(db, failed_delivery=retried)
         if not retried.success and retried.event_type_snapshot != "webhook_failed"

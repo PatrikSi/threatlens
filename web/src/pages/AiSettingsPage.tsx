@@ -66,6 +66,8 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
   triggerSource: '',
   onlyFailures: false,
 }
+const DEFAULT_REPROCESS_DAYS = '7'
+const DEFAULT_REPROCESS_LIMIT = '100'
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
   { value: 'overview', label: 'Status' },
@@ -90,13 +92,14 @@ export function AiSettingsPage() {
   const [draftDirty, setDraftDirty] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
-  const [reprocessDays, setReprocessDays] = useState('7')
-  const [reprocessLimit, setReprocessLimit] = useState('100')
+  const [reprocessDays, setReprocessDays] = useState(DEFAULT_REPROCESS_DAYS)
+  const [reprocessLimit, setReprocessLimit] = useState(DEFAULT_REPROCESS_LIMIT)
   const [reprocessStartTime, setReprocessStartTime] = useState('')
   const [reprocessEndTime, setReprocessEndTime] = useState('')
   const [reprocessFeedIds, setReprocessFeedIds] = useState<string[]>([])
   const [reprocessItemSearch, setReprocessItemSearch] = useState('')
   const [selectedReprocessItems, setSelectedReprocessItems] = useState<ItemListEntry[]>([])
+  const [pendingReprocessScopeClear, setPendingReprocessScopeClear] = useState(false)
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
   const [pendingCancelRun, setPendingCancelRun] = useState<AITaskRunResponse | null>(null)
   const [selectedModel, setSelectedModel] = useState('all')
@@ -112,9 +115,37 @@ export function AiSettingsPage() {
     setTestResult(null)
     setDraftState(value)
   }
+  const reprocessScopeDirty = useMemo(
+    () =>
+      reprocessDays.trim() !== DEFAULT_REPROCESS_DAYS ||
+      reprocessLimit.trim() !== DEFAULT_REPROCESS_LIMIT ||
+      reprocessStartTime.trim() !== '' ||
+      reprocessEndTime.trim() !== '' ||
+      reprocessFeedIds.length > 0 ||
+      reprocessItemSearch.trim() !== '' ||
+      selectedReprocessItems.length > 0,
+    [
+      reprocessDays,
+      reprocessEndTime,
+      reprocessFeedIds,
+      reprocessItemSearch,
+      reprocessLimit,
+      reprocessStartTime,
+      selectedReprocessItems,
+    ],
+  )
+  const unsavedAiSettingsMessage = useMemo(() => {
+    if (draftDirty && reprocessScopeDirty) {
+      return 'You have unsaved AI settings changes and a reprocess scope in progress. Leave without saving or queueing that work?'
+    }
+    if (draftDirty) {
+      return 'You have unsaved AI settings changes. Leave without saving?'
+    }
+    return 'You have a reprocess scope in progress. Leave without queueing or clearing it?'
+  }, [draftDirty, reprocessScopeDirty])
   const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
-    draftDirty,
-    'You have unsaved AI settings changes. Leave without saving?',
+    draftDirty || reprocessScopeDirty,
+    unsavedAiSettingsMessage,
   )
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
@@ -474,13 +505,26 @@ export function AiSettingsPage() {
     (runningRunsQuery.isLoading && !runningRunsQuery.data)
 
   function clearReprocessScope() {
-    setReprocessDays('7')
-    setReprocessLimit('100')
+    setReprocessDays(DEFAULT_REPROCESS_DAYS)
+    setReprocessLimit(DEFAULT_REPROCESS_LIMIT)
     setReprocessStartTime('')
     setReprocessEndTime('')
     setReprocessFeedIds([])
     setReprocessItemSearch('')
     setSelectedReprocessItems([])
+  }
+
+  function requestClearReprocessScope() {
+    if (!reprocessScopeDirty) {
+      clearReprocessScope()
+      return
+    }
+    setPendingReprocessScopeClear(true)
+  }
+
+  function confirmClearReprocessScope() {
+    setPendingReprocessScopeClear(false)
+    clearReprocessScope()
   }
 
   function openRunInHistory(runId: string) {
@@ -507,6 +551,12 @@ export function AiSettingsPage() {
     }, 90)
     return () => window.clearTimeout(timer)
   }, [activeTab, pendingRunNavigation])
+
+  useEffect(() => {
+    if (!reprocessScopeDirty) {
+      setPendingReprocessScopeClear(false)
+    }
+  }, [reprocessScopeDirty])
 
   if (currentUserQuery.isLoading) {
     return (
@@ -686,7 +736,7 @@ export function AiSettingsPage() {
                 onRemoveItem={(itemId) => {
                   setSelectedReprocessItems((current) => current.filter((item) => item.id !== itemId))
                 }}
-                onClearScope={clearReprocessScope}
+                onClearScope={requestClearReprocessScope}
                 reprocessPending={reprocessMutation.isPending}
                 reprocessValidation={reprocessQueueState.validation}
                 reprocessQueueDisabled={!reprocessQueueState.payload}
@@ -749,6 +799,15 @@ export function AiSettingsPage() {
           )}
         </section>
       </div>
+
+      <ConfirmDialog
+        open={pendingReprocessScopeClear}
+        title="Clear reprocess scope?"
+        description="This resets the reprocess scope to the default 7-day and 100-article window and removes any feed, time, search, or article targeting you have built."
+        confirmLabel="Clear scope"
+        onCancel={() => setPendingReprocessScopeClear(false)}
+        onConfirm={confirmClearReprocessScope}
+      />
 
       <ConfirmDialog
         open={Boolean(pendingCancelRun)}

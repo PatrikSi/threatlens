@@ -46,6 +46,7 @@ from app.tasks.feed_tasks import (
     feed_lock,
     domain_slot,
     reconcile_ai_task_runs,
+    reapply_recent_item_tags,
     reprocess_recent_ai_items,
     daily_ai_brief_lock,
 )
@@ -512,6 +513,28 @@ def test_dispatch_daily_ai_brief_marks_manual_run_skipped_when_lock_is_busy(db_s
     assert refreshed_run.status == "skipped"
     assert refreshed_run.reason == "already_running"
     assert refreshed_run.worker_name
+
+
+def test_reapply_recent_item_tags_skips_when_reapply_lock_is_busy(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _tagging_lock_override(ttl_seconds: int = 900, token: str | None = None):
+        _ = (ttl_seconds, token)
+        yield False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.tagging_reapply_lock", _tagging_lock_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.classify_item_content",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
+    )
+
+    result = reapply_recent_item_tags.run(30, 0)
+
+    assert result == {"status": "skipped", "reason": "already_running", "days": 30, "limit": 0}
 
 
 def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):

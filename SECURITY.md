@@ -2,36 +2,48 @@
 
 ## Supported Code Lines
 
-ThreatLens uses immutable public tags when maintainers cut a release. The default branch is the active public development line and receives best-effort community support. Until the first public tag exists, operators should pin the exact commit SHA and image digest they deploy; there is not yet a separate stable release branch.
+ThreatLens uses immutable public tags when maintainers cut a release. The default branch is the current development line and receives best-effort maintainer support. Until the first public tag exists, operators should pin the exact commit SHA and image digest they deploy; there is not yet a separate stable release branch.
 
 Support expectations:
 
 | Code Line | Supported |
 |---|---|
 | Latest published tag | Yes, when tags exist |
-| `main` / default branch | Current public development line with best-effort support |
+| `main` / default branch | Current development line with best-effort support |
 | Older tags, snapshots, and forks | Historical reference only |
 
-Repository issues and discussions are best-effort community support channels, not a contractual support SLA.
+GitHub issue-based coordination remains a best-effort maintainer workflow, not a contractual support SLA.
 
 If no public tag exists yet, use the deployed commit SHA, container image digest, and checked-in OpenAPI contract digest as your release anchor when reporting issues.
 
+## Current Reporting Posture
+
+The configured GitHub origin for this checkout is `https://github.com/PatrikSi/threatlens`, and the repository is currently private with issues enabled for collaborators.
+
+The repository does not currently publish:
+
+- a dedicated private security inbox
+- a verified GitHub private advisory submission path
+- any separate public security intake route for people who do not already have repository access
+
+Until one of those paths is published, ThreatLens should not be described as having a fully public-release-ready confidential vulnerability intake.
+
 ## Reporting
 
-ThreatLens does not currently publish a dedicated private security inbox or an active GitHub private advisory submission form in-repo.
-
-For now, use the public issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
+For now, collaborators with repository access can use the issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 
-Please do not publish unpatched vulnerability details in a public issue. Public coordination requests should stay high-level and should not include:
+If you do not already have repository access, this tree does not currently publish a repo-owned confidential reporting path. That remains an external blocker for broader public vulnerability intake.
+
+Please do not publish unpatched vulnerability details in an issue. Initial coordination requests should stay high-level and should not include:
 
 - exploit steps
 - proof-of-concept code
 - secrets, tokens, session cookies, or production data
 - hostnames, IPs, or tenant-specific details that would increase exposure
 
-Use the first public message only to share:
+Use the first issue only to share:
 
 - affected commit, branch, tag, or container image
 - a short impact summary
@@ -40,7 +52,7 @@ Use the first public message only to share:
 
 Maintainers may continue coordination through a non-public channel after the initial report, but ThreatLens does not currently guarantee or pre-publish a separate private contact path in-repo.
 
-If no non-public path is available for a report, keep using the public issue only for coordination and avoid posting details that would materially increase exposure before a fix or mitigation is available.
+If no non-public path is available for a report, keep using the issue only for coordination and avoid posting details that would materially increase exposure before a fix or mitigation is available.
 
 Once you have a private path, include as much of the following as you can:
 

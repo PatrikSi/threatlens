@@ -91,17 +91,20 @@ Release-contract artifacts shipped in the repo:
 
 Project status and support posture:
 
-- ThreatLens is developed in public and accepts issues and pull requests on GitHub.
+- The configured GitHub origin for this checkout is `https://github.com/PatrikSi/threatlens`, and the repository is currently private.
 - Tagged releases, when published, are the preferred upgrade anchors for operators.
-- Until the first public tag exists, pin the exact commit SHA and container image digest you deploy. The default branch is the active community development line, not a separate LTS channel.
-- Repository issues, discussions, and pull requests are best-effort community channels rather than a contractual support SLA.
+- Until the first public tag exists, pin the exact commit SHA and container image digest you deploy. The default branch is the active development line, not a separate LTS channel.
+- GitHub issues and pull requests are currently collaborator workflows inside the private repository, not a public support or disclosure channel.
+- Maintainer responses remain best-effort rather than a contractual support SLA.
 
 Community and reporting paths:
 
-- Questions and bug reports: `https://github.com/PatrikSi/threatlens/issues`
-- Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
-- Security reporting policy: `SECURITY.md` for the current public first-contact process; ThreatLens does not currently publish a dedicated private inbox or GitHub private advisory submission form in-repo
-- Maintainer profile: `https://github.com/PatrikSi`
+- Repository URL: `https://github.com/PatrikSi/threatlens`
+- Collaborator issue tracker: `https://github.com/PatrikSi/threatlens/issues`
+- Collaborator pull requests: `https://github.com/PatrikSi/threatlens/pulls`
+- Security reporting policy: `SECURITY.md` for the current collaborator-visible first-contact process; ThreatLens does not currently publish a dedicated private inbox or a verified GitHub private advisory submission path
+- Conduct and moderation policy: `CODE_OF_CONDUCT.md`; ThreatLens does not currently publish a dedicated private maintainer conduct inbox in-repo
+- If you do not already have repository access, this tree does not yet publish a public issue tracker, public discussion forum, or repo-owned confidential reporting path
 
 ## Running with Docker
 
@@ -125,7 +128,7 @@ Startup flow for `docker-compose.yml`:
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
 - Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
-- The shipped proxy defaults only trust explicit proxy hops you configure. If you need the API to preserve browser IPs through the bundled web proxy or another reverse proxy, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
+- The bundled compose stack reserves `172.31.240.0/24` for the `web` frontend network and trusts that exact subnet by default so browser auth throttling can recover the real client IP through the shipped proxy. If you deploy behind different proxies, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -211,7 +214,7 @@ docker compose exec redis sh -lc \
   "redis-cli --scan --pattern 'threatlens:auth:*' | xargs -r redis-cli del"
 ```
 
-4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to the exact proxy hops you control so IP-based auth throttling can walk the preserved chain back to the real client IP.
+4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to the exact proxy hops you control so IP-based auth throttling can walk the preserved chain back to the real client IP. The bundled compose file already trusts its reserved `web` frontend subnet `172.31.240.0/24`.
 
 ### Logs
 
@@ -485,8 +488,8 @@ RUN_MIGRATIONS_ON_STARTUP=true SEED_ADMIN_ON_STARTUP=true ./backend/scripts/star
 Run workers:
 
 ```bash
-celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
+./.venv/bin/celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 ```
 
 ### Frontend

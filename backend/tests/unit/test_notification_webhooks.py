@@ -22,6 +22,7 @@ from app.services.notification_webhook_http import (
     send_request_with_redirects,
 )
 from app.services.notification_webhooks import (
+    NotificationWebhookRetryInProgressError,
     build_alert_match_context_for_item,
     get_notification_analytics,
     list_recoverable_notification_delivery_ids,
@@ -1714,6 +1715,65 @@ def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(db
 
     assert retried.id == successful_retry.id
     assert retried.delivery_state == "succeeded"
+
+
+def test_retry_notification_webhook_delivery_raises_when_retry_lock_is_busy_without_reusable_candidate(
+    db_session,
+    monkeypatch,
+):
+    user = User(
+        id=uuid.uuid4(),
+        email="notify@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Retry webhook",
+        url_template="https://example.com/hook",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    original_delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=webhook.user_id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=1,
+        success=False,
+        status_code=503,
+        duration_ms=41,
+        timeout_seconds=12,
+        rendered_url="https://example.com/hook",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        rendered_body='{"title":"ThreatLens"}',
+        response_body_preview="server error",
+        error="HTTP 503",
+    )
+    _persist_rows(db_session, user)
+    _persist_rows(db_session, webhook, original_delivery)
+    db_session.commit()
+
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.try_acquire_notification_delivery_lock",
+        lambda *_args, **_kwargs: False,
+    )
+
+    with pytest.raises(NotificationWebhookRetryInProgressError, match="already queued or in progress"):
+        retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
 
 
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):

@@ -6,8 +6,8 @@ ThreatLens treats the checked-in API, dependency, and governance artifacts as pa
 
 Before publishing a public tag, image, or source release:
 
-1. Verify the public repository paths in `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` still point to the active ThreatLens GitHub repository and maintainer profile.
-2. Verify `SECURITY.md` still matches the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository is public, the repository UI exposes private vulnerability reporting, and maintainers have verified it; otherwise keep the policy on the public issue-based coordination path.
+1. Verify the repository paths in `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` still point to the active ThreatLens GitHub repository and still describe its actual access posture correctly.
+2. Verify `SECURITY.md` and `CODE_OF_CONDUCT.md` still match the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository is public, the repository UI exposes private vulnerability reporting, and maintainers have verified it. While the repository remains private, keep the docs explicit that issue and pull-request URLs are collaborator-only paths rather than a published public reporting surface.
 3. Regenerate the API and dependency artifacts described below.
 4. Copy the current OpenAPI contract anchor from `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) into the release notes and changelog entry for the published tag.
 5. Run the contract-anchor guard below to confirm `CHANGELOG.md` matches the checked-in schema.
@@ -18,13 +18,14 @@ Before publishing a public tag, image, or source release:
 If the repository is still private while you are preparing the first open-source release, treat repository visibility and security-reporting setup as part of the release gate:
 
 1. Make the repository public only when the reviewed release commit, images, and docs are ready.
-2. Immediately enable GitHub private vulnerability reporting for the now-public repository.
-3. Update `SECURITY.md` to point to the live advisory/reporting path before announcing the release.
+2. Enable GitHub private vulnerability reporting for the now-public repository, or publish an equivalent repo-owned confidential vulnerability intake path, before announcing the release.
+3. Update `SECURITY.md` to point to the live confidential advisory/reporting path before announcing the release.
+4. Recheck `README.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` so they no longer describe collaborator-only GitHub URLs as the public community/reporting surface.
 
 ## Supported Code Lines
 
 - Public releases should use immutable tags in `vX.Y.Z` format.
-- `main` is the active public development line and receives best-effort community support.
+- Once the repository is public, `main` is the active public development line and receives best-effort community support.
 - Only the latest published tag is considered a supported release line once tags exist.
 - If no public tag exists yet, pin the deployed commit SHA, image digests, and checked-in OpenAPI contract anchor together as the current release reference.
 

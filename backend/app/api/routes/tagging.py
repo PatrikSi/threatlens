@@ -40,6 +40,7 @@ from app.services.tagging_config import (
     tagging_settings_response_from_model,
 )
 from app.tasks.feed_tasks import reapply_recent_item_tags
+from app.tasks.feed_tasks import claim_tagging_reapply_dispatch, release_tagging_reapply_dispatch, CoordinationUnavailableError
 
 router = APIRouter(prefix="/tagging", tags=["tagging"])
 
@@ -203,8 +204,30 @@ def queue_tagging_reapply(
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_TAGS)),
 ):
     try:
-        task = reapply_recent_item_tags.delay(payload.days, payload.limit)
+        dispatch_token = claim_tagging_reapply_dispatch()
+    except CoordinationUnavailableError as exc:
+        record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="tagging.reapply.queue",
+            resource_type="tagging_settings",
+            success=False,
+            metadata={"days": payload.days, "limit": payload.limit, "error": str(exc)},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Tagging reapply coordination is temporarily unavailable. Try again later.",
+        ) from exc
+    if dispatch_token is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tagging reapply run is already queued or in progress",
+        )
+    try:
+        task = reapply_recent_item_tags.delay(payload.days, payload.limit, dispatch_token)
     except Exception as exc:
+        release_tagging_reapply_dispatch(dispatch_token)
         record_audit(
             db,
             actor_user_id=admin.id,
