@@ -63,6 +63,7 @@ export function AlertsPage() {
   })
 
   const saveAlert = useMutation({
+    mutationKey: ['alerts', 'save'],
     mutationFn: (payload: { id?: string; name: string; category: string; keywords: string[] }) => {
       if (payload.id) {
         return apiFetch<AlertInterest>(`/alerts/${payload.id}`, {
@@ -92,6 +93,7 @@ export function AlertsPage() {
   })
 
   const updateAlert = useMutation({
+    mutationKey: ['alerts', 'update'],
     mutationFn: (payload: { id: string; body: Record<string, unknown> }) =>
       apiFetch<AlertInterest>(`/alerts/${payload.id}`, {
         method: 'PATCH',
@@ -101,6 +103,7 @@ export function AlertsPage() {
   })
 
   const deleteAlert = useMutation({
+    mutationKey: ['alerts', 'delete'],
     mutationFn: (id: string) =>
       apiFetch(`/alerts/${id}`, {
         method: 'DELETE',

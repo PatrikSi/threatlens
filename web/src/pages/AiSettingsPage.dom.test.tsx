@@ -37,7 +37,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     ai_enabled: true,
     ai_configured: true,
     api_key_configured: true,
-    provider_type: 'openai',
+    provider_type: 'openai_compatible',
     base_url: 'https://api.example.com/v1',
     model: 'gpt-threat',
     temperature: 0.2,
@@ -293,9 +293,9 @@ vi.mock('@tanstack/react-query', () => ({
 
     return baseResult
   },
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/ai/ops/runs/${runId}/cancel')) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'ai:ops:runs:cancel') {
       return aiMutationResult(aiSettingsPageDomMocks.cancelMutate)
     }
     return aiMutationResult(vi.fn())

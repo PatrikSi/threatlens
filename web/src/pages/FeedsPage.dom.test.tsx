@@ -13,6 +13,7 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   deleteMutate: vi.fn(),
   bulkDeleteMutate: vi.fn(),
   bulkSetEnabledMutate: vi.fn(),
+  importMutate: vi.fn(),
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -96,16 +97,19 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('Promise.allSettled') && source.includes('payload.enabled')) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'feeds:bulk-set-enabled') {
       return feedMutationResult(feedsPageDomMocks.bulkSetEnabledMutate)
     }
-    if (source.includes('Promise.allSettled') && source.includes('DELETE')) {
+    if (mutationKey === 'feeds:bulk-delete') {
       return feedMutationResult(feedsPageDomMocks.bulkDeleteMutate)
     }
-    if (source.includes('/feeds/${id}') && source.includes('DELETE')) {
+    if (mutationKey === 'feeds:delete') {
       return feedMutationResult(feedsPageDomMocks.deleteMutate)
+    }
+    if (mutationKey === 'feeds:import') {
+      return feedMutationResult(feedsPageDomMocks.importMutate)
     }
     return feedMutationResult(vi.fn())
   },
@@ -135,6 +139,7 @@ let container: HTMLDivElement | null = null
 function renderPage() {
   container = document.createElement('div')
   document.body.appendChild(container)
+  window.sessionStorage.clear()
   root = createRoot(container)
   act(() => {
     root?.render(<FeedsPage />)
@@ -154,6 +159,13 @@ function setSelectValue(select: HTMLSelectElement, value: string) {
   select.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
+function setCheckboxValue(input: HTMLInputElement, checked: boolean) {
+  if (input.checked === checked) {
+    return
+  }
+  input.click()
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -162,9 +174,11 @@ afterEach(() => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  window.sessionStorage.clear()
   feedsPageDomMocks.deleteMutate.mockReset()
   feedsPageDomMocks.bulkDeleteMutate.mockReset()
   feedsPageDomMocks.bulkSetEnabledMutate.mockReset()
+  feedsPageDomMocks.importMutate.mockReset()
 })
 
 describe('FeedsPage DOM workflows', () => {
@@ -276,5 +290,80 @@ describe('FeedsPage DOM workflows', () => {
       ids: ['feed-2'],
       enabled: true,
     })
+  })
+
+  it('shows an import preflight summary and requires confirmation before overwrite imports', async () => {
+    const view = renderPage()
+    const fileInput = view.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(fileInput).not.toBeNull()
+
+    const importFile = new File(
+      [
+        JSON.stringify({
+          feeds: [
+            {
+              name: 'Vendor Advisories Updated',
+              url: 'https://example.com/vendor.xml',
+              enabled: true,
+              fetch_mode: 'interval',
+              fetch_interval_seconds: 1800,
+            },
+            {
+              name: 'New Feed',
+              url: 'https://example.com/new.xml',
+              enabled: true,
+              fetch_mode: 'interval',
+              fetch_interval_seconds: 1800,
+            },
+          ],
+        }),
+      ],
+      'feeds.json',
+      { type: 'application/json' },
+    )
+
+    Object.defineProperty(fileInput!, 'files', {
+      configurable: true,
+      value: [importFile],
+    })
+
+    await act(async () => {
+      fileInput!.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    expect(view.textContent).toContain('Import preflight: 1 new, 0 overwrite, 1 skip')
+
+    const overwriteCheckbox = Array.from(view.querySelectorAll('label'))
+      .find((label) => label.textContent?.includes('Overwrite existing on import'))
+      ?.querySelector<HTMLInputElement>('input[type="checkbox"]')
+    expect(overwriteCheckbox).not.toBeNull()
+
+    act(() => {
+      setCheckboxValue(overwriteCheckbox!, true)
+    })
+
+    expect(view.textContent).toContain('Import preflight: 1 new, 1 overwrite, 0 skip')
+
+    const runImportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Run Import')
+    expect(runImportButton).not.toBeNull()
+
+    act(() => {
+      runImportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Overwrite existing feeds from import?')
+    expect(view.textContent).toContain('Vendor Advisories')
+
+    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'Run overwrite import',
+    )
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(feedsPageDomMocks.importMutate).toHaveBeenCalledTimes(1)
   })
 })

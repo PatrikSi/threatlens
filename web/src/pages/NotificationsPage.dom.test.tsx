@@ -155,15 +155,15 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/notifications/webhooks/test')) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'notifications:webhooks:test') {
       return notificationMutationResult(notificationsPageDomMocks.testMutate)
     }
-    if (source.includes('/deliveries/') && source.includes('/retry')) {
+    if (mutationKey === 'notifications:webhooks:retry-delivery') {
       return notificationMutationResult(notificationsPageDomMocks.retryMutate)
     }
-    if (source.includes('/notifications/webhooks/${webhookId}') && source.includes("DELETE")) {
+    if (mutationKey === 'notifications:webhooks:delete') {
       return notificationMutationResult(notificationsPageDomMocks.deleteMutate)
     }
     return notificationMutationResult(notificationsPageDomMocks.saveMutate)

@@ -99,6 +99,7 @@ export function NotificationsPage() {
   })
 
   const saveWebhook = useMutation({
+    mutationKey: ['notifications', 'webhooks', 'save'],
     mutationFn: (payload: NotificationWebhookWriteRequest) => {
       if (selectedWebhookId) {
         return apiFetch<NotificationWebhook>(`/notifications/webhooks/${selectedWebhookId}`, {
@@ -123,6 +124,7 @@ export function NotificationsPage() {
   })
 
   const deleteWebhook = useMutation({
+    mutationKey: ['notifications', 'webhooks', 'delete'],
     mutationFn: (webhookId: string) => apiFetch<void>(`/notifications/webhooks/${webhookId}`, { method: 'DELETE' }),
     onSuccess: () => {
       setSelectedWebhookId(null)
@@ -146,6 +148,7 @@ export function NotificationsPage() {
   }
 
   const testWebhook = useMutation({
+    mutationKey: ['notifications', 'webhooks', 'test'],
     mutationFn: (payload: { webhook: NotificationWebhookWriteRequest; sample_feed_id?: string }) =>
       apiFetch<NotificationWebhookTestResponse>('/notifications/webhooks/test', {
         method: 'POST',
@@ -168,6 +171,7 @@ export function NotificationsPage() {
   })
 
   const retryDelivery = useMutation({
+    mutationKey: ['notifications', 'webhooks', 'retry-delivery'],
     mutationFn: (payload: { webhookId: string; deliveryId: string }) =>
       apiFetch<NotificationWebhookDelivery>(
         `/notifications/webhooks/${payload.webhookId}/deliveries/${payload.deliveryId}/retry`,

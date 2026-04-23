@@ -32,6 +32,16 @@ type PendingBulkSetEnabledAction = {
   feeds: Feed[]
 }
 
+type FeedImportPreviewSummary = {
+  totalEntries: number
+  uniqueEntries: number
+  duplicateEntries: number
+  createCount: number
+  overwriteCount: number
+  skipCount: number
+  matchingExistingFeeds: Feed[]
+}
+
 type DetectedFeedMetadata = {
   sourceUrl: string
   name: string
@@ -73,6 +83,7 @@ export function FeedsPage() {
   const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
   const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<Feed[] | null>(null)
   const [pendingBulkSetEnabled, setPendingBulkSetEnabled] = useState<PendingBulkSetEnabledAction | null>(null)
+  const [pendingImportReview, setPendingImportReview] = useState<FeedImportPreviewSummary | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
@@ -158,6 +169,7 @@ export function FeedsPage() {
   })
 
   const deleteFeed = useMutation({
+    mutationKey: ['feeds', 'delete'],
     mutationFn: (id: string) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
       setManagementNotice('Feed deleted.')
@@ -177,6 +189,7 @@ export function FeedsPage() {
   })
 
   const bulkSetEnabled = useMutation({
+    mutationKey: ['feeds', 'bulk-set-enabled'],
     mutationFn: async (payload: { ids: string[]; enabled: boolean }) => {
       const settled = await Promise.allSettled(
         payload.ids.map((id) =>
@@ -196,6 +209,7 @@ export function FeedsPage() {
   })
 
   const bulkDeleteFeeds = useMutation({
+    mutationKey: ['feeds', 'bulk-delete'],
     mutationFn: async (ids: string[]) => {
       const settled = await Promise.allSettled(ids.map((id) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' })))
       return summarizeBulkResults(settled)
@@ -207,6 +221,7 @@ export function FeedsPage() {
   })
 
   const importFeeds = useMutation({
+    mutationKey: ['feeds', 'import'],
     mutationFn: () =>
       apiFetch<FeedImportResponse>('/feeds/import', {
         method: 'POST',
@@ -221,6 +236,7 @@ export function FeedsPage() {
       setImportFilename('')
       setImportError('')
       setImportWarning('')
+      setPendingImportReview(null)
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
@@ -482,6 +498,10 @@ export function FeedsPage() {
   const visibleFeedIds = filteredFeeds.map((feed) => feed.id)
   const visibleDisabledFeedIds = filteredFeeds.filter((feed) => !feed.enabled).map((feed) => feed.id)
   const visibleEnabledFeedIds = filteredFeeds.filter((feed) => feed.enabled).map((feed) => feed.id)
+  const importPreviewSummary = useMemo(
+    () => buildFeedImportPreviewSummary(importData, feedsQuery.data ?? [], overwriteExisting),
+    [feedsQuery.data, importData, overwriteExisting],
+  )
   const hasUnsavedFeedScheduleChanges = (feedsQuery.data ?? []).some((feed) =>
     isFeedScheduleDraftDirty(feed, feedDrafts[feed.id] ?? feedToScheduleDraft(feed)),
   )
@@ -500,6 +520,24 @@ export function FeedsPage() {
     confirmDiscardUnsavedFeedScheduleChanges(() => {
       setPendingBulkDeleteFeeds(feeds)
     })
+  }
+
+  const onRequestImportReview = () => {
+    if (!importPreviewSummary) {
+      return
+    }
+
+    confirmDiscardUnsavedFeedScheduleChanges(() => {
+      setPendingImportReview(importPreviewSummary)
+    })
+  }
+
+  const onConfirmImportReview = () => {
+    if (!pendingImportReview) {
+      return
+    }
+    setPendingImportReview(null)
+    importFeeds.mutate()
   }
 
   return (
@@ -672,7 +710,7 @@ export function FeedsPage() {
               type="button"
               className="col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto dark:bg-cyan dark:text-[#053c2e]"
               disabled={!canManage || !importData || importFeeds.isPending}
-              onClick={() => importFeeds.mutate()}
+              onClick={onRequestImportReview}
             >
               Run Import
             </button>
@@ -781,6 +819,23 @@ export function FeedsPage() {
           <p className="mt-2 text-xs text-slate dark:text-slate-300">
             Loaded: {importFilename} ({importData?.length ?? 0} entries)
           </p>
+        )}
+        {importPreviewSummary && (
+          <div className="mt-2 rounded border border-slate/20 bg-white/60 px-2 py-2 text-xs text-slate dark:border-cyan-900/40 dark:bg-[#072019] dark:text-slate-200">
+            <p>
+              Import preflight: {importPreviewSummary.createCount} new, {importPreviewSummary.overwriteCount} overwrite,{' '}
+              {importPreviewSummary.skipCount} skip, {importPreviewSummary.duplicateEntries} duplicate entr
+              {importPreviewSummary.duplicateEntries === 1 ? 'y' : 'ies'} ignored from {importPreviewSummary.uniqueEntries} unique URL
+              {importPreviewSummary.uniqueEntries === 1 ? '' : 's'}.
+            </p>
+            {importPreviewSummary.matchingExistingFeeds.length > 0 && (
+              <p className="mt-1 text-slate dark:text-slate-300">
+                {overwriteExisting
+                  ? 'Existing feeds below will be rewritten from the import file after confirmation.'
+                  : 'Existing feeds below will be skipped unless overwrite is enabled.'}
+              </p>
+            )}
+          </div>
         )}
         {importError && <p className="mt-2 text-xs text-red-600">Import parse error: {importError}</p>}
         {importWarning && <p className="mt-2 text-xs text-amber-600">{importWarning}</p>}
@@ -986,6 +1041,64 @@ export function FeedsPage() {
       </section>
 
       <ConfirmDialog
+        open={Boolean(pendingImportReview)}
+        title={pendingImportReview?.overwriteCount ? 'Overwrite existing feeds from import?' : 'Run feed import?'}
+        description="Review the import preflight summary before applying the file to this workspace."
+        confirmLabel={pendingImportReview?.overwriteCount ? 'Run overwrite import' : 'Run import'}
+        confirmTone="primary"
+        onCancel={() => setPendingImportReview(null)}
+        onConfirm={onConfirmImportReview}
+        confirmDisabled={importFeeds.isPending || !pendingImportReview}
+        isConfirming={importFeeds.isPending}
+      >
+        {pendingImportReview && (
+          <div className="space-y-3">
+            <div className="grid gap-2 text-sm sm:grid-cols-2">
+              <p>
+                <span className="font-semibold text-ink dark:text-white">{pendingImportReview.totalEntries}</span> file entr
+                {pendingImportReview.totalEntries === 1 ? 'y' : 'ies'}
+              </p>
+              <p>
+                <span className="font-semibold text-ink dark:text-white">{pendingImportReview.uniqueEntries}</span> unique URL
+                {pendingImportReview.uniqueEntries === 1 ? '' : 's'}
+              </p>
+              <p>
+                <span className="font-semibold text-emerald-700 dark:text-emerald-300">{pendingImportReview.createCount}</span>{' '}
+                new feed{pendingImportReview.createCount === 1 ? '' : 's'}
+              </p>
+              <p>
+                <span className="font-semibold text-amber-700 dark:text-amber-300">{pendingImportReview.overwriteCount}</span>{' '}
+                feed{pendingImportReview.overwriteCount === 1 ? '' : 's'} overwritten
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{pendingImportReview.skipCount}</span>{' '}
+                feed{pendingImportReview.skipCount === 1 ? '' : 's'} skipped
+              </p>
+              <p>
+                <span className="font-semibold text-slate-700 dark:text-slate-200">{pendingImportReview.duplicateEntries}</span>{' '}
+                duplicate entr{pendingImportReview.duplicateEntries === 1 ? 'y' : 'ies'}
+              </p>
+            </div>
+            {pendingImportReview.matchingExistingFeeds.length > 0 && (
+              <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/60">
+                  Existing feeds in scope
+                </p>
+                <ul className="space-y-1">
+                  {pendingImportReview.matchingExistingFeeds.map((feed) => (
+                    <li key={feed.id} className="space-y-0.5">
+                      <p className="text-sm font-semibold text-ink dark:text-white">{feed.name}</p>
+                      <p className="break-all font-mono text-[11px] text-slate dark:text-white/65">{feed.url}</p>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
         open={Boolean(pendingBulkSetEnabled?.feeds.length)}
         title={pendingBulkSetEnabled?.enabled ? 'Enable filtered feeds?' : 'Disable filtered feeds?'}
         description="Review the feeds in the current filtered view before applying this bulk status change."
@@ -1161,6 +1274,51 @@ function findDuplicateUrls(entries: FeedImportEntry[]): string[] {
   return Array.from(counts.entries())
     .filter(([, count]) => count > 1)
     .map(([url]) => url)
+}
+
+function buildFeedImportPreviewSummary(
+  entries: FeedImportEntry[] | null,
+  existingFeeds: Feed[],
+  overwriteExisting: boolean,
+): FeedImportPreviewSummary | null {
+  if (!entries?.length) {
+    return null
+  }
+
+  const existingByUrl = new Map(existingFeeds.map((feed) => [feed.url.trim().toLowerCase(), feed] as const))
+  const uniqueUrls = new Set<string>()
+  const matchingExistingFeeds: Feed[] = []
+  let duplicateEntries = 0
+  let createCount = 0
+
+  for (const entry of entries) {
+    const normalizedUrl = entry.url.trim().toLowerCase()
+    if (uniqueUrls.has(normalizedUrl)) {
+      duplicateEntries += 1
+      continue
+    }
+
+    uniqueUrls.add(normalizedUrl)
+    const existingFeed = existingByUrl.get(normalizedUrl)
+    if (existingFeed) {
+      matchingExistingFeeds.push(existingFeed)
+    } else {
+      createCount += 1
+    }
+  }
+
+  const overwriteCount = overwriteExisting ? matchingExistingFeeds.length : 0
+  const skipCount = overwriteExisting ? 0 : matchingExistingFeeds.length
+
+  return {
+    totalEntries: entries.length,
+    uniqueEntries: uniqueUrls.size,
+    duplicateEntries,
+    createCount,
+    overwriteCount,
+    skipCount,
+    matchingExistingFeeds,
+  }
 }
 
 function readPersistedFeedScheduleDrafts(storage: Pick<Storage, 'getItem'>): Record<string, FeedScheduleDraft> {

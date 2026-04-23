@@ -299,6 +299,7 @@ export function AiSettingsPage() {
   }
 
   const saveMutation = useMutation({
+    mutationKey: ['ai', 'settings', 'save'],
     mutationFn: (payload: AISettingsUpdateRequest) =>
       apiFetch<AISettings>('/ai/settings', {
         method: 'PUT',
@@ -318,6 +319,7 @@ export function AiSettingsPage() {
   })
 
   const testConnectionMutation = useMutation({
+    mutationKey: ['ai', 'settings', 'test-connection'],
     mutationFn: () =>
       apiFetch<AITestConnectionResponse>('/ai/test-connection', {
         method: 'POST',
@@ -337,6 +339,7 @@ export function AiSettingsPage() {
   })
 
   const generateBriefMutation = useMutation({
+    mutationKey: ['ai', 'daily-brief', 'queue'],
     mutationFn: () =>
       apiFetch<AIQueuedTaskResponse>('/ai/daily-brief/queue', {
         method: 'POST',
@@ -352,6 +355,7 @@ export function AiSettingsPage() {
   })
 
   const reprocessMutation = useMutation({
+    mutationKey: ['ai', 'reprocess'],
     mutationFn: (payload: AIReprocessQueueRequest) =>
       apiFetch<AIReprocessResponse>('/ai/reprocess', {
         method: 'POST',
@@ -367,6 +371,7 @@ export function AiSettingsPage() {
   })
 
   const cancelRunMutation = useMutation({
+    mutationKey: ['ai', 'ops', 'runs', 'cancel'],
     mutationFn: (runId: string) =>
       apiFetch<AITaskRunResponse>(`/ai/ops/runs/${runId}/cancel`, {
         method: 'POST',

@@ -46,6 +46,11 @@ type TaggingRuleDraft = Omit<TaggingRuleWriteRequest, 'min_classification_confid
   min_classification_confidence: string
 }
 
+type TaggingReapplyRequest = {
+  days: number
+  limit: number
+}
+
 export function TaggingSettingsPage() {
   const queryClient = useQueryClient()
   const [settingsDraft, setSettingsDraft] = useState<TaggingSettingsDraft>({
@@ -60,6 +65,7 @@ export function TaggingSettingsPage() {
   const [reapplyDays, setReapplyDays] = useState('30')
   const [reapplyLimit, setReapplyLimit] = useState('0')
   const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
+  const [pendingReapplyRequest, setPendingReapplyRequest] = useState<TaggingReapplyRequest | null>(null)
 
   const bundleQuery = useQuery({
     queryKey: ['tagging', 'settings'],
@@ -120,6 +126,7 @@ export function TaggingSettingsPage() {
   )
 
   const saveSettings = useMutation({
+    mutationKey: ['tagging', 'settings', 'save'],
     mutationFn: () =>
       apiFetch('/tagging/settings', {
         method: 'PUT',
@@ -136,6 +143,7 @@ export function TaggingSettingsPage() {
   })
 
   const saveRule = useMutation({
+    mutationKey: ['tagging', 'rules', 'save'],
     mutationFn: (payload: TaggingRuleWriteRequest) => {
       if (selectedRuleId) {
         return apiFetch<TaggingRule>(`/tagging/rules/${selectedRuleId}`, {
@@ -157,6 +165,7 @@ export function TaggingSettingsPage() {
   })
 
   const deleteRule = useMutation({
+    mutationKey: ['tagging', 'rules', 'delete'],
     mutationFn: (ruleId: string) => apiFetch<void>(`/tagging/rules/${ruleId}`, { method: 'DELETE' }),
     onSuccess: () => {
       setSelectedRuleId(null)
@@ -178,6 +187,7 @@ export function TaggingSettingsPage() {
   }
 
   const previewRule = useMutation({
+    mutationKey: ['tagging', 'rules', 'preview'],
     mutationFn: (payload: TaggingRuleWriteRequest) =>
       apiFetch<TaggingRulePreviewResponse>('/tagging/rules/preview', {
         method: 'POST',
@@ -190,21 +200,21 @@ export function TaggingSettingsPage() {
   })
 
   const reapplyTagging = useMutation({
-    mutationFn: () =>
+    mutationKey: ['tagging', 'reapply'],
+    mutationFn: (payload: TaggingReapplyRequest) =>
       apiFetch<TaggingReapplyResponse>('/tagging/reapply', {
         method: 'POST',
-        body: JSON.stringify({
-          days: Number(reapplyDays) || 30,
-          limit: Number(reapplyLimit) || 0,
-        }),
+        body: JSON.stringify(payload),
       }),
     onSuccess: (result) => {
       setNotice(`Retagging queued. Task ID: ${result.task_id}`)
+      setPendingReapplyRequest(null)
     },
   })
 
   const feeds = feedsQuery.data ?? []
   const ruleValidationError = getRuleDraftValidationError(ruleDraft)
+  const reapplyRequestDraft = parseTaggingReapplyRequest(reapplyDays, reapplyLimit)
 
   const onSelectRule = (rule: TaggingRule) => {
     if (rule.id === selectedRuleId) {
@@ -259,6 +269,17 @@ export function TaggingSettingsPage() {
     }
     setNotice(null)
     saveRule.mutate(createRuleRequestFromDraft(ruleDraft))
+  }
+
+  const onConfirmReapplyTagging = () => {
+    if (!pendingReapplyRequest) {
+      return
+    }
+
+    const request = pendingReapplyRequest
+    setPendingReapplyRequest(null)
+    setNotice(null)
+    reapplyTagging.mutate(request)
   }
 
   const onRequestDeleteRule = (rule: TaggingRule | null) => {
@@ -411,14 +432,18 @@ export function TaggingSettingsPage() {
             </div>
             <button
               className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
-              disabled={reapplyTagging.isPending}
+              disabled={reapplyTagging.isPending || !reapplyRequestDraft.request}
               onClick={() => {
+                if (!reapplyRequestDraft.request) {
+                  return
+                }
                 setNotice(null)
-                reapplyTagging.mutate()
+                setPendingReapplyRequest(reapplyRequestDraft.request)
               }}
             >
               Queue retagging
             </button>
+            {reapplyRequestDraft.error && <p className="text-sm text-amber-700 dark:text-amber-300">{reapplyRequestDraft.error}</p>}
             {reapplyTagging.isError && (
               <p className="text-sm text-red-600">{resolveApiMessage(reapplyTagging.error, 'Failed to queue retagging.')}</p>
             )}
@@ -786,6 +811,42 @@ export function TaggingSettingsPage() {
       </div>
 
       <ConfirmDialog
+        open={Boolean(pendingReapplyRequest)}
+        title={pendingReapplyRequest?.limit === 0 ? 'Queue full retagging pass?' : 'Queue retagging pass?'}
+        description="Review the scope before scheduling a bulk retagging job."
+        confirmLabel={pendingReapplyRequest?.limit === 0 ? 'Queue full retagging' : 'Queue retagging'}
+        confirmTone="primary"
+        onCancel={() => setPendingReapplyRequest(null)}
+        onConfirm={onConfirmReapplyTagging}
+        confirmDisabled={!pendingReapplyRequest || reapplyTagging.isPending}
+        isConfirming={reapplyTagging.isPending}
+      >
+        {pendingReapplyRequest && (
+          <div className="space-y-2 text-sm">
+            <p>
+              Time window:{' '}
+              <span className="font-semibold text-ink dark:text-white">
+                last {pendingReapplyRequest.days} day{pendingReapplyRequest.days === 1 ? '' : 's'}
+              </span>
+            </p>
+            <p>
+              Scope:{' '}
+              <span className="font-semibold text-ink dark:text-white">
+                {pendingReapplyRequest.limit === 0
+                  ? 'all items in the selected time window'
+                  : `up to ${pendingReapplyRequest.limit} recent item${pendingReapplyRequest.limit === 1 ? '' : 's'}`}
+              </span>
+            </p>
+            {pendingReapplyRequest.limit === 0 && (
+              <p className="text-amber-700 dark:text-amber-300">
+                Limit 0 reprocesses every eligible item in the selected time window.
+              </p>
+            )}
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
         open={Boolean(pendingRuleDelete)}
         title="Delete tagging rule?"
         description="This permanently removes the rule from auto-tagging."
@@ -864,6 +925,35 @@ function createDefaultRuleDraft(): TaggingRuleDraft {
     feed_scope: 'all',
     feed_ids: [],
     min_classification_confidence: '',
+  }
+}
+
+function parseTaggingReapplyRequest(
+  daysInput: string,
+  limitInput: string,
+): { request: TaggingReapplyRequest | null; error: string | null } {
+  const trimmedDays = daysInput.trim()
+  const trimmedLimit = limitInput.trim()
+  const days = Number(trimmedDays)
+  const limit = Number(trimmedLimit)
+
+  if (!trimmedDays || !Number.isInteger(days) || days < 1 || days > 365) {
+    return {
+      request: null,
+      error: 'Days Back must be a whole number between 1 and 365.',
+    }
+  }
+
+  if (!trimmedLimit || !Number.isInteger(limit) || limit < 0 || limit > 5000) {
+    return {
+      request: null,
+      error: 'Limit must be a whole number between 0 and 5000.',
+    }
+  }
+
+  return {
+    request: { days, limit },
+    error: null,
   }
 }
 

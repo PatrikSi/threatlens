@@ -75,9 +75,9 @@ vi.mock('@tanstack/react-query', () => ({
     isError: false,
     error: null,
   }),
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/tokens/${tokenId}') && source.includes("DELETE")) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'tokens:revoke') {
       return tokenMutationResult(tokensPageDomMocks.revokeMutate)
     }
     return tokenMutationResult(tokensPageDomMocks.createMutate)

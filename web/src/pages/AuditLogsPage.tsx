@@ -65,7 +65,11 @@ export function AuditLogsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl">Audit Logs</h2>
         <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
+          <label htmlFor="audit-log-action-filter" className="sr-only">
+            Filter audit logs by action
+          </label>
           <input
+            id="audit-log-action-filter"
             value={action}
             onChange={(event) => {
               setPage(1)
@@ -74,7 +78,11 @@ export function AuditLogsPage() {
             placeholder="Action filter"
             className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
           />
+          <label htmlFor="audit-log-actor-filter" className="sr-only">
+            Filter audit logs by actor user ID
+          </label>
           <input
+            id="audit-log-actor-filter"
             value={actorUserId}
             onChange={(event) => {
               setPage(1)

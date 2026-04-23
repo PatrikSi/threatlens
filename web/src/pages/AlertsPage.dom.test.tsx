@@ -79,12 +79,12 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/alerts/${id}') && source.includes("DELETE")) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'alerts:delete') {
       return alertMutationResult(alertsPageDomMocks.deleteMutate)
     }
-    if (source.includes('/alerts/${payload.id}') && source.includes("PATCH")) {
+    if (mutationKey === 'alerts:update') {
       return alertMutationResult(alertsPageDomMocks.updateMutate)
     }
     return alertMutationResult(alertsPageDomMocks.saveMutate)

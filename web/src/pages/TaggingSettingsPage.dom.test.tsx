@@ -112,18 +112,18 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/tagging/rules/preview')) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'tagging:rules:preview') {
       return taggingMutationResult(taggingPageDomMocks.previewRuleMutate)
     }
-    if (source.includes('/tagging/reapply')) {
+    if (mutationKey === 'tagging:reapply') {
       return taggingMutationResult(taggingPageDomMocks.reapplyMutate)
     }
-    if (source.includes('/tagging/rules/${') && source.includes("DELETE")) {
+    if (mutationKey === 'tagging:rules:delete') {
       return taggingMutationResult(taggingPageDomMocks.deleteRuleMutate)
     }
-    if (source.includes('/tagging/rules')) {
+    if (mutationKey === 'tagging:rules:save') {
       return taggingMutationResult(taggingPageDomMocks.saveRuleMutate)
     }
     return taggingMutationResult(taggingPageDomMocks.saveSettingsMutate)
@@ -169,6 +169,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   taggingPageDomMocks.previewRuleMutate.mockReset()
   taggingPageDomMocks.deleteRuleMutate.mockReset()
+  taggingPageDomMocks.reapplyMutate.mockReset()
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
@@ -276,5 +277,42 @@ describe('TaggingSettingsPage DOM workflows', () => {
     })
 
     expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith('rule-1')
+  })
+
+  it('requires an explicit confirmation before queueing a full retagging pass', () => {
+    const view = renderPage()
+
+    const daysInput = view.querySelector<HTMLInputElement>('#tagging-reapply-days')
+    const limitInput = view.querySelector<HTMLInputElement>('#tagging-reapply-limit')
+    expect(daysInput).not.toBeNull()
+    expect(limitInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(daysInput!, '14')
+      setInputValue(limitInput!, '0')
+    })
+
+    const queueButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Queue retagging'),
+    )
+    expect(queueButton).not.toBeNull()
+
+    act(() => {
+      queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Queue full retagging pass?')
+    expect(view.textContent).toContain('all items in the selected time window')
+
+    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'Queue full retagging',
+    )
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(taggingPageDomMocks.reapplyMutate).toHaveBeenCalledWith({ days: 14, limit: 0 })
   })
 })

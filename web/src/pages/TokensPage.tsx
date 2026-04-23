@@ -30,6 +30,7 @@ export function TokensPage() {
   })
 
   const createToken = useMutation({
+    mutationKey: ['tokens', 'create'],
     mutationFn: () => {
       const scopes = tokenFormState.scopesText
         .split(',')
@@ -62,6 +63,7 @@ export function TokensPage() {
   })
 
   const revokeToken = useMutation({
+    mutationKey: ['tokens', 'revoke'],
     mutationFn: (tokenId: string) => apiFetch(`/tokens/${tokenId}`, { method: 'DELETE' }),
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tokens'] }),
   })

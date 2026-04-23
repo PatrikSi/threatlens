@@ -53,6 +53,7 @@ export function UsersPage() {
     Record<string, { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' }>
   >({})
   const [settingsDraftsByUserId, setSettingsDraftsByUserId] = useState<Record<string, UserSettingsDraft>>({})
+  const [passwordDraftsByUserId, setPasswordDraftsByUserId] = useState<Record<string, string>>({})
   const settingsDraftBaselinesByUserIdRef = useRef<Record<string, UserSettingsDraft>>({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>({
     email: '',
@@ -94,6 +95,12 @@ export function UsersPage() {
       })
     },
     onSuccess: (_user, payload) => {
+      if (payload.body.password) {
+        setPasswordDraftsByUserId((current) => ({
+          ...current,
+          [payload.id]: '',
+        }))
+      }
       setRowNoticeByUserId((current) => ({
         ...current,
         [payload.id]: {
@@ -135,15 +142,26 @@ export function UsersPage() {
       settingsDraftBaselinesByUserIdRef.current = synced.baselines
       return synced.drafts
     })
+    setPasswordDraftsByUserId((current) => {
+      const validUserIds = new Set(users.map((user) => user.id))
+      const next = Object.fromEntries(
+        Object.entries(current).filter(([userId, draft]) => validUserIds.has(userId) && draft.trim()),
+      ) as Record<string, string>
+      return next
+    })
   }, [usersQuery.data])
 
   const hasUnsavedUserSettingsChanges = useMemo(
     () => hasDirtyUserSettingsDrafts(settingsDraftsByUserId, settingsDraftBaselinesByUserIdRef.current),
     [settingsDraftsByUserId],
   )
+  const hasUnsavedPasswordDrafts = useMemo(
+    () => Object.values(passwordDraftsByUserId).some((value) => value.trim().length > 0),
+    [passwordDraftsByUserId],
+  )
   const confirmDiscardUnsavedUserSettingsChanges = useUnsavedChangesWarning(
-    hasUnsavedUserSettingsChanges,
-    'Discard unsaved user settings changes?',
+    hasUnsavedUserSettingsChanges || hasUnsavedPasswordDrafts,
+    'Discard unsaved user changes?',
   )
 
   const onCreateSubmit = (event: FormEvent) => {
@@ -293,6 +311,13 @@ export function UsersPage() {
                     [user.id]: draft,
                   }))
                 }
+                passwordDraft={passwordDraftsByUserId[user.id] ?? ''}
+                onPasswordDraftChange={(draft) =>
+                  setPasswordDraftsByUserId((current) => ({
+                    ...current,
+                    [user.id]: draft,
+                  }))
+                }
                 onSave={(body) => updateUser.mutate({ id: user.id, body })}
                 saving={updateUser.isPending && updateUser.variables?.id === user.id}
                 notice={rowNoticeByUserId[user.id] ?? null}
@@ -341,6 +366,8 @@ function UserRow({
   user,
   settingsDraft,
   onSettingsDraftChange,
+  passwordDraft,
+  onPasswordDraftChange,
   onSave,
   saving,
   notice,
@@ -348,15 +375,16 @@ function UserRow({
   user: User
   settingsDraft: UserSettingsDraft
   onSettingsDraftChange: (draft: UserSettingsDraft) => void
+  passwordDraft: string
+  onPasswordDraftChange: (value: string) => void
   onSave: (payload: UserUpdateRequest) => void
   saving: boolean
   notice: { tone: 'success' | 'error'; message: string; action: 'settings' | 'password' } | null
 }) {
   const roleInputId = `user-role-${user.id}`
   const passwordInputId = `user-reset-password-${user.id}`
-  const [resetPassword, setResetPassword] = useState('')
   const settingsConfirmation = buildUserSettingsConfirmation(user, settingsDraft)
-  const passwordConfirmation = buildPasswordResetConfirmation(user, resetPassword)
+  const passwordConfirmation = buildPasswordResetConfirmation(user, passwordDraft)
   const [pendingConfirmationAction, setPendingConfirmationAction] = useState<'settings' | 'password' | null>(null)
   const pendingConfirmation =
     pendingConfirmationAction === 'password'
@@ -364,12 +392,6 @@ function UserRow({
       : pendingConfirmationAction === 'settings'
         ? settingsConfirmation
         : null
-
-  useEffect(() => {
-    if (notice?.tone === 'success' && notice.action === 'password') {
-      setResetPassword('')
-    }
-  }, [notice])
 
   useEffect(() => {
     if (pendingConfirmationAction && !pendingConfirmation) {
@@ -451,8 +473,8 @@ function UserRow({
             id={passwordInputId}
             type="password"
             placeholder="New password (min 8 chars)"
-            value={resetPassword}
-            onChange={(event) => setResetPassword(event.target.value)}
+            value={passwordDraft}
+            onChange={(event) => onPasswordDraftChange(event.target.value)}
             className="w-full rounded border border-slate/30 bg-white px-2 py-1 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
           />
           <button

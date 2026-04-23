@@ -34,9 +34,28 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
     setQueryData: vi.fn(),
   },
   deleteMutate: vi.fn(),
+  readMutate: vi.fn(),
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   views: [] as SavedView[],
+  itemsData: [] as Array<{
+    id: string
+    feed_id: string
+    feed_name: string
+    title: string
+    url: string
+    canonical_url: string | null
+    summary: string | null
+    published_at: string | null
+    first_seen_at: string
+    status: string
+    is_read: boolean
+    is_starred: boolean
+    tags: string[]
+    ai_relevance_label: null
+  }>,
+  itemDetailById: {} as Record<string, unknown>,
+  unsavedChangesWarning: vi.fn(),
 }))
 
 function createSavedView(
@@ -121,7 +140,22 @@ vi.mock('@tanstack/react-query', () => ({
       const key = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey
       if (key === 'items' || key === 'alert-matches') {
         return {
-          data: { items: [], total: 0, page: 1, page_size: 25 },
+          data:
+            key === 'items'
+              ? { items: dashboardPageDomMocks.itemsData, total: dashboardPageDomMocks.itemsData.length, page: 1, page_size: 25 }
+              : { items: [], total: 0, page: 1, page_size: 25 },
+          isLoading: false,
+          isFetching: false,
+          isError: false,
+          error: null,
+        }
+      }
+
+      if (key === 'item') {
+        const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
+        const itemId = typeof queryKey[1] === 'string' ? queryKey[1] : ''
+        return {
+          data: itemId ? dashboardPageDomMocks.itemDetailById[itemId] : undefined,
           isLoading: false,
           isFetching: false,
           isError: false,
@@ -172,6 +206,17 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
+    if (mutationKey === 'items:read') {
+      return {
+        mutate: dashboardPageDomMocks.readMutate,
+        mutateAsync: vi.fn(),
+        isPending: false,
+        isError: false,
+        error: null,
+        variables: null,
+      }
+    }
+
     return {
       mutate: vi.fn(),
       mutateAsync: vi.fn(),
@@ -188,7 +233,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 }))
 
 vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: vi.fn(() =>
+  useUnsavedChangesWarning: dashboardPageDomMocks.unsavedChangesWarning.mockImplementation(() =>
     Object.assign(
       vi.fn((onDiscard?: () => void) => {
         onDiscard?.()
@@ -222,8 +267,10 @@ function getSelect(label: string) {
   return document.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)
 }
 
-function setInputValue(input: HTMLInputElement, value: string) {
-  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const prototype =
+    input instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
+  const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value')
   descriptor?.set?.call(input, value)
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
@@ -243,6 +290,8 @@ beforeEach(() => {
       '2026-04-21T10:00:00.000Z',
     ),
   ]
+  dashboardPageDomMocks.itemsData = []
+  dashboardPageDomMocks.itemDetailById = {}
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -262,8 +311,10 @@ afterEach(() => {
   document.body.innerHTML = ''
   window.localStorage.clear()
   dashboardPageDomMocks.deleteMutate.mockReset()
+  dashboardPageDomMocks.readMutate.mockReset()
   dashboardPageDomMocks.saveMutate.mockReset()
   dashboardPageDomMocks.updateMutate.mockReset()
+  dashboardPageDomMocks.unsavedChangesWarning.mockClear()
   dashboardPageDomMocks.queryClient.invalidateQueries.mockReset()
   dashboardPageDomMocks.queryClient.setQueriesData.mockReset()
   dashboardPageDomMocks.queryClient.setQueryData.mockReset()
@@ -368,5 +419,156 @@ describe('DashboardPage DOM workflows', () => {
 
     expect(view.querySelector('[aria-label="Notes Panel 1 scratch notes"]')).toBeNull()
     expect(getButton('Edit Layout')).not.toBeNull()
+  })
+
+  it('wires the Add Panel menu with expanded state and menu focus', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const addPanelButton = getButton('Add Panel')
+    expect(addPanelButton).not.toBeNull()
+    expect(addPanelButton?.getAttribute('aria-expanded')).toBe('false')
+
+    act(() => {
+      addPanelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(addPanelButton?.getAttribute('aria-expanded')).toBe('true')
+    const menu = document.querySelector('[role="menu"][aria-label="Add dashboard panel"]')
+    expect(menu).not.toBeNull()
+    expect(document.activeElement?.textContent).toContain('RSS Panel')
+  })
+
+  it('does not auto-mark unread items as read on expansion and tracks dirty note drafts', () => {
+    dashboardPageDomMocks.itemsData = [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        is_read: false,
+        is_starred: false,
+        tags: [],
+        ai_relevance_label: null,
+      },
+    ]
+    dashboardPageDomMocks.itemDetailById = {
+      'item-1': {
+        id: 'item-1',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        summary: 'Summary text',
+        state: {
+          is_read: false,
+          is_starred: false,
+          note: '',
+          updated_at: '2026-04-21T11:00:00Z',
+        },
+        article: null,
+        classification: null,
+        ai_insight: null,
+      },
+    }
+
+    const view = renderPage()
+    const itemToggleButton = view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')
+    expect(itemToggleButton).not.toBeNull()
+
+    act(() => {
+      itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(dashboardPageDomMocks.readMutate).not.toHaveBeenCalled()
+
+    const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
+    expect(notesTextarea).not.toBeNull()
+
+    act(() => {
+      setInputValue(notesTextarea!, 'Need to validate exploit path')
+    })
+
+    const lastUnsavedWarningCall = dashboardPageDomMocks.unsavedChangesWarning.mock.calls.at(-1)
+    expect(lastUnsavedWarningCall?.[0]).toBe(true)
+    expect(lastUnsavedWarningCall?.[1]).toContain('unsaved dashboard note drafts')
+  })
+
+  it('confirms before clearing a loaded saved view when note drafts are still dirty', () => {
+    dashboardPageDomMocks.itemsData = [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        is_read: false,
+        is_starred: false,
+        tags: [],
+        ai_relevance_label: null,
+      },
+    ]
+    dashboardPageDomMocks.itemDetailById = {
+      'item-1': {
+        id: 'item-1',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        summary: 'Summary text',
+        state: {
+          is_read: false,
+          is_starred: false,
+          note: '',
+          updated_at: '2026-04-21T11:00:00Z',
+        },
+        article: null,
+        classification: null,
+        ai_insight: null,
+      },
+    }
+
+    const view = renderPage()
+    const loadSelect = getSelect('Load saved dashboard view')
+    expect(loadSelect).not.toBeNull()
+
+    act(() => {
+      loadSelect!.value = 'view-rss'
+      loadSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    const itemToggleButton = view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')
+    expect(itemToggleButton).not.toBeNull()
+
+    act(() => {
+      itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
+    expect(notesTextarea).not.toBeNull()
+
+    act(() => {
+      setInputValue(notesTextarea!, 'Need to validate exploit path')
+    })
+
+    act(() => {
+      loadSelect!.value = ''
+      loadSelect!.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+
+    expect(getSelect('Load saved dashboard view')?.value).toBe('')
+    const lastUnsavedWarningCall = dashboardPageDomMocks.unsavedChangesWarning.mock.calls.at(-1)
+    expect(lastUnsavedWarningCall?.[0]).toBe(true)
+    expect(lastUnsavedWarningCall?.[1]).toContain('unsaved dashboard note drafts')
   })
 })

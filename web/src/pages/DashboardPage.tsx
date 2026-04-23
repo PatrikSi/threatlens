@@ -1,4 +1,4 @@
-import { ChangeEvent, Dispatch, ReactNode, SetStateAction, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, Dispatch, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -151,6 +151,7 @@ export function DashboardPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const rootRef = useRef<HTMLDivElement | null>(null)
+  const addWindowMenuId = useId()
   const aiFeatures = meQuery.data?.features
 
   const [dashboardTimeRange, setDashboardTimeRange] = useState<TimeRangeFilter>('all')
@@ -196,15 +197,29 @@ export function DashboardPage() {
   const pendingWindowPersistenceRef = useRef<{ userId: string; serialized: string } | null>(null)
   const persistedWindowUserIdRef = useRef<string | null>(null)
   const renameWindowInputRef = useRef<HTMLInputElement | null>(null)
+  const addWindowTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const addWindowMenuRef = useRef<HTMLDivElement | null>(null)
+  const addWindowFirstActionRef = useRef<HTMLButtonElement | null>(null)
+  const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
   const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+  const hasUnsavedNoteDrafts = useMemo(
+    () =>
+      Object.entries(noteDraftsByItemId).some(
+        ([itemId, noteDraft]) => noteDraft !== (savedNoteValuesByItemIdRef.current[itemId] ?? ''),
+      ),
+    [noteDraftsByItemId],
+  )
+  const hasUnsavedDashboardChanges = hasProtectedEditSession || hasUnsavedNoteDrafts
   const confirmDiscardUnsavedDashboardChanges = useUnsavedChangesWarning(
-    hasProtectedEditSession,
-    'You have an unsaved dashboard layout edit session. Leave without saving?',
+    hasUnsavedDashboardChanges,
+    hasProtectedEditSession
+      ? 'You have an unsaved dashboard layout edit session. Leave without saving?'
+      : 'You have unsaved dashboard note drafts. Leave without saving?',
   )
 
   const flushPendingWindowPersistence = (targetUserId?: string | null) => {
@@ -314,6 +329,7 @@ export function DashboardPage() {
       setRssLastOpenedAt('')
       setExpandedItemIdsByWindowId({})
       setNoteDraftsByItemId({})
+      savedNoteValuesByItemIdRef.current = {}
       setItemActionFeedbackByItemId({})
       return
     }
@@ -540,6 +556,7 @@ export function DashboardPage() {
   })
 
   const updateRead = useMutation({
+    mutationKey: ['items', 'read'],
     mutationFn: (payload: { itemId: string; isRead: boolean }) =>
       apiFetch(`/items/${payload.itemId}/read`, {
         method: 'POST',
@@ -572,6 +589,7 @@ export function DashboardPage() {
   })
 
   const updateStar = useMutation({
+    mutationKey: ['items', 'star'],
     mutationFn: (payload: { itemId: string; isStarred: boolean }) =>
       apiFetch(`/items/${payload.itemId}/star`, {
         method: 'POST',
@@ -604,6 +622,7 @@ export function DashboardPage() {
   })
 
   const updateNote = useMutation({
+    mutationKey: ['items', 'note'],
     mutationFn: (payload: { itemId: string; note: string | null }) =>
       apiFetch(`/items/${payload.itemId}/note`, {
         method: 'POST',
@@ -613,6 +632,7 @@ export function DashboardPage() {
       clearItemFeedback(setItemActionFeedbackByItemId, itemId)
     },
     onSuccess: (_data, variables) => {
+      savedNoteValuesByItemIdRef.current[variables.itemId] = variables.note ?? ''
       setNoteDraftsByItemId((current) => ({
         ...current,
         [variables.itemId]: variables.note ?? '',
@@ -640,6 +660,7 @@ export function DashboardPage() {
   })
 
   const retryArticleFetch = useMutation({
+    mutationKey: ['items', 'retry-article-fetch'],
     mutationFn: (payload: { itemId: string }) =>
       apiFetch<{ status: 'queued' }>(`/items/${payload.itemId}/retry-article-fetch`, {
         method: 'POST',
@@ -733,19 +754,18 @@ export function DashboardPage() {
       )
 
       return {
-        queryKey: [
-          'items',
-          selectedFeedIdsParam,
-          selectedTagsParam,
-          deferredSearchQuery,
-          rssFilters.read_status,
-          rssFilters.star_status,
-          timeWindow.sinceIso,
-          timeWindow.untilIso,
-          rssFilters.sort,
-          rssFilters.page,
-          rssFilters.page_size,
-        ],
+        queryKey: buildDashboardItemsQueryKey({
+          selected_feed_ids: selectedFeedIdsParam,
+          selected_tags: selectedTagsParam,
+          q: deferredSearchQuery,
+          read_status: rssFilters.read_status,
+          star_status: rssFilters.star_status,
+          since: timeWindow.sinceIso,
+          until: timeWindow.untilIso,
+          sort: rssFilters.sort,
+          page: rssFilters.page,
+          page_size: rssFilters.page_size,
+        }),
         retry: 1,
         staleTime: 60_000,
         placeholderData: (previousData: ItemListResponse | undefined) => previousData,
@@ -902,12 +922,15 @@ export function DashboardPage() {
           continue
         }
 
-        if (next[detail.id] !== undefined) {
-          continue
+        const savedNote = detail.state.note ?? ''
+        const previousSavedNote = savedNoteValuesByItemIdRef.current[detail.id]
+        if (previousSavedNote !== savedNote) {
+          savedNoteValuesByItemIdRef.current[detail.id] = savedNote
         }
-
-        next[detail.id] = detail.state.note ?? ''
-        changed = true
+        if ((next[detail.id] === undefined || next[detail.id] === previousSavedNote) && next[detail.id] !== savedNote) {
+          next[detail.id] = savedNote
+          changed = true
+        }
       }
 
       return changed ? next : current
@@ -938,7 +961,49 @@ export function DashboardPage() {
     return Array.from(categories).sort()
   }, [alertInterestsQuery.data])
 
-  const handleToggleItem = (windowId: string, itemId: string, isRead: boolean) => {
+  const closeAddWindowMenu = (restoreFocus = false) => {
+    setShowAddWindowMenu(false)
+    if (!restoreFocus || typeof window === 'undefined') {
+      return
+    }
+    window.requestAnimationFrame(() => addWindowTriggerRef.current?.focus())
+  }
+
+  useEffect(() => {
+    if (!showAddWindowMenu) {
+      return
+    }
+
+    addWindowFirstActionRef.current?.focus()
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') {
+        return
+      }
+      event.preventDefault()
+      closeAddWindowMenu(true)
+    }
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) {
+        return
+      }
+      if (addWindowMenuRef.current?.contains(target) || addWindowTriggerRef.current?.contains(target)) {
+        return
+      }
+      closeAddWindowMenu()
+    }
+
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [showAddWindowMenu])
+
+  const handleToggleItem = (windowId: string, itemId: string) => {
     clearItemFeedback(setItemActionFeedbackByItemId, itemId)
     clearItemFeedback(setArticleRetryFeedbackByItemId, itemId)
     setExpandedItemIdsByWindowId((current) => {
@@ -952,9 +1017,6 @@ export function DashboardPage() {
         [windowId]: itemId,
       }
     })
-    if (!isRead && canManage) {
-      updateRead.mutate({ itemId, isRead: true })
-    }
   }
 
   const setWindowSnap = (windowId: string, snap: DashboardWindowSnap) => {
@@ -987,7 +1049,7 @@ export function DashboardPage() {
       const nextIndex = current.filter((window) => window.type === type).length + 1
       return [...current, createWindowLayout(type, nextIndex, width, height)]
     })
-    setShowAddWindowMenu(false)
+    closeAddWindowMenu(true)
   }
 
   const removeWindow = (windowId: string) => {
@@ -1215,7 +1277,7 @@ export function DashboardPage() {
       return
     }
 
-    if (hasProtectedEditSession) {
+    if (hasUnsavedDashboardChanges) {
       setPendingSavedViewLoad({ id: selected.id, name: selected.name })
       return
     }
@@ -1671,11 +1733,17 @@ export function DashboardPage() {
               const change = resolveSavedViewSelectionChange({
                 currentActiveSavedViewId: activeSavedViewId,
                 nextValue: event.target.value,
-                hasProtectedEditSession,
+                hasProtectedEditSession: hasUnsavedDashboardChanges,
               })
 
               if (change.kind === 'clear') {
-                clearActiveSavedViewSelection()
+                if (hasUnsavedDashboardChanges) {
+                  confirmDiscardUnsavedDashboardChanges(() => {
+                    clearActiveSavedViewSelection()
+                  })
+                } else {
+                  clearActiveSavedViewSelection()
+                }
                 return
               }
 
@@ -1720,15 +1788,27 @@ export function DashboardPage() {
               <div className="relative">
                 <button
                   type="button"
+                  ref={addWindowTriggerRef}
                   className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
                   onClick={() => setShowAddWindowMenu((current) => !current)}
+                  aria-haspopup="menu"
+                  aria-expanded={showAddWindowMenu}
+                  aria-controls={showAddWindowMenu ? addWindowMenuId : undefined}
                 >
                   Add Panel
                 </button>
                 {showAddWindowMenu && (
-                  <div className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]">
+                  <div
+                    ref={addWindowMenuRef}
+                    id={addWindowMenuId}
+                    role="menu"
+                    aria-label="Add dashboard panel"
+                    className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]"
+                  >
                     <button
+                      ref={addWindowFirstActionRef}
                       type="button"
+                      role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
                       onClick={() => addWindow('rss')}
                     >
@@ -1736,6 +1816,7 @@ export function DashboardPage() {
                     </button>
                     <button
                       type="button"
+                      role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
                       onClick={() => addWindow('alerts')}
                     >
@@ -1743,6 +1824,7 @@ export function DashboardPage() {
                     </button>
                     <button
                       type="button"
+                      role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
                       onClick={() => addWindow('notes')}
                     >
@@ -1751,6 +1833,7 @@ export function DashboardPage() {
                     {aiDailyBriefEnabled && (
                       <button
                         type="button"
+                        role="menuitem"
                         className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
                         onClick={() => addWindow('daily_brief')}
                       >
@@ -1840,7 +1923,7 @@ export function DashboardPage() {
                     setSavedViewName(editSessionSnapshot.savedViewName)
                   }
                   setIsEditMode(false)
-                  setShowAddWindowMenu(false)
+                  closeAddWindowMenu()
                   setOpenWindowMenuId(null)
                   setShowSaveAsNew(false)
                   setEditSessionSnapshot(null)
@@ -2299,7 +2382,9 @@ export function DashboardPage() {
                               <button
                                 type="button"
                                 className="mt-1 w-full text-left text-slate-900 dark:text-slate-100"
-                                onClick={() => handleToggleItem(windowLayout.id, item.id, item.is_read)}
+                                onClick={() => handleToggleItem(windowLayout.id, item.id)}
+                                aria-expanded={expanded}
+                                aria-controls={`rss-item-detail-${item.id}`}
                               >
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
                                   <span>Published {formatPublishedAt(item.published_at)}</span>
@@ -2334,7 +2419,10 @@ export function DashboardPage() {
                             </div>
 
                             {expanded && (
-                              <div className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40">
+                              <div
+                                id={`rss-item-detail-${item.id}`}
+                                className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40"
+                              >
                                 {detailQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
                                 {detailQuery?.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
 
@@ -3153,8 +3241,12 @@ export function DashboardPage() {
 
       <ConfirmDialog
         open={Boolean(pendingSavedViewLoad)}
-        title="Discard the current edit session?"
-        description="Loading another saved view will replace the layout you are editing and clear the current cancel checkpoint."
+        title={hasProtectedEditSession ? 'Discard the current edit session?' : 'Discard unsaved note drafts?'}
+        description={
+          hasProtectedEditSession
+            ? 'Loading another saved view will replace the layout you are editing and clear the current cancel checkpoint.'
+            : 'Loading another saved view can hide your in-progress note drafts before you save them.'
+        }
         confirmLabel="Load saved view"
         onCancel={() => setPendingSavedViewLoad(null)}
         onConfirm={onConfirmPendingSavedViewLoad}
@@ -3163,7 +3255,9 @@ export function DashboardPage() {
           <div className="space-y-2">
             <p className="font-semibold text-ink dark:text-white">{pendingSavedViewLoad.name}</p>
             <p className="text-xs text-slate dark:text-white/70">
-              Save or cancel the current edit session first if you want to keep those unsaved layout changes.
+              {hasProtectedEditSession
+                ? 'Save or cancel the current edit session first if you want to keep those unsaved layout changes.'
+                : 'Save your item notes first if you want the current note drafts to remain safely persisted.'}
             </p>
           </div>
         )}
@@ -3269,6 +3363,23 @@ type ItemCachePatch = {
   note?: string | null
 }
 
+type DashboardItemsQueryKeyParams = {
+  selected_feed_ids: string
+  selected_tags: string
+  q: string
+  read_status: ReadStatusFilter
+  star_status: StarStatusFilter
+  since: string | null
+  until: string | null
+  sort: TimeSort
+  page: number
+  page_size: number
+}
+
+function buildDashboardItemsQueryKey(params: DashboardItemsQueryKeyParams) {
+  return ['items', params] as const
+}
+
 function resolveItemActionError(error: unknown, fallback: string) {
   if (error instanceof ApiError && error.message.trim()) {
     return error.message
@@ -3347,22 +3458,39 @@ function shouldRefreshFilteredItemList(queryKey: readonly unknown[], patch: Item
     return false
   }
 
-  if (queryKey.length !== 11) {
-    return false
-  }
-
-  const readStatus = queryKey[4]
-  const starStatus = queryKey[5]
-  const isDashboardReadStatus = readStatus === 'all' || readStatus === 'read' || readStatus === 'unread'
-  const isDashboardStarStatus = starStatus === 'all' || starStatus === 'starred' || starStatus === 'unstarred'
-
-  if (!isDashboardReadStatus || !isDashboardStarStatus) {
+  const params = queryKey[1]
+  if (!isDashboardItemsQueryKeyParams(params)) {
     return false
   }
 
   return (
-    (patch.isRead !== undefined && readStatus !== 'all') ||
-    (patch.isStarred !== undefined && starStatus !== 'all')
+    (patch.isRead !== undefined && params.read_status !== 'all') ||
+    (patch.isStarred !== undefined && params.star_status !== 'all')
+  )
+}
+
+function isDashboardItemsQueryKeyParams(value: unknown): value is DashboardItemsQueryKeyParams {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const params = value as Record<string, unknown>
+  const readStatus = params.read_status
+  const starStatus = params.star_status
+  const isDashboardReadStatus = readStatus === 'all' || readStatus === 'read' || readStatus === 'unread'
+  const isDashboardStarStatus = starStatus === 'all' || starStatus === 'starred' || starStatus === 'unstarred'
+
+  return (
+    typeof params.selected_feed_ids === 'string' &&
+    typeof params.selected_tags === 'string' &&
+    typeof params.q === 'string' &&
+    isDashboardReadStatus &&
+    isDashboardStarStatus &&
+    (params.since === null || typeof params.since === 'string') &&
+    (params.until === null || typeof params.until === 'string') &&
+    typeof params.sort === 'string' &&
+    typeof params.page === 'number' &&
+    typeof params.page_size === 'number'
   )
 }
 

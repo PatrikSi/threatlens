@@ -250,7 +250,7 @@ describe('UsersPage DOM workflows', () => {
     rerenderPage()
 
     expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved user settings changes?')
+    expect(view.textContent).toContain('Discard unsaved user changes?')
 
     const cancelButton = Array.from(view.querySelectorAll('button'))
       .filter((button) => button.textContent?.trim() === 'Cancel')
@@ -276,5 +276,32 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(routerMocks.blocker.proceed).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps password-reset drafts when filtering rows and treats them as unsaved changes', () => {
+    const view = renderPage()
+
+    const passwordInput = view.querySelector<HTMLInputElement>('#user-reset-password-user-1')
+    const searchInput = view.querySelector<HTMLInputElement>('#user-directory-search')
+    expect(passwordInput).not.toBeNull()
+    expect(searchInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(passwordInput!, 'temporary-password')
+      setInputValue(searchInput!, 'missing-user')
+    })
+
+    expect(view.querySelector('#user-reset-password-user-1')).toBeNull()
+
+    act(() => {
+      setInputValue(searchInput!, '')
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#user-reset-password-user-1')?.value).toBe('temporary-password')
+
+    routerMocks.blocker.state = 'blocked'
+    rerenderPage()
+
+    expect(view.textContent).toContain('Discard unsaved user changes?')
   })
 })
