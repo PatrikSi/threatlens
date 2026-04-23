@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import is_cookie_session_auth, require_token_scopes
+from app.api.deps import is_cookie_session_auth, require_token_scopes, resolve_client_ip
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
 from app.core.security import extract_api_token_prefix, generate_api_token, hash_api_token, verify_password
@@ -15,6 +15,11 @@ from app.models.api_token import ApiToken
 from app.models.user import User
 from app.schemas.token import ApiTokenCreateRequest, ApiTokenCreateResponse, ApiTokenResponse
 from app.services.audit import record_audit
+from app.services.auth_rate_limit import (
+    check_password_verification_throttle,
+    clear_password_verification_failures,
+    record_password_verification_failure,
+)
 
 router = APIRouter(prefix="/tokens", tags=["tokens"])
 
@@ -111,8 +116,16 @@ def _enforce_browser_session_step_up(request: Request, payload: ApiTokenCreateRe
         return
     if not payload.current_password:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL)
+    client_ip = resolve_client_ip(request)
+    throttle = check_password_verification_throttle(user.email, client_ip)
+    if throttle.blocked:
+        detail = "Too many failed current password verification attempts. Try again later."
+        headers = {"Retry-After": str(throttle.retry_after_seconds)} if throttle.retry_after_seconds else None
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
     if not verify_password(payload.current_password, user.password_hash):
+        record_password_verification_failure(user.email, client_ip)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    clear_password_verification_failures(user.email, client_ip)
 
 
 def _resolve_authenticated_parent_api_token(request: Request, db: Session) -> ApiToken | None:

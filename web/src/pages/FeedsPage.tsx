@@ -88,6 +88,7 @@ export function FeedsPage() {
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>(initialPersistedFeedDrafts)
+  const importFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -702,10 +703,23 @@ export function FeedsPage() {
             >
               Export JSON
             </button>
-            <label className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40">
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-1.5 text-xs disabled:opacity-50 dark:border-cyan-900/40"
+              onClick={() => importFileInputRef.current?.click()}
+              disabled={!canManage}
+            >
               Import JSON
-              <input type="file" accept="application/json" className="hidden" onChange={onImportFile} disabled={!canManage} />
-            </label>
+            </button>
+            <input
+              ref={importFileInputRef}
+              type="file"
+              accept="application/json"
+              className="sr-only"
+              onChange={onImportFile}
+              disabled={!canManage}
+              tabIndex={-1}
+            />
             <button
               type="button"
               className="col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto dark:bg-cyan dark:text-[#053c2e]"

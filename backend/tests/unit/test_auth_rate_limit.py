@@ -102,6 +102,7 @@ def _reset_emergency_state():
         ("user@example.com", "203.0.113.10"),
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
+        auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
     auth_rate_limit._pending_redis_clears.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
     yield
@@ -113,6 +114,7 @@ def _reset_emergency_state():
         ("user@example.com", "203.0.113.10"),
     ]:
         auth_rate_limit._emergency_clear_login_failures(email, ip)
+        auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
     auth_rate_limit._pending_redis_clears.clear()
     auth_rate_limit._emergency_account_ip_sets.clear()
 
@@ -169,6 +171,22 @@ def test_login_throttle_blocks_after_repeated_failures(monkeypatch):
     state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
     assert state.blocked is True
     assert state.retry_after_seconds == 120
+
+
+def test_password_verification_throttle_uses_a_separate_namespace(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_password_verification_failure("admin@example.com", "203.0.113.10")
+
+    verification_state = auth_rate_limit.check_password_verification_throttle("admin@example.com", "203.0.113.10")
+    login_state = auth_rate_limit.check_login_throttle("admin@example.com", "203.0.113.10")
+
+    assert verification_state.blocked is True
+    assert login_state.blocked is False
 
 
 def test_clear_login_failures_removes_existing_locks(monkeypatch):

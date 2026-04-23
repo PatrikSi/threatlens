@@ -77,6 +77,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function rerenderPage() {
   act(() => {
     root?.render(<UsersPage />)
@@ -145,12 +149,12 @@ describe('UsersPage DOM workflows', () => {
       createForm!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
 
-    expect(view.textContent).toContain('Create user account?')
-    expect(view.textContent).toContain('admin@example.com')
-    expect(view.textContent).toContain('This account will have full administrative access on first sign-in.')
-    expect(view.textContent).toContain('The account will skip the pending-approval state.')
+    expect(pageText()).toContain('Create user account?')
+    expect(pageText()).toContain('admin@example.com')
+    expect(pageText()).toContain('This account will have full administrative access on first sign-in.')
+    expect(pageText()).toContain('The account will skip the pending-approval state.')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Create user')
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Create user')
     expect(confirmButton).not.toBeNull()
 
     act(() => {
@@ -195,10 +199,10 @@ describe('UsersPage DOM workflows', () => {
       reviewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Apply privileged user changes?')
-    expect(view.textContent).toContain('Role will change from analyst to admin.')
+    expect(pageText()).toContain('Apply privileged user changes?')
+    expect(pageText()).toContain('Role will change from analyst to admin.')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Apply user changes'),
     )
     expect(confirmButton).not.toBeNull()
@@ -249,10 +253,10 @@ describe('UsersPage DOM workflows', () => {
     routerMocks.blocker.state = 'blocked'
     rerenderPage()
 
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved user changes?')
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved user changes?')
 
-    const cancelButton = Array.from(view.querySelectorAll('button'))
+    const cancelButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.trim() === 'Cancel')
       .at(-1)
     expect(cancelButton).not.toBeNull()
@@ -266,7 +270,7 @@ describe('UsersPage DOM workflows', () => {
     routerMocks.blocker.state = 'blocked'
     rerenderPage()
 
-    const discardButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const discardButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Discard changes'),
     )
     expect(discardButton).not.toBeNull()
@@ -302,6 +306,6 @@ describe('UsersPage DOM workflows', () => {
     routerMocks.blocker.state = 'blocked'
     rerenderPage()
 
-    expect(view.textContent).toContain('Discard unsaved user changes?')
+    expect(pageText()).toContain('Discard unsaved user changes?')
   })
 })

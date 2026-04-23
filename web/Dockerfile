@@ -39,6 +39,8 @@ RUN mkdir -p /tmp/frontend-docs \
 RUN npm run build
 
 FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'"
 COPY compliance/generate_frontend_os_package_artifacts.sh /tmp/generate_frontend_os_package_artifacts.sh
 RUN chmod +x /tmp/generate_frontend_os_package_artifacts.sh \
@@ -58,5 +60,14 @@ COPY --from=build /tmp/frontend-docs/frontend-runtime-package-legal /usr/share/d
 COPY package-lock.json /usr/share/doc/threatlens/frontend-package-lock.json
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /app/dist /usr/share/nginx/html
+LABEL org.opencontainers.image.title="ThreatLens Web" \
+      org.opencontainers.image.description="ThreatLens React/nginx frontend image" \
+      org.opencontainers.image.url="https://github.com/PatrikSi/threatlens" \
+      org.opencontainers.image.source="https://github.com/PatrikSi/threatlens" \
+      org.opencontainers.image.documentation="https://github.com/PatrikSi/threatlens/blob/main/README.md" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="ThreatLens contributors" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 EXPOSE 3000
 CMD ["nginx", "-g", "daemon off;"]

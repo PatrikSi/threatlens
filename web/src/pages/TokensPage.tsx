@@ -14,6 +14,7 @@ export function TokensPage() {
   const [tokenFormState, dispatchTokenForm] = useTokenCreateFormState()
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
+  const [revocationNotice, setRevocationNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const isAdmin = meQuery.data?.role === 'admin'
 
   const tokenQueryKey = ['tokens', adminUserFilter]
@@ -65,7 +66,20 @@ export function TokensPage() {
   const revokeToken = useMutation({
     mutationKey: ['tokens', 'revoke'],
     mutationFn: (tokenId: string) => apiFetch(`/tokens/${tokenId}`, { method: 'DELETE' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['tokens'] }),
+    onMutate: () => {
+      setRevocationNotice(null)
+    },
+    onSuccess: () => {
+      setPendingRevocation(null)
+      setRevocationNotice({ tone: 'success', message: 'API token revoked.' })
+      void queryClient.invalidateQueries({ queryKey: ['tokens'] })
+    },
+    onError: (error) => {
+      setRevocationNotice({
+        tone: 'error',
+        message: error instanceof ApiError && error.message.trim() ? error.message : 'Failed to revoke token.',
+      })
+    },
   })
 
   const onConfirmRevoke = () => {
@@ -73,9 +87,7 @@ export function TokensPage() {
       return
     }
 
-    const tokenId = pendingRevocation.id
-    setPendingRevocation(null)
-    revokeToken.mutate(tokenId)
+    revokeToken.mutate(pendingRevocation.id)
   }
 
   const onCreateSubmit = (event: FormEvent) => {
@@ -192,6 +204,11 @@ export function TokensPage() {
         )}
 
         <div className="mt-3 space-y-2">
+          {revocationNotice && (
+            <p className={`text-sm ${revocationNotice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}>
+              {revocationNotice.message}
+            </p>
+          )}
           {tokensQuery.data?.map((token) => (
             <div key={token.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex items-center justify-between gap-2">
@@ -244,6 +261,7 @@ export function TokensPage() {
             <p className="text-xs text-slate dark:text-white/70">
               Expires: {pendingRevocation.expires_at ? formatDateTime(pendingRevocation.expires_at) : 'Never'}
             </p>
+            {revocationNotice?.tone === 'error' && <p className="text-sm text-red-600">{revocationNotice.message}</p>}
           </div>
         )}
       </ConfirmDialog>

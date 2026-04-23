@@ -147,6 +147,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -195,6 +199,9 @@ describe('FeedsPage DOM workflows', () => {
     expect(view.querySelector('label[for="feed-sort"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-fetch-mode-feed-1"]')).not.toBeNull()
     expect(view.querySelector('label[for="feed-interval-seconds-feed-1"]')).not.toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Import JSON'),
+    ).not.toBeNull()
 
     const searchInput = view.querySelector<HTMLInputElement>('#feed-search')
     expect(searchInput).not.toBeNull()
@@ -203,7 +210,7 @@ describe('FeedsPage DOM workflows', () => {
       setInputValue(searchInput!, 'Vendor')
     })
 
-    expect(view.textContent).toContain('Showing 1 of 2 feeds')
+    expect(pageText()).toContain('Showing 1 of 2 feeds')
 
     const feedModeSelect = view.querySelector<HTMLSelectElement>('#feed-fetch-mode-feed-1')
     expect(feedModeSelect).not.toBeNull()
@@ -213,7 +220,7 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedModeSelect!.value).toBe('schedule')
-    expect(view.textContent).toContain('Unsaved schedule')
+    expect(pageText()).toContain('Unsaved schedule')
   })
 
   it('protects unsaved feed schedule edits before opening the delete confirmation', () => {
@@ -238,11 +245,11 @@ describe('FeedsPage DOM workflows', () => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('You have unsaved feed schedule changes. Leave without saving?')
-    expect(view.textContent).not.toContain('Delete feed?')
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('You have unsaved feed schedule changes. Leave without saving?')
+    expect(pageText()).not.toContain('Delete feed?')
 
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Discard changes'),
     )
     expect(discardChangesButton).not.toBeNull()
@@ -251,10 +258,10 @@ describe('FeedsPage DOM workflows', () => {
       discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Delete feed?')
-    expect(view.textContent).toContain('Vendor Advisories')
+    expect(pageText()).toContain('Delete feed?')
+    expect(pageText()).toContain('Vendor Advisories')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete feed')
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete feed')
     expect(confirmButton).not.toBeNull()
 
     act(() => {
@@ -276,10 +283,10 @@ describe('FeedsPage DOM workflows', () => {
       bulkEnableButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Enable filtered feeds?')
-    expect(view.textContent).toContain('Edge Advisories')
+    expect(pageText()).toContain('Enable filtered feeds?')
+    expect(pageText()).toContain('Edge Advisories')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Enable feeds')
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Enable feeds')
     expect(confirmButton).not.toBeNull()
 
     act(() => {
@@ -332,7 +339,7 @@ describe('FeedsPage DOM workflows', () => {
       await Promise.resolve()
     })
 
-    expect(view.textContent).toContain('Import preflight: 1 new, 0 overwrite, 1 skip')
+    expect(pageText()).toContain('Import preflight: 1 new, 0 overwrite, 1 skip')
 
     const overwriteCheckbox = Array.from(view.querySelectorAll('label'))
       .find((label) => label.textContent?.includes('Overwrite existing on import'))
@@ -343,7 +350,7 @@ describe('FeedsPage DOM workflows', () => {
       setCheckboxValue(overwriteCheckbox!, true)
     })
 
-    expect(view.textContent).toContain('Import preflight: 1 new, 1 overwrite, 0 skip')
+    expect(pageText()).toContain('Import preflight: 1 new, 1 overwrite, 0 skip')
 
     const runImportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Run Import')
     expect(runImportButton).not.toBeNull()
@@ -352,10 +359,10 @@ describe('FeedsPage DOM workflows', () => {
       runImportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Overwrite existing feeds from import?')
-    expect(view.textContent).toContain('Vendor Advisories')
+    expect(pageText()).toContain('Overwrite existing feeds from import?')
+    expect(pageText()).toContain('Vendor Advisories')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.trim() === 'Run overwrite import',
     )
     expect(confirmButton).not.toBeNull()

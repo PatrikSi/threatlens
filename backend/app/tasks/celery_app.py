@@ -34,6 +34,10 @@ celery_app.conf.update(
             "task": "app.tasks.feed_tasks.dispatch_items_missing_iocs",
             "schedule": 300.0,
         },
+        "dispatch-items-missing-ai-enrichment": {
+            "task": "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment",
+            "schedule": 300.0,
+        },
         "dispatch-feed-metadata-backfill": {
             "task": "app.tasks.feed_tasks.dispatch_feed_metadata_backfill",
             "schedule": 600.0,

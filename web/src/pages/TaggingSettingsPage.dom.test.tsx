@@ -153,6 +153,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -251,11 +255,11 @@ describe('TaggingSettingsPage DOM workflows', () => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved tagging changes?')
-    expect(view.textContent).not.toContain('Delete tagging rule?')
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved tagging changes?')
+    expect(pageText()).not.toContain('Delete tagging rule?')
 
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Discard changes'),
     )
     expect(discardChangesButton).not.toBeNull()
@@ -264,10 +268,10 @@ describe('TaggingSettingsPage DOM workflows', () => {
       discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Delete tagging rule?')
-    expect(view.textContent).toContain('VPN disclosures')
+    expect(pageText()).toContain('Delete tagging rule?')
+    expect(pageText()).toContain('VPN disclosures')
 
-    const confirmDeleteButton = Array.from(view.querySelectorAll('button'))
+    const confirmDeleteButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Delete rule'))
       .at(-1)
     expect(confirmDeleteButton).not.toBeNull()
@@ -301,10 +305,10 @@ describe('TaggingSettingsPage DOM workflows', () => {
       queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Queue full retagging pass?')
-    expect(view.textContent).toContain('all items in the selected time window')
+    expect(pageText()).toContain('Queue full retagging pass?')
+    expect(pageText()).toContain('all items in the selected time window')
 
-    const confirmButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.trim() === 'Queue full retagging',
     )
     expect(confirmButton).not.toBeNull()

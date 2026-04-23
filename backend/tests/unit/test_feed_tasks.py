@@ -14,6 +14,7 @@ from app.models.alert_interest import AlertInterest
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -34,6 +35,7 @@ from app.tasks.feed_tasks import (
     dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
     dispatch_items_missing_articles,
+    dispatch_items_missing_ai_enrichment,
     dispatch_items_missing_iocs,
     enqueue_notification_webhook_delivery_processing,
     extract_item_iocs,
@@ -1375,6 +1377,97 @@ def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_per
         str(old_item.id),
         str(stale_soft_failed_item.id),
     }
+
+
+def test_dispatch_items_missing_ai_enrichment_requeues_classified_items_without_enrichment_rows(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="missing-enrichment-row",
+        url="https://example.com/articles/missing-enrichment-row",
+        canonical_url="https://example.com/articles/missing-enrichment-row",
+        title="Fortinet edge exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        first_seen_at=datetime.now(timezone.utc),
+        dedupe_key="missing-enrichment-row",
+        content_hash="7" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Researchers observed exploitation affecting Fortinet edge devices.",
+        extraction_method="readable",
+    )
+    classification = ItemClassification(
+        item_id=item.id,
+        primary_category="vulnerability",
+        secondary_categories=[],
+        confidence=0.91,
+        scores_json={"vulnerability": 9.1},
+        matched_terms_json={"vulnerability": ["title:fortinet"]},
+        source_hash="classification-hash",
+        rules_version="v2",
+        classified_at=datetime.now(timezone.utc),
+    )
+    db_session.add(feed)
+    db_session.flush()
+    db_session.add(item)
+    db_session.flush()
+    db_session.add_all([article, classification])
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks._update_task_run_celery_id", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: SimpleNamespace(id="repair-task-1"),
+    )
+
+    result = dispatch_items_missing_ai_enrichment.run()
+
+    queued_run = db_session.scalar(
+        select(AITaskRun).where(
+            AITaskRun.item_id == item.id,
+            AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+            AITaskRun.status == "queued",
+        )
+    )
+
+    assert result == {"queued": 1}
+    assert queued_run is not None
+    get_settings.cache_clear()
 
 
 def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):

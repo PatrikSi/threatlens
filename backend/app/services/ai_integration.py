@@ -250,11 +250,18 @@ def run_item_ai_enrichment(
                 input_text_chars=len(article.text or ""),
             )
         if enrichment.status == "pending" and not force:
-            return AIItemEnrichmentResult(
-                enrichment=enrichment,
-                status="skipped",
-                reason="already_pending",
-                input_text_chars=len(article.text or ""),
+            if task_run_id is None:
+                return AIItemEnrichmentResult(
+                    enrichment=enrichment,
+                    status="skipped",
+                    reason="already_pending",
+                    input_text_chars=len(article.text or ""),
+                )
+            record_ai_task_event(
+                db,
+                run_id=task_run_id,
+                event_type="pending_recovered",
+                payload={"item_id": str(item_id)},
             )
     stop_reason = _record_task_run_stop_observed(db, task_run_id=task_run_id, stage="before_pending_state")
     if stop_reason is not None:

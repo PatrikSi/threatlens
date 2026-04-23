@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     dispatch_items_missing_articles_after_seconds: int = 300
     dispatch_unclassified_items_batch_size: int = 200
     dispatch_items_missing_iocs_batch_size: int = 200
+    dispatch_items_missing_ai_enrichment_batch_size: int = 200
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
     dispatch_ai_reprocess_batch_size: int = 100

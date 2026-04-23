@@ -4,8 +4,17 @@
     "title": "ThreatLens API",
     "summary": "ThreatLens API contract.",
     "description": "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the bundled web proxy. Authorization bearer credentials are scoped API tokens, while browser logins establish HttpOnly cookie sessions through `/v1/auth/login`. The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`. Any unversioned backend-service compatibility aliases are intentionally excluded from the OpenAPI schema and shipped browser/runtime contract.",
+    "contact": {
+      "name": "ThreatLens maintainers",
+      "url": "https://github.com/PatrikSi/threatlens/issues"
+    },
+    "license": {
+      "name": "Apache-2.0",
+      "identifier": "Apache-2.0",
+      "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
+    },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "57889821ca2b4d37f7696600fc30057ab5614353f3643584c8ffad698887a227"
+    "x-threatlens-contract-sha256": "efb50fb515b26bc7c202220bc476010718f63685a96c77992569e6c2a2f7c79b"
   },
   "servers": [
     {

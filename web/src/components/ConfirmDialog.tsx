@@ -1,4 +1,5 @@
 import { ReactNode, RefObject, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 
 import { useDialogFocusTrap } from '../hooks/useDialogFocusTrap'
 
@@ -74,10 +75,11 @@ export function DialogSurface({
 
   const describedBy = [description ? descriptionId : null, children ? bodyId : null].filter(Boolean).join(' ') || undefined
 
-  return (
+  const dialog = (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6">
       <div
         ref={dialogRef}
+        data-dialog-root="true"
         className={`w-full rounded-2xl border border-slate/20 bg-white p-5 shadow-2xl dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
         role={role}
         aria-modal="true"
@@ -120,6 +122,12 @@ export function DialogSurface({
       </div>
     </div>
   )
+
+  if (typeof document === 'undefined') {
+    return dialog
+  }
+
+  return createPortal(dialog, document.body)
 }
 
 export function ConfirmDialog({

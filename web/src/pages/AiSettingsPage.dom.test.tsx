@@ -329,6 +329,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -377,10 +381,10 @@ describe('AiSettingsPage DOM workflows', () => {
       cancelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Cancel AI task?')
-    expect(view.textContent).toContain('Daily Brief')
+    expect(pageText()).toContain('Cancel AI task?')
+    expect(pageText()).toContain('Daily Brief')
 
-    const confirmCancelButton = Array.from(view.querySelectorAll('button'))
+    const confirmCancelButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Remove From Queue'))
       .at(-1)
     expect(confirmCancelButton).not.toBeNull()
@@ -415,7 +419,7 @@ describe('AiSettingsPage DOM workflows', () => {
       setInputValue(lookbackInput as HTMLInputElement, '')
     })
 
-    expect(view.textContent).toContain('Lookback Days must be a whole number greater than 0')
+    expect(pageText()).toContain('Lookback Days must be a whole number greater than 0')
     expect(queueButton?.hasAttribute('disabled')).toBe(true)
   })
 })

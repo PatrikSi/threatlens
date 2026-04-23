@@ -259,6 +259,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function getButton(text: string) {
   return Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text)) ?? null
 }
@@ -371,8 +375,8 @@ describe('DashboardPage DOM workflows', () => {
       loadSelect!.dispatchEvent(new Event('change', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Discard the current edit session?')
-    expect(view.textContent).toContain('Imported Notes')
+    expect(pageText()).toContain('Discard the current edit session?')
+    expect(pageText()).toContain('Imported Notes')
 
     act(() => {
       getButton('Load saved view')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

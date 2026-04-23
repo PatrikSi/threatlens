@@ -114,6 +114,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -165,10 +169,10 @@ describe('AlertsPage DOM workflows', () => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Delete alert interest?')
-    expect(view.textContent).toContain('VPN advisories')
+    expect(pageText()).toContain('Delete alert interest?')
+    expect(pageText()).toContain('VPN advisories')
 
-    const confirmDeleteButton = Array.from(view.querySelectorAll('button'))
+    const confirmDeleteButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Delete alert'))
       .at(-1)
     expect(confirmDeleteButton).not.toBeNull()
@@ -193,10 +197,10 @@ describe('AlertsPage DOM workflows', () => {
       resetButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved alert changes?')
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved alert changes?')
 
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Discard changes'),
     )
     expect(discardChangesButton).not.toBeNull()

@@ -1,5 +1,8 @@
 FROM python:3.12.11-slim-bookworm@sha256:519591d6871b7bc437060736b9f7456b8731f1499a57e22e6c285135ae657bf7
 
+ARG BUILD_DATE=unknown
+ARG VCS_REF=unknown
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
@@ -31,5 +34,15 @@ RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:
 
 ENV PYTHONPATH=/app
 USER app
+
+LABEL org.opencontainers.image.title="ThreatLens API" \
+      org.opencontainers.image.description="ThreatLens FastAPI backend image" \
+      org.opencontainers.image.url="https://github.com/PatrikSi/threatlens" \
+      org.opencontainers.image.source="https://github.com/PatrikSi/threatlens" \
+      org.opencontainers.image.documentation="https://github.com/PatrikSi/threatlens/blob/main/README.md" \
+      org.opencontainers.image.licenses="Apache-2.0" \
+      org.opencontainers.image.vendor="ThreatLens contributors" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.revision="${VCS_REF}"
 
 CMD ["/app/scripts/start-api.sh"]

@@ -35,10 +35,12 @@ def _reset_auth_emergency_state():
     for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
         for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
             auth_rate_limit._emergency_clear_login_failures(email, ip)
+            auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
     yield
     for email in ("admin@example.com", "analyst@example.com", "viewer@example.com"):
         for ip in ("testclient", "203.0.113.10", "203.0.113.11"):
             auth_rate_limit._emergency_clear_login_failures(email, ip)
+            auth_rate_limit._emergency_clear_password_verification_failures(email, ip)
 
 
 class _UnavailableRedis:
@@ -502,6 +504,41 @@ def test_change_password_invalidates_existing_cookie_sessions(client: TestClient
     assert new_password_login.status_code == 200
 
 
+def test_change_password_current_password_check_is_throttled(
+    client: TestClient, seed_users, monkeypatch: pytest.MonkeyPatch
+):
+    _ = seed_users
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    first_response = client.post(
+        "/auth/change-password",
+        json={"current_password": "WrongPass123!", "new_password": "NewAdminPass123!"},
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert first_response.status_code == 400
+    assert first_response.json()["detail"] == "Current password is incorrect"
+
+    second_response = client.post(
+        "/auth/change-password",
+        json={"current_password": "WrongPass123!", "new_password": "NewAdminPass123!"},
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert second_response.status_code == 429
+    assert (
+        second_response.json()["detail"]
+        == "Too many failed current password verification attempts. Try again later."
+    )
+
+
 def test_change_password_revokes_existing_api_tokens(client: TestClient, auth_headers):
     token_response = client.post(
         "/tokens",
@@ -647,6 +684,51 @@ def test_browser_session_requires_password_step_up_to_create_api_token(client: T
     )
     assert wrong_password_response.status_code == 400
     assert wrong_password_response.json()["detail"] == "Current password is incorrect"
+
+
+def test_browser_session_current_password_step_up_is_throttled(
+    client: TestClient, seed_users, monkeypatch: pytest.MonkeyPatch
+):
+    _ = seed_users
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "admin@example.com", "password": "AdminPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    first_response = client.post(
+        "/tokens",
+        json={
+            "name": "browser-session-token",
+            "expires_in_days": 30,
+            "scopes": ["read:feeds"],
+            "current_password": "WrongPass123!",
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert first_response.status_code == 400
+    assert first_response.json()["detail"] == "Current password is incorrect"
+
+    second_response = client.post(
+        "/tokens",
+        json={
+            "name": "browser-session-token",
+            "expires_in_days": 30,
+            "scopes": ["read:feeds"],
+            "current_password": "WrongPass123!",
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert second_response.status_code == 429
+    assert (
+        second_response.json()["detail"]
+        == "Too many failed current password verification attempts. Try again later."
+    )
 
 
 def test_browser_session_can_create_api_token_after_password_step_up(client: TestClient, seed_users):

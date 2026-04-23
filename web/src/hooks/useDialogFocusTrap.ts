@@ -9,6 +9,17 @@ type DialogContainer = Pick<HTMLElement, 'contains' | 'focus'> & {
   querySelectorAll(selectors: string): ArrayLike<HTMLElement>
 }
 
+type InertCapableElement = HTMLElement & { inert?: boolean }
+
+type DialogIsolationTarget = Pick<HTMLElement, 'children'>
+
+type DialogIsolationSnapshot = {
+  element: InertCapableElement
+  ariaHidden: string | null
+  hadInertAttribute: boolean
+  inertValue: boolean
+}
+
 type DialogKeyDownEvent = Pick<KeyboardEvent, 'key' | 'shiftKey' | 'preventDefault'>
 
 type ResolveDialogInitialFocusTargetArgs = {
@@ -92,6 +103,49 @@ export function handleDialogSurfaceKeyDown({
   }
 }
 
+export function applyDialogDocumentIsolation(
+  dialogRoot: HTMLElement | null,
+  isolationTarget: DialogIsolationTarget | null = typeof document !== 'undefined' ? document.body : null,
+) {
+  if (!dialogRoot || !isolationTarget) {
+    return () => undefined
+  }
+
+  const snapshots: DialogIsolationSnapshot[] = []
+  for (const child of Array.from(isolationTarget.children)) {
+    if (!(child instanceof HTMLElement) || child === dialogRoot) {
+      continue
+    }
+
+    const element = child as InertCapableElement
+    snapshots.push({
+      element,
+      ariaHidden: element.getAttribute('aria-hidden'),
+      hadInertAttribute: element.hasAttribute('inert'),
+      inertValue: Boolean(element.inert),
+    })
+    element.setAttribute('aria-hidden', 'true')
+    element.setAttribute('inert', '')
+    element.inert = true
+  }
+
+  return () => {
+    for (const snapshot of snapshots) {
+      if (snapshot.ariaHidden === null) {
+        snapshot.element.removeAttribute('aria-hidden')
+      } else {
+        snapshot.element.setAttribute('aria-hidden', snapshot.ariaHidden)
+      }
+      if (snapshot.hadInertAttribute) {
+        snapshot.element.setAttribute('inert', '')
+      } else {
+        snapshot.element.removeAttribute('inert')
+      }
+      snapshot.element.inert = snapshot.inertValue
+    }
+  }
+}
+
 export function useDialogFocusTrap({
   open,
   dialogRef,
@@ -113,6 +167,7 @@ export function useDialogFocusTrap({
     }
 
     previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const restoreIsolation = applyDialogDocumentIsolation(dialogRef.current?.parentElement ?? null)
     window.requestAnimationFrame(() => {
       const focusTarget = resolveDialogInitialFocusTarget({
         dialog: dialogRef.current,
@@ -140,6 +195,7 @@ export function useDialogFocusTrap({
     document.addEventListener('keydown', onKeyDown)
     return () => {
       document.removeEventListener('keydown', onKeyDown)
+      restoreIsolation()
       if (previousFocusRef.current?.isConnected) {
         previousFocusRef.current.focus()
       }

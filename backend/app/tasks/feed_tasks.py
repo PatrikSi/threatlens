@@ -23,6 +23,7 @@ from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -771,6 +772,54 @@ def dispatch_items_missing_iocs():
             logger.exception("item_ioc_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
             continue
         queued += 1
+
+    return {"queued": queued}
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment")
+def dispatch_items_missing_ai_enrichment():
+    queued = 0
+    with db_session() as db:
+        active = load_active_ai_settings(db)
+        if not active.ai_enabled:
+            return {"queued": 0, "reason": "ai_disabled"}
+        if not active.ai_configured:
+            return {"queued": 0, "reason": "ai_not_configured"}
+        if not active.auto_enrich_new_items:
+            return {"queued": 0, "reason": "auto_enrich_disabled"}
+
+        in_flight_enrichment_run = exists(
+            select(AITaskRun.id).where(
+                AITaskRun.item_id == Item.id,
+                AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            )
+        )
+        item_ids = db.scalars(
+            select(Item.id)
+            .join(ItemClassification, ItemClassification.item_id == Item.id)
+            .join(Article, Article.item_id == Item.id)
+            .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
+            .where(
+                Item.status == "content_fetched",
+                Article.text.is_not(None),
+                Article.text != "",
+                ItemAIEnrichment.item_id.is_(None),
+                ~in_flight_enrichment_run,
+            )
+            .order_by(ItemClassification.classified_at.asc(), Item.first_seen_at.asc())
+            .limit(settings.dispatch_items_missing_ai_enrichment_batch_size)
+        ).all()
+
+    for item_id in item_ids:
+        if _safe_queue_item_ai_enrichment_run(
+            item_id=item_id,
+            trigger_source=AI_TRIGGER_AUTO,
+            reason=None,
+            model=getattr(active, "model", None),
+            metadata={"recovery": "missing_enrichment_row", "force": False},
+        ):
+            queued += 1
 
     return {"queued": queued}
 

@@ -31,8 +31,11 @@ from app.schemas.auth import (
 )
 from app.services.audit import record_audit
 from app.services.auth_rate_limit import (
+    check_password_verification_throttle,
     check_login_throttle,
+    clear_password_verification_failures,
     clear_login_failures,
+    record_password_verification_failure,
     record_login_failure,
 )
 
@@ -176,12 +179,12 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
 
 @router.post("/change-password", status_code=status.HTTP_200_OK)
 def change_password(
+    request: Request,
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+    _verify_current_password_or_throttle(request=request, user=user, candidate_password=payload.current_password)
 
     revoked_at = datetime.now(timezone.utc)
     revoked_api_tokens = db.execute(
@@ -205,6 +208,21 @@ def change_password(
     )
     db.commit()
     return {"status": "ok"}
+
+
+def _verify_current_password_or_throttle(*, request: Request, user: User, candidate_password: str) -> None:
+    client_ip = resolve_client_ip(request)
+    throttle = check_password_verification_throttle(user.email, client_ip)
+    if throttle.blocked:
+        detail = "Too many failed current password verification attempts. Try again later."
+        headers = {"Retry-After": str(throttle.retry_after_seconds)} if throttle.retry_after_seconds else None
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
+
+    if not verify_password(candidate_password, user.password_hash):
+        record_password_verification_failure(user.email, client_ip)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+    clear_password_verification_failures(user.email, client_ip)
 
 
 @router.post("/logout", status_code=status.HTTP_200_OK)

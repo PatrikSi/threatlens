@@ -67,6 +67,15 @@ app = FastAPI(
         {"url": API_SERVICE_ROOT, "description": "Backend service root"},
         {"url": WEB_PROXY_ROOT, "description": "Web reverse proxy root"},
     ],
+    contact={
+        "name": "ThreatLens maintainers",
+        "url": "https://github.com/PatrikSi/threatlens/issues",
+    },
+    license_info={
+        "name": "Apache-2.0",
+        "identifier": "Apache-2.0",
+        "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
+    },
     **_build_openapi_visibility_kwargs(settings),
 )
 
@@ -200,6 +209,8 @@ def custom_openapi() -> dict[str, Any]:
         description=app.description,
         routes=app.routes,
         servers=app.servers,
+        contact=app.contact,
+        license_info=app.license_info,
     )
     schema = _apply_published_security_contract(schema)
     app.openapi_schema = _apply_contract_anchor(schema)

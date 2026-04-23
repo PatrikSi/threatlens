@@ -103,6 +103,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -121,8 +125,8 @@ describe('TokensPage DOM workflows', () => {
 
     expect(view.querySelector('label[for="token-name"]')?.textContent).toContain('Name')
     expect(view.querySelector('label[for="token-current-password"]')?.textContent).toContain('Current Password')
-    expect(view.textContent).toContain('Scoped API routes now reject unscoped tokens')
-    expect(view.textContent).toContain('User ID: viewer-2')
+    expect(pageText()).toContain('Scoped API routes now reject unscoped tokens')
+    expect(pageText()).toContain('User ID: viewer-2')
 
     const revokeButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Revoke') && button.closest('div')?.textContent?.includes('Partner sync'),
@@ -133,11 +137,11 @@ describe('TokensPage DOM workflows', () => {
       revokeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Revoke API token?')
-    expect(view.textContent).toContain('Partner sync')
-    expect(view.textContent).toContain('User ID: viewer-2')
+    expect(pageText()).toContain('Revoke API token?')
+    expect(pageText()).toContain('Partner sync')
+    expect(pageText()).toContain('User ID: viewer-2')
 
-    const confirmRevokeButton = Array.from(view.querySelectorAll('button'))
+    const confirmRevokeButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Revoke token'))
       .at(-1)
     expect(confirmRevokeButton).not.toBeNull()

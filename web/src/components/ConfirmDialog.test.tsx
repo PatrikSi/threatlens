@@ -1,12 +1,26 @@
+// @vitest-environment jsdom
+
+import type { ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
+  applyDialogDocumentIsolation,
   getFocusableDialogElements,
   handleDialogSurfaceKeyDown,
   resolveDialogInitialFocusTarget,
 } from '../hooks/useDialogFocusTrap'
 import { ConfirmDialog, DialogSurface } from './ConfirmDialog'
+
+function renderStaticDialog(element: ReactElement) {
+  const originalDocument = globalThis.document
+  vi.stubGlobal('document', undefined)
+  try {
+    return renderToStaticMarkup(element)
+  } finally {
+    vi.stubGlobal('document', originalDocument)
+  }
+}
 
 function createFocusableElement(options?: { disabled?: boolean; ariaHidden?: boolean }) {
   const disabled = options?.disabled ?? false
@@ -29,7 +43,7 @@ function createDialogContainer(focusable: HTMLElement[]) {
 
 describe('ConfirmDialog', () => {
   it('renders reusable dialog semantics for non-destructive overlays', () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderStaticDialog(
       <DialogSurface
         open
         title="Manage Saved Views"
@@ -48,7 +62,7 @@ describe('ConfirmDialog', () => {
   })
 
   it('renders alertdialog semantics when open', () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderStaticDialog(
       <ConfirmDialog
         open
         title="Delete alert?"
@@ -66,7 +80,7 @@ describe('ConfirmDialog', () => {
   })
 
   it('marks the dialog busy and disables dismiss controls while confirming', () => {
-    const markup = renderToStaticMarkup(
+    const markup = renderStaticDialog(
       <ConfirmDialog
         open
         title="Apply changes?"
@@ -146,5 +160,24 @@ describe('ConfirmDialog', () => {
 
     expect(event.preventDefault).toHaveBeenCalledTimes(1)
     expect(first.focus).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides sibling body content from assistive tech while the dialog is isolated', () => {
+    const appRoot = document.createElement('div')
+    const dialogRoot = document.createElement('div')
+    document.body.append(appRoot, dialogRoot)
+
+    const restore = applyDialogDocumentIsolation(dialogRoot)
+
+    expect(appRoot.getAttribute('aria-hidden')).toBe('true')
+    expect(appRoot.hasAttribute('inert')).toBe(true)
+    expect(dialogRoot.getAttribute('aria-hidden')).toBeNull()
+
+    restore()
+
+    expect(appRoot.getAttribute('aria-hidden')).toBeNull()
+    expect(appRoot.hasAttribute('inert')).toBe(false)
+    appRoot.remove()
+    dialogRoot.remove()
   })
 })

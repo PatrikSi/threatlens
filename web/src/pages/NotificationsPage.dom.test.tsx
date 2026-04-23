@@ -193,6 +193,10 @@ function renderPage() {
   return container
 }
 
+function pageText() {
+  return document.body.textContent ?? ''
+}
+
 function setInputValue(input: HTMLInputElement, value: string) {
   const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
   descriptor?.set?.call(input, value)
@@ -299,11 +303,11 @@ describe('NotificationsPage DOM workflows', () => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved webhook changes?')
-    expect(view.textContent).not.toContain('Delete webhook?')
+    expect(pageText()).toContain('Discard unsaved changes?')
+    expect(pageText()).toContain('Discard unsaved webhook changes?')
+    expect(pageText()).not.toContain('Delete webhook?')
 
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Discard changes'),
     )
     expect(discardChangesButton).not.toBeNull()
@@ -312,10 +316,10 @@ describe('NotificationsPage DOM workflows', () => {
       discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(view.textContent).toContain('Delete webhook?')
-    expect(view.textContent).toContain('Slack alert relay')
+    expect(pageText()).toContain('Delete webhook?')
+    expect(pageText()).toContain('Slack alert relay')
 
-    const confirmDeleteButton = Array.from(view.querySelectorAll('button'))
+    const confirmDeleteButton = Array.from(document.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Delete webhook'))
       .at(-1)
     expect(confirmDeleteButton).not.toBeNull()
