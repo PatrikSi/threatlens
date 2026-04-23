@@ -120,6 +120,7 @@ class CoordinationUnavailableError(RuntimeError):
 
 
 DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
+LEASE_HEARTBEAT_SUFFIX = ":heartbeat"
 
 
 @contextmanager
@@ -134,6 +135,94 @@ def db_session() -> Session:
 def _lease_renewal_interval_seconds(ttl_seconds: int) -> float:
     ttl_seconds = max(1, int(ttl_seconds))
     return max(0.5, min(15.0, ttl_seconds / 3.0))
+
+
+def _lease_heartbeat_key(key: str) -> str:
+    return f"{key}{LEASE_HEARTBEAT_SUFFIX}"
+
+
+def _lease_heartbeat_value(token: str, *, at: float | None = None) -> str:
+    heartbeat_at = time.time() if at is None else float(at)
+    return f"{token}|{heartbeat_at:.6f}"
+
+
+def _parse_lease_heartbeat(raw_value: str | None) -> tuple[str, float] | None:
+    if not raw_value:
+        return None
+
+    token, separator, raw_timestamp = raw_value.partition("|")
+    if not separator or not token:
+        return None
+    try:
+        return token, float(raw_timestamp)
+    except ValueError:
+        return None
+
+
+def _lease_takeover_stale_after_seconds(ttl_seconds: int) -> float:
+    ttl_seconds = max(1, int(ttl_seconds))
+    return max(30.0, min(120.0, ttl_seconds / 4.0))
+
+
+def _lease_heartbeat_is_stale(raw_value: str | None, *, ttl_seconds: int, now: float | None = None) -> bool:
+    parsed = _parse_lease_heartbeat(raw_value)
+    if parsed is None:
+        return False
+
+    _token, heartbeat_at = parsed
+    observed_at = time.time() if now is None else float(now)
+    return observed_at - heartbeat_at >= _lease_takeover_stale_after_seconds(ttl_seconds)
+
+
+def _write_lease_heartbeat(key: str, ttl_seconds: int, token: str, *, at: float | None = None) -> None:
+    redis_client.set(_lease_heartbeat_key(key), _lease_heartbeat_value(token, at=at), ex=ttl_seconds)
+
+
+def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_message: str) -> bool:
+    heartbeat_key = _lease_heartbeat_key(key)
+
+    try:
+        observed_token = redis_client.get(key)
+        if not observed_token:
+            acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+            if acquired:
+                try:
+                    _write_lease_heartbeat(key, ttl_seconds, token)
+                except redis.RedisError:
+                    pass
+            return acquired
+
+        observed_heartbeat = redis_client.get(heartbeat_key)
+        if not _lease_heartbeat_is_stale(observed_heartbeat, ttl_seconds=ttl_seconds):
+            return False
+
+        new_heartbeat = _lease_heartbeat_value(token)
+        replaced = redis_client.eval(
+            (
+                "local current = redis.call('get', KEYS[1]) "
+                "local current_hb = redis.call('get', KEYS[2]) "
+                "if current ~= ARGV[1] then return 0 end "
+                "if ARGV[2] == '__missing__' then "
+                "  if current_hb then return 0 end "
+                "else "
+                "  if current_hb ~= ARGV[2] then return 0 end "
+                "end "
+                "redis.call('set', KEYS[1], ARGV[3], 'EX', ARGV[5]) "
+                "redis.call('set', KEYS[2], ARGV[4], 'EX', ARGV[5]) "
+                "return 1"
+            ),
+            2,
+            key,
+            heartbeat_key,
+            observed_token,
+            observed_heartbeat if observed_heartbeat is not None else "__missing__",
+            token,
+            new_heartbeat,
+            ttl_seconds,
+        )
+        return bool(replaced)
+    except redis.RedisError as exc:
+        raise CoordinationUnavailableError(error_message) from exc
 
 
 @contextmanager
@@ -152,6 +241,8 @@ def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None)
                     if current_token != token:
                         return
                 redis_client.expire(key, ttl_seconds)
+                if token is not None:
+                    _write_lease_heartbeat(key, ttl_seconds, token)
             except redis.RedisError:
                 continue
 
@@ -162,6 +253,11 @@ def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None)
     )
     _renewal_thread.start()
     try:
+        if token is not None:
+            try:
+                _write_lease_heartbeat(key, ttl_seconds, token)
+            except redis.RedisError:
+                pass
         yield
     finally:
         stop_event.set()
@@ -498,6 +594,8 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
     acquired = False
     try:
         acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+        if not acquired:
+            acquired = _try_take_stale_lease(key, ttl_seconds, token, error_message="feed lock unavailable")
     except redis.RedisError as exc:
         raise CoordinationUnavailableError("feed lock unavailable") from exc
 
@@ -516,6 +614,7 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
                 key,
                 token,
             )
+            redis_client.delete(_lease_heartbeat_key(key))
         except redis.RedisError:
             pass
 
@@ -528,6 +627,13 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
     acquired = False
     try:
         acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
+        if not acquired:
+            acquired = _try_take_stale_lease(
+                key,
+                ttl_seconds,
+                token,
+                error_message="daily brief lock unavailable",
+            )
     except redis.RedisError as exc:
         raise CoordinationUnavailableError("daily brief lock unavailable") from exc
 
@@ -546,6 +652,7 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
                 key,
                 token,
             )
+            redis_client.delete(_lease_heartbeat_key(key))
         except redis.RedisError:
             pass
 
@@ -972,7 +1079,25 @@ def dispatch_daily_ai_brief_generation(
         try:
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
-                    return {"status": "skipped", "reason": "already_running"}
+                    if parsed_run_id is not None:
+                        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
+                        if run is not None:
+                            finish_ai_task_run(
+                                db,
+                                run_id=run.id,
+                                status=AI_STATUS_SKIPPED,
+                                reason="already_running",
+                                worker_name=getattr(self.request, "hostname", None),
+                                metadata_updates={
+                                    "force": bool(force),
+                                    "lock_observed_at": datetime.now(timezone.utc).isoformat(),
+                                },
+                            )
+                            db.commit()
+                    result = {"status": "skipped", "reason": "already_running"}
+                    if parsed_run_id is not None:
+                        result["run_id"] = str(parsed_run_id)
+                    return result
                 if parsed_run_id:
                     run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
                     if run is None:

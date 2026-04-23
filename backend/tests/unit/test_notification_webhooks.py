@@ -813,6 +813,30 @@ def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_d
     assert response.status_code == 204
 
 
+def test_send_request_with_redirects_blocks_same_origin_redirect_outside_approved_path_prefix(monkeypatch):
+    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/tenant-a/start":
+            return httpx.Response(302, headers={"Location": "https://hooks.example.com/tenant-b/final"})
+        return httpx.Response(204, request=request)
+
+    transport = httpx.MockTransport(_handler)
+    with httpx.Client(transport=transport) as client:
+        with pytest.raises(RedirectError, match="Redirect target is not approved"):
+            send_request_with_redirects(
+                client,
+                method="POST",
+                url="https://hooks.example.com/tenant-a/start",
+                headers={"Content-Type": "application/json"},
+                params=[],
+                json_body={"title": "ThreatLens"},
+                form_body=None,
+                raw_body=None,
+                redirect_allowlist_entries=("https://hooks.example.com/tenant-a",),
+            )
+
+
 def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch):
     captured: dict[str, object] = {}
 

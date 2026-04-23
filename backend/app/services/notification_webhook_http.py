@@ -8,6 +8,7 @@ import httpx
 
 from app.core.config import get_settings
 from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse
+from app.services.notification_webhook_policy import notification_target_matches_allowlist
 from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
 from app.services.url_utils import ensure_runtime_fetchable_url
 
@@ -99,6 +100,8 @@ def read_response_preview(response: httpx.Response, *, max_bytes: int = MAX_RESP
 
 def send_rendered_notification_request(
     rendered: RenderedNotificationRequestLike,
+    *,
+    redirect_allowlist_entries: tuple[str, ...] = (),
 ) -> NotificationWebhookTestResponse:
     timeout = httpx.Timeout(
         connect=rendered.timeout_seconds,
@@ -123,6 +126,7 @@ def send_rendered_notification_request(
                 json_body=rendered.json_body,
                 form_body=rendered.form_body,
                 raw_body=rendered.raw_body,
+                redirect_allowlist_entries=redirect_allowlist_entries,
             )
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -168,6 +172,7 @@ def send_request_with_redirects(
     json_body: dict | None,
     form_body: list[tuple[str, str]] | None,
     raw_body: bytes | None,
+    redirect_allowlist_entries: tuple[str, ...] = (),
 ) -> httpx.Response:
     current_url = url
     current_method = method.upper()
@@ -206,6 +211,10 @@ def send_request_with_redirects(
         redirect_url = urljoin(current_url, location)
         if _origin_tuple(redirect_url) != _origin_tuple(current_url):
             raise RedirectError("Cross-origin redirects are not allowed")
+        if redirect_allowlist_entries and not any(
+            notification_target_matches_allowlist(redirect_url, entry) for entry in redirect_allowlist_entries
+        ):
+            raise RedirectError("Redirect target is not approved for analyst-managed webhook deliveries")
         current_url = redirect_url
         current_params = []
         if redirect_status in {301, 302, 303} and current_method not in {"GET", "HEAD"}:

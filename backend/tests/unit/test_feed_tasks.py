@@ -131,10 +131,29 @@ class _HeartbeatRedis:
         self.expirations.pop(key, None)
         return 1 if existed else 0
 
-    def eval(self, _script: str, _numkeys: int, key: str, token: str):
+    def eval(self, _script: str, _numkeys: int, *args):
         self._purge_expired()
-        if self.values.get(key) == token:
-            self.delete(key)
+        if _numkeys == 1 and len(args) == 2:
+            key, token = args
+            if self.values.get(key) == token:
+                self.delete(key)
+                return 1
+            return 0
+        if _numkeys == 2 and len(args) == 7:
+            key, heartbeat_key, observed_token, observed_heartbeat, new_token, new_heartbeat, ttl_seconds = args
+            current_token = self.values.get(key)
+            current_heartbeat = self.values.get(heartbeat_key)
+            if current_token != observed_token:
+                return 0
+            if observed_heartbeat == "__missing__":
+                if current_heartbeat is not None:
+                    return 0
+            elif current_heartbeat != observed_heartbeat:
+                return 0
+            self.values[key] = new_token
+            self.values[heartbeat_key] = new_heartbeat
+            self.expire(key, int(ttl_seconds))
+            self.expire(heartbeat_key, int(ttl_seconds))
             return 1
         return 0
 
@@ -161,6 +180,19 @@ def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.
     with domain_slot("example.com", max_wait_seconds=0.1):
         time.sleep(0.05)
         assert redis_client.expire_counts[domain_key] >= 2
+
+
+def test_feed_lock_can_take_over_a_stale_lease(monkeypatch: pytest.MonkeyPatch):
+    redis_client = _HeartbeatRedis()
+    stale_feed_key = "threatlens:feed:lock:feed-stale"
+    stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
+    redis_client.set(stale_feed_key, "dead-token", ex=900)
+    redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 500:.6f}", ex=900)
+    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+
+    with feed_lock("feed-stale", ttl_seconds=900) as acquired:
+        assert acquired is True
+        assert redis_client.get(stale_feed_key) != "dead-token"
 
 
 def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
@@ -441,6 +473,45 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
     assert refreshed_duplicate is not None
     assert refreshed_duplicate.celery_task_id == "worker-a"
     assert refreshed_duplicate.status == "running"
+
+
+def test_dispatch_daily_ai_brief_marks_manual_run_skipped_when_lock_is_busy(db_session, monkeypatch):
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield False
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"force": True},
+    )
+    db_session.commit()
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_daily_brief_generation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
+    )
+
+    result = dispatch_daily_ai_brief_generation.apply(
+        kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
+        task_id="worker-lock-busy",
+    ).get()
+
+    db_session.expire_all()
+    refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert result == {"status": "skipped", "reason": "already_running", "run_id": str(run.id)}
+    assert refreshed_run is not None
+    assert refreshed_run.status == "skipped"
+    assert refreshed_run.reason == "already_running"
+    assert refreshed_run.worker_name
 
 
 def test_fetch_feed_skips_when_feed_is_no_longer_due(db_session, monkeypatch):

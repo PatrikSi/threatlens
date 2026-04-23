@@ -13,6 +13,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.rbac import ROLE_ANALYST
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
@@ -477,7 +478,15 @@ def test_notification_webhook(
             response_body_preview=None,
             error=str(exc),
         ))
-    return _redact_notification_test_response(_send_rendered_notification_request(rendered))
+    redirect_allowlist_entries = _redirect_allowlist_entries_for_actor(user)
+    if redirect_allowlist_entries:
+        result = _send_rendered_notification_request(
+            rendered,
+            redirect_allowlist_entries=redirect_allowlist_entries,
+        )
+    else:
+        result = _send_rendered_notification_request(rendered)
+    return _redact_notification_test_response(result)
 
 
 test_notification_webhook.__test__ = False
@@ -1033,7 +1042,14 @@ def process_notification_webhook_delivery(
         finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
         return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
     rendered = _rendered_request_from_delivery(delivery)
-    result = _send_rendered_notification_request(rendered)
+    redirect_allowlist_entries = _redirect_allowlist_entries_for_actor(actor_user)
+    if redirect_allowlist_entries:
+        result = _send_rendered_notification_request(
+            rendered,
+            redirect_allowlist_entries=redirect_allowlist_entries,
+        )
+    else:
+        result = _send_rendered_notification_request(rendered)
     finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
     return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized, claimed=True)
 
@@ -1760,6 +1776,12 @@ def _send_request_with_redirects(*args, **kwargs):
 
 def _send_rendered_notification_request(*args, **kwargs):
     return notification_webhook_http.send_rendered_notification_request(*args, **kwargs)
+
+
+def _redirect_allowlist_entries_for_actor(actor_user: User | SimpleNamespace | None) -> tuple[str, ...]:
+    if getattr(actor_user, "role", None) != ROLE_ANALYST:
+        return ()
+    return get_notification_webhook_allowed_hosts()
 
 
 def _restore_saved_request_target(
