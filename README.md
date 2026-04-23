@@ -8,7 +8,8 @@ The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
 - `api` - FastAPI backend
-- `worker` - Celery worker
+- `worker` - Celery worker for ingestion, processing, notifications, and maintenance queues
+- `ai-worker` - dedicated Celery worker for AI enrichment and daily brief jobs
 - `beat` - Celery beat scheduler
 - `db` - PostgreSQL
 - `redis` - queue + coordination layer
@@ -45,10 +46,11 @@ You'll need to configure at least:
 - `REDIS_URL`
 - `JWT_SECRET`
 - `APP_DATA_ENCRYPTION_KEY`
+- `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` for durable deployments
 - `ADMIN_EMAIL`
 - `ADMIN_PASSWORD`
 
-Use a distinct `APP_DATA_ENCRYPTION_KEY` for webhook/request encryption at rest instead of reusing `JWT_SECRET`. If you are upgrading an existing install and want older encrypted rows to remain readable during key rotation, keep the old encryption input in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` until the stored secrets have been rewritten.
+Use a distinct `APP_DATA_ENCRYPTION_KEY` for webhook/request encryption at rest instead of reusing `JWT_SECRET`. If you are upgrading an existing install and want older encrypted rows to remain readable during key rotation, keep the old encryption input in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` until the stored secrets have been rewritten. In non-production, missing placeholder secrets still fall back to deterministic development-only values derived from the local runtime settings for throwaway workflows, but the shipped compose deployment now sets `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` so persistent stacks fail fast instead of silently creating unrecoverable data.
 
 Outbound webhook governance:
 
@@ -61,6 +63,7 @@ Secure defaults in the shipped template:
 
 - `APP_ENV=production`
 - `AUTH_COOKIE_SECURE=true`
+- `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`
 - `SEED_ADMIN_ON_STARTUP=false`
 - `EXPOSE_API_DOCS_IN_PRODUCTION=false`
 
@@ -119,11 +122,14 @@ docker compose up --build -d
 Startup flow for `docker-compose.yml`:
 
 - `api` runs migrations on startup by default and can also seed the admin account when `SEED_ADMIN_ON_STARTUP=true`.
-- `worker` and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
+- `worker`, `ai-worker`, and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
-- `worker` and `beat` keep schema/admin startup mutations disabled.
+- `worker` handles the non-AI queues (`ingest`, `processing`, `notifications`, `maintenance`) so manual feed refresh and scheduled polling stay responsive even when AI work is busy.
+- `ai-worker` isolates long-running AI enrichment and daily brief jobs onto the `ai` queue.
+- `worker`, `ai-worker`, and `beat` keep schema/admin startup mutations disabled.
 - Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
+- The shipped compose stack treats its named Postgres and Redis volumes as durable and therefore requires an explicit `APP_DATA_ENCRYPTION_KEY` by setting `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` on `api`, `worker`, `ai-worker`, and `beat`.
 - `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image so the standard `docker compose build` and `docker compose up --build` flow stamps OCI labels with the checked-out revision and build time. If you do not export them first, those labels fall back to `unknown`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
@@ -148,6 +154,7 @@ Endpoints:
 - Readiness: `http://localhost:3000/api/v1/health/ready`
 - Worker: `http://localhost:3000/api/v1/health/worker`
 - Beat: `http://localhost:3000/api/v1/health/beat`
+- Encrypted data inventory: `http://localhost:3000/api/v1/health/encrypted-data` (admin only)
 
 Published path summary:
 
@@ -215,6 +222,8 @@ docker compose exec redis sh -lc \
 ```
 
 4. If deployed behind one or more reverse proxies, set `TRUSTED_PROXY_CIDRS` to the exact proxy hops you control so IP-based auth throttling can walk the preserved chain back to the real client IP. The bundled compose file already trusts its reserved `web` frontend subnet `172.31.240.0/24`.
+
+5. If you change `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, or `REDIS_PASSWORD` after the stack has already initialized its Docker volumes, update `DATABASE_URL` and `REDIS_URL` to match and then either migrate the stored service state or recreate those volumes. Older local `.env` files that omit the explicit Postgres/Redis credential variables continue to fall back to the backend-compatible `postgres` / `redis://redis:6379/0` defaults, but the production-oriented `.env.example` values should be treated as the canonical long-term settings for new installs.
 
 ### Logs
 
@@ -512,7 +521,7 @@ docker compose run --rm -e HOME=/tmp api sh -lc \
 
 ## Backup & Restore
 
-These commands assume the shipped compose defaults: `POSTGRES_USER=threatlens` and `POSTGRES_DB=threatlens`. If you override them in `.env`, substitute your values.
+These commands assume the production-oriented `.env.example` values: `POSTGRES_USER=threatlens` and `POSTGRES_DB=threatlens`. If your local `.env` overrides them, substitute your effective values.
 
 Backup:
 

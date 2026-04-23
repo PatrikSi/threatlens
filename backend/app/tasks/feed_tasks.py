@@ -367,6 +367,21 @@ def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | 
     )
 
 
+def _needs_feed_metadata_backfill(feed: Feed) -> bool:
+    if feed.url_decryption_error:
+        return False
+    return _needs_metadata_backfill(feed)
+
+
+def _resolve_feed_runtime_url(feed: Feed) -> tuple[str | None, str | None]:
+    if feed.url_decryption_error:
+        return None, feed.url_decryption_error
+    feed_url = feed.url.strip()
+    if not feed_url:
+        return None, "Feed URL is empty"
+    return feed_url, None
+
+
 def _article_freshness_token_value(
     article_id: uuid.UUID | None,
     retrieved_at: datetime | None,
@@ -1029,7 +1044,7 @@ def dispatch_feed_metadata_backfill():
     for feed in feeds:
         if queued >= settings.dispatch_feed_metadata_queue_limit:
             break
-        if not _needs_metadata_backfill(feed):
+        if not _needs_feed_metadata_backfill(feed):
             continue
         try:
             backfill_feed_metadata.delay(str(feed.id))
@@ -1391,11 +1406,20 @@ def backfill_feed_metadata(feed_id: str):
                 if feed is None or not feed.enabled:
                     return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
 
-                if not _needs_metadata_backfill(feed):
+                if feed.url_decryption_error:
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed.url_decryption_error)
+                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
+
+                if not _needs_feed_metadata_backfill(feed):
                     return {"status": "skipped", "reason": "metadata_present", "feed_id": feed_id}
 
+                feed_url, feed_url_error = _resolve_feed_runtime_url(feed)
+                if feed_url_error is not None:
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed_url_error)
+                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
+
                 try:
-                    metadata = probe_feed_metadata(feed.url)
+                    metadata = probe_feed_metadata(feed_url)
                 except FeedProbeError as exc:
                     return {"status": "error", "feed_id": feed_id, "reason": str(exc)}
 
@@ -1486,7 +1510,12 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 if feed.last_modified:
                     headers["If-Modified-Since"] = feed.last_modified
 
-                if not is_fetchable_url(feed.url, allow_private_network=settings.allow_private_network_fetch):
+                feed_url, feed_url_error = _resolve_feed_runtime_url(feed)
+                if feed_url_error is not None:
+                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed_url_error)
+                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
+
+                if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
                     _mark_feed_failure_and_enqueue_notifications(db, feed, "unsafe_feed_url")
                     return {"status": "error", "feed_id": feed_id}
 
@@ -1505,7 +1534,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         response = safe_stream_with_redirects(
                             client,
                             "GET",
-                            feed.url,
+                            feed_url,
                             headers=headers,
                             allow_private_network=settings.allow_private_network_fetch,
                             max_redirects=settings.outbound_max_redirects,

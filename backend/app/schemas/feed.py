@@ -140,4 +140,5 @@ class FeedResponse(BaseModel):
     last_success_at: datetime | None
     error_count: int
     last_error: str | None
+    has_unreadable_url: bool = False
     created_at: datetime

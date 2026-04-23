@@ -23,40 +23,24 @@ class _UnavailableRedis:
 
 
 class _SaturatedRedis:
-    def incr(self, _key: str):
-        return feed_tasks.settings.per_domain_concurrency + 1
+    def set(self, _key: str, _value: str, *, nx: bool = False, ex: int | None = None):
+        _ = (nx, ex)
+        return False
 
-    def expire(self, _key: str, _ttl: int):
-        return None
+    def get(self, _key: str):
+        return "other-worker-token"
 
-    def decr(self, _key: str):
-        return feed_tasks.settings.per_domain_concurrency
+    def ttl(self, _key: str):
+        return feed_tasks.DOMAIN_SLOT_TTL_SECONDS
 
 
-class _ExpireFailsAfterIncrementRedis:
+class _SetFailsRedis:
     def __init__(self):
-        self.values: dict[str, int] = {}
+        self.values: dict[str, str] = {}
 
-    def incr(self, key: str):
-        current = int(self.values.get(key, 0)) + 1
-        self.values[key] = current
-        return current
-
-    def expire(self, _key: str, _ttl: int):
-        raise redis.RedisError("ttl unavailable")
-
-    def decr(self, key: str):
-        current = int(self.values.get(key, 0)) - 1
-        if current <= 0:
-            self.values.pop(key, None)
-            return current
-        self.values[key] = current
-        return current
-
-    def delete(self, key: str):
-        existed = key in self.values
-        self.values.pop(key, None)
-        return 1 if existed else 0
+    def set(self, _key: str, _value: str, *, nx: bool = False, ex: int | None = None):
+        _ = (nx, ex)
+        raise redis.RedisError("lease unavailable")
 
 
 def test_domain_slot_raises_when_redis_unavailable(monkeypatch: pytest.MonkeyPatch):
@@ -76,8 +60,8 @@ def test_domain_slot_still_times_out_under_sustained_contention(monkeypatch: pyt
             pass
 
 
-def test_domain_slot_rolls_back_increment_when_ttl_application_fails(monkeypatch: pytest.MonkeyPatch):
-    redis_client = _ExpireFailsAfterIncrementRedis()
+def test_domain_slot_raises_when_lease_write_fails(monkeypatch: pytest.MonkeyPatch):
+    redis_client = _SetFailsRedis()
     monkeypatch.setattr(feed_tasks, "redis_client", redis_client)
 
     with pytest.raises(feed_tasks.CoordinationUnavailableError, match="domain slot unavailable"):

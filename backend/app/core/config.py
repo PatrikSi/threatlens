@@ -1,8 +1,9 @@
+import hashlib
 import secrets
 from functools import lru_cache
 from typing import Annotated
 
-from pydantic import field_validator, model_validator
+from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from app.services.notification_webhook_policy import normalize_notification_allow_entry
@@ -25,8 +26,26 @@ def _generate_runtime_secret() -> str:
     return secrets.token_urlsafe(48)
 
 
+def _derive_development_secret(*, purpose: str, app_env: str, database_url: str, redis_url: str, admin_email: str) -> str:
+    seed = "\x1f".join(
+        [
+            "threatlens-development-secret",
+            purpose,
+            app_env.strip().lower(),
+            database_url.strip(),
+            redis_url.strip(),
+            admin_email.strip().lower(),
+        ]
+    )
+    digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+    return f"dev-{purpose}-{digest}"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    _jwt_secret_was_derived: bool = PrivateAttr(default=False)
+    _app_data_encryption_key_was_derived: bool = PrivateAttr(default=False)
 
     app_env: str = "development"
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
@@ -34,6 +53,7 @@ class Settings(BaseSettings):
     jwt_secret: str = ""
     app_data_encryption_key: str | None = None
     app_data_encryption_previous_keys: Annotated[list[str], NoDecode] = []
+    require_explicit_data_encryption_key: bool = False
     jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 60 * 24
     allow_legacy_unscoped_tokens: bool = False
@@ -165,20 +185,36 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_production_security(self):
         is_production = self.app_env.lower() in {"production", "prod"}
+        self._jwt_secret_was_derived = False
+        self._app_data_encryption_key_was_derived = False
 
         if not self.jwt_secret or _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
             if is_production:
                 raise ValueError("jwt_secret must be explicitly set in production")
-            self.jwt_secret = _generate_runtime_secret()
+            self._jwt_secret_was_derived = True
+            self.jwt_secret = _derive_development_secret(
+                purpose="jwt",
+                app_env=self.app_env,
+                database_url=self.database_url,
+                redis_url=self.redis_url,
+                admin_email=self.admin_email,
+            )
 
         if (
             not self.app_data_encryption_key
             or _looks_like_placeholder_secret(self.app_data_encryption_key)
             or len(self.app_data_encryption_key) < 32
         ):
-            if is_production:
-                raise ValueError("app_data_encryption_key must be explicitly set in production")
-            self.app_data_encryption_key = _generate_runtime_secret()
+            if is_production or self.require_explicit_data_encryption_key:
+                raise ValueError("app_data_encryption_key must be explicitly set")
+            self._app_data_encryption_key_was_derived = True
+            self.app_data_encryption_key = _derive_development_secret(
+                purpose="app-data",
+                app_env=self.app_env,
+                database_url=self.database_url,
+                redis_url=self.redis_url,
+                admin_email=self.admin_email,
+            )
 
         if is_production:
             if _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
@@ -200,6 +236,14 @@ class Settings(BaseSettings):
         if self.seed_admin_on_startup and _looks_like_placeholder_secret(self.admin_password):
             raise ValueError("admin_password must not use a default or placeholder value when seed_admin_on_startup is enabled")
         return self
+
+    @property
+    def jwt_secret_was_derived(self) -> bool:
+        return self._jwt_secret_was_derived
+
+    @property
+    def app_data_encryption_key_was_derived(self) -> bool:
+        return self._app_data_encryption_key_was_derived
 
 
 @lru_cache

@@ -7,7 +7,8 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
-- `worker`: Celery worker
+- `worker`: Celery worker for ingestion, processing, notification, and maintenance queues
+- `ai-worker`: dedicated Celery worker for AI enrichment and daily brief queues
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
 
@@ -27,9 +28,10 @@
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
 | `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. |
-| `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values are replaced with a runtime-generated secret; production requires an explicit strong value. |
-| `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values are replaced with a runtime-generated key; production requires an explicit strong value. |
+| `JWT_SECRET` (`jwt_secret`) | _(empty)_ | JWT signing key. In non-production, missing or placeholder values fall back to a deterministic development-only secret derived from the local runtime settings; production requires an explicit strong value. |
+| `APP_DATA_ENCRYPTION_KEY` (`app_data_encryption_key`) | _(empty)_ | Dedicated secret used for encrypting stored webhook/request secrets and previews at rest. Keep distinct from `JWT_SECRET`. In non-production, missing or placeholder values fall back to a deterministic development-only key derived from the local runtime settings unless `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`; production requires an explicit strong value. |
 | `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` (`app_data_encryption_previous_keys`) | _(empty)_ | Optional comma-separated decryption fallback keys for data-encryption rotation and legacy ciphertext migration. |
+| `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY` (`require_explicit_data_encryption_key`) | `false` | Forces `APP_DATA_ENCRYPTION_KEY` to be explicitly set even outside production. Use this for any deployment with durable volumes, backups, or long-lived test data. |
 | `JWT_ALGORITHM` (`jwt_algorithm`) | `HS256` | JWT signature algorithm. |
 | `JWT_EXPIRES_MINUTES` (`jwt_expires_minutes`) | `1440` | Access token TTL in minutes. |
 | `ALLOW_LEGACY_UNSCOPED_TOKENS` (`allow_legacy_unscoped_tokens`) | `false` | Whether API tokens with empty scope lists are accepted. |
@@ -108,15 +110,20 @@ When `APP_ENV` is `production` or `prod`:
 - `/docs` and `/redoc` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
 - `/openapi.json` remains available so the machine-readable API contract is always published.
 
+Outside production:
+
+- `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` still forces `APP_DATA_ENCRYPTION_KEY` to be explicitly set before startup.
+
 ## Compose Notes
 
 - `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
-- `worker` and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- `worker`, `ai-worker`, and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
+- `worker` consumes the `ingest`, `processing`, `notifications`, and `maintenance` queues, while `ai-worker` consumes the `ai` queue so feed polling is not starved by long-running enrichment jobs.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
-- The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, and `AUTH_REQUIRE_CSRF`. It also reserves `172.31.240.0/24` for the `web` frontend network and trusts only that exact subnet by default so browser auth throttling can preserve client IPs through the shipped proxy. For other reverse proxies, add only the exact proxy hops you control.
+- The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It also reserves `172.31.240.0/24` for the `web` frontend network and trusts only that exact subnet by default so browser auth throttling can preserve client IPs through the shipped proxy. For other reverse proxies, add only the exact proxy hops you control.
 - `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image as OCI label args. Export them before `docker compose build` or `docker compose up --build` if you want local image metadata to capture the checked-out revision and build time; otherwise those labels fall back to `unknown`.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
 
@@ -136,6 +143,7 @@ When `APP_ENV` is `production` or `prod`:
 - `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the analyst webhook egress allowlist. ThreatLens reevaluates queued analyst-owned webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries. Host-only entries approve the default `https` origin, exact `host:port` or full URL prefix entries can pin non-default ports and tenant path prefixes, and wildcard entries do not cover the apex domain.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
 - `APP_DATA_ENCRYPTION_KEY` protects stored webhook templates and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET`.
+- Admin-only encrypted data inventory is available at `/health/encrypted-data` and includes both a current scan and the most recent startup scan summary for unreadable encrypted rows.
 
 ## Theme Storage
 

@@ -27,7 +27,7 @@ def test_secret_storage_uses_dedicated_data_encryption_key(monkeypatch: pytest.M
     assert decrypt_json(encrypted_json) == {"status": "ok"}
 
 
-def test_secret_storage_does_not_fall_back_to_jwt_secret_for_encryption(monkeypatch: pytest.MonkeyPatch):
+def test_secret_storage_development_fallback_is_independent_of_jwt_secret(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("JWT_SECRET", "legacy-jwt-secret-" + "x" * 32)
     monkeypatch.delenv("APP_DATA_ENCRYPTION_KEY", raising=False)
     monkeypatch.delenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", raising=False)
@@ -37,8 +37,7 @@ def test_secret_storage_does_not_fall_back_to_jwt_secret_for_encryption(monkeypa
     monkeypatch.setenv("JWT_SECRET", "rotated-jwt-secret-" + "z" * 31)
     get_settings.cache_clear()
 
-    with pytest.raises(ValueError):
-        decrypt_text(ciphertext)
+    assert decrypt_text(ciphertext) == "keep-me-readable"
 
 
 def test_secret_storage_can_decrypt_ciphertext_with_previous_key_ring(monkeypatch: pytest.MonkeyPatch):

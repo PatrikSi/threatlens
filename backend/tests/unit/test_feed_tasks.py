@@ -1239,6 +1239,74 @@ def test_backfill_feed_metadata_rejects_invalid_feed_ids(db_session, monkeypatch
     assert result == {"status": "skipped", "reason": "invalid_feed_id", "feed_id": "not-a-uuid"}
 
 
+def test_backfill_feed_metadata_marks_feeds_with_unreadable_urls(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    feed._url_encrypted = "enc:v1:not-a-valid-fernet-token"
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", lambda _delivery_ids: True)
+
+    result = backfill_feed_metadata.run(str(feed.id))
+
+    db_session.refresh(feed)
+    assert result == {"status": "error", "feed_id": str(feed.id), "reason": "feed_url_unavailable"}
+    assert feed.last_error is not None
+    assert "cannot be decrypted" in feed.last_error
+    assert feed.error_count == 1
+
+
+def test_fetch_feed_marks_feeds_with_unreadable_urls(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    feed._url_encrypted = "enc:v1:not-a-valid-fernet-token"
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", lambda _delivery_ids: True)
+
+    result = fetch_feed.run(str(feed.id))
+
+    db_session.refresh(feed)
+    assert result == {"status": "error", "feed_id": str(feed.id), "reason": "feed_url_unavailable"}
+    assert feed.last_error is not None
+    assert "cannot be decrypted" in feed.last_error
+    assert feed.error_count == 1
+
+
 def test_dispatch_items_missing_articles_queues_repairable_items_after_grace_period(db_session, monkeypatch):
     now = datetime.now(timezone.utc)
     feed = Feed(

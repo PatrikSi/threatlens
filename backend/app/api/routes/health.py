@@ -10,6 +10,8 @@ from app.api.deps import get_admin_user, get_optional_current_user
 from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.user import User
+from app.schemas.health import EncryptedDataInventoryResponse
+from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
 from app.tasks.celery_app import celery_app
 
@@ -46,6 +48,13 @@ def notifications(db: Session = Depends(get_db), _admin: User = Depends(get_admi
     snapshot = get_notification_delivery_queue_snapshot(db)
     status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=status_code, content=snapshot.model_dump())
+
+
+@router.get("/encrypted-data", response_model=EncryptedDataInventoryResponse)
+def encrypted_data(db: Session = Depends(get_db), _admin: User = Depends(get_admin_user)):
+    snapshot = scan_encrypted_data_inventory(db)
+    status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=status_code, content=snapshot.model_dump(mode="json"))
 
 
 def _readiness_response(db: Session, *, detailed: bool):

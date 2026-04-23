@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "7000c5039c15ca0d0db6c49f8207fe1ba9f36b202984fd699242afe5db6d4f2b"
+    "x-threatlens-contract-sha256": "5d4a14055481aa060b4ea59bbdf0d3a998185152339c14648cb012270b5281e8"
   },
   "servers": [
     {
@@ -4582,6 +4582,35 @@
           }
         ]
       }
+    },
+    "/v1/health/encrypted-data": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Encrypted Data",
+        "operationId": "encrypted_data_v1_health_encrypted_data_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EncryptedDataInventoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -8494,6 +8523,213 @@
         ],
         "title": "DomainPoint"
       },
+      "EncryptedDataInventoryCategory": {
+        "properties": {
+          "total_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Records",
+            "default": 0
+          },
+          "encrypted_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Encrypted Records",
+            "default": 0
+          },
+          "unreadable_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unreadable Records",
+            "default": 0
+          },
+          "encrypted_fields": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Encrypted Fields",
+            "default": 0
+          },
+          "unreadable_fields": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unreadable Fields",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "EncryptedDataInventoryCategory"
+      },
+      "EncryptedDataInventoryResponse": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "warning",
+              "critical"
+            ],
+            "title": "Status"
+          },
+          "scanned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scanned At"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "require_explicit_app_data_encryption_key": {
+            "type": "boolean",
+            "title": "Require Explicit App Data Encryption Key"
+          },
+          "using_derived_app_data_encryption_key": {
+            "type": "boolean",
+            "title": "Using Derived App Data Encryption Key"
+          },
+          "startup_scan": {
+            "$ref": "#/components/schemas/EncryptedDataStartupScan"
+          },
+          "feeds": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
+          "notification_webhooks": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
+          "notification_delivery_snapshots": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EncryptedDataInventorySummary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "status",
+          "scanned_at",
+          "require_explicit_app_data_encryption_key",
+          "using_derived_app_data_encryption_key",
+          "startup_scan",
+          "feeds",
+          "notification_webhooks",
+          "notification_delivery_snapshots",
+          "summary"
+        ],
+        "title": "EncryptedDataInventoryResponse"
+      },
+      "EncryptedDataInventorySummary": {
+        "properties": {
+          "total_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Records",
+            "default": 0
+          },
+          "encrypted_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Encrypted Records",
+            "default": 0
+          },
+          "unreadable_records": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unreadable Records",
+            "default": 0
+          },
+          "encrypted_fields": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Encrypted Fields",
+            "default": 0
+          },
+          "unreadable_fields": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Unreadable Fields",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "EncryptedDataInventorySummary"
+      },
+      "EncryptedDataStartupScan": {
+        "properties": {
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "healthy",
+                  "warning",
+                  "critical"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "total_unreadable_records": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Unreadable Records"
+          },
+          "total_unreadable_fields": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Unreadable Fields"
+          }
+        },
+        "type": "object",
+        "title": "EncryptedDataStartupScan"
+      },
       "FeedCreate": {
         "properties": {
           "name": {
@@ -9021,6 +9257,11 @@
               }
             ],
             "title": "Last Error"
+          },
+          "has_unreadable_url": {
+            "type": "boolean",
+            "title": "Has Unreadable Url",
+            "default": false
           },
           "created_at": {
             "type": "string",

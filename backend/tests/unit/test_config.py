@@ -3,8 +3,12 @@ import pytest
 from app.core.config import Settings
 
 
+def isolated_settings(**kwargs) -> Settings:
+    return Settings(_env_file=None, **kwargs)
+
+
 def test_cors_origins_parses_csv():
-    settings = Settings(cors_origins="http://localhost:3000, https://threatlens.local")
+    settings = isolated_settings(cors_origins="http://localhost:3000, https://threatlens.local")
     assert settings.cors_origins == ["http://localhost:3000", "https://threatlens.local"]
 
 
@@ -28,12 +32,12 @@ def test_notification_webhook_admin_unrestricted_flag_parses_from_env(monkeypatc
 
 def test_production_requires_strong_jwt_secret():
     with pytest.raises(ValueError):
-        Settings(app_env="production", jwt_secret="change-me")
+        isolated_settings(app_env="production", jwt_secret="change-me")
 
 
 def test_production_requires_dedicated_data_encryption_key():
     with pytest.raises(ValueError):
-        Settings(
+        isolated_settings(
             app_env="production",
             jwt_secret="x" * 48,
             admin_password="StrongPass123!",
@@ -42,9 +46,18 @@ def test_production_requires_dedicated_data_encryption_key():
         )
 
 
+def test_non_production_can_require_explicit_data_encryption_key():
+    with pytest.raises(ValueError, match="app_data_encryption_key must be explicitly set"):
+        isolated_settings(
+            app_env="development",
+            require_explicit_data_encryption_key=True,
+            jwt_secret="x" * 48,
+        )
+
+
 def test_production_rejects_default_admin_password():
     with pytest.raises(ValueError):
-        Settings(
+        isolated_settings(
             app_env="production",
             jwt_secret="x" * 48,
             app_data_encryption_key="y" * 48,
@@ -54,7 +67,7 @@ def test_production_rejects_default_admin_password():
 
 def test_admin_seeding_rejects_default_admin_password():
     with pytest.raises(ValueError):
-        Settings(seed_admin_on_startup=True, admin_password="admin123")
+        isolated_settings(seed_admin_on_startup=True, admin_password="admin123")
 
 
 @pytest.mark.parametrize(
@@ -76,12 +89,12 @@ def test_production_rejects_placeholder_secret_values(field_name: str, field_val
     }
     kwargs[field_name] = field_value
     with pytest.raises(ValueError):
-        Settings(**kwargs)
+        isolated_settings(**kwargs)
 
 
 def test_production_requires_secure_auth_cookie():
     with pytest.raises(ValueError):
-        Settings(
+        isolated_settings(
             app_env="production",
             jwt_secret="x" * 48,
             app_data_encryption_key="y" * 48,
@@ -92,7 +105,7 @@ def test_production_requires_secure_auth_cookie():
 
 def test_production_requires_csrf_for_cookie_auth():
     with pytest.raises(ValueError):
-        Settings(
+        isolated_settings(
             app_env="production",
             jwt_secret="x" * 48,
             app_data_encryption_key="y" * 48,
@@ -104,7 +117,7 @@ def test_production_requires_csrf_for_cookie_auth():
 
 def test_production_rejects_legacy_unscoped_token_bypass():
     with pytest.raises(ValueError):
-        Settings(
+        isolated_settings(
             app_env="production",
             jwt_secret="x" * 48,
             app_data_encryption_key="y" * 48,
@@ -116,19 +129,21 @@ def test_production_rejects_legacy_unscoped_token_bypass():
 
 
 def test_bootstrap_mutation_flags_default_off():
-    settings = Settings()
+    settings = isolated_settings()
 
     assert settings.run_migrations_on_startup is False
     assert settings.seed_admin_on_startup is False
 
 
 def test_development_generates_runtime_secrets_when_not_configured():
-    settings = Settings()
+    settings = isolated_settings()
 
     assert settings.jwt_secret
     assert settings.app_data_encryption_key
     assert settings.jwt_secret != settings.app_data_encryption_key
     assert settings.jwt_secret != "change-me"
+    assert settings.jwt_secret_was_derived is True
+    assert settings.app_data_encryption_key_was_derived is True
 
 
 @pytest.mark.parametrize(
@@ -140,5 +155,34 @@ def test_development_generates_runtime_secrets_when_not_configured():
 )
 def test_placeholder_runtime_secrets_are_replaced_outside_production(field_name: str, field_value: str):
     kwargs = {field_name: field_value}
-    settings = Settings(**kwargs)
+    settings = isolated_settings(**kwargs)
     assert getattr(settings, field_name) != field_value
+
+
+def test_explicit_data_encryption_key_is_not_marked_as_derived():
+    settings = isolated_settings(
+        app_env="development",
+        app_data_encryption_key="z" * 48,
+    )
+
+    assert settings.app_data_encryption_key == "z" * 48
+    assert settings.app_data_encryption_key_was_derived is False
+
+
+def test_development_secret_fallbacks_are_stable_for_same_local_settings():
+    first = isolated_settings(
+        app_env="development",
+        database_url="postgresql+psycopg://postgres:postgres@db:5432/threatlens",
+        redis_url="redis://redis:6379/0",
+        admin_email="admin@example.com",
+    )
+    second = isolated_settings(
+        app_env="development",
+        database_url="postgresql+psycopg://postgres:postgres@db:5432/threatlens",
+        redis_url="redis://redis:6379/0",
+        admin_email="admin@example.com",
+    )
+
+    assert first.jwt_secret == second.jwt_secret
+    assert first.app_data_encryption_key == second.app_data_encryption_key
+    assert first.jwt_secret != first.app_data_encryption_key

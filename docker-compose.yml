@@ -17,8 +17,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-threatlens}
-      POSTGRES_USER: ${POSTGRES_USER:-threatlens}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace-with-long-random-postgres-password}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -33,12 +33,21 @@ services:
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-replace-with-long-random-redis-password}
-    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command:
+      [
+        "sh",
+        "-c",
+        "if [ -n \"$${REDIS_PASSWORD}\" ]; then exec redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\"; else exec redis-server --appendonly yes; fi",
+      ]
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping"]
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli --no-auth-warning -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi",
+        ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -54,6 +63,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       RUN_MIGRATIONS_ON_STARTUP: ${RUN_MIGRATIONS_ON_STARTUP:-true}
       SEED_ADMIN_ON_STARTUP: ${SEED_ADMIN_ON_STARTUP:-false}
+      REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY: ${REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY:-true}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_REQUIRE_CSRF: ${AUTH_REQUIRE_CSRF:-true}
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,172.31.240.0/24}
@@ -68,7 +78,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/ready', timeout=2)\"",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/health/live', timeout=2)\"",
         ]
       interval: 15s
       timeout: 5s
@@ -86,6 +96,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       RUN_MIGRATIONS_ON_STARTUP: "false"
       SEED_ADMIN_ON_STARTUP: "false"
+      REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY: ${REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY:-true}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_REQUIRE_CSRF: ${AUTH_REQUIRE_CSRF:-true}
     depends_on:
@@ -95,12 +106,67 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    command: ["celery", "-A", "app.tasks.celery_app.celery_app", "worker", "--loglevel=INFO", "--concurrency=4", "-n", "worker@%h"]
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=${WORKER_CONCURRENCY:-4}",
+        "--queues=default,ingest,processing,notifications,maintenance",
+        "-n",
+        "worker@%h",
+      ]
     healthcheck:
       test:
         [
           "CMD-SHELL",
           "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backplane
+
+  ai-worker:
+    build: *backend-build
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+      SEED_ADMIN_ON_STARTUP: "false"
+      REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY: ${REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY:-true}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_REQUIRE_CSRF: ${AUTH_REQUIRE_CSRF:-true}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=${AI_WORKER_CONCURRENCY:-2}",
+        "--queues=ai",
+        "-n",
+        "ai-worker@%h",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai-worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
         ]
       interval: 30s
       timeout: 10s
@@ -118,6 +184,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       RUN_MIGRATIONS_ON_STARTUP: "false"
       SEED_ADMIN_ON_STARTUP: "false"
+      REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY: ${REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY:-true}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_REQUIRE_CSRF: ${AUTH_REQUIRE_CSRF:-true}
     depends_on:

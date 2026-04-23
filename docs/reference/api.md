@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:7000c5039c15ca0d0db6c49f8207fe1ba9f36b202984fd699242afe5db6d4f2b`
+- OpenAPI contract anchor: `openapi-sha256:5d4a14055481aa060b4ea59bbdf0d3a998185152339c14648cb012270b5281e8`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -270,6 +270,10 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Summary: Beat
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> unspecified
+### `GET /v1/health/encrypted-data`
+- Summary: Encrypted Data
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> EncryptedDataInventoryResponse
 ### `GET /v1/health/live`
 - Summary: Live
 - Auth: none

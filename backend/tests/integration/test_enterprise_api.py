@@ -1222,6 +1222,44 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
     }
 
 
+def test_health_encrypted_data_endpoint_requires_admin(client: TestClient, auth_headers):
+    response = client.get("/health/encrypted-data", headers=auth_headers["viewer"])
+
+    assert response.status_code == 403
+
+
+def test_health_encrypted_data_endpoint_reports_unreadable_records(client: TestClient, auth_headers, db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken Feed",
+        url="https://example.com/broken.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    db_session.execute(
+        text("update feeds set url = :ciphertext where id = :feed_id"),
+        {"ciphertext": "enc:v1:not-a-valid-fernet-token", "feed_id": str(feed.id)},
+    )
+    db_session.commit()
+
+    response = client.get("/health/encrypted-data", headers=auth_headers["admin"])
+
+    assert response.status_code == 503
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["status"] == "critical"
+    assert payload["feeds"]["unreadable_records"] == 1
+    assert payload["feeds"]["unreadable_fields"] == 1
+    assert payload["summary"]["unreadable_records"] == 1
+    assert payload["summary"]["unreadable_fields"] == 1
+    assert payload["require_explicit_app_data_encryption_key"] is False
+    assert payload["using_derived_app_data_encryption_key"] is True
+    assert any("derived development fallback" in warning for warning in payload["warnings"])
+
+
 def test_health_worker_endpoint_reports_ok(client: TestClient, auth_headers, monkeypatch):
     class _Inspector:
         def ping(self):
@@ -1777,6 +1815,34 @@ def test_feed_update_redacts_secret_urls_in_response_and_preserves_storage(clien
     feed = db_session.scalar(select(Feed).where(Feed.id == feed_id))
     assert feed is not None
     assert feed.url == "https://alice:secret@example.com/path/update.xml?token=alpha"
+
+
+def test_feed_list_surfaces_unreadable_urls_without_failing(client: TestClient, auth_headers, db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken Feed",
+        url="https://example.com/broken.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    db_session.execute(
+        text("update feeds set url = :ciphertext where id = :feed_id"),
+        {"ciphertext": "enc:v1:not-a-valid-fernet-token", "feed_id": str(feed.id)},
+    )
+    db_session.commit()
+
+    list_response = client.get("/feeds", headers=auth_headers["viewer"])
+
+    assert list_response.status_code == 200
+    payload = list_response.json()
+    matching_feed = next(entry for entry in payload if entry["id"] == str(feed.id))
+    assert matching_feed["name"] == "Broken Feed"
+    assert matching_feed["url"] == ""
+    assert matching_feed["has_unreadable_url"] is True
+    assert "cannot be decrypted" in matching_feed["last_error"]
 
 
 def test_feed_import_overwrite_preserves_existing_metadata_when_fields_are_omitted(client: TestClient, auth_headers, db_session):

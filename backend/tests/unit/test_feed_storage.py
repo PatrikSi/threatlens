@@ -2,7 +2,7 @@ import hashlib
 import uuid
 
 from app.models.feed import Feed
-from app.services.feed_storage import decrypt_feed_url, feed_url_digest
+from app.services.feed_storage import UNREADABLE_FEED_URL_ERROR, decrypt_feed_url, feed_url_digest
 
 
 def test_feed_model_encrypts_url_storage_and_exposes_plaintext():
@@ -37,3 +37,17 @@ def test_feed_url_digest_is_not_plain_sha256_of_url():
     url = "https://alice:secret@example.com/path/feed.xml?token=alpha"
 
     assert feed_url_digest(url) != hashlib.sha256(url.encode("utf-8")).hexdigest()
+
+
+def test_feed_model_exposes_blank_url_and_error_when_ciphertext_is_unreadable():
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Broken feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    feed._url_encrypted = "enc:v1:not-a-valid-fernet-token"
+
+    assert feed.url == ""
+    assert feed.url_decryption_error == UNREADABLE_FEED_URL_ERROR

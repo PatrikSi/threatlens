@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
@@ -10,7 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
 from app.core.config import Settings, get_settings
+from app.db import session as db_session
 from app.api.routes import ai, alerts, audit, auth, feeds, health, items, notifications, stats, tagging, tags, tokens, users, views
+from app.services.encrypted_data_inventory import record_startup_encrypted_data_inventory_error, refresh_startup_encrypted_data_inventory
 
 settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
@@ -54,6 +57,23 @@ def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
     return active_settings.app_env.lower() not in {"production", "prod"}
 
 
+@asynccontextmanager
+async def app_lifespan(_application: FastAPI):
+    with db_session.SessionLocal() as db:
+        try:
+            snapshot = refresh_startup_encrypted_data_inventory(db, settings=settings)
+            logger.info(
+                "startup_encrypted_data_inventory_complete status=%s unreadable_records=%s unreadable_fields=%s",
+                snapshot.status,
+                snapshot.summary.unreadable_records,
+                snapshot.summary.unreadable_fields,
+            )
+        except Exception as exc:
+            record_startup_encrypted_data_inventory_error(str(exc))
+            logger.warning("startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True)
+    yield
+
+
 app = FastAPI(
     title="ThreatLens API",
     version="0.1.0",
@@ -76,6 +96,7 @@ app = FastAPI(
         "identifier": "Apache-2.0",
         "url": "https://www.apache.org/licenses/LICENSE-2.0.html",
     },
+    lifespan=app_lifespan,
     **_build_openapi_visibility_kwargs(settings),
 )
 
@@ -86,7 +107,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):

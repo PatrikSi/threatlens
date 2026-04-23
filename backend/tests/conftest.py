@@ -38,6 +38,11 @@ _DOCKER_STARTUP_TIMEOUT_SECONDS = 60
 
 @pytest.fixture(autouse=True)
 def _stabilize_settings_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("JWT_SECRET", "")
+    monkeypatch.setenv("APP_DATA_ENCRYPTION_KEY", "")
+    monkeypatch.setenv("APP_DATA_ENCRYPTION_PREVIOUS_KEYS", "")
+    monkeypatch.setenv("REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY", "false")
     monkeypatch.setenv("ALLOW_PRIVATE_NETWORK_FETCH", "false")
     monkeypatch.setenv("AI_ENABLED", "false")
     monkeypatch.setenv("AI_API_KEY", "")

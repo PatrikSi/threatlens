@@ -5,7 +5,7 @@ from sqlalchemy import Boolean, DateTime, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-from app.services.feed_storage import decrypt_feed_url, encrypt_feed_url, feed_url_digest
+from app.services.feed_storage import encrypt_feed_url, feed_url_digest, try_decrypt_feed_url
 
 
 class Feed(Base):
@@ -34,7 +34,13 @@ class Feed(Base):
 
     @property
     def url(self) -> str:
-        return decrypt_feed_url(self._url_encrypted) or ""
+        plaintext, _error = try_decrypt_feed_url(self._url_encrypted)
+        return plaintext or ""
+
+    @property
+    def url_decryption_error(self) -> str | None:
+        _plaintext, error = try_decrypt_feed_url(self._url_encrypted)
+        return error
 
     @url.setter
     def url(self, value: str) -> None:

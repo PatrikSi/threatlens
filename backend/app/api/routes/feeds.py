@@ -470,9 +470,16 @@ def _import_field_provided(entry: FeedImportEntry, field_name: str) -> bool:
 
 
 def _serialize_feed(feed: Feed) -> FeedResponse:
+    feed_url = feed.url
+    has_unreadable_url = bool(feed.url_decryption_error)
+    effective_last_error = feed.last_error
+    if has_unreadable_url and effective_last_error != feed.url_decryption_error:
+        effective_last_error = feed.url_decryption_error
     return FeedResponse.model_validate(feed).model_copy(
         update={
             "name": redact_feed_url(feed.name),
-            "url": redact_feed_url(feed.url),
+            "url": redact_feed_url(feed_url),
+            "last_error": effective_last_error,
+            "has_unreadable_url": has_unreadable_url,
         }
     )
