@@ -4,9 +4,12 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Published Contract
 
+- Schema version: `0.1.0`
+- OpenAPI contract anchor: `openapi-sha256:57889821ca2b4d37f7696600fc30057ab5614353f3643584c8ffad698887a227`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
-- Legacy unversioned endpoints remain available for compatibility but are excluded from the published schema.
+- Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
+- Any unversioned backend-service compatibility aliases are excluded from the published schema and shipped browser/runtime contract.
 - Machine-readable OpenAPI schema on the API service: `/openapi.json`
 - Machine-readable OpenAPI schema through the web proxy: `/api/openapi.json`
 

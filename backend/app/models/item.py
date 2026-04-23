@@ -18,6 +18,7 @@ class Item(Base):
         Index("ix_items_published_at", "published_at"),
         Index("ix_items_first_seen_at", "first_seen_at"),
         Index("ix_items_content_hash", "content_hash"),
+        Index("ix_items_ioc_extraction_state", "ioc_extraction_state"),
         Index(
             "ix_items_feed_guid_unique_not_null",
             "feed_id",
@@ -39,6 +40,7 @@ class Item(Base):
     dedupe_key: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="new", server_default="new")
+    ioc_extraction_state: Mapped[str | None] = mapped_column(String(32), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()

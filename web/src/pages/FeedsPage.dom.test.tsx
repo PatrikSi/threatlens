@@ -15,6 +15,14 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   bulkSetEnabledMutate: vi.fn(),
 }))
 
+const routerMocks = vi.hoisted(() => ({
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
+}))
+
 const feedsData = [
   {
     id: 'feed-1',
@@ -111,9 +119,13 @@ vi.mock('../hooks/useCurrentUser', () => ({
   }),
 }))
 
-vi.mock('../hooks/useUnsavedChangesWarning', () => ({
-  useUnsavedChangesWarning: vi.fn(() => Object.assign(vi.fn(), { discardDialog: null })),
-}))
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
 
 import { FeedsPage } from './FeedsPage'
 
@@ -190,8 +202,15 @@ describe('FeedsPage DOM workflows', () => {
     expect(view.textContent).toContain('Unsaved schedule')
   })
 
-  it('confirms feed deletion before removing the feed', () => {
+  it('protects unsaved feed schedule edits before opening the delete confirmation', () => {
     const view = renderPage()
+
+    const feedModeSelect = view.querySelector<HTMLSelectElement>('#feed-fetch-mode-feed-1')
+    expect(feedModeSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(feedModeSelect!, 'schedule')
+    })
 
     const feedRow = Array.from(view.querySelectorAll('div')).find((node) =>
       node.textContent?.includes('Vendor Advisories') && node.textContent?.includes('Refresh') && node.textContent?.includes('Delete'),
@@ -203,6 +222,19 @@ describe('FeedsPage DOM workflows', () => {
 
     act(() => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('You have unsaved feed schedule changes. Leave without saving?')
+    expect(view.textContent).not.toContain('Delete feed?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(view.textContent).toContain('Delete feed?')

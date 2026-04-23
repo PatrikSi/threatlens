@@ -4,7 +4,7 @@
 
 - Public/browser-facing API paths are versioned under `/api/v1/*`
 - The backend service exposes the same routers internally under `/v1/*`
-- Legacy unversioned backend routes still exist for compatibility, but they are not part of the published contract or OpenAPI schema
+- Any compatibility aliases outside `/v1/*` are not part of the published contract or OpenAPI schema and are not exposed through the bundled web proxy
 
 ## Credential Resolution Order
 

@@ -6,7 +6,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.config import get_settings
-from app.services.url_utils import is_fetchable_url
+from app.services.url_utils import is_fetchable_url, normalize_url
 
 AIProviderType = Literal["openai_compatible"]
 AIRelevanceLabel = Literal["low", "medium", "high"]
@@ -14,6 +14,19 @@ AIUsageFeatureType = Literal["item_enrichment", "daily_brief", "connection_test"
 AITaskType = Literal["item_enrichment", "daily_brief", "connection_test", "reprocess"]
 AITriggerSource = Literal["auto", "manual", "scheduled"]
 AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
+_SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
+
+
+def _sanitize_required_public_url(value: object) -> str:
+    normalized = normalize_url(str(value).strip() if value is not None else None)
+    return normalized
+
+
+def _sanitize_optional_public_url(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = normalize_url(str(value).strip())
+    return normalized or None
 
 
 def _normalize_string_list(values: object) -> list[str]:
@@ -118,6 +131,10 @@ class AISettingsUpdate(BaseModel):
             parsed = urlsplit(base_url)
         except ValueError as exc:
             raise ValueError("base_url must be a valid URL") from exc
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ValueError("base_url must be a valid URL") from exc
 
         settings = get_settings()
         allow_private_network = bool(settings.allow_private_network_ai)
@@ -135,6 +152,12 @@ class AISettingsUpdate(BaseModel):
             raise ValueError("base_url must not include query parameters or fragments")
         if "{{" in parsed.scheme or "{{" in parsed.netloc:
             raise ValueError("base_url must not contain templates in the scheme or host")
+        if settings.ai_api_key:
+            hostname = (parsed.hostname or "").lower().rstrip(".")
+            if parsed.scheme.lower() != "https" or hostname not in _SHARED_AI_API_KEY_ALLOWED_HOSTS or port not in (None, 443):
+                raise ValueError(
+                    "base_url must target https://api.openai.com when the server AI_API_KEY is configured"
+                )
         if not is_fetchable_url(base_url, allow_private_network=allow_private_network):
             raise ValueError("base_url is not allowed for outbound fetch")
         return base_url
@@ -240,6 +263,11 @@ class AIDailyBriefItemResponse(BaseModel):
     relevance_score: float | None
     relevance_label: AIRelevanceLabel | None
 
+    @field_validator("url", mode="before")
+    @classmethod
+    def _sanitize_url(cls, value: object) -> str:
+        return _sanitize_required_public_url(value)
+
 
 class AIDailyBriefResponse(BaseModel):
     id: uuid.UUID
@@ -332,6 +360,11 @@ class AITaskRunResponse(BaseModel):
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("item_url", mode="before")
+    @classmethod
+    def _sanitize_item_url(cls, value: object) -> str | None:
+        return _sanitize_optional_public_url(value)
 
 
 class AITaskRunListResponse(BaseModel):

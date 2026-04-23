@@ -41,9 +41,11 @@ from app.services.ai_config import (
     ActiveAISettings,
     build_daily_brief_system_prompt,
     build_item_enrichment_system_prompt,
+    is_shared_ai_base_url_allowed,
     load_active_ai_settings,
 )
 from app.services.safe_fetch import SafeFetchError, build_safe_http_client
+from app.services.url_utils import normalize_url
 
 FEATURE_ITEM_ENRICHMENT = "item_enrichment"
 FEATURE_DAILY_BRIEF = "daily_brief"
@@ -666,7 +668,7 @@ def daily_brief_response_from_model(db: Session, brief: AIDailyBrief) -> AIDaily
             id=item_id,
             title=row_by_id[item_id].title,
             feed_name=row_by_id[item_id].feed_name,
-            url=row_by_id[item_id].url,
+            url=normalize_url(row_by_id[item_id].url),
             published_at=row_by_id[item_id].published_at,
             relevance_score=float(row_by_id[item_id].relevance_score) if row_by_id[item_id].relevance_score is not None else None,
             relevance_label=row_by_id[item_id].relevance_label,
@@ -794,7 +796,7 @@ def _build_item_enrichment_messages(
                         "summary": _truncate_text(item.summary, MAX_ITEM_SUMMARY_CHARS),
                         "article_text": _truncate_text(article.text, MAX_ITEM_ARTICLE_PROMPT_CHARS),
                         "feed_name": feed.name if feed is not None else None,
-                        "url": item.canonical_url or item.url,
+                        "url": normalize_url(item.canonical_url or item.url) or None,
                         "published_at": item.published_at.isoformat() if item.published_at else None,
                         "classification": {
                             "primary_category": classification.primary_category if classification is not None else None,
@@ -826,7 +828,7 @@ def _build_daily_brief_messages(
             "summary": _truncate_text(row.ai_summary or row.summary, MAX_BRIEF_ITEM_SUMMARY_CHARS),
             "relevance_score": float(row.relevance_score) if row.relevance_score is not None else None,
             "relevance_label": row.relevance_label,
-            "url": row.url,
+            "url": normalize_url(getattr(row, "url", None)) or None,
         }
         for row in item_rows
     ]
@@ -1015,6 +1017,8 @@ def _call_ai_json(
 ) -> AICompletionResult:
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
+    if not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
+        raise AIIntegrationError("AI base URL is not allowed when the server AI_API_KEY is configured")
     if not active.ai_configured or not active.base_url or not active.model:
         raise AIIntegrationError("AI settings are incomplete")
 

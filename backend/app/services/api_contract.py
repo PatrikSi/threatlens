@@ -20,6 +20,8 @@ def render_api_reference_markdown(
     openapi_proxy_path: str,
 ) -> str:
     schema = app.openapi()
+    schema_info = schema.get("info", {})
+    contract_anchor = schema_info.get("x-threatlens-contract-sha256")
     operations_by_tag: dict[str, list[tuple[str, str, dict[str, Any]]]] = defaultdict(list)
 
     for path in sorted(schema.get("paths", {})):
@@ -41,9 +43,16 @@ def render_api_reference_markdown(
         "",
         "## Published Contract",
         "",
+        f"- Schema version: `{schema_info.get('version', 'unknown')}`",
+        (
+            f"- OpenAPI contract anchor: `openapi-sha256:{contract_anchor}`"
+            if isinstance(contract_anchor, str) and contract_anchor
+            else "- OpenAPI contract anchor: unavailable"
+        ),
         f"- API service base path: `{service_base_path}`",
         f"- Web proxy base path: `{proxy_base_path}`",
-        "- Legacy unversioned endpoints remain available for compatibility but are excluded from the published schema.",
+        f"- Bundled web proxy publishes only `{proxy_base_path}/*` plus `{openapi_proxy_path}`.",
+        "- Any unversioned backend-service compatibility aliases are excluded from the published schema and shipped browser/runtime contract.",
         f"- Machine-readable OpenAPI schema on the API service: `{openapi_service_path}`",
         f"- Machine-readable OpenAPI schema through the web proxy: `{openapi_proxy_path}`",
         "",

@@ -59,41 +59,28 @@ def notifications(db: Session = Depends(get_db), user: User | None = Depends(get
 
 def _readiness_response(db: Session):
     settings = get_settings()
+    db_ok = _database_health_ok(db)
+    redis_ok = _redis_health_ok(settings)
+    worker_ok, _workers = _worker_health_snapshot(settings)
+    beat_ok, _heartbeat_raw, _age_seconds = _beat_health_snapshot(settings)
 
-    db_ok = False
-    redis_ok = False
-
-    try:
-        db.execute(text("SELECT 1"))
-        db_ok = True
-    except Exception:
-        db_ok = False
-
-    try:
-        client = redis.Redis.from_url(settings.redis_url)
-        redis_ok = bool(client.ping())
-    except Exception:
-        redis_ok = False
-
-    ok = db_ok and redis_ok
+    ok = db_ok and redis_ok and worker_ok and beat_ok
     status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    return JSONResponse(status_code=status_code, content={"ok": ok, "db": db_ok, "redis": redis_ok})
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "ok": ok,
+            "db": db_ok,
+            "redis": redis_ok,
+            "worker": worker_ok,
+            "beat": beat_ok,
+        },
+    )
 
 
 def _worker_health_response(*, detailed: bool):
     settings = get_settings()
-
-    worker_ok = False
-    workers: dict[str, str] = {}
-    try:
-        inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
-        raw_ping = inspector.ping() or {}
-        worker_ok = bool(raw_ping)
-        for worker_name, response in raw_ping.items():
-            pong_value = response.get("ok") if isinstance(response, dict) else None
-            workers[worker_name] = str(pong_value or "unknown")
-    except Exception:
-        worker_ok = False
+    worker_ok, workers = _worker_health_snapshot(settings)
 
     status_code = status.HTTP_200_OK if worker_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     payload = {"ok": worker_ok}
@@ -104,27 +91,7 @@ def _worker_health_response(*, detailed: bool):
 
 def _beat_health_response(*, detailed: bool):
     settings = get_settings()
-    now = datetime.now(timezone.utc)
-
-    heartbeat_raw: str | None = None
-    beat_ok = False
-    age_seconds: int | None = None
-
-    try:
-        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-        heartbeat_raw = client.get(settings.beat_heartbeat_key)
-    except Exception:
-        heartbeat_raw = None
-
-    if heartbeat_raw:
-        try:
-            heartbeat_at = datetime.fromisoformat(heartbeat_raw)
-            if heartbeat_at.tzinfo is None:
-                heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
-            age_seconds = max(0, int((now - heartbeat_at).total_seconds()))
-            beat_ok = age_seconds <= settings.beat_heartbeat_stale_after_seconds
-        except ValueError:
-            beat_ok = False
+    beat_ok, heartbeat_raw, age_seconds = _beat_health_snapshot(settings)
 
     status_code = status.HTTP_200_OK if beat_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     payload = {"ok": beat_ok}
@@ -142,3 +109,59 @@ def _beat_health_response(*, detailed: bool):
 
 def _is_admin_user(user: User | None) -> bool:
     return user is not None and user.role == ROLE_ADMIN
+
+
+def _database_health_ok(db: Session) -> bool:
+    try:
+        db.execute(text("SELECT 1"))
+        return True
+    except Exception:
+        return False
+
+
+def _redis_health_ok(settings) -> bool:
+    try:
+        client = redis.Redis.from_url(settings.redis_url)
+        return bool(client.ping())
+    except Exception:
+        return False
+
+
+def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str]]:
+    worker_ok = False
+    workers: dict[str, str] = {}
+    try:
+        inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
+        raw_ping = inspector.ping() or {}
+        worker_ok = bool(raw_ping)
+        for worker_name, response in raw_ping.items():
+            pong_value = response.get("ok") if isinstance(response, dict) else None
+            workers[worker_name] = str(pong_value or "unknown")
+    except Exception:
+        worker_ok = False
+    return worker_ok, workers
+
+
+def _beat_health_snapshot(settings) -> tuple[bool, str | None, int | None]:
+    now = datetime.now(timezone.utc)
+    heartbeat_raw: str | None = None
+    age_seconds: int | None = None
+
+    try:
+        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+        heartbeat_raw = client.get(settings.beat_heartbeat_key)
+    except Exception:
+        return False, None, None
+
+    if not heartbeat_raw:
+        return False, None, None
+
+    try:
+        heartbeat_at = datetime.fromisoformat(heartbeat_raw)
+    except ValueError:
+        return False, heartbeat_raw, None
+
+    if heartbeat_at.tzinfo is None:
+        heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+    age_seconds = max(0, int((now - heartbeat_at).total_seconds()))
+    return age_seconds <= settings.beat_heartbeat_stale_after_seconds, heartbeat_raw, age_seconds

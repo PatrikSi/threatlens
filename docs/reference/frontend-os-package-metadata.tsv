@@ -1,0 +1,73 @@
+# ThreatLens frontend OS package metadata
+# Generated from /lib/apk/db/installed
+
+package\tversion\tlicense\torigin\thomepage
+alpine-baselayout	3.6.8-r1	GPL-2.0-only	alpine-baselayout	https://git.alpinelinux.org/cgit/aports/tree/main/alpine-baselayout
+alpine-baselayout-data	3.6.8-r1	GPL-2.0-only	alpine-baselayout	https://git.alpinelinux.org/cgit/aports/tree/main/alpine-baselayout
+alpine-keys	2.5-r0	MIT	alpine-keys	https://alpinelinux.org
+alpine-release	3.21.3-r0	MIT	alpine-base	https://alpinelinux.org
+aom-libs	3.11.0-r0	BSD-2-Clause AND custom	aom	https://aomedia.org/
+apk-tools	2.14.6-r3	GPL-2.0-only	apk-tools	https://gitlab.alpinelinux.org/alpine/apk-tools
+brotli-libs	1.1.0-r2	MIT	brotli	https://github.com/google/brotli
+busybox	1.37.0-r12	GPL-2.0-only	busybox	https://busybox.net/
+busybox-binsh	1.37.0-r12	GPL-2.0-only	busybox	https://busybox.net/
+c-ares	1.34.5-r0	MIT	c-ares	https://c-ares.org/
+ca-certificates	20241121-r1	MPL-2.0 AND MIT	ca-certificates	https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/
+ca-certificates-bundle	20241121-r1	MPL-2.0 AND MIT	ca-certificates	https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/
+curl	8.12.1-r1	curl	curl	https://curl.se/
+fontconfig	2.15.0-r1	MIT	fontconfig	https://www.freedesktop.org/wiki/Software/fontconfig
+freetype	2.13.3-r0	FTL OR GPL-2.0-or-later	freetype	https://www.freetype.org/
+geoip	1.6.12-r5	LGPL-2.1-or-later	geoip	http://www.maxmind.com/app/ip-location
+gettext-envsubst	0.22.5-r0	GPL-3.0-or-later AND LGPL-2.1-or-later AND MIT	gettext	https://www.gnu.org/software/gettext/gettext.html
+libavif	1.0.4-r0	BSD-2-Clause	libavif	https://aomediacodec.github.io/av1-avif/
+libbsd	0.12.2-r0	BSD-3-Clause	libbsd	https://libbsd.freedesktop.org/
+libbz2	1.0.8-r6	bzip2-1.0.6	bzip2	https://sourceware.org/bzip2/
+libcrypto3	3.3.3-r0	Apache-2.0	openssl	https://www.openssl.org/
+libcurl	8.12.1-r1	curl	curl	https://curl.se/
+libdav1d	1.5.0-r0	BSD-2-Clause	dav1d	https://code.videolan.org/videolan/dav1d
+libedit	20240808.3.1-r0	BSD-3-Clause	libedit	https://www.thrysoee.dk/editline
+libexpat	2.7.0-r0	MIT	expat	https://libexpat.github.io/
+libgcrypt	1.10.3-r1	LGPL-2.1-or-later AND GPL-2.0-or-later	libgcrypt	https://www.gnupg.org/
+libgd	2.3.3-r9	GD	gd	https://libgd.github.io/
+libgpg-error	1.51-r0	GPL-2.0-or-later AND LGPL-2.1-or-later	libgpg-error	https://www.gnupg.org/
+libice	1.1.1-r6	X11	libice	https://xorg.freedesktop.org/
+libidn2	2.3.7-r0	GPL-2.0-or-later OR LGPL-3.0-or-later	libidn2	https://www.gnu.org/software/libidn#libidn2
+libintl	0.22.5-r0	LGPL-2.1-or-later	gettext	https://www.gnu.org/software/gettext/gettext.html
+libjpeg-turbo	3.0.4-r0	BSD-3-Clause AND IJG AND Zlib	libjpeg-turbo	https://libjpeg-turbo.org/
+libmd	1.1.0-r0	BSD-3-Clause AND BSD-2-Clause AND ISC AND Beerware AND Public Domain	libmd	https://www.hadrons.org/software/libmd/
+libncursesw	6.5_p20241006-r3	X11	ncurses	https://invisible-island.net/ncurses/
+libpng	1.6.47-r0	Libpng	libpng	http://www.libpng.org
+libpsl	0.21.5-r3	MIT	libpsl	https://rockdaboot.github.io/libpsl
+libsharpyuv	1.4.0-r0	BSD-3-Clause	libwebp	https://developers.google.com/speed/webp
+libsm	1.2.4-r4	MIT	libsm	https://xorg.freedesktop.org/
+libssl3	3.3.3-r0	Apache-2.0	openssl	https://www.openssl.org/
+libunistring	1.2-r0	GPL-2.0-or-later OR LGPL-3.0-or-later	libunistring	https://www.gnu.org/software/libunistring/
+libuuid	2.40.4-r1	BSD-3-Clause	util-linux	https://git.kernel.org/cgit/utils/util-linux/util-linux.git
+libwebp	1.4.0-r0	BSD-3-Clause	libwebp	https://developers.google.com/speed/webp
+libx11	1.8.10-r0	X11	libx11	https://xorg.freedesktop.org/
+libxau	1.0.11-r4	MIT	libxau	https://xorg.freedesktop.org/
+libxcb	1.16.1-r0	MIT	libxcb	https://xcb.freedesktop.org/
+libxdmcp	1.1.5-r1	MIT	libxdmcp	https://xorg.freedesktop.org/
+libxext	1.3.6-r2	MIT	libxext	https://xorg.freedesktop.org/
+libxml2	2.13.4-r5	MIT	libxml2	https://gitlab.gnome.org/GNOME/libxml2
+libxpm	3.5.17-r0	X11	libxpm	https://xorg.freedesktop.org/
+libxslt	1.1.42-r2	X11	libxslt	http://xmlsoft.org/XSLT/
+libxt	1.3.1-r0	MIT	libxt	https://xorg.freedesktop.org/
+musl	1.2.5-r9	MIT	musl	https://musl.libc.org/
+musl-utils	1.2.5-r9	MIT AND BSD-2-Clause AND GPL-2.0-or-later	musl	https://musl.libc.org/
+ncurses-terminfo-base	6.5_p20241006-r3	X11	ncurses	https://invisible-island.net/ncurses/
+nghttp2-libs	1.64.0-r0	MIT	nghttp2	https://nghttp2.org
+nginx	1.27.5-r1	2-clause BSD-like license	nginx	https://nginx.org/
+nginx-module-geoip	1.27.5-r1	2-clause BSD-like license	nginx-module-geoip	https://nginx.org/
+nginx-module-image-filter	1.27.5-r1	2-clause BSD-like license	nginx-module-image-filter	https://nginx.org/
+nginx-module-njs	1.27.5.0.8.10-r1	2-clause BSD-like license	nginx-module-njs	https://nginx.org/
+nginx-module-xslt	1.27.5-r1	2-clause BSD-like license	nginx-module-xslt	https://nginx.org/
+pcre2	10.43-r0	BSD-3-Clause	pcre2	https://pcre.org/
+scanelf	1.3.8-r1	GPL-2.0-only	pax-utils	https://wiki.gentoo.org/wiki/Hardened/PaX_Utilities
+ssl_client	1.37.0-r12	GPL-2.0-only	busybox	https://busybox.net/
+tiff	4.7.0-r0	libtiff	tiff	https://gitlab.com/libtiff/libtiff
+tzdata	2025b-r0	Public-Domain	tzdata	https://www.iana.org/time-zones
+xz-libs	5.6.3-r1	GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later	xz	https://tukaani.org/xz/
+zlib	1.3.1-r2	Zlib	zlib	https://zlib.net/
+zstd-libs	1.5.6-r2	BSD-3-Clause OR GPL-2.0-or-later	zstd	https://facebook.github.io/zstd/
+

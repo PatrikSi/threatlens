@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 import {
@@ -135,6 +136,15 @@ export function UsersPage() {
       return synced.drafts
     })
   }, [usersQuery.data])
+
+  const hasUnsavedUserSettingsChanges = useMemo(
+    () => hasDirtyUserSettingsDrafts(settingsDraftsByUserId, settingsDraftBaselinesByUserIdRef.current),
+    [settingsDraftsByUserId],
+  )
+  const confirmDiscardUnsavedUserSettingsChanges = useUnsavedChangesWarning(
+    hasUnsavedUserSettingsChanges,
+    'Discard unsaved user settings changes?',
+  )
 
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
@@ -322,6 +332,7 @@ export function UsersPage() {
           </div>
         )}
       </ConfirmDialog>
+      {confirmDiscardUnsavedUserSettingsChanges.discardDialog}
     </>
   )
 }
@@ -503,4 +514,22 @@ function resolveUsersMutationError(error: unknown): string {
     return error.message
   }
   return 'Failed to update user.'
+}
+
+function hasDirtyUserSettingsDrafts(
+  draftsByUserId: Record<string, UserSettingsDraft>,
+  baselinesByUserId: Record<string, UserSettingsDraft>,
+) {
+  return Object.entries(draftsByUserId).some(([userId, draft]) => {
+    const baseline = baselinesByUserId[userId]
+    if (!baseline) {
+      return false
+    }
+
+    return (
+      draft.role !== baseline.role ||
+      draft.isActive !== baseline.isActive ||
+      draft.isApproved !== baseline.isApproved
+    )
+  })
 }

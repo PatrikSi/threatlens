@@ -24,6 +24,19 @@ const usersPageDomMocks = vi.hoisted(() => ({
   ],
 }))
 
+const routerMocks = vi.hoisted(() => {
+  const blocker = {
+    state: 'unblocked' as 'unblocked' | 'blocked',
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  }
+
+  return {
+    blocker,
+    useBlocker: vi.fn(() => ({ ...blocker })),
+  }
+})
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => usersPageDomMocks.queryClient,
   useQuery: () => ({
@@ -41,6 +54,14 @@ vi.mock('@tanstack/react-query', () => ({
     }),
 }))
 
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
+  return {
+    ...actual,
+    useBlocker: routerMocks.useBlocker,
+  }
+})
+
 import { UsersPage } from './UsersPage'
 
 let root: Root | null = null
@@ -54,6 +75,12 @@ function renderPage() {
     root?.render(<UsersPage />)
   })
   return container
+}
+
+function rerenderPage() {
+  act(() => {
+    root?.render(<UsersPage />)
+  })
 }
 
 function setInputValue(input: HTMLInputElement, value: string) {
@@ -88,6 +115,9 @@ afterEach(() => {
     },
   ]
   usersPageDomMocks.mutate.mockReset()
+  routerMocks.blocker.state = 'unblocked'
+  routerMocks.blocker.proceed.mockReset()
+  routerMocks.blocker.reset.mockReset()
 })
 
 describe('UsersPage DOM workflows', () => {
@@ -204,5 +234,47 @@ describe('UsersPage DOM workflows', () => {
     })
 
     expect(view.querySelector<HTMLSelectElement>('#user-role-user-1')?.value).toBe('admin')
+  })
+
+  it('warns before blocked navigation when user settings drafts are still dirty', () => {
+    const view = renderPage()
+
+    const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-user-1')
+    expect(roleSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(roleSelect!, 'admin')
+    })
+
+    routerMocks.blocker.state = 'blocked'
+    rerenderPage()
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved user settings changes?')
+
+    const cancelButton = Array.from(view.querySelectorAll('button'))
+      .filter((button) => button.textContent?.trim() === 'Cancel')
+      .at(-1)
+    expect(cancelButton).not.toBeNull()
+
+    act(() => {
+      cancelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(routerMocks.blocker.reset).toHaveBeenCalledTimes(1)
+
+    routerMocks.blocker.state = 'blocked'
+    rerenderPage()
+
+    const discardButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardButton).not.toBeNull()
+
+    act(() => {
+      discardButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(routerMocks.blocker.proceed).toHaveBeenCalledTimes(1)
   })
 })

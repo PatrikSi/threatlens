@@ -261,6 +261,16 @@ export function TaggingSettingsPage() {
     saveRule.mutate(createRuleRequestFromDraft(ruleDraft))
   }
 
+  const onRequestDeleteRule = (rule: TaggingRule | null) => {
+    if (!rule) {
+      return
+    }
+
+    confirmDiscardUnsavedTaggingChanges(() => {
+      setPendingRuleDelete(rule)
+    })
+  }
+
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -434,6 +444,8 @@ export function TaggingSettingsPage() {
               return (
                 <button
                   key={rule.id}
+                  type="button"
+                  aria-pressed={selected}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     selected
                       ? 'border-cyan bg-cyan/10 dark:border-cyan-500 dark:bg-cyan-950/50'
@@ -687,7 +699,7 @@ export function TaggingSettingsPage() {
                 <button
                   className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
                   disabled={deleteRule.isPending || Boolean(pendingRuleDelete)}
-                  onClick={() => setPendingRuleDelete(selectedRule)}
+                  onClick={() => onRequestDeleteRule(selectedRule)}
                 >
                   Delete rule
                 </button>

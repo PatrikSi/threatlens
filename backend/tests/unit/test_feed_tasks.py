@@ -34,7 +34,9 @@ from app.tasks.feed_tasks import (
     dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
     dispatch_items_missing_articles,
+    dispatch_items_missing_iocs,
     enqueue_notification_webhook_delivery_processing,
+    extract_item_iocs,
     fetch_article,
     fetch_feed,
     generate_item_ai_enrichment_task,
@@ -2966,6 +2968,112 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     assert retry_deliveries[0].delivery_state == "pending"
     assert captured["delivery_ids"] == [retry_deliveries[0].id]
     assert captured["countdown"] == max(1, int(get_settings().notification_delivery_retry_backoff_seconds))
+
+
+def test_process_reserved_notification_deliveries_skips_missing_rows(db_session, monkeypatch):
+    missing_delivery_id = uuid.uuid4()
+    existing_delivery_id = uuid.uuid4()
+
+    def _fake_process(_db, *, delivery_id: uuid.UUID):
+        if delivery_id == missing_delivery_id:
+            raise ValueError("Webhook delivery not found")
+        return SimpleNamespace(
+            claimed=True,
+            result=SimpleNamespace(success=True, status_code=204, error=None),
+            delivery=SimpleNamespace(
+                id=delivery_id,
+                webhook_id=uuid.uuid4(),
+                event_type_snapshot="rss_item_new",
+            ),
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _fake_process)
+
+    delivered, failed = _process_reserved_notification_deliveries(
+        db_session,
+        [missing_delivery_id, existing_delivery_id],
+    )
+
+    assert delivered == 1
+    assert failed == 0
+
+
+def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="IOC Feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    completed_empty_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ioc-empty",
+        url="https://example.com/articles/ioc-empty",
+        canonical_url="https://example.com/articles/ioc-empty",
+        title="No indicators here",
+        summary="Still nothing actionable",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ioc-empty",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    pending_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ioc-pending",
+        url="https://example.com/articles/ioc-pending",
+        canonical_url="https://example.com/articles/ioc-pending",
+        title="Queued separately",
+        summary="Pending IOC extraction",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ioc-pending",
+        content_hash="2" * 64,
+        status="content_fetched",
+    )
+    completed_article = Article(
+        item_id=completed_empty_item.id,
+        final_url=completed_empty_item.url,
+        http_status=200,
+        text="No observables are present in this article.",
+        extraction_method="readable",
+    )
+    pending_article = Article(
+        item_id=pending_item.id,
+        final_url=pending_item.url,
+        http_status=200,
+        text="Still waiting for the queued extraction task.",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, completed_empty_item, pending_item])
+    db_session.flush()
+    db_session.add_all([completed_article, pending_article])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_iocs", lambda **_kwargs: [])
+    monkeypatch.setattr("app.tasks.feed_tasks.sync_item_algorithm_tags", lambda *_args, **_kwargs: None)
+
+    result = extract_item_iocs.run(str(completed_empty_item.id))
+
+    db_session.expire_all()
+    refreshed_item = db_session.scalar(select(Item).where(Item.id == completed_empty_item.id))
+    assert result == {"status": "ok", "item_id": str(completed_empty_item.id), "ioc_count": 0}
+    assert refreshed_item is not None
+    assert refreshed_item.ioc_extraction_state == "completed_empty"
+
+    queued_item_ids: list[str] = []
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda item_id: queued_item_ids.append(item_id))
+
+    dispatch_result = dispatch_items_missing_iocs.run()
+
+    assert dispatch_result == {"queued": 1}
+    assert queued_item_ids == [str(pending_item.id)]
 
 
 def test_scheduled_daily_ai_brief_due_respects_configured_time(db_session, monkeypatch):

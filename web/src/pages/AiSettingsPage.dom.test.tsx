@@ -350,6 +350,11 @@ describe('AiSettingsPage DOM workflows', () => {
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 
+    expect(view.querySelector('label[for="ai-overview-window-days"]')?.textContent).toContain('Overview time window')
+    expect(view.querySelector<HTMLSelectElement>('#ai-overview-window-days')?.getAttribute('aria-label')).toBe(
+      'Overview time window',
+    )
+
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()
     expect(view.querySelector('[role="tablist"]')).not.toBeNull()

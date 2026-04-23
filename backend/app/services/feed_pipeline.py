@@ -18,6 +18,7 @@ from app.services.article_recovery import (
     article_soft_retryable_error_filter,
 )
 from app.services.dedupe import content_hash, dedupe_key
+from app.services.url_utils import normalize_url
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ def list_item_ids_missing_articles(
 
 
 def upsert_item_from_parsed(db: Session, feed: Feed, parsed) -> tuple[Item, bool, bool]:
-    item_url = parsed.url or ""
+    item_url = normalize_url(parsed.url) or ""
     key = dedupe_key(str(feed.id), parsed.guid, item_url, parsed.title, parsed.published_at)
     hash_value = content_hash(parsed.title, parsed.summary, item_url)
 

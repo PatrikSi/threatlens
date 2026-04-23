@@ -1,3 +1,5 @@
+import re
+
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
@@ -38,7 +40,7 @@ def test_build_openapi_visibility_kwargs_keeps_docs_in_development():
     assert _build_openapi_visibility_kwargs(settings) == {}
 
 
-def test_versioned_routes_are_published_while_legacy_routes_remain_available():
+def test_versioned_routes_are_published_while_backend_compatibility_routes_remain_out_of_schema():
     client = TestClient(app)
 
     versioned = client.get("/v1/health/live")
@@ -70,3 +72,5 @@ def test_live_schema_publishes_versioned_auth_contract():
     assert session_cookie_scheme["name"] == "threatlens_session"
     assert "/api/v1/auth/login" in session_cookie_scheme["description"]
     assert "HttpOnly cookie sessions" in payload["info"]["description"]
+    assert "publishes only `/api/v1/*` plus `/api/openapi.json`" in payload["info"]["description"]
+    assert re.fullmatch(r"[0-9a-f]{64}", payload["info"]["x-threatlens-contract-sha256"])

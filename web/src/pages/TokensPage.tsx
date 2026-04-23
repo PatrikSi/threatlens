@@ -14,13 +14,14 @@ export function TokensPage() {
   const [tokenFormState, dispatchTokenForm] = useTokenCreateFormState()
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
+  const isAdmin = meQuery.data?.role === 'admin'
 
   const tokenQueryKey = ['tokens', adminUserFilter]
   const tokensQuery = useQuery({
     queryKey: tokenQueryKey,
     queryFn: () => {
       const params = new URLSearchParams()
-      if (meQuery.data?.role === 'admin' && adminUserFilter.trim()) {
+      if (isAdmin && adminUserFilter.trim()) {
         params.set('user_id', adminUserFilter.trim())
       }
       const suffix = params.toString() ? `?${params.toString()}` : ''
@@ -162,7 +163,7 @@ export function TokensPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-xl">Token Inventory</h2>
-          {meQuery.data?.role === 'admin' && (
+          {isAdmin && (
             <div className="space-y-1">
               <label
                 htmlFor="token-admin-user-filter"
@@ -205,6 +206,7 @@ export function TokensPage() {
                 </button>
               </div>
               <p className="mt-1 text-xs text-slate dark:text-slate-300">Scopes: {token.scopes.join(', ') || 'none'}</p>
+              {isAdmin && <p className="mt-1 text-xs text-slate dark:text-slate-300">User ID: {token.user_id}</p>}
               <p className="mt-1 text-xs text-slate dark:text-slate-300">
                 Expires: {token.expires_at ? formatDateTime(token.expires_at) : 'Never'}
               </p>
@@ -233,6 +235,7 @@ export function TokensPage() {
           <div className="space-y-3">
             <p className="font-semibold text-ink dark:text-white">{pendingRevocation.name}</p>
             <p className="text-xs text-slate dark:text-white/70">Prefix: {pendingRevocation.token_prefix}</p>
+            {isAdmin && <p className="text-xs text-slate dark:text-white/70">User ID: {pendingRevocation.user_id}</p>}
             <p className="text-xs text-slate dark:text-white/70">
               Scopes: {pendingRevocation.scopes.join(', ') || 'none'}
             </p>

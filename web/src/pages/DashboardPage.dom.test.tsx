@@ -137,9 +137,9 @@ vi.mock('@tanstack/react-query', () => ({
         error: null,
       }
     }),
-  useMutation: (options: { mutationFn?: unknown }) => {
-    const source = String(options?.mutationFn ?? '')
-    if (source.includes('/views/${payload.viewId}') && source.includes('DELETE')) {
+  useMutation: (options: { mutationKey?: unknown }) => {
+    const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'dashboard-saved-views:delete') {
       return {
         mutate: dashboardPageDomMocks.deleteMutate,
         mutateAsync: vi.fn(),
@@ -150,7 +150,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
-    if (source.includes('/views') && source.includes('POST')) {
+    if (mutationKey === 'dashboard-saved-views:create') {
       return {
         mutate: dashboardPageDomMocks.saveMutate,
         mutateAsync: vi.fn(),
@@ -161,7 +161,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
-    if (source.includes('/views/${payload.viewId}') && source.includes('PATCH')) {
+    if (mutationKey === 'dashboard-saved-views:update') {
       return {
         mutate: dashboardPageDomMocks.updateMutate,
         mutateAsync: vi.fn(),
@@ -222,6 +222,12 @@ function getSelect(label: string) {
   return document.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 beforeEach(() => {
   dashboardPageDomMocks.views = [
     createSavedView(
@@ -264,6 +270,41 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('uses the create saved-view mutation through the shared dashboard seam', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    act(() => {
+      getButton('Clear Loaded View')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const nameInput = document.querySelector<HTMLInputElement>('[aria-label="Saved dashboard view name"]')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Analyst workspace')
+    })
+
+    act(() => {
+      getButton('Save New View')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(dashboardPageDomMocks.saveMutate).toHaveBeenCalledTimes(1)
+    expect(dashboardPageDomMocks.saveMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Analyst workspace',
+        query: expect.objectContaining({
+          schema_version: 1,
+          version: 6,
+          windows: expect.any(Array),
+        }),
+      }),
+    )
+  })
+
   it('confirms before replacing an active edit session with another saved view', () => {
     const view = renderPage()
 

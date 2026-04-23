@@ -5,12 +5,15 @@ import {
   migrateLegacyDashboardStorage,
 } from './dashboardStorage'
 import {
+  buildSavedViewPreview,
   buildDashboardSavedViewState,
+  loadDashboardWindows,
   parseDashboardSavedView,
   resolveSavedViewSelectionChange,
 } from './dashboardSavedViews'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
+import type { SavedView } from '../types/api'
 
 function createLocalStorageMock() {
   const store = new Map<string, string>()
@@ -216,6 +219,176 @@ describe('saved view payloads', () => {
     expect(parsed.windows).toHaveLength(1)
     expect(parsed.windows[0].type).toBe('rss')
     expect(parsed.windows[0].rect.width).toBeGreaterThan(0)
+  })
+
+  it('drops non-search window time overrides while preserving valid daily-brief selection', () => {
+    const parsed = parseDashboardSavedView(
+      {
+        schema_version: 1,
+        version: 6,
+        rss_filters: {},
+        alert_filters: {},
+        windows: [
+          {
+            id: 'notes-1',
+            type: 'notes',
+            title: 'Notes Panel 1',
+            snap: 'full',
+            rect: { x: 0, y: 0, width: 900, height: 500 },
+            controls_collapsed: false,
+            scratch_note: 'Track pivots',
+            time_override: {
+              time_range: '7d',
+              custom_since_date: '',
+              custom_until_date: '',
+              rolling_days: '7',
+            },
+            rss_filters: null,
+            alert_filters: null,
+            selected_daily_brief_id: null,
+          },
+          {
+            id: 'brief-1',
+            type: 'daily_brief',
+            title: 'Daily Brief Panel 1',
+            snap: 'right',
+            rect: { x: 0, y: 0, width: 900, height: 500 },
+            controls_collapsed: false,
+            scratch_note: '',
+            time_override: {
+              time_range: '30d',
+              custom_since_date: '',
+              custom_until_date: '',
+              rolling_days: '30',
+            },
+            rss_filters: null,
+            alert_filters: null,
+            selected_daily_brief_id: 'brief-snapshot-1',
+          },
+        ],
+        ui: { show_advanced_filters: false },
+      },
+      1380,
+      760,
+    )
+
+    expect(parsed.windows[0].type).toBe('notes')
+    expect(parsed.windows[0].time_override).toBeNull()
+    expect(parsed.windows[1].type).toBe('daily_brief')
+    expect(parsed.windows[1].time_override).toBeNull()
+    expect(parsed.windows[1].selected_daily_brief_id).toBe('brief-snapshot-1')
+  })
+
+  it('loads persisted dashboard windows through the shared window contract', () => {
+    localStorageMock.setItem(
+      'threatlens.dashboard.windows.v2:alice',
+      JSON.stringify([
+        {
+          id: 'notes-1',
+          type: 'notes',
+          title: 'Notes Panel 1',
+          snap: 'full',
+          rect: { x: 0, y: 0, width: 920, height: 520 },
+          controls_collapsed: false,
+          scratch_note: 'Keep investigation notes here.',
+          time_override: {
+            time_range: '24h',
+            custom_since_date: '',
+            custom_until_date: '',
+            rolling_days: '1',
+          },
+          rss_filters: { q: 'should-be-ignored' },
+          alert_filters: null,
+          selected_daily_brief_id: 'should-be-cleared',
+        },
+      ]),
+    )
+
+    expect(loadDashboardWindows('threatlens.dashboard.windows.v2:alice', 1380, 760)).toEqual([
+      {
+        id: 'notes-1',
+        type: 'notes',
+        title: 'Notes Panel 1',
+        snap: 'full',
+        rect: { x: 0, y: 0, width: 1380, height: 760 },
+        controls_collapsed: false,
+        scratch_note: 'Keep investigation notes here.',
+        time_override: null,
+        rss_filters: null,
+        alert_filters: null,
+        selected_daily_brief_id: null,
+      },
+    ])
+  })
+
+  it('builds saved-view previews from the parsed contract shape', () => {
+    const queryJson = buildDashboardSavedViewState(
+      [
+        {
+          id: 'rss-1',
+          type: 'rss',
+          title: 'RSS Panel 1',
+          snap: 'left',
+          rect: { x: 0, y: 0, width: 690, height: 760 },
+          controls_collapsed: false,
+          scratch_note: '',
+          time_override: null,
+          rss_filters: {
+            selected_feed_ids: [],
+            selected_tags: [],
+            q: '',
+            read_status: 'all',
+            star_status: 'all',
+            view_mode: 'compact',
+            page: 1,
+            page_size: 25,
+            sort: 'published_at_desc',
+            show_advanced_filters: false,
+          },
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+        {
+          id: 'notes-1',
+          type: 'notes',
+          title: 'Notes Panel 1',
+          snap: 'right',
+          rect: { x: 690, y: 0, width: 690, height: 760 },
+          controls_collapsed: false,
+          scratch_note: 'Pivot questions',
+          time_override: null,
+          rss_filters: null,
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+      ],
+      {
+        time_range: 'all',
+        custom_since_date: '',
+        custom_until_date: '',
+        rolling_days: '7',
+      },
+    )
+
+    const preview = buildSavedViewPreview(
+      {
+        id: 'view-1',
+        user_id: 'alice',
+        name: 'Analyst view',
+        created_at: '2026-04-22T10:00:00.000Z',
+        query_json: queryJson,
+      } satisfies SavedView,
+      1380,
+      760,
+    )
+
+    expect(preview.window_type_counts).toEqual({
+      rss: 1,
+      alerts: 0,
+      notes: 1,
+      daily_brief: 0,
+    })
+    expect(preview.windows).toHaveLength(2)
   })
 })
 

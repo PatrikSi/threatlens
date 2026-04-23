@@ -490,6 +490,18 @@ export function FeedsPage() {
     'You have unsaved feed schedule changes. Leave without saving?',
   )
 
+  const onRequestDeleteFeed = (feed: Feed) => {
+    confirmDiscardUnsavedFeedScheduleChanges(() => {
+      setPendingDeleteFeed(feed)
+    })
+  }
+
+  const onRequestBulkDeleteFeeds = (feeds: Feed[]) => {
+    confirmDiscardUnsavedFeedScheduleChanges(() => {
+      setPendingBulkDeleteFeeds(feeds)
+    })
+  }
+
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -758,9 +770,7 @@ export function FeedsPage() {
                 Boolean(pendingDeleteFeed) ||
                 Boolean(pendingBulkDeleteFeeds)
               }
-              onClick={() => {
-                setPendingBulkDeleteFeeds(filteredFeeds.filter((feed) => !feed.enabled))
-              }}
+              onClick={() => onRequestBulkDeleteFeeds(filteredFeeds.filter((feed) => !feed.enabled))}
             >
               Delete Disabled (Filtered)
             </button>
@@ -855,7 +865,7 @@ export function FeedsPage() {
                   {canDelete && (
                     <button
                       className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
-                      onClick={() => setPendingDeleteFeed(feed)}
+                      onClick={() => onRequestDeleteFeed(feed)}
                       disabled={deleteFeed.isPending || Boolean(pendingDeleteFeed) || Boolean(pendingBulkDeleteFeeds)}
                     >
                       Delete

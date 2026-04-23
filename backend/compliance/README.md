@@ -12,4 +12,10 @@ Keep this bundle in sync with:
 - `docs/licenses/*.txt`
 - `python scripts/sync_compliance_bundle.py`
 
-The backend image copies these files into `/usr/share/doc/threatlens/`.
+The backend image copies these files into `/usr/share/doc/threatlens/` and also
+generates runtime-specific compliance artifacts there during the Docker build,
+including:
+
+- `backend-runtime-package-legal/` for wheel-published Python legal files
+- `backend-os-packages.txt` for redistributed Debian packages
+- `backend-os-package-legal/` for copied Debian package copyright files

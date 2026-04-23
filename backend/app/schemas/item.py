@@ -5,6 +5,20 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.services.url_utils import normalize_url
+
+
+def _sanitize_required_public_url(value: object) -> str:
+    normalized = normalize_url(str(value).strip() if value is not None else None)
+    return normalized
+
+
+def _sanitize_optional_public_url(value: object) -> str | None:
+    if value is None:
+        return None
+    normalized = normalize_url(str(value).strip())
+    return normalized or None
+
 
 class ItemTagDetailResponse(BaseModel):
     id: uuid.UUID
@@ -41,6 +55,16 @@ class ItemListEntry(BaseModel):
     ai_relevance_label: Literal["low", "medium", "high"] | None = None
     ai_status: str | None = None
 
+    @field_validator("url", mode="before")
+    @classmethod
+    def _sanitize_url(cls, value: object) -> str:
+        return _sanitize_required_public_url(value)
+
+    @field_validator("canonical_url", mode="before")
+    @classmethod
+    def _sanitize_canonical_url(cls, value: object) -> str | None:
+        return _sanitize_optional_public_url(value)
+
 
 class ItemListResponse(BaseModel):
     items: list[ItemListEntry]
@@ -63,6 +87,11 @@ class ArticleResponse(BaseModel):
     word_count: int | None
     fetch_ms: int | None
     error: str | None
+
+    @field_validator("final_url", mode="before")
+    @classmethod
+    def _sanitize_final_url(cls, value: object) -> str:
+        return _sanitize_required_public_url(value)
 
 
 class ItemStateResponse(BaseModel):
@@ -133,6 +162,16 @@ class ItemDetailResponse(BaseModel):
     ai_insight: ItemAIInsightResponse | None = None
     article: ArticleResponse | None
     state: ItemStateResponse
+
+    @field_validator("url", mode="before")
+    @classmethod
+    def _sanitize_url(cls, value: object) -> str:
+        return _sanitize_required_public_url(value)
+
+    @field_validator("canonical_url", mode="before")
+    @classmethod
+    def _sanitize_canonical_url(cls, value: object) -> str | None:
+        return _sanitize_optional_public_url(value)
 
 
 class ReadUpdateRequest(BaseModel):

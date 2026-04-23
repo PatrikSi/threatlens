@@ -1,3 +1,5 @@
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -22,6 +24,7 @@ WEB_PROXY_ROOT = "/api"
 OPENAPI_PROXY_PATH = "/api/openapi.json"
 API_TOKEN_SECURITY_SCHEME_NAME = "ApiTokenBearer"
 SESSION_COOKIE_SECURITY_SCHEME_NAME = "SessionCookieAuth"
+OPENAPI_CONTRACT_ANCHOR_FIELD = "x-threatlens-contract-sha256"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
     feeds.router,
@@ -52,10 +55,13 @@ app = FastAPI(
     version="0.1.0",
     summary="ThreatLens API contract.",
     description=(
-        "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the web proxy. "
+        "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the bundled "
+        "web proxy. "
         "Authorization bearer credentials are scoped API tokens, while browser logins establish HttpOnly cookie sessions "
         "through `/v1/auth/login`. "
-        "Legacy unversioned routes remain available for compatibility but are intentionally excluded from the OpenAPI schema."
+        "The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`. "
+        "Any unversioned backend-service compatibility aliases are intentionally excluded from the OpenAPI schema and "
+        "shipped browser/runtime contract."
     ),
     servers=[
         {"url": API_SERVICE_ROOT, "description": "Backend service root"},
@@ -173,6 +179,16 @@ def _apply_published_security_contract(schema: dict[str, Any]) -> dict[str, Any]
     return schema
 
 
+def _apply_contract_anchor(schema: dict[str, Any]) -> dict[str, Any]:
+    info = schema.setdefault("info", {})
+    info.pop(OPENAPI_CONTRACT_ANCHOR_FIELD, None)
+    digest = hashlib.sha256(
+        json.dumps(schema, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+    info[OPENAPI_CONTRACT_ANCHOR_FIELD] = digest
+    return schema
+
+
 def custom_openapi() -> dict[str, Any]:
     if app.openapi_schema:
         return app.openapi_schema
@@ -185,7 +201,8 @@ def custom_openapi() -> dict[str, Any]:
         routes=app.routes,
         servers=app.servers,
     )
-    app.openapi_schema = _apply_published_security_contract(schema)
+    schema = _apply_published_security_contract(schema)
+    app.openapi_schema = _apply_contract_anchor(schema)
     return app.openapi_schema
 
 

@@ -172,18 +172,20 @@ afterEach(() => {
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
-  it('loads an existing rule, preserves toggle semantics, protects unsaved changes, and confirms deletion', () => {
+  it('loads an existing rule, exposes selection semantics, and preserves toggle state', () => {
     const view = renderPage()
 
     const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('VPN disclosures'),
     )
     expect(savedRuleButton).not.toBeNull()
+    expect(savedRuleButton?.getAttribute('aria-pressed')).toBe('false')
 
     act(() => {
       savedRuleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(savedRuleButton?.getAttribute('aria-pressed')).toBe('true')
     expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.value).toBe('VPN disclosures')
     expect(view.querySelector<HTMLInputElement>('#tagging-rule-tag-name')?.value).toBe('vpn')
     expect(
@@ -218,6 +220,26 @@ describe('TaggingSettingsPage DOM workflows', () => {
       feed_ids: [],
       min_classification_confidence: null,
     })
+  })
+
+  it('protects unsaved rule changes before opening the delete confirmation', () => {
+    const view = renderPage()
+
+    const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('VPN disclosures'),
+    )
+    expect(savedRuleButton).not.toBeNull()
+
+    act(() => {
+      savedRuleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const nameInput = view.querySelector<HTMLInputElement>('#tagging-rule-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed rule name')
+    })
 
     const deleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Delete rule'),
@@ -226,6 +248,19 @@ describe('TaggingSettingsPage DOM workflows', () => {
 
     act(() => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved tagging changes?')
+    expect(view.textContent).not.toContain('Delete tagging rule?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(view.textContent).toContain('Delete tagging rule?')
@@ -241,35 +276,5 @@ describe('TaggingSettingsPage DOM workflows', () => {
     })
 
     expect(taggingPageDomMocks.deleteRuleMutate).toHaveBeenCalledWith('rule-1')
-
-    const nameInput = view.querySelector<HTMLInputElement>('#tagging-rule-name')
-    expect(nameInput).not.toBeNull()
-
-    act(() => {
-      setInputValue(nameInput!, 'Changed rule name')
-    })
-
-    const newRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('New rule'),
-    )
-    expect(newRuleButton).not.toBeNull()
-
-    act(() => {
-      newRuleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved tagging changes?')
-
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Discard changes'),
-    )
-    expect(discardChangesButton).not.toBeNull()
-
-    act(() => {
-      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(view.querySelector<HTMLInputElement>('#tagging-rule-name')?.value).toBe('')
   })
 })

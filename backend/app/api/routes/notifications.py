@@ -5,7 +5,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
-from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
 from app.db.session import get_db
@@ -28,6 +27,7 @@ from app.services.notification_webhooks import (
     apply_notification_webhook_updates,
     build_notification_webhook,
     get_notification_analytics,
+    get_notification_webhook_allowed_hosts,
     list_template_variables,
     notification_webhook_delivery_response_from_model,
     notification_webhook_response_from_model,
@@ -39,7 +39,6 @@ from app.services.notification_webhooks import (
 from app.tasks.feed_tasks import enqueue_notification_webhook_delivery_processing
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
-settings = get_settings()
 
 
 @router.get("/template-variables", response_model=list[NotificationTemplateVariable])
@@ -285,7 +284,7 @@ def test_notification_webhook_route(
 def _require_notification_webhook_egress_authority(user: User) -> None:
     if user.role == ROLE_ADMIN:
         return
-    if settings.notification_webhook_allowed_hosts:
+    if get_notification_webhook_allowed_hosts():
         return
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,

@@ -59,6 +59,17 @@ vi.mock('@tanstack/react-query', () => ({
         revoked_at: null,
         created_at: '2026-04-20T10:00:00Z',
       },
+      {
+        id: 'token-2',
+        user_id: 'viewer-2',
+        name: 'Partner sync',
+        token_prefix: 'tl_partner',
+        scopes: ['read:feeds'],
+        last_used_at: '2026-04-22T10:00:00Z',
+        expires_at: '2026-07-20T10:00:00Z',
+        revoked_at: null,
+        created_at: '2026-04-21T10:00:00Z',
+      },
     ],
     isLoading: false,
     isError: false,
@@ -105,14 +116,17 @@ afterEach(() => {
 })
 
 describe('TokensPage DOM workflows', () => {
-  it('renders explicit token controls and confirms revocation through the dialog', () => {
+  it('shows token ownership for admins and confirms revocation through the dialog', () => {
     const view = renderPage()
 
     expect(view.querySelector('label[for="token-name"]')?.textContent).toContain('Name')
     expect(view.querySelector('label[for="token-current-password"]')?.textContent).toContain('Current Password')
     expect(view.textContent).toContain('Scoped API routes now reject unscoped tokens')
+    expect(view.textContent).toContain('User ID: viewer-2')
 
-    const revokeButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Revoke'))
+    const revokeButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Revoke') && button.closest('div')?.textContent?.includes('Partner sync'),
+    )
     expect(revokeButton).not.toBeNull()
 
     act(() => {
@@ -120,7 +134,8 @@ describe('TokensPage DOM workflows', () => {
     })
 
     expect(view.textContent).toContain('Revoke API token?')
-    expect(view.textContent).toContain('Legacy automation')
+    expect(view.textContent).toContain('Partner sync')
+    expect(view.textContent).toContain('User ID: viewer-2')
 
     const confirmRevokeButton = Array.from(view.querySelectorAll('button'))
       .filter((button) => button.textContent?.includes('Revoke token'))
@@ -131,6 +146,6 @@ describe('TokensPage DOM workflows', () => {
       confirmRevokeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(tokensPageDomMocks.revokeMutate).toHaveBeenCalledWith('token-1')
+    expect(tokensPageDomMocks.revokeMutate).toHaveBeenCalledWith('token-2')
   })
 })

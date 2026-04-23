@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -87,6 +88,7 @@ DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT = "\n".join(
         "Use concise, factual language and avoid hype.",
     ]
 )
+SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
 
 
 def get_or_create_ai_settings(db: Session) -> AISettings:
@@ -162,15 +164,18 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
 
 def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
     runtime_settings = get_settings()
-    ai_configured = bool(_normalize_optional_text(settings.base_url) and _normalize_optional_text(settings.model))
+    base_url = _normalize_optional_text(settings.base_url)
+    model = _normalize_optional_text(settings.model)
+    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    ai_configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     active = ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=ai_configured,
         provider_type=settings.provider_type,
-        base_url=_normalize_optional_text(settings.base_url),
-        model=_normalize_optional_text(settings.model),
-        api_key=runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None,
+        base_url=base_url,
+        model=model,
+        api_key=api_key,
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
@@ -207,8 +212,8 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         ai_configured=ai_configured,
         api_key_configured=bool(runtime_settings.ai_api_key),
         provider_type=settings.provider_type,
-        base_url=_normalize_optional_text(settings.base_url),
-        model=_normalize_optional_text(settings.model),
+        base_url=base_url,
+        model=model,
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
@@ -256,7 +261,10 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
         )
 
     settings = get_or_create_ai_settings(db)
-    configured = bool(_normalize_optional_text(settings.base_url) and _normalize_optional_text(settings.model))
+    base_url = _normalize_optional_text(settings.base_url)
+    model = _normalize_optional_text(settings.model)
+    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     return PublicAIFeatureFlags(
         ai_enabled=True,
         ai_configured=configured,
@@ -271,7 +279,8 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
     settings = get_or_create_ai_settings(db)
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
-    configured = bool(runtime_settings.ai_enabled and base_url and model)
+    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    configured = bool(runtime_settings.ai_enabled and base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     return ActiveAISettings(
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
@@ -279,7 +288,7 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         provider_type=settings.provider_type,
         base_url=base_url,
         model=model,
-        api_key=runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None,
+        api_key=api_key,
         temperature=float(settings.temperature),
         max_completion_tokens=int(settings.max_completion_tokens),
         request_timeout_seconds=int(settings.request_timeout_seconds),
@@ -372,3 +381,21 @@ def _normalize_optional_text(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def is_shared_ai_base_url_allowed(base_url: str | None, *, api_key: str | None) -> bool:
+    if not _normalize_optional_text(api_key):
+        return True
+
+    normalized_base_url = _normalize_optional_text(base_url)
+    if normalized_base_url is None:
+        return True
+
+    try:
+        parsed = urlsplit(normalized_base_url)
+        port = parsed.port
+    except ValueError:
+        return False
+
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    return parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443)

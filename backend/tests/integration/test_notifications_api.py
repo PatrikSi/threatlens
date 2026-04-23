@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.models.feed import Feed
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -257,8 +258,7 @@ def test_analyst_cannot_create_notification_webhooks_without_allowlisted_hosts(c
 
 
 def test_analyst_can_create_notification_webhooks_for_allowlisted_host(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     response = client.post(
         "/notifications/webhooks",
@@ -285,11 +285,8 @@ def test_analyst_can_create_notification_webhooks_for_allowlisted_host(client: T
 
 def test_analyst_can_create_notification_webhooks_for_allowlisted_url_prefix(client: TestClient, auth_headers, monkeypatch):
     monkeypatch.setattr(
-        "app.api.routes.notifications.settings.notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        get_settings(),
+        "notification_webhook_allowed_hosts",
         ["https://hooks.example.com/services/tenant-a"],
     )
 
@@ -317,8 +314,7 @@ def test_analyst_can_create_notification_webhooks_for_allowlisted_url_prefix(cli
 
 
 def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     response = client.post(
         "/notifications/webhooks",
@@ -351,8 +347,7 @@ def test_analyst_cannot_create_notification_webhooks_for_non_default_allowlisted
     auth_headers,
     monkeypatch,
 ):
-    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     response = client.post(
         "/notifications/webhooks",
@@ -381,8 +376,7 @@ def test_analyst_cannot_create_notification_webhooks_for_non_default_allowlisted
 
 
 def test_analyst_wildcard_allowlist_does_not_include_apex_domain(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["*.example.com"])
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["*.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["*.example.com"])
 
     response = client.post(
         "/notifications/webhooks",
@@ -416,11 +410,8 @@ def test_analyst_cannot_create_notification_webhooks_outside_allowlisted_url_pre
     monkeypatch,
 ):
     monkeypatch.setattr(
-        "app.api.routes.notifications.settings.notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        get_settings(),
+        "notification_webhook_allowed_hosts",
         ["https://hooks.example.com/services/tenant-a"],
     )
 
@@ -431,6 +422,43 @@ def test_analyst_cannot_create_notification_webhooks_outside_allowlisted_url_pre
             "enabled": True,
             "event_type": "rss_item_new",
             "url_template": "https://hooks.example.com/services/tenant-b/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["detail"]
+        == "Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries"
+    )
+
+
+def test_analyst_cannot_create_notification_webhooks_with_percent_encoded_dot_segments(
+    client: TestClient,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        get_settings(),
+        "notification_webhook_allowed_hosts",
+        ["https://hooks.example.com/services/tenant-a"],
+    )
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Analyst webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/services/tenant-a/%2e%2e/tenant-b/notify",
             "method": "POST",
             "feed_scope": "all",
             "feed_ids": [],
@@ -912,8 +940,7 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
 
 
 def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
-    monkeypatch.setattr("app.api.routes.notifications.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
     admin = seed_users["admin"]
     analyst = seed_users["analyst"]
     webhook = NotificationWebhook(

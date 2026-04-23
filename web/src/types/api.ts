@@ -170,19 +170,75 @@ export interface SavedViewPanelRect {
   height: number
 }
 
-export interface SavedViewWindow {
+interface SavedViewWindowBase {
   id: string
-  type: SavedViewWindowType
   title: string
   snap: SavedViewWindowSnap
   rect: SavedViewPanelRect
   controls_collapsed: boolean
-  scratch_note: string
+}
+
+interface SavedViewSearchWindowBase extends SavedViewWindowBase {
   time_override: SavedViewWindowTimeFilter | null
-  rss_filters: SavedViewWindowRssFilters | null
-  alert_filters: SavedViewWindowAlertFilters | null
+}
+
+export interface SavedViewRssWindow extends SavedViewSearchWindowBase {
+  type: 'rss'
+  scratch_note: string
+  rss_filters: SavedViewWindowRssFilters
+  alert_filters: null
+  selected_daily_brief_id: null
+}
+
+export interface SavedViewAlertWindow extends SavedViewSearchWindowBase {
+  type: 'alerts'
+  scratch_note: string
+  rss_filters: null
+  alert_filters: SavedViewWindowAlertFilters
+  selected_daily_brief_id: null
+}
+
+export interface SavedViewNotesWindow extends SavedViewWindowBase {
+  type: 'notes'
+  scratch_note: string
+  time_override: null
+  rss_filters: null
+  alert_filters: null
+  selected_daily_brief_id: null
+}
+
+export interface SavedViewDailyBriefWindow extends SavedViewWindowBase {
+  type: 'daily_brief'
+  scratch_note: string
+  time_override: null
+  rss_filters: null
+  alert_filters: null
   selected_daily_brief_id: string | null
 }
+
+export type SavedViewWindow =
+  | SavedViewRssWindow
+  | SavedViewAlertWindow
+  | SavedViewNotesWindow
+  | SavedViewDailyBriefWindow
+
+export interface SavedViewWindowSummary {
+  rss: number
+  alerts: number
+  notes: number
+  daily_brief: number
+}
+
+export interface SavedViewPreview {
+  id: string
+  name: string
+  created_at: string
+  windows: SavedViewWindow[]
+  window_type_counts: SavedViewWindowSummary
+}
+
+export type SavedViewSearchWindow = SavedViewRssWindow | SavedViewAlertWindow
+export type SavedViewNonSearchWindow = SavedViewNotesWindow | SavedViewDailyBriefWindow
 
 export interface SavedViewQueryPayload {
   schema_version: 1

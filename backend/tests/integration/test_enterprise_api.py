@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
+from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
 from app.models.feed import Feed
@@ -219,6 +220,75 @@ def test_saved_view_listing_normalizes_legacy_payloads(client: TestClient, auth_
     assert payload["query_json"]["rss_filters"]["q"] == "legacy-search"
     assert payload["query_json"]["windows"][0]["type"] == "rss"
     assert payload["query_json"]["windows"][0]["rect"]["width"] == 620
+
+
+def test_saved_view_listing_drops_non_search_time_overrides_from_legacy_windows(
+    client: TestClient, auth_headers, db_session, seed_users
+):
+    viewer = seed_users["viewer"]
+    legacy_view = SavedView(
+        user_id=viewer.id,
+        name="Legacy mixed layout",
+        query_json={
+            "windows": [
+                {
+                    "id": "notes-1",
+                    "type": "notes",
+                    "title": "Notes Panel 1",
+                    "snap": "full",
+                    "rect": {
+                        "x": 0,
+                        "y": 0,
+                        "width": 620,
+                        "height": 420,
+                    },
+                    "controls_collapsed": False,
+                    "scratch_note": "Track pivots",
+                    "time_override": {
+                        "time_range": "7d",
+                        "custom_since_date": "",
+                        "custom_until_date": "",
+                        "rolling_days": "7",
+                    },
+                    "selected_daily_brief_id": "should-clear",
+                },
+                {
+                    "id": "brief-1",
+                    "type": "daily_brief",
+                    "title": "Daily Brief Panel 1",
+                    "snap": "right",
+                    "rect": {
+                        "x": 620,
+                        "y": 0,
+                        "width": 620,
+                        "height": 420,
+                    },
+                    "controls_collapsed": False,
+                    "scratch_note": "",
+                    "time_override": {
+                        "time_range": "30d",
+                        "custom_since_date": "",
+                        "custom_until_date": "",
+                        "rolling_days": "30",
+                    },
+                    "selected_daily_brief_id": "brief-snapshot-1",
+                },
+            ],
+            "ui": {"show_advanced_filters": False},
+        },
+    )
+    db_session.add(legacy_view)
+    db_session.commit()
+
+    response = client.get("/views", headers=auth_headers["viewer"])
+    assert response.status_code == 200
+
+    payload = next(entry for entry in response.json() if entry["id"] == str(legacy_view.id))
+    assert payload["query_json"]["windows"][0]["time_override"] is None
+    assert payload["query_json"]["windows"][0]["selected_daily_brief_id"] is None
+    assert payload["query_json"]["windows"][1]["type"] == "daily_brief"
+    assert payload["query_json"]["windows"][1]["time_override"] is None
+    assert payload["query_json"]["windows"][1]["selected_daily_brief_id"] == "brief-snapshot-1"
 
 
 def test_login_rate_limit_returns_429(client: TestClient, monkeypatch):
@@ -942,6 +1012,66 @@ def test_health_live_endpoint(client: TestClient):
     response = client.get("/health/live")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+
+
+def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkeypatch):
+    fresh_heartbeat = datetime.now(timezone.utc).isoformat()
+
+    class _RedisClient:
+        def ping(self):
+            return True
+
+        def get(self, key):
+            _ = key
+            return fresh_heartbeat
+
+    class _Inspector:
+        def ping(self):
+            return {}
+
+    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ok": False,
+        "db": True,
+        "redis": True,
+        "worker": False,
+        "beat": True,
+    }
+
+
+def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypatch):
+    stale_heartbeat = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+
+    class _RedisClient:
+        def ping(self):
+            return True
+
+        def get(self, key):
+            _ = key
+            return stale_heartbeat
+
+    class _Inspector:
+        def ping(self):
+            return {"celery@worker-1": {"ok": "pong"}}
+
+    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "ok": False,
+        "db": True,
+        "redis": True,
+        "worker": True,
+        "beat": False,
+    }
 
 
 def test_health_worker_endpoint_reports_ok(client: TestClient, auth_headers, monkeypatch):
@@ -1847,14 +1977,32 @@ def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
     assert denied_response.json()["detail"] == "Insufficient token scope"
 
 
-def test_api_token_cannot_delegate_broader_scopes_than_parent_token(client: TestClient, auth_headers):
-    parent_response = client.post(
-        "/tokens",
-        json={"name": "token-delegator", "expires_in_days": 30, "scopes": ["write:tokens"]},
-        headers=auth_headers["admin"],
+def _issue_api_token(db_session, user: User, *, name: str, scopes: list[str], expires_at: datetime) -> str:
+    token_value, token_prefix, token_hash = generate_api_token()
+    db_session.add(
+        ApiToken(
+            user_id=user.id,
+            name=name,
+            token_prefix=token_prefix,
+            token_hash=token_hash,
+            scopes=scopes,
+            expires_at=expires_at,
+        )
     )
-    assert parent_response.status_code == 201
-    parent_token = parent_response.json()["token"]
+    db_session.flush()
+    db_session.commit()
+    return token_value
+
+
+def test_api_token_cannot_delegate_broader_scopes_than_parent_token(client: TestClient, db_session, seed_users):
+    admin = seed_users["admin"]
+    parent_token = _issue_api_token(
+        db_session,
+        admin,
+        name="token-delegator",
+        scopes=["write:tokens"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
 
     escalated_response = client.post(
         "/tokens",
@@ -1865,14 +2013,15 @@ def test_api_token_cannot_delegate_broader_scopes_than_parent_token(client: Test
     assert "subset of their own scopes" in escalated_response.json()["detail"]
 
 
-def test_api_token_can_delegate_subset_of_parent_scopes(client: TestClient, auth_headers):
-    parent_response = client.post(
-        "/tokens",
-        json={"name": "token-delegator", "expires_in_days": 30, "scopes": ["write:tokens", "read:feeds"]},
-        headers=auth_headers["admin"],
+def test_api_token_can_delegate_subset_of_parent_scopes(client: TestClient, db_session, seed_users):
+    admin = seed_users["admin"]
+    parent_token = _issue_api_token(
+        db_session,
+        admin,
+        name="token-delegator",
+        scopes=["write:tokens", "read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
     )
-    assert parent_response.status_code == 201
-    parent_token = parent_response.json()["token"]
 
     child_response = client.post(
         "/tokens",

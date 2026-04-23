@@ -61,7 +61,7 @@ from app.services.notification_webhook_storage import (
     redact_notification_query_params as _redact_notification_query_params,
     redact_notification_test_response as _redact_notification_test_response,
 )
-from app.services.url_utils import is_fetchable_url, redact_feed_url
+from app.services.url_utils import is_fetchable_url, normalize_url, redact_feed_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -242,6 +242,10 @@ class NotificationDeliveryReservationBatch:
     skipped: int
 
 
+def get_notification_webhook_allowed_hosts() -> tuple[str, ...]:
+    return tuple(get_settings().notification_webhook_allowed_hosts)
+
+
 def list_template_variables() -> list[NotificationTemplateVariable]:
     return list(TEMPLATE_VARIABLES)
 
@@ -293,7 +297,7 @@ def validate_notification_webhook_payload_for_actor(
     validate_notification_target_for_actor(
         payload.url_template,
         actor_user=actor_user,
-        allowed_hosts=settings.notification_webhook_allowed_hosts,
+        allowed_hosts=get_notification_webhook_allowed_hosts(),
     )
 
 
@@ -306,7 +310,7 @@ def validate_notification_delivery_target_for_actor(
     validate_notification_target_for_actor(
         rendered_url,
         actor_user=actor_user,
-        allowed_hosts=settings.notification_webhook_allowed_hosts,
+        allowed_hosts=get_notification_webhook_allowed_hosts(),
     )
 
 
@@ -452,7 +456,7 @@ def test_notification_webhook(
         validate_notification_target_for_actor(
             rendered.url,
             actor_user=user,
-            allowed_hosts=settings.notification_webhook_allowed_hosts,
+            allowed_hosts=get_notification_webhook_allowed_hosts(),
         )
     except ValueError as exc:
         return _redact_notification_test_response(NotificationWebhookTestResponse(
@@ -1639,8 +1643,8 @@ def _build_template_context(
         "feed.last_success_at": _isoformat(getattr(feed, "last_success_at", None)),
         "item.id": str(getattr(item, "id", "")),
         "item.title": getattr(item, "title", "") or "",
-        "item.url": getattr(item, "url", "") or "",
-        "item.canonical_url": getattr(item, "canonical_url", "") or "",
+        "item.url": normalize_url(getattr(item, "url", "") or ""),
+        "item.canonical_url": normalize_url(getattr(item, "canonical_url", "") or ""),
         "item.summary": getattr(item, "summary", "") or "",
         "item.status": getattr(item, "status", "") or "",
         "item.published_at": _isoformat(getattr(item, "published_at", None)),

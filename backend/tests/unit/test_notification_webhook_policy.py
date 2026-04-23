@@ -59,6 +59,19 @@ def test_notification_target_matches_allowlist_supports_path_prefixes_and_segmen
     ) is False
 
 
+def test_notification_target_matches_allowlist_rejects_percent_encoded_dot_segments():
+    allow_entry = "https://hooks.example.com/services/tenant-a"
+
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-a/%2e%2e/tenant-b/notify",
+        allow_entry,
+    ) is False
+    assert notification_target_matches_allowlist(
+        "https://hooks.example.com/services/tenant-a/%2E/notify",
+        allow_entry,
+    ) is True
+
+
 def test_validate_notification_target_for_actor_blocks_analysts_without_allowlist():
     analyst = SimpleNamespace(role="analyst")
 

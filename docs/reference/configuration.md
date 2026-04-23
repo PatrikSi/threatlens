@@ -9,14 +9,14 @@
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker
 - `beat`: Celery beat scheduler
-- `web`: Nginx serving Vite build (`3000`) and reverse proxying `/api/*` to `api`, with the published browser API rooted at `/api/v1`
+- `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
 
 ## Published HTTP Paths
 
 - Browser/API base through the bundled web proxy: `/api/v1`
 - OpenAPI schema through the bundled web proxy: `/api/openapi.json`
 - Internal backend service versioned base: `/v1`
-- Legacy unversioned backend routes remain available for compatibility but are intentionally outside the published contract and OpenAPI schema
+- Compatibility aliases on the backend service root are intentionally outside the published contract, excluded from the OpenAPI schema, and not exposed through the bundled web proxy
 
 ## Backend Settings (`backend/app/core/config.py`)
 
@@ -156,8 +156,9 @@ When `APP_ENV` is `production` or `prod`:
 
 ## Web Proxy Behavior (`web/nginx/default.conf.template`)
 
-- `/api/*` is reverse proxied to `http://api:8000/`.
-- The published API contract is versioned at `/api/v1/*`; `/api/openapi.json` serves the live OpenAPI schema.
+- `/api/v1/*` is reverse proxied to `http://api:8000/v1/*`.
+- `/api/openapi.json` proxies the live OpenAPI schema from the backend service root.
+- Other `/api/*` paths return `404` in the bundled web image.
 - All other paths fall back to `/index.html` for SPA routing.
 - `THREATLENS_CSP_CONNECT_SRC` defaults to `'self'` in the web container image.
 - For non-proxied deployments, override `THREATLENS_CSP_CONNECT_SRC` to include the external API origin used by `VITE_API_BASE_URL`.

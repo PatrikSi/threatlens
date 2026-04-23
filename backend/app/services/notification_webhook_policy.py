@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from posixpath import normpath
 from types import SimpleNamespace
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from app.models.user import User
 
@@ -233,12 +232,19 @@ def _normalize_notification_path(path: str | None) -> str:
     if not raw_path.startswith("/"):
         raw_path = f"/{raw_path}"
 
-    normalized = normpath(raw_path)
-    if normalized in {"", "."}:
+    normalized_segments: list[str] = []
+    for segment in unquote(raw_path).replace("\\", "/").split("/"):
+        if segment in {"", "."}:
+            continue
+        if segment == "..":
+            if normalized_segments:
+                normalized_segments.pop()
+            continue
+        normalized_segments.append(segment)
+
+    if not normalized_segments:
         return "/"
-    if not normalized.startswith("/"):
-        normalized = f"/{normalized}"
-    return normalized
+    return f"/{'/'.join(normalized_segments)}"
 
 
 def _path_matches_allow_prefix(target_path: str, path_prefix: str | None) -> bool:

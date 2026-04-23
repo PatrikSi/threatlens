@@ -11,7 +11,7 @@ import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
 from croniter import croniter
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -97,6 +97,8 @@ logger = logging.getLogger(__name__)
 
 DOMAIN_SLOT_TTL_SECONDS = 30
 DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
+IOC_EXTRACTION_STATE_COMPLETED = "completed"
+IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
 
 
 class ResponseTooLargeError(Exception):
@@ -168,7 +170,13 @@ def _process_reserved_notification_deliveries(
     failed = 0
 
     for delivery_id in delivery_ids:
-        attempt = process_notification_webhook_delivery(db, delivery_id=delivery_id)
+        try:
+            attempt = process_notification_webhook_delivery(db, delivery_id=delivery_id)
+        except ValueError as exc:
+            if str(exc) != "Webhook delivery not found":
+                raise
+            logger.info("notification_webhook_delivery_missing delivery_id=%s", delivery_id)
+            continue
         if not getattr(attempt, "claimed", True):
             logger.info(
                 "notification_webhook_delivery_already_claimed delivery_id=%s state=%s",
@@ -740,10 +748,18 @@ def dispatch_items_missing_articles():
 def dispatch_items_missing_iocs():
     queued = 0
     with db_session() as db:
+        missing_ioc_links = ~exists(select(ItemIOC.item_id).where(ItemIOC.item_id == Item.id))
         item_ids = db.scalars(
             select(Item.id)
-            .outerjoin(ItemIOC, ItemIOC.item_id == Item.id)
-            .where(ItemIOC.item_id.is_(None))
+            .where(
+                or_(
+                    Item.ioc_extraction_state.is_(None),
+                    and_(
+                        Item.ioc_extraction_state == IOC_EXTRACTION_STATE_COMPLETED,
+                        missing_ioc_links,
+                    ),
+                )
+            )
             .order_by(Item.first_seen_at.asc())
             .limit(settings.dispatch_items_missing_iocs_batch_size)
         ).all()
@@ -1460,7 +1476,7 @@ def fetch_article(self, item_id: str):
         for candidate in (item.canonical_url, item.url):
             if not candidate:
                 continue
-            normalized_candidate = normalize_url(candidate) or candidate.strip()
+            normalized_candidate = normalize_url(candidate)
             if normalized_candidate and normalized_candidate not in candidate_urls:
                 candidate_urls.append(normalized_candidate)
 
@@ -1518,7 +1534,7 @@ def fetch_article(self, item_id: str):
                         try:
                             status_code = response.status_code
                             content_type = response.headers.get("content-type")
-                            final_url = str(response.url)
+                            final_url = normalize_url(str(response.url)) or ""
 
                             body_chunks = []
                             body_size = 0
@@ -1703,6 +1719,7 @@ def fetch_article(self, item_id: str):
 
         if article.text:
             item.status = "content_fetched"
+            item.ioc_extraction_state = None
             item.last_error = None
         else:
             item.status = "error"
@@ -2323,6 +2340,10 @@ def extract_item_iocs(item_id: str):
             )
         else:
             db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id).delete(synchronize_session=False)
+        item.ioc_extraction_state = (
+            IOC_EXTRACTION_STATE_COMPLETED if linked_ioc_ids else IOC_EXTRACTION_STATE_COMPLETED_EMPTY
+        )
+        db.add(item)
 
         classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))

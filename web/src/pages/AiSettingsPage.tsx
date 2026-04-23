@@ -813,9 +813,14 @@ function OverviewTab({
             <MiniStat label="Queued" value={overview.live.queued_count} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <label className="sr-only" htmlFor="ai-overview-window-days">
+              Overview time window
+            </label>
             <select
+              id="ai-overview-window-days"
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
+              aria-label="Overview time window"
               className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
             >
               <option value={1}>Last 24h</option>

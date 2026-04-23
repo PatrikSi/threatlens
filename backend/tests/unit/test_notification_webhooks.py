@@ -7,6 +7,7 @@ import httpx
 import pytest
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
@@ -81,7 +82,7 @@ def test_validate_notification_webhook_payload_rejects_public_http_targets(monke
 
 
 def test_validate_notification_webhook_payload_for_actor_blocks_analysts_without_approved_hosts(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", [])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
 
     payload = NotificationWebhookWrite(
         name="Example",
@@ -106,10 +107,7 @@ def test_validate_notification_webhook_payload_for_actor_blocks_analysts_without
 
 
 def test_validate_notification_webhook_payload_for_actor_requires_approved_host_for_analysts(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
-        ["*.hooks.example.com"],
-    )
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["*.hooks.example.com"])
 
     allowed_payload = NotificationWebhookWrite(
         name="Allowed",
@@ -143,7 +141,8 @@ def test_validate_notification_webhook_payload_for_actor_requires_approved_host_
 
 def test_validate_notification_webhook_payload_for_actor_requires_approved_url_prefix_for_analysts(monkeypatch):
     monkeypatch.setattr(
-        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
+        get_settings(),
+        "notification_webhook_allowed_hosts",
         ["https://hooks.example.com/services/tenant-a"],
     )
 
@@ -178,10 +177,7 @@ def test_validate_notification_webhook_payload_for_actor_requires_approved_url_p
 
 
 def test_validate_notification_webhook_payload_for_actor_rejects_non_default_ports_for_analysts(monkeypatch):
-    monkeypatch.setattr(
-        "app.services.notification_webhooks.settings.notification_webhook_allowed_hosts",
-        ["hooks.example.com"],
-    )
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     payload = NotificationWebhookWrite(
         name="Blocked",
@@ -982,7 +978,7 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
 
 
 def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets(db_session, monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     user = User(
         id=uuid.uuid4(),
@@ -1050,7 +1046,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
 
 
 def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner(db_session, monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.settings.notification_webhook_allowed_hosts", ["hooks.example.com"])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
 
     user = User(
         id=uuid.uuid4(),

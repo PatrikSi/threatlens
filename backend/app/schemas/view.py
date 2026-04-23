@@ -276,7 +276,11 @@ def _normalize_saved_view_window(
         "rect": rect,
         "controls_collapsed": value.get("controls_collapsed") is True,
         "scratch_note": _normalize_string(value.get("scratch_note")),
-        "time_override": _normalize_window_time_filter(value.get("time_override")),
+        "time_override": (
+            _normalize_window_time_filter(value.get("time_override"))
+            if window_type in {"rss", "alerts"}
+            else None
+        ),
         "rss_filters": None,
         "alert_filters": None,
         "selected_daily_brief_id": (

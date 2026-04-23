@@ -52,7 +52,7 @@ vi.mock('@tanstack/react-query', () => ({
       },
       {
         id: 'token-2',
-        user_id: 'admin-1',
+        user_id: 'viewer-2',
         name: 'Scoped automation',
         token_prefix: 'tl_scoped',
         scopes: ['read:feeds'],
@@ -156,5 +156,7 @@ describe('TokensPage rendered workflow', () => {
     expect(markup).toContain('Filter by User ID')
     expect(markup).toContain('Browser sessions must confirm the current account password')
     expect(markup).toContain('Scoped API routes now reject unscoped tokens')
+    expect(markup).toContain('User ID')
+    expect(markup).toContain('viewer-2')
   })
 })

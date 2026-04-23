@@ -220,18 +220,20 @@ afterEach(() => {
 })
 
 describe('NotificationsPage DOM workflows', () => {
-  it('renders accessible request-shaping controls, protects unsaved changes, and confirms webhook deletion through the dialog', () => {
+  it('marks the selected webhook and keeps the request-shaping controls accessible', () => {
     const view = renderPage()
 
     const savedWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Slack alert relay'),
     )
     expect(savedWebhookButton).not.toBeNull()
+    expect(savedWebhookButton?.getAttribute('aria-pressed')).toBe('false')
 
     act(() => {
       savedWebhookButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(savedWebhookButton?.getAttribute('aria-pressed')).toBe('true')
     expect(view.querySelector('label[for="headers-0-key"]')?.textContent).toContain('Headers row 1 key')
     expect(view.querySelector('label[for="headers-0-value"]')?.textContent).toContain('Headers row 1 value')
     expect(view.querySelector('label[for="query-parameters-0-key"]')?.textContent).toContain(
@@ -267,6 +269,26 @@ describe('NotificationsPage DOM workflows', () => {
         sample_feed_id: 'feed-1',
       }),
     )
+  })
+
+  it('protects unsaved webhook changes before opening the delete confirmation', () => {
+    const view = renderPage()
+
+    const savedWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Slack alert relay'),
+    )
+    expect(savedWebhookButton).not.toBeNull()
+
+    act(() => {
+      savedWebhookButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Changed webhook name')
+    })
 
     const deleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Delete webhook'),
@@ -275,6 +297,19 @@ describe('NotificationsPage DOM workflows', () => {
 
     act(() => {
       deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Discard unsaved changes?')
+    expect(view.textContent).toContain('Discard unsaved webhook changes?')
+    expect(view.textContent).not.toContain('Delete webhook?')
+
+    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Discard changes'),
+    )
+    expect(discardChangesButton).not.toBeNull()
+
+    act(() => {
+      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(view.textContent).toContain('Delete webhook?')
@@ -290,35 +325,5 @@ describe('NotificationsPage DOM workflows', () => {
     })
 
     expect(notificationsPageDomMocks.deleteMutate).toHaveBeenCalledWith('webhook-1')
-
-    const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
-    expect(nameInput).not.toBeNull()
-
-    act(() => {
-      setInputValue(nameInput!, 'Changed webhook name')
-    })
-
-    const newWebhookButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('New webhook'),
-    )
-    expect(newWebhookButton).not.toBeNull()
-
-    act(() => {
-      newWebhookButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(view.textContent).toContain('Discard unsaved changes?')
-    expect(view.textContent).toContain('Discard unsaved webhook changes?')
-
-    const discardChangesButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Discard changes'),
-    )
-    expect(discardChangesButton).not.toBeNull()
-
-    act(() => {
-      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.value).toBe('')
   })
 })

@@ -6,6 +6,11 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 
 ## [Unreleased]
 
+### Release Contract
+
+- Current checked-in OpenAPI contract anchor: `openapi-sha256:57889821ca2b4d37f7696600fc30057ab5614353f3643584c8ffad698887a227`
+- Public releases should record that contract anchor alongside the immutable `vX.Y.Z` tag and published image digests
+
 ### Added
 
 - OSS governance documents: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, and `CHANGELOG.md`
@@ -18,5 +23,6 @@ The format is based on Keep a Changelog. Public releases should be cut as immuta
 - Standardized shipped web/runtime docs on the published API base path `/api/v1`
 - Expanded auth documentation for cookie JWT sessions, CSRF handling, and personal API token behavior
 - Refreshed third-party notices for bundled OFL fonts and `psycopg[binary]` redistribution guidance
+- Added shipped OS package notice artifacts and a discoverable backend legal bundle under `/usr/share/doc/threatlens/`
 - Documented trust boundaries and outbound data flows more explicitly
 - Replaced local-only maintainer contacts with explicit non-routable placeholders plus a public-release gating policy

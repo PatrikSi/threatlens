@@ -241,6 +241,16 @@ export function NotificationsPage() {
     retryDelivery.mutate({ webhookId, deliveryId })
   }
 
+  const onRequestDeleteWebhook = (webhook: NotificationWebhook | null) => {
+    if (!webhook) {
+      return
+    }
+
+    confirmDiscardUnsavedWebhookChanges(() => {
+      setPendingWebhookDelete(webhook)
+    })
+  }
+
   const onSave = () => {
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
@@ -389,6 +399,8 @@ export function NotificationsPage() {
               return (
                 <button
                   key={webhook.id}
+                  type="button"
+                  aria-pressed={selected}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     selected
                       ? 'border-cyan bg-cyan/10 dark:border-cyan-500 dark:bg-cyan-950/50'
@@ -709,10 +721,7 @@ export function NotificationsPage() {
                 <button
                   className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
                   disabled={deleteWebhook.isPending || Boolean(pendingWebhookDelete)}
-                  onClick={() => {
-                    const webhook = webhooks.find((entry) => entry.id === selectedWebhookId) ?? null
-                    setPendingWebhookDelete(webhook)
-                  }}
+                  onClick={() => onRequestDeleteWebhook(webhooks.find((entry) => entry.id === selectedWebhookId) ?? null)}
                 >
                   Delete webhook
                 </button>

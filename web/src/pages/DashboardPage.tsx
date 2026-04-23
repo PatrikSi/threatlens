@@ -11,26 +11,27 @@ import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, 
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import {
+  buildSavedViewPreview,
   buildDashboardSavedViewState,
   createDefaultAlertWindowFilters,
   createDefaultRssWindowFilters,
   createWindowLayout,
   DEFAULT_ROLLING_DAYS,
-  defaultWindowTitle,
   getSnapRect,
   HIDDEN_TAGS,
   isTimeRangeFilter,
+  loadDashboardWindows,
   normalizeDashboardWindows,
+  normalizePanelRect,
   normalizeRollingDaysInput,
   PAGE_SIZE_OPTIONS,
-  parseAlertWindowFiltersCandidate,
   parseDashboardSavedView,
   parseImportedSavedViews,
-  parseRssWindowFiltersCandidate,
-  parseWindowTimeFilterCandidate,
+  resolveWindowRect,
   resolveSavedViewSelectionChange,
   WINDOW_MIN_HEIGHT,
   WINDOW_MIN_WIDTH,
+  type DashboardSavedViewPreview,
   type DashboardAlertWindowFilters,
   type DashboardRssWindowFilters,
   type DashboardSavedViewState,
@@ -59,19 +60,6 @@ interface DashboardEditSessionSnapshot {
   activeSavedViewId: string | null
   savedViewName: string
   state: DashboardSavedViewState
-}
-
-interface SavedViewPreview {
-  id: string
-  name: string
-  created_at: string
-  windows: DashboardWindow[]
-  window_type_counts: {
-    rss: number
-    alerts: number
-    notes: number
-    daily_brief: number
-  }
 }
 
 const DRAG_EDGE_SNAP_THRESHOLD = 12
@@ -172,7 +160,7 @@ export function DashboardPage() {
 
   const [savedViewName, setSavedViewName] = useState('')
   const [activeSavedViewId, setActiveSavedViewId] = useState<string | null>(null)
-  const [pendingViewDelete, setPendingViewDelete] = useState<SavedViewPreview | null>(null)
+  const [pendingViewDelete, setPendingViewDelete] = useState<DashboardSavedViewPreview | null>(null)
   const [pendingSavedViewLoad, setPendingSavedViewLoad] = useState<{ id: string; name: string } | null>(null)
   const [showManageViewsModal, setShowManageViewsModal] = useState(false)
   const [isImportingViews, setIsImportingViews] = useState(false)
@@ -473,6 +461,7 @@ export function DashboardPage() {
   })
 
   const saveView = useMutation({
+    mutationKey: ['dashboard-saved-views', 'create'],
     mutationFn: (payload: { name: string; query: DashboardSavedViewState }) =>
       apiFetch<SavedView>('/views', {
         method: 'POST',
@@ -500,6 +489,7 @@ export function DashboardPage() {
   })
 
   const deleteView = useMutation({
+    mutationKey: ['dashboard-saved-views', 'delete'],
     mutationFn: (viewId: string) =>
       apiFetch(`/views/${viewId}`, {
         method: 'DELETE',
@@ -523,6 +513,7 @@ export function DashboardPage() {
   }
 
   const updateExistingView = useMutation({
+    mutationKey: ['dashboard-saved-views', 'update'],
     mutationFn: (payload: { viewId: string; name?: string; query?: DashboardSavedViewState }) =>
       apiFetch<SavedView>(`/views/${payload.viewId}`, {
         method: 'PATCH',
@@ -1439,21 +1430,26 @@ export function DashboardPage() {
         }
 
         const base = window.time_override ?? dashboardTimeFilter
+        if (window.type === 'rss') {
+          return {
+            ...window,
+            rss_filters: {
+              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+              page: 1,
+            },
+            time_override: {
+              ...base,
+              time_range: nextValue,
+            },
+          }
+        }
+
         return {
           ...window,
-          ...(window.type === 'rss'
-            ? {
-                rss_filters: {
-                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-                  page: 1,
-                },
-              }
-            : {
-                alert_filters: {
-                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-                  page: 1,
-                },
-              }),
+          alert_filters: {
+            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+            page: 1,
+          },
           time_override: {
             ...base,
             time_range: nextValue,
@@ -1471,21 +1467,27 @@ export function DashboardPage() {
         }
 
         const base = window.time_override ?? dashboardTimeFilter
+        if (window.type === 'rss') {
+          return {
+            ...window,
+            rss_filters: {
+              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+              page: 1,
+            },
+            time_override: {
+              ...base,
+              time_range: 'custom',
+              [key]: value,
+            },
+          }
+        }
+
         return {
           ...window,
-          ...(window.type === 'rss'
-            ? {
-                rss_filters: {
-                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-                  page: 1,
-                },
-              }
-            : {
-                alert_filters: {
-                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-                  page: 1,
-                },
-              }),
+          alert_filters: {
+            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+            page: 1,
+          },
           time_override: {
             ...base,
             time_range: 'custom',
@@ -1505,21 +1507,27 @@ export function DashboardPage() {
         }
 
         const base = window.time_override ?? dashboardTimeFilter
+        if (window.type === 'rss') {
+          return {
+            ...window,
+            rss_filters: {
+              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+              page: 1,
+            },
+            time_override: {
+              ...base,
+              time_range: 'days',
+              rolling_days: normalized,
+            },
+          }
+        }
+
         return {
           ...window,
-          ...(window.type === 'rss'
-            ? {
-                rss_filters: {
-                  ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-                  page: 1,
-                },
-              }
-            : {
-                alert_filters: {
-                  ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-                  page: 1,
-                },
-              }),
+          alert_filters: {
+            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+            page: 1,
+          },
           time_override: {
             ...base,
             time_range: 'days',
@@ -3389,31 +3397,6 @@ function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
   return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-200'
 }
 
-function buildSavedViewPreview(view: SavedView, containerWidth: number, containerHeight: number): SavedViewPreview {
-  const parsed = parseDashboardSavedView(view.query_json, containerWidth, containerHeight)
-  const counts = {
-    rss: 0,
-    alerts: 0,
-    notes: 0,
-    daily_brief: 0,
-  }
-
-  for (const window of parsed.windows) {
-    if (window.type === 'rss') counts.rss += 1
-    if (window.type === 'alerts') counts.alerts += 1
-    if (window.type === 'notes') counts.notes += 1
-    if (window.type === 'daily_brief') counts.daily_brief += 1
-  }
-
-  return {
-    id: view.id,
-    name: view.name,
-    created_at: view.created_at,
-    windows: parsed.windows,
-    window_type_counts: counts,
-  }
-}
-
 function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
   const previewContainerWidth = 1120
   const previewContainerHeight = 680
@@ -3603,60 +3586,6 @@ function serializeDashboardWindowLayouts(windows: DashboardWindow[]) {
   }))
 }
 
-function loadDashboardWindows(storageKey: string, containerWidth: number, containerHeight: number): DashboardWindow[] {
-  if (typeof window === 'undefined') {
-    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-  }
-
-  const raw = window.localStorage.getItem(storageKey)
-  if (!raw) {
-    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!Array.isArray(parsed)) {
-      return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-    }
-
-    const windows: DashboardWindow[] = []
-
-    for (const entry of parsed) {
-      if (!isRecord(entry)) continue
-      if (!isWindowType(entry.type)) continue
-      if (!isWindowSnap(entry.snap)) continue
-
-      const rect = parsePanelRectCandidate(entry.rect)
-      if (!rect) continue
-
-      windows.push({
-        id: typeof entry.id === 'string' && entry.id ? entry.id : crypto.randomUUID(),
-        title: typeof entry.title === 'string' && entry.title ? entry.title : defaultWindowTitle(entry.type, windows.length + 1),
-        type: entry.type,
-        snap: entry.snap,
-        rect: normalizePanelRect(rect, containerWidth, containerHeight),
-        controls_collapsed: entry.controls_collapsed === true,
-        scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
-        time_override: parseWindowTimeFilterCandidate(entry.time_override),
-        rss_filters: entry.type === 'rss' ? parseRssWindowFiltersCandidate(entry.rss_filters) : null,
-        alert_filters: entry.type === 'alerts' ? parseAlertWindowFiltersCandidate(entry.alert_filters) : null,
-        selected_daily_brief_id:
-          entry.type === 'daily_brief' && typeof entry.selected_daily_brief_id === 'string' && entry.selected_daily_brief_id
-            ? entry.selected_daily_brief_id
-            : null,
-      })
-    }
-
-    if (!windows.length) {
-      return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-    }
-
-    return normalizeDashboardWindows(windows, containerWidth, containerHeight)
-  } catch {
-    return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
-  }
-}
-
 function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {
   const trimmed = content.trim()
   if (!trimmed) {
@@ -3719,55 +3648,8 @@ function renderArticleBlocks(text: string, itemId: string) {
   })
 }
 
-function parsePanelRectCandidate(value: unknown): PanelRect | null {
-  if (!isRecord(value)) return null
-  if (
-    typeof value.x !== 'number' ||
-    typeof value.y !== 'number' ||
-    typeof value.width !== 'number' ||
-    typeof value.height !== 'number'
-  ) {
-    return null
-  }
-
-  if (!Number.isFinite(value.x) || !Number.isFinite(value.y) || !Number.isFinite(value.width) || !Number.isFinite(value.height)) {
-    return null
-  }
-
-  return {
-    x: value.x,
-    y: value.y,
-    width: value.width,
-    height: value.height,
-  }
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
-}
-
-function isWindowType(value: unknown): value is DashboardWindowType {
-  return value === 'rss' || value === 'alerts' || value === 'notes' || value === 'daily_brief'
-}
-
-function isWindowSnap(value: unknown): value is DashboardWindowSnap {
-  return (
-    value === 'free' ||
-    value === 'full' ||
-    value === 'left' ||
-    value === 'right' ||
-    value === 'top_left' ||
-    value === 'top_right' ||
-    value === 'bottom_left' ||
-    value === 'bottom_right'
-  )
-}
-
-function resolveWindowRect(windowLayout: DashboardWindow, containerWidth: number, containerHeight: number): PanelRect {
-  if (windowLayout.snap === 'free') {
-    return normalizePanelRect(windowLayout.rect, containerWidth, containerHeight)
-  }
-  return getSnapRect(windowLayout.snap, containerWidth, containerHeight)
 }
 
 function applyDragMagnetSnap(
@@ -3844,22 +3726,4 @@ function clamp(value: number, min: number, max: number) {
   if (value < min) return min
   if (value > max) return max
   return value
-}
-
-function normalizePanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
-  const maxWidth = Math.max(WINDOW_MIN_WIDTH, containerWidth)
-  const maxHeight = Math.max(WINDOW_MIN_HEIGHT, containerHeight)
-
-  const width = clamp(panel.width, WINDOW_MIN_WIDTH, maxWidth)
-  const height = clamp(panel.height, WINDOW_MIN_HEIGHT, maxHeight)
-
-  const maxX = Math.max(0, maxWidth - width)
-  const maxY = Math.max(0, maxHeight - height)
-
-  return {
-    x: clamp(panel.x, 0, maxX),
-    y: clamp(panel.y, 0, maxY),
-    width,
-    height,
-  }
 }

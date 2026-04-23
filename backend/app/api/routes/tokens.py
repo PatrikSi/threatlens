@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import is_cookie_session_auth, require_token_scopes
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
-from app.core.security import generate_api_token, verify_password
+from app.core.security import extract_api_token_prefix, generate_api_token, hash_api_token, verify_password
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES, SCOPE_READ_TOKENS, SCOPE_WRITE_TOKENS, missing_delegable_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
@@ -21,6 +21,9 @@ router = APIRouter(prefix="/tokens", tags=["tokens"])
 SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL = (
     "Browser sessions must confirm the current password before creating API tokens"
 )
+API_TOKEN_CHILD_MAX_LIFETIME = timedelta(hours=1)
+API_TOKEN_CHILD_SCOPE_DETAIL = "API tokens cannot mint child tokens with write:tokens scope"
+API_TOKEN_CHILD_EXPIRED_DETAIL = "Parent API token is too close to expiry to mint a child token"
 
 
 @router.get("", response_model=list[ApiTokenResponse])
@@ -52,13 +55,13 @@ def create_token(
     user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
 ):
     settings = get_settings()
+    now = datetime.now(timezone.utc)
     _enforce_browser_session_step_up(request, payload, user)
 
     token_value, token_prefix, token_hash = generate_api_token()
-    expires_days = payload.expires_in_days or settings.default_api_token_expiry_days
-    expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
     scopes = payload.scopes if "scopes" in payload.model_fields_set else list(DEFAULT_API_TOKEN_SCOPES)
     parent_token_scopes = getattr(request.state, "token_scopes", None)
+    parent_api_token = _resolve_authenticated_parent_api_token(request, db)
     if parent_token_scopes is not None:
         disallowed_scopes = missing_delegable_scopes(parent_token_scopes, scopes)
         if disallowed_scopes:
@@ -66,6 +69,11 @@ def create_token(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Scoped tokens can only delegate a subset of their own scopes: {', '.join(disallowed_scopes)}",
             )
+
+    expires_days = payload.expires_in_days or settings.default_api_token_expiry_days
+    expires_at = now + timedelta(days=expires_days)
+    if parent_api_token is not None:
+        expires_at = _bounded_child_token_expiry(parent_api_token=parent_api_token, requested_expires_at=expires_at, scopes=scopes, now=now)
 
     token = ApiToken(
         user_id=user.id,
@@ -84,7 +92,12 @@ def create_token(
         action="tokens.create",
         resource_type="api_token",
         resource_id=str(token.id),
-        metadata={"name": token.name, "token_prefix": token.token_prefix},
+        metadata={
+            "name": token.name,
+            "token_prefix": token.token_prefix,
+            "delegated_via_api_token": parent_api_token is not None,
+            "parent_token_id": str(parent_api_token.id) if parent_api_token is not None else None,
+        },
     )
     db.commit()
 
@@ -100,6 +113,56 @@ def _enforce_browser_session_step_up(request: Request, payload: ApiTokenCreateRe
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL)
     if not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
+
+
+def _resolve_authenticated_parent_api_token(request: Request, db: Session) -> ApiToken | None:
+    if not getattr(request.state, "auth_via_api_token", False):
+        return None
+
+    authorization = request.headers.get("authorization", "")
+    scheme, _, credentials = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not credentials.strip():
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    raw_token = credentials.strip()
+    token_prefix = extract_api_token_prefix(raw_token)
+    if token_prefix is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    parent_token = db.scalar(
+        select(ApiToken).where(
+            and_(
+                ApiToken.token_prefix == token_prefix,
+                ApiToken.token_hash == hash_api_token(raw_token),
+                ApiToken.revoked_at.is_(None),
+            )
+        )
+    )
+    if parent_token is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    return parent_token
+
+
+def _bounded_child_token_expiry(
+    *,
+    parent_api_token: ApiToken,
+    requested_expires_at: datetime,
+    scopes: list[str],
+    now: datetime,
+) -> datetime:
+    if SCOPE_WRITE_TOKENS in scopes:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=API_TOKEN_CHILD_SCOPE_DETAIL)
+
+    expires_at = min(requested_expires_at, now + API_TOKEN_CHILD_MAX_LIFETIME)
+    if parent_api_token.expires_at is not None:
+        parent_expires_at = parent_api_token.expires_at
+        if parent_expires_at.tzinfo is None:
+            parent_expires_at = parent_expires_at.replace(tzinfo=timezone.utc)
+        expires_at = min(expires_at, parent_expires_at)
+
+    if expires_at <= now:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=API_TOKEN_CHILD_EXPIRED_DETAIL)
+    return expires_at
 
 
 @router.delete("/{token_id}", status_code=status.HTTP_204_NO_CONTENT)

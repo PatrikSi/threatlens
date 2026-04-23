@@ -2,9 +2,9 @@
 
 ## Supported Code Lines
 
-ThreatLens uses tag-based releases. The default branch is active development and may be ahead of the latest supported release.
+ThreatLens support status follows immutable public tags. The default branch is active development and may be ahead of the latest supported release. If no public tag has been published yet, every branch, commit, and container build should be treated as preview-only.
 
-Once public tags exist, use this support model:
+Support expectations:
 
 | Code Line | Supported |
 |---|---|
@@ -12,13 +12,15 @@ Once public tags exist, use this support model:
 | `main` / default branch | Preview of the next release |
 | Older tags, snapshots, and forks | Historical reference only |
 
+Repository issues and discussions are best-effort community support channels, not a contractual support SLA.
+
 ## Private Reporting
 
-Preferred private path, when enabled for this repository:
+Preferred private path, if this repository has it enabled:
 
 - GitHub private vulnerability reporting: `https://github.com/PatrikSi/threatlens/security/advisories/new`
 
-If that page returns `404` or the repository UI does not show a private reporting form, private reporting is not enabled yet. In that case, use the public issue tracker only to request a private follow-up path:
+If that page returns `404` or the repository UI does not show a private reporting form, no private reporting channel is currently published in-repo. In that case, use the public issue tracker only to request a non-public follow-up path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
 
@@ -46,6 +48,8 @@ Once you have a private path, include as much of the following as you can:
 
 ## Response Targets
 
+These are best-effort maintainer goals, not guaranteed SLAs:
+
 - Initial acknowledgment target: within 5 business days
 - Status updates target: at least weekly while a fix or mitigation is in progress
 - Please call out active exploitation, exposed credentials, or internet-reachable defaults in the first message so triage can be prioritized appropriately
@@ -58,4 +62,4 @@ Once you have a private path, include as much of the following as you can:
 
 ## Disclosure
 
-Please give maintainers reasonable time to investigate and prepare a fix before public disclosure. When a fix ships, prefer coordinated disclosure with clear operator upgrade guidance in the issue tracker, changelog, and release notes.
+Please give maintainers reasonable time to investigate and prepare a fix before detailed public disclosure. Prefer disclosure after a mitigation, advisory, or tagged release is available so operators have clear upgrade guidance in the issue tracker, changelog, and release notes.

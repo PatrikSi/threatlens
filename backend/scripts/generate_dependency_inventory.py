@@ -18,6 +18,7 @@ import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import shutil
+import subprocess
 
 
 def _sorted_backend_distributions() -> list[str]:
@@ -30,6 +31,16 @@ def _sorted_backend_distributions() -> list[str]:
         key = name.lower().replace("_", "-")
         rows[key] = f"{name}=={version}"
     return [rows[key] for key in sorted(rows)]
+
+
+def _sorted_backend_os_packages() -> list[str]:
+    result = subprocess.run(
+        ["dpkg-query", "-W", "-f=${Package}=${Version}\n"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return sorted((line.strip() for line in result.stdout.splitlines() if line.strip()), key=str.lower)
 
 
 def _classify_legal_file(path_value: str) -> str:
@@ -77,6 +88,35 @@ def _copy_backend_legal_files(
                 "kind": _classify_legal_file(package_file),
                 "file_name": source_path.name,
                 "source_path": PurePosixPath(package_file).as_posix(),
+                "artifact_path": artifact_path,
+                "sha256": hashlib.sha256(contents).hexdigest(),
+            }
+        )
+
+    return copied
+
+
+def _copy_backend_os_legal_files(legal_output_dir: Path | None) -> list[dict[str, str]]:
+    copied: list[dict[str, str]] = []
+    copyright_paths = sorted(Path("/usr/share/doc").glob("*/copyright"), key=lambda path: path.as_posix().lower())
+
+    for source_path in copyright_paths:
+        if not source_path.is_file():
+            continue
+
+        package_name = source_path.parent.name
+        contents = source_path.read_bytes()
+        artifact_path = PurePosixPath(package_name, source_path.name).as_posix()
+        if legal_output_dir is not None:
+            target_path = legal_output_dir / artifact_path
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_bytes(contents)
+
+        copied.append(
+            {
+                "kind": "copyright",
+                "file_name": source_path.name,
+                "source_path": source_path.as_posix(),
                 "artifact_path": artifact_path,
                 "sha256": hashlib.sha256(contents).hexdigest(),
             }
@@ -197,6 +237,16 @@ def main() -> int:
         help="Directory for backend runtime package-published legal files copied from installed Python distributions.",
     )
     parser.add_argument(
+        "--backend-os-output",
+        type=Path,
+        help="Path for the resolved backend OS package inventory.",
+    )
+    parser.add_argument(
+        "--backend-os-legal-output-dir",
+        type=Path,
+        help="Directory for backend OS package copyright files copied from /usr/share/doc.",
+    )
+    parser.add_argument(
         "--frontend-output",
         type=Path,
         help="Path for the resolved frontend runtime inventory.",
@@ -242,6 +292,19 @@ def main() -> int:
         args.backend_metadata_output.parent.mkdir(parents=True, exist_ok=True)
         _write_json(args.backend_metadata_output, backend_metadata_payload or [])
 
+    if args.backend_os_legal_output_dir is not None and not args.skip_backend:
+        shutil.rmtree(args.backend_os_legal_output_dir, ignore_errors=True)
+        args.backend_os_legal_output_dir.mkdir(parents=True, exist_ok=True)
+        _copy_backend_os_legal_files(args.backend_os_legal_output_dir)
+
+    if args.backend_os_output and not args.skip_backend:
+        args.backend_os_output.parent.mkdir(parents=True, exist_ok=True)
+        _write_inventory(
+            args.backend_os_output,
+            "# ThreatLens backend OS package inventory",
+            _sorted_backend_os_packages(),
+        )
+
     if args.frontend_output and not args.skip_frontend:
         args.frontend_output.parent.mkdir(parents=True, exist_ok=True)
         _write_inventory(
@@ -254,6 +317,8 @@ def main() -> int:
         args.backend_output and not args.skip_backend,
         args.backend_metadata_output and not args.skip_backend,
         args.backend_legal_output_dir and not args.skip_backend,
+        args.backend_os_output and not args.skip_backend,
+        args.backend_os_legal_output_dir and not args.skip_backend,
         args.frontend_output and not args.skip_frontend,
     ]
     if not any(requested_outputs):

@@ -40,8 +40,20 @@ RUN npm run build
 
 FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 ENV THREATLENS_CSP_CONNECT_SRC="'self'"
-RUN mkdir -p /usr/share/doc/threatlens/licenses
+RUN mkdir -p /usr/share/doc/threatlens/licenses \
+    && { \
+      printf '%s\n' '# ThreatLens frontend OS package inventory' '# Generated from /lib/apk/db/installed' ''; \
+      awk 'BEGIN { RS=""; FS="\n" } { package=""; version=""; for (i=1; i<=NF; i++) { if ($i ~ /^P:/) package=substr($i, 3); else if ($i ~ /^V:/) version=substr($i, 3); } if (package != "" && version != "") print package "=" version; }' /lib/apk/db/installed | sort; \
+      printf '\n'; \
+    } > /usr/share/doc/threatlens/frontend-os-packages.txt \
+    && { \
+      printf '%s\n' '# ThreatLens frontend OS package metadata' '# Generated from /lib/apk/db/installed' ''; \
+      printf '%s\n' 'package\tversion\tlicense\torigin\thomepage'; \
+      awk 'BEGIN { RS=""; FS="\n" } { package=""; version=""; license=""; origin=""; homepage=""; for (i=1; i<=NF; i++) { if ($i ~ /^P:/) package=substr($i, 3); else if ($i ~ /^V:/) version=substr($i, 3); else if ($i ~ /^L:/) license=substr($i, 3); else if ($i ~ /^o:/) origin=substr($i, 3); else if ($i ~ /^U:/) homepage=substr($i, 3); } if (package != "") printf "%s\t%s\t%s\t%s\t%s\n", package, version, license, origin, homepage; }' /lib/apk/db/installed | sort; \
+      printf '\n'; \
+    } > /usr/share/doc/threatlens/frontend-os-package-metadata.tsv
 COPY compliance/LICENSE /usr/share/doc/threatlens/LICENSE
+COPY compliance/README.md /usr/share/doc/threatlens/README.md
 COPY compliance/THIRD_PARTY_NOTICES.md /usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md
 COPY compliance/licenses/ /usr/share/doc/threatlens/licenses/
 COPY --from=build /tmp/frontend-runtime-dependencies.txt /usr/share/doc/threatlens/frontend-runtime-dependencies.txt

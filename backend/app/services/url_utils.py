@@ -117,7 +117,7 @@ def normalize_url(url: str | None) -> str:
     query_pairs = [
         (k, v)
         for k, v in parse_qsl(parts.query, keep_blank_values=True)
-        if not _is_tracking_param(k)
+        if not _is_tracking_param(k) and not _is_sensitive_query_param(k)
     ]
     query_pairs.sort(key=lambda kv: (kv[0], kv[1]))
     query = urlencode(query_pairs, doseq=True)

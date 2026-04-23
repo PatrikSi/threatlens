@@ -2,9 +2,11 @@ import type {
   SavedViewAlertFilters,
   SavedViewMode,
   SavedViewPanelRect,
+  SavedViewPreview,
   SavedViewQueryPayload,
   SavedViewReadStatus,
   SavedViewRssFilters,
+  SavedView,
   SavedViewSort,
   SavedViewStarStatus,
   SavedViewTimeRange,
@@ -32,6 +34,7 @@ export type DashboardAlertWindowFilters = SavedViewWindowAlertFilters
 export type DashboardSavedViewQuery = SavedViewRssFilters
 export type DashboardAlertViewQuery = SavedViewAlertFilters
 export type DashboardSavedViewState = SavedViewQueryPayload
+export type DashboardSavedViewPreview = SavedViewPreview
 
 export type SavedViewSelectionChange =
   | { kind: 'noop' }
@@ -278,17 +281,54 @@ export function createWindowLayout(
     height,
   }
 
-  return {
+  const base = {
     id,
-    type,
     title: defaultWindowTitle(type, index),
     snap,
     rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
     controls_collapsed: false,
     scratch_note: '',
+  }
+
+  if (type === 'rss') {
+    return {
+      ...base,
+      type,
+      time_override: null,
+      rss_filters: createDefaultRssWindowFilters(),
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (type === 'alerts') {
+    return {
+      ...base,
+      type,
+      time_override: null,
+      rss_filters: null,
+      alert_filters: createDefaultAlertWindowFilters(),
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (type === 'daily_brief') {
+    return {
+      ...base,
+      type,
+      time_override: null,
+      rss_filters: null,
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    }
+  }
+
+  return {
+    ...base,
+    type,
     time_override: null,
-    rss_filters: type === 'rss' ? createDefaultRssWindowFilters() : null,
-    alert_filters: type === 'alerts' ? createDefaultAlertWindowFilters() : null,
+    rss_filters: null,
+    alert_filters: null,
     selected_daily_brief_id: null,
   }
 }
@@ -337,9 +377,86 @@ export function parsePanelRectCandidate(value: unknown): PanelRect | null {
   }
 }
 
+function createDefaultDashboardWindow(containerWidth: number, containerHeight: number) {
+  return createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
+}
+
+function parseDashboardWindowCandidate(
+  value: unknown,
+  index: number,
+  {
+    alertFiltersFallback,
+    rssFiltersFallback,
+    showAdvancedFilters = false,
+  }: {
+    alertFiltersFallback?: Partial<DashboardAlertWindowFilters>
+    rssFiltersFallback?: Partial<DashboardRssWindowFilters>
+    showAdvancedFilters?: boolean
+  } = {},
+): DashboardWindow | null {
+  if (!isRecord(value)) return null
+  if (!isWindowType(value.type)) return null
+  if (!isWindowSnap(value.snap)) return null
+
+  const rect = parsePanelRectCandidate(value.rect)
+  if (!rect) return null
+
+  const base = {
+    id: typeof value.id === 'string' && value.id ? value.id : crypto.randomUUID(),
+    title: typeof value.title === 'string' && value.title ? value.title : defaultWindowTitle(value.type, index),
+    snap: value.snap,
+    rect,
+    controls_collapsed: value.controls_collapsed === true,
+    scratch_note: typeof value.scratch_note === 'string' ? value.scratch_note : '',
+  }
+
+  if (value.type === 'rss') {
+    return {
+      ...base,
+      type: value.type,
+      time_override: parseWindowTimeFilterCandidate(value.time_override),
+      rss_filters: parseRssWindowFiltersCandidate(value.rss_filters, rssFiltersFallback, showAdvancedFilters),
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (value.type === 'alerts') {
+    return {
+      ...base,
+      type: value.type,
+      time_override: parseWindowTimeFilterCandidate(value.time_override),
+      rss_filters: null,
+      alert_filters: parseAlertWindowFiltersCandidate(value.alert_filters, alertFiltersFallback),
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (value.type === 'daily_brief') {
+    return {
+      ...base,
+      type: value.type,
+      time_override: null,
+      rss_filters: null,
+      alert_filters: null,
+      selected_daily_brief_id:
+        typeof value.selected_daily_brief_id === 'string' && value.selected_daily_brief_id ? value.selected_daily_brief_id : null,
+    }
+  }
+
+  return {
+    ...base,
+    type: value.type,
+    time_override: null,
+    rss_filters: null,
+    alert_filters: null,
+    selected_daily_brief_id: null,
+  }
+}
+
 export function parseDashboardSavedView(raw: unknown, containerWidth: number, containerHeight: number): DashboardSavedViewState {
   const source = isRecord(raw) ? raw : {}
-  const fallback = createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')
+  const fallback = createDefaultDashboardWindow(containerWidth, containerHeight)
 
   const legacyFilters = isRecord(source.filters) ? source.filters : source
   const legacyLayout = isRecord(source.layout) ? source.layout : {}
@@ -357,37 +474,14 @@ export function parseDashboardSavedView(raw: unknown, containerWidth: number, co
   const parsedWindows: DashboardWindow[] = []
   if (Array.isArray(source.windows)) {
     for (const entry of source.windows) {
-      if (!isRecord(entry)) continue
-      if (!isWindowType(entry.type)) continue
-      if (!isWindowSnap(entry.snap)) continue
-      const rect = parsePanelRectCandidate(entry.rect)
-      if (!rect) continue
-
-      parsedWindows.push({
-        id: typeof entry.id === 'string' && entry.id ? entry.id : crypto.randomUUID(),
-        type: entry.type,
-        title:
-          typeof entry.title === 'string' && entry.title
-            ? entry.title
-            : defaultWindowTitle(entry.type, parsedWindows.length + 1),
-        snap: entry.snap,
-        rect,
-        controls_collapsed: entry.controls_collapsed === true,
-        scratch_note: typeof entry.scratch_note === 'string' ? entry.scratch_note : '',
-        time_override: parseWindowTimeFilterCandidate(entry.time_override),
-        rss_filters:
-          entry.type === 'rss'
-            ? parseRssWindowFiltersCandidate(entry.rss_filters, { ...rssFilters, page: 1 }, showAdvancedFilters)
-            : null,
-        alert_filters:
-          entry.type === 'alerts'
-            ? parseAlertWindowFiltersCandidate(entry.alert_filters, { ...alertFilters, page: 1 })
-            : null,
-        selected_daily_brief_id:
-          entry.type === 'daily_brief' && typeof entry.selected_daily_brief_id === 'string' && entry.selected_daily_brief_id
-            ? entry.selected_daily_brief_id
-            : null,
+      const parsed = parseDashboardWindowCandidate(entry, parsedWindows.length + 1, {
+        rssFiltersFallback: { ...rssFilters, page: 1 },
+        alertFiltersFallback: { ...alertFilters, page: 1 },
+        showAdvancedFilters,
       })
+      if (parsed) {
+        parsedWindows.push(parsed)
+      }
     }
   }
 
@@ -395,7 +489,7 @@ export function parseDashboardSavedView(raw: unknown, containerWidth: number, co
     parsedWindows.push({
       id: fallback.id,
       type: 'rss',
-      title: 'RSS Feed 1',
+      title: defaultWindowTitle('rss', 1),
       snap: 'free',
       rect: legacyFeedRect,
       controls_collapsed: false,
@@ -433,36 +527,128 @@ export function buildDashboardSavedViewState(
     version: DASHBOARD_VIEW_VERSION,
     rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
     alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
-    windows: windows.map((window) => ({
-      id: window.id,
-      type: window.type,
-      title: window.title,
-      snap: window.snap,
-      rect: { ...window.rect },
-      controls_collapsed: window.controls_collapsed,
-      scratch_note: window.scratch_note,
-      time_override: window.time_override ? { ...window.time_override } : null,
-      rss_filters: window.rss_filters
-        ? {
-            ...window.rss_filters,
-            selected_feed_ids: [...window.rss_filters.selected_feed_ids],
-            selected_tags: [...window.rss_filters.selected_tags],
-            page: 1,
-          }
-        : null,
-      alert_filters: window.alert_filters
-        ? {
-            ...window.alert_filters,
-            selected_alert_ids: [...window.alert_filters.selected_alert_ids],
-            selected_categories: [...window.alert_filters.selected_categories],
-            page: 1,
-          }
-        : null,
-      selected_daily_brief_id: window.selected_daily_brief_id,
-    })),
+    windows: windows.map(buildSavedViewWindowState),
     ui: {
       show_advanced_filters: rssWindowFilters.show_advanced_filters,
     },
+  }
+}
+
+function buildSavedViewWindowState(window: DashboardWindow): SavedViewWindow {
+  const base = {
+    id: window.id,
+    title: window.title,
+    snap: window.snap,
+    rect: { ...window.rect },
+    controls_collapsed: window.controls_collapsed,
+    scratch_note: window.scratch_note,
+  }
+
+  if (window.type === 'rss') {
+    return {
+      ...base,
+      type: 'rss',
+      time_override: window.time_override ? { ...window.time_override } : null,
+      rss_filters: {
+        ...(window.rss_filters ?? createDefaultRssWindowFilters()),
+        selected_feed_ids: [...(window.rss_filters?.selected_feed_ids ?? [])],
+        selected_tags: [...(window.rss_filters?.selected_tags ?? [])],
+        page: 1,
+      },
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (window.type === 'alerts') {
+    return {
+      ...base,
+      type: 'alerts',
+      time_override: window.time_override ? { ...window.time_override } : null,
+      rss_filters: null,
+      alert_filters: {
+        ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
+        selected_alert_ids: [...(window.alert_filters?.selected_alert_ids ?? [])],
+        selected_categories: [...(window.alert_filters?.selected_categories ?? [])],
+        page: 1,
+      },
+      selected_daily_brief_id: null,
+    }
+  }
+
+  if (window.type === 'daily_brief') {
+    return {
+      ...base,
+      type: 'daily_brief',
+      time_override: null,
+      rss_filters: null,
+      alert_filters: null,
+      selected_daily_brief_id: window.selected_daily_brief_id,
+    }
+  }
+
+  return {
+    ...base,
+    type: 'notes',
+    time_override: null,
+    rss_filters: null,
+    alert_filters: null,
+    selected_daily_brief_id: null,
+  }
+}
+
+export function loadDashboardWindows(storageKey: string, containerWidth: number, containerHeight: number): DashboardWindow[] {
+  if (typeof window === 'undefined') {
+    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
+  }
+
+  const raw = window.localStorage.getItem(storageKey)
+  if (!raw) {
+    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) {
+      return [createDefaultDashboardWindow(containerWidth, containerHeight)]
+    }
+
+    const windows = parsed
+      .map((entry, index) => parseDashboardWindowCandidate(entry, index + 1))
+      .filter((entry): entry is DashboardWindow => entry !== null)
+
+    if (!windows.length) {
+      return [createDefaultDashboardWindow(containerWidth, containerHeight)]
+    }
+
+    return normalizeDashboardWindows(windows, containerWidth, containerHeight)
+  } catch {
+    return [createDefaultDashboardWindow(containerWidth, containerHeight)]
+  }
+}
+
+export function buildSavedViewPreview(
+  view: SavedView,
+  containerWidth: number,
+  containerHeight: number,
+): DashboardSavedViewPreview {
+  const parsed = parseDashboardSavedView(view.query_json, containerWidth, containerHeight)
+  const counts: DashboardSavedViewPreview['window_type_counts'] = {
+    rss: 0,
+    alerts: 0,
+    notes: 0,
+    daily_brief: 0,
+  }
+  for (const window of parsed.windows) {
+    counts[window.type] += 1
+  }
+
+  return {
+    id: view.id,
+    name: view.name,
+    created_at: view.created_at,
+    windows: parsed.windows,
+    window_type_counts: counts,
   }
 }
 

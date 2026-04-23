@@ -23,7 +23,6 @@ import app.db.session as db_session_module
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import generate_api_token, get_password_hash
-from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
 from app.models.api_token import ApiToken
@@ -198,44 +197,52 @@ def _wait_for_redis(redis_url: str) -> None:
 
 
 @pytest.fixture(scope="session")
-def test_database_url(tmp_path_factory: pytest.TempPathFactory):
+def test_database_url():
     configured = os.getenv(_TEST_DATABASE_URL_ENV)
     if configured:
+        if not configured.startswith("postgresql"):
+            raise RuntimeError(
+                f"{_TEST_DATABASE_URL_ENV} must point to PostgreSQL; received unsupported URL {configured!r}."
+            )
         yield configured
         return
 
-    if _docker_is_available():
-        container_name = f"threatlens-pytest-pg-{uuid.uuid4().hex[:8]}"
-        try:
-            try:
-                _docker_run(
-                    "run",
-                    "-d",
-                    "--rm",
-                    "-P",
-                    "--name",
-                    container_name,
-                    "-e",
-                    "POSTGRES_DB=threatlens_test",
-                    "-e",
-                    "POSTGRES_USER=postgres",
-                    "-e",
-                    "POSTGRES_PASSWORD=postgres",
-                    "postgres:16",
-                )
-                port = _docker_mapped_port(container_name, "5432/tcp")
-                database_url = f"postgresql+psycopg://postgres:postgres@127.0.0.1:{port}/threatlens_test"
-                _wait_for_postgres(database_url)
-                yield database_url
-                return
-            except (RuntimeError, subprocess.CalledProcessError, psycopg.Error):
-                warnings.warn("Falling back to SQLite because the Postgres test container could not start.", stacklevel=2)
-        finally:
-            _docker_remove(container_name)
+    if not _docker_is_available():
+        raise RuntimeError(
+            "PostgreSQL is required for backend tests. Set "
+            f"{_TEST_DATABASE_URL_ENV} to a reachable PostgreSQL database or run tests on a host with Docker."
+        )
 
-    warnings.warn("Docker is unavailable; falling back to SQLite create_all() for tests.", stacklevel=2)
-    database_path = tmp_path_factory.mktemp("db") / "threatlens-test.sqlite3"
-    yield f"sqlite+pysqlite:///{database_path}"
+    container_name = f"threatlens-pytest-pg-{uuid.uuid4().hex[:8]}"
+    try:
+        try:
+            _docker_run(
+                "run",
+                "-d",
+                "--rm",
+                "-P",
+                "--name",
+                container_name,
+                "-e",
+                "POSTGRES_DB=threatlens_test",
+                "-e",
+                "POSTGRES_USER=postgres",
+                "-e",
+                "POSTGRES_PASSWORD=postgres",
+                "postgres:16",
+            )
+            port = _docker_mapped_port(container_name, "5432/tcp")
+            database_url = f"postgresql+psycopg://postgres:postgres@127.0.0.1:{port}/threatlens_test"
+            _wait_for_postgres(database_url)
+            yield database_url
+            return
+        except (RuntimeError, subprocess.CalledProcessError, psycopg.Error) as exc:
+            raise RuntimeError(
+                "Unable to provision the PostgreSQL test container. Set "
+                f"{_TEST_DATABASE_URL_ENV} to a reachable PostgreSQL database or repair local Docker access."
+            ) from exc
+    finally:
+        _docker_remove(container_name)
 
 
 @pytest.fixture(scope="session")
@@ -280,13 +287,8 @@ def database_engine(test_database_url: str):
     os.environ["DATABASE_URL"] = test_database_url
     get_settings.cache_clear()
 
-    connect_args = {"check_same_thread": False} if test_database_url.startswith("sqlite") else {}
-    engine = create_engine(test_database_url, pool_pre_ping=True, connect_args=connect_args)
-
-    if test_database_url.startswith("postgresql"):
-        command.upgrade(_build_alembic_config(test_database_url), "head")
-    else:
-        Base.metadata.create_all(bind=engine)
+    engine = create_engine(test_database_url, pool_pre_ping=True)
+    command.upgrade(_build_alembic_config(test_database_url), "head")
 
     db_session_module.engine = engine
     db_session_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
@@ -294,8 +296,6 @@ def database_engine(test_database_url: str):
     try:
         yield engine
     finally:
-        if test_database_url.startswith("sqlite"):
-            Base.metadata.drop_all(bind=engine)
         engine.dispose()
         if previous_database_url is None:
             os.environ.pop("DATABASE_URL", None)
