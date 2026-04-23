@@ -69,6 +69,7 @@ export function FeedsPage() {
   const meQuery = useCurrentUser()
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const canDelete = meQuery.data?.role === 'admin'
+  const canBackup = meQuery.data?.role === 'admin'
   const initialPersistedFeedDrafts = useMemo(
     () => (typeof window === 'undefined' ? {} : readPersistedFeedScheduleDrafts(window.sessionStorage)),
     [],
@@ -94,6 +95,7 @@ export function FeedsPage() {
   const [importWarning, setImportWarning] = useState<string>('')
   const [lastImportResult, setLastImportResult] = useState<FeedImportResponse | null>(null)
   const [managementNotice, setManagementNotice] = useState('')
+  const [exportNotice, setExportNotice] = useState('')
   const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
   const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<PendingBulkDeleteAction | null>(null)
   const [pendingBulkSetEnabled, setPendingBulkSetEnabled] = useState<PendingBulkSetEnabledAction | null>(null)
@@ -273,16 +275,16 @@ export function FeedsPage() {
   const exportFeeds = useMutation({
     mutationFn: () => apiFetch<FeedExportResponse>('/feeds/export'),
     onSuccess: (payload) => {
-      const body = JSON.stringify(payload, null, 2)
-      const blob = new Blob([body], { type: 'application/json' })
-      const objectUrl = URL.createObjectURL(blob)
-      const anchor = document.createElement('a')
-      anchor.href = objectUrl
-      anchor.download = `threatlens-feeds-${new Date().toISOString().slice(0, 10)}.json`
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-      URL.revokeObjectURL(objectUrl)
+      downloadFeedExport(payload)
+      setExportNotice(formatFeedExportNotice(payload))
+    },
+  })
+
+  const exportFeedBackup = useMutation({
+    mutationFn: () => apiFetch<FeedExportResponse>('/feeds/export/backup'),
+    onSuccess: (payload) => {
+      downloadFeedExport(payload)
+      setExportNotice(formatFeedExportNotice(payload))
     },
   })
 
@@ -774,14 +776,24 @@ export function FeedsPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-xl">Configured Feeds ({feedStats.total})</h2>
-          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
               onClick={() => exportFeeds.mutate()}
               disabled={exportFeeds.isPending}
+              title="Export redacted feed URLs for sharing or review"
             >
-              Export JSON
+              Export sanitized
+            </button>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-1.5 text-xs disabled:opacity-50 dark:border-cyan-900/40"
+              onClick={() => exportFeedBackup.mutate()}
+              disabled={!canBackup || exportFeedBackup.isPending}
+              title="Export full feed URLs for backup and restore"
+            >
+              Backup export
             </button>
             <button
               type="button"
@@ -1051,6 +1063,16 @@ export function FeedsPage() {
         {managementNotice && (
           <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-emerald-700 dark:text-emerald-300">
             {managementNotice}
+          </p>
+        )}
+        {exportNotice && (
+          <p role="status" aria-live="polite" aria-atomic="true" className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+            {exportNotice}
+          </p>
+        )}
+        {(exportFeeds.isError || exportFeedBackup.isError) && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
+            Export failed: {resolveMutationError(exportFeeds.error ?? exportFeedBackup.error)}
           </p>
         )}
         {canDelete && encryptedDataHealthQuery.isError && (
@@ -1623,6 +1645,30 @@ function readPersistedFeedScheduleDrafts(storage: Pick<Storage, 'getItem'>): Rec
   } catch {
     return {}
   }
+}
+
+function downloadFeedExport(payload: FeedExportResponse) {
+  const body = JSON.stringify(payload, null, 2)
+  const blob = new Blob([body], { type: 'application/json' })
+  const objectUrl = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  const dateSuffix = new Date().toISOString().slice(0, 10)
+  anchor.href = objectUrl
+  anchor.download = `threatlens-feeds-${payload.export_type}-${dateSuffix}.json`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  URL.revokeObjectURL(objectUrl)
+}
+
+function formatFeedExportNotice(payload: FeedExportResponse) {
+  const label = payload.export_type === 'backup' ? 'Backup export' : 'Sanitized export'
+  const feedCount = `${payload.feeds.length} feed${payload.feeds.length === 1 ? '' : 's'}`
+  if (!payload.warnings.length) {
+    return `${label} downloaded with ${feedCount}.`
+  }
+  const warningCount = `${payload.warnings.length} warning${payload.warnings.length === 1 ? '' : 's'}`
+  return `${label} downloaded with ${feedCount} and ${warningCount}: ${payload.warnings[0]}`
 }
 
 function resolveMutationError(error: unknown): string {

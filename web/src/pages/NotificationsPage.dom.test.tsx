@@ -10,6 +10,34 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
   },
+  currentUser: {
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin',
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-21T10:00:00Z',
+      created_at: '2026-04-20T10:00:00Z',
+      features: {
+        ai_enabled: true,
+        ai_configured: true,
+        ai_summary_enabled: true,
+        ai_relevance_enabled: true,
+        ai_daily_brief_enabled: true,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
+  webhookPolicy: {
+    role: 'admin' as string,
+    can_manage_webhooks: true,
+    reason: null as string | null,
+    allowed_hosts_configured: false,
+  },
+  webhookPolicyError: false,
   saveMutate: vi.fn(),
   deleteMutate: vi.fn(),
   testMutate: vi.fn(),
@@ -69,6 +97,20 @@ vi.mock('@tanstack/react-query', () => ({
             updated_at: '2026-04-21T10:00:00Z',
           },
         ],
+      }
+    }
+
+    if (scope === 'notifications' && key === 'webhook-policy') {
+      if (notificationsPageDomMocks.webhookPolicyError) {
+        return {
+          ...baseResult,
+          isError: true,
+          error: new Error('policy unavailable'),
+        }
+      }
+      return {
+        ...baseResult,
+        data: notificationsPageDomMocks.webhookPolicy,
       }
     }
 
@@ -171,6 +213,10 @@ vi.mock('@tanstack/react-query', () => ({
   },
 }))
 
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => notificationsPageDomMocks.currentUser,
+}))
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom')
   return {
@@ -222,9 +268,61 @@ afterEach(() => {
   notificationsPageDomMocks.saveMutate.mockReset()
   notificationsPageDomMocks.testMutate.mockReset()
   notificationsPageDomMocks.retryMutate.mockReset()
+  notificationsPageDomMocks.currentUser.data.role = 'admin'
+  notificationsPageDomMocks.webhookPolicy.role = 'admin'
+  notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = true
+  notificationsPageDomMocks.webhookPolicy.reason = null
+  notificationsPageDomMocks.webhookPolicy.allowed_hosts_configured = false
+  notificationsPageDomMocks.webhookPolicyError = false
 })
 
 describe('NotificationsPage DOM workflows', () => {
+  it('renders viewer access as read-only and hides mutation controls', () => {
+    notificationsPageDomMocks.currentUser.data.role = 'viewer'
+    notificationsPageDomMocks.webhookPolicy.role = 'viewer'
+    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
+    notificationsPageDomMocks.webhookPolicy.reason = 'Viewer access is read-only. Webhook settings can only be changed by operators.'
+    const view = renderPage()
+
+    expect(pageText()).toContain('Viewer access is read-only')
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Test webhook'))).toBe(false)
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Delete webhook'))).toBe(false)
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+    expect(view.querySelector<HTMLButtonElement>('button[aria-label="Remove Headers row 1"]')).toBeNull()
+  })
+
+  it('disables analyst webhook writes until the allowlist policy is configured', () => {
+    notificationsPageDomMocks.currentUser.data.role = 'analyst'
+    notificationsPageDomMocks.webhookPolicy.role = 'analyst'
+    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
+    notificationsPageDomMocks.webhookPolicy.reason = 'Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.'
+    const view = renderPage()
+
+    expect(pageText()).toContain('Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.')
+
+    const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
+    expect(nameInput?.disabled).toBe(true)
+
+    const testButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Test webhook'))
+    expect(testButton?.hasAttribute('disabled')).toBe(true)
+
+    const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Create webhook'),
+    )
+    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('shows policy load errors instead of presenting them as a role restriction', () => {
+    notificationsPageDomMocks.webhookPolicyError = true
+    const view = renderPage()
+
+    expect(pageText()).toContain('Failed to load webhook policy.')
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('Failed to load webhook policy.')
+    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+  })
+
   it('marks the selected webhook and keeps the request-shaping controls accessible', () => {
     const view = renderPage()
 

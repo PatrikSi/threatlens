@@ -7,6 +7,33 @@ const notificationsPageMocks = vi.hoisted(() => ({
     invalidateQueries: vi.fn(),
   },
   useUnsavedChangesWarning: vi.fn(),
+  currentUser: {
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin',
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-21T10:00:00Z',
+      created_at: '2026-04-20T10:00:00Z',
+      features: {
+        ai_enabled: true,
+        ai_configured: true,
+        ai_summary_enabled: true,
+        ai_relevance_enabled: true,
+        ai_daily_brief_enabled: true,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
+  webhookPolicy: {
+    role: 'admin' as string,
+    can_manage_webhooks: true,
+    reason: null as string | null,
+    allowed_hosts_configured: false,
+  },
 }))
 
 function createDiscardMock() {
@@ -56,6 +83,13 @@ vi.mock('@tanstack/react-query', () => ({
             updated_at: '2026-04-21T10:00:00Z',
           },
         ],
+      }
+    }
+
+    if (scope === 'notifications' && key === 'webhook-policy') {
+      return {
+        ...baseResult,
+        data: notificationsPageMocks.webhookPolicy,
       }
     }
 
@@ -148,6 +182,10 @@ vi.mock('@tanstack/react-query', () => ({
     isError: false,
     error: null,
   }),
+}))
+
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => notificationsPageMocks.currentUser,
 }))
 
 vi.mock('../hooks/useUnsavedChangesWarning', () => ({

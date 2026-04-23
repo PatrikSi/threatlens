@@ -76,6 +76,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
       daily_brief: { label: 'Daily brief', system_prompt: 'Prompt', notes: [] },
     },
   },
+  settingsError: false,
   overviewData: {
     kpis: {
       total_requests: 0,
@@ -230,6 +231,13 @@ vi.mock('@tanstack/react-query', () => ({
     }
 
     if (key === 'ai:settings') {
+      if (aiSettingsPageDomMocks.settingsError) {
+        return {
+          ...baseResult,
+          isError: true,
+          error: new Error('settings unavailable'),
+        }
+      }
       return {
         ...baseResult,
         data: aiSettingsPageDomMocks.settingsData,
@@ -391,6 +399,8 @@ afterEach(() => {
   document.body.innerHTML = ''
   aiSettingsPageDomMocks.cancelMutate.mockReset()
   aiSettingsPageDomMocks.reprocessMutate.mockReset()
+  aiSettingsPageDomMocks.settingsData.ai_configured = true
+  aiSettingsPageDomMocks.settingsError = false
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -400,6 +410,31 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('blocks queued AI work when the saved endpoint is not configured', () => {
+    aiSettingsPageDomMocks.settingsData.ai_configured = false
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('blocks queued AI work when settings readiness cannot be loaded', () => {
+    aiSettingsPageDomMocks.settingsError = true
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('AI settings could not be loaded.')
+    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 

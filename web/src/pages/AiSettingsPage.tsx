@@ -182,6 +182,19 @@ export function AiSettingsPage() {
     queryFn: () => apiFetch<AISettings>('/ai/settings'),
     enabled: aiEnabled,
   })
+  const aiConfigured = settingsQuery.data?.ai_configured ?? false
+  const queueWorkBlockedReason = (() => {
+    if (aiEnabled && settingsQuery.isError) {
+      return 'AI settings could not be loaded. Refresh the settings before queueing manual AI work.'
+    }
+    if (aiEnabled && !settingsQuery.data) {
+      return 'AI settings are still loading. Wait for the saved provider configuration before queueing manual work.'
+    }
+    if (settingsQuery.data && !aiConfigured) {
+      return 'AI is enabled, but the saved endpoint is not configured yet. Save the provider settings and test the connection before queueing manual work.'
+    }
+    return null
+  })()
 
   const overviewQuery = useQuery({
     queryKey: ['ai', 'ops', 'overview', days],
@@ -708,6 +721,10 @@ export function AiSettingsPage() {
                 dailyBriefEnabled={draft.daily_brief_enabled}
                 generatePending={generateBriefMutation.isPending}
                 onGenerateDailyBrief={() => {
+                  if (queueWorkBlockedReason) {
+                    setNotice({ tone: 'error', message: queueWorkBlockedReason })
+                    return
+                  }
                   setNotice(null)
                   generateBriefMutation.mutate()
                 }}
@@ -740,8 +757,13 @@ export function AiSettingsPage() {
                 onClearScope={requestClearReprocessScope}
                 reprocessPending={reprocessMutation.isPending}
                 reprocessValidation={reprocessQueueState.validation}
-                reprocessQueueDisabled={!reprocessQueueState.payload}
+                reprocessQueueDisabled={!reprocessQueueState.payload || Boolean(queueWorkBlockedReason)}
+                queueWorkBlockedReason={queueWorkBlockedReason}
                 onQueueReprocess={() => {
+                  if (queueWorkBlockedReason) {
+                    setNotice({ tone: 'error', message: queueWorkBlockedReason })
+                    return
+                  }
                   if (!reprocessQueueState.payload) {
                     setNotice({ tone: 'error', message: 'Fix the reprocess scope inputs before queueing the job.' })
                     return
@@ -1264,6 +1286,7 @@ function QueueWorkPanel({
   reprocessPending,
   reprocessValidation,
   reprocessQueueDisabled,
+  queueWorkBlockedReason,
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
@@ -1292,6 +1315,7 @@ function QueueWorkPanel({
   reprocessPending: boolean
   reprocessValidation: AIReprocessScopeValidation
   reprocessQueueDisabled: boolean
+  queueWorkBlockedReason: string | null
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
@@ -1304,6 +1328,16 @@ function QueueWorkPanel({
   return (
     <Panel title="Queue AI Work" subtitle="Launch daily brief and reprocess jobs from one place, with optional feed, time, and item targeting.">
       <div className="space-y-4">
+        {queueWorkBlockedReason && (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-200"
+          >
+            {queueWorkBlockedReason}
+          </div>
+        )}
         <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -1316,7 +1350,7 @@ function QueueWorkPanel({
               type="button"
               className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
               onClick={onGenerateDailyBrief}
-              disabled={generatePending || !dailyBriefEnabled}
+              disabled={generatePending || !dailyBriefEnabled || Boolean(queueWorkBlockedReason)}
             >
               {generatePending ? 'Queueing...' : 'Queue Daily Brief'}
             </button>
@@ -1343,7 +1377,7 @@ function QueueWorkPanel({
                 type="button"
                 className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
                 onClick={onQueueReprocess}
-                disabled={reprocessPending || reprocessQueueDisabled}
+                disabled={reprocessPending || reprocessQueueDisabled || Boolean(queueWorkBlockedReason)}
               >
                 {reprocessPending ? 'Queueing...' : 'Queue Reprocess'}
               </button>
@@ -1745,6 +1779,7 @@ function ActivityTab({
   reprocessPending,
   reprocessValidation,
   reprocessQueueDisabled,
+  queueWorkBlockedReason,
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
@@ -1797,6 +1832,7 @@ function ActivityTab({
   reprocessPending: boolean
   reprocessValidation: AIReprocessScopeValidation
   reprocessQueueDisabled: boolean
+  queueWorkBlockedReason: string | null
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
@@ -1939,6 +1975,7 @@ function ActivityTab({
             reprocessPending={reprocessPending}
             reprocessValidation={reprocessValidation}
             reprocessQueueDisabled={reprocessQueueDisabled}
+            queueWorkBlockedReason={queueWorkBlockedReason}
             onQueueReprocess={onQueueReprocess}
             itemSearchLoading={itemSearchLoading}
             itemSearchError={itemSearchError}

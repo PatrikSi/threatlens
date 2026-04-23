@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
@@ -15,6 +16,7 @@ import {
   NotificationWebhookDeliveryListResponse,
   NotificationWebhook,
   NotificationWebhookField,
+  NotificationWebhookPolicy,
   NotificationWebhookTestResponse,
   NotificationWebhookWriteRequest,
 } from '../types/api'
@@ -69,6 +71,7 @@ const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebho
 
 export function NotificationsPage() {
   const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
   const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null)
   const [draft, setDraft] = useState<NotificationWebhookDraft>(() => createDefaultDraft())
   const [sampleFeedId, setSampleFeedId] = useState('')
@@ -76,6 +79,22 @@ export function NotificationsPage() {
   const [testResult, setTestResult] = useState<NotificationWebhookTestResponse | null>(null)
   const [pendingWebhookDelete, setPendingWebhookDelete] = useState<NotificationWebhook | null>(null)
   const [pendingDeliveryRetry, setPendingDeliveryRetry] = useState<NotificationWebhookDelivery | null>(null)
+  const currentUserRole = currentUserQuery.data?.role
+  const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
+
+  const webhookPolicyQuery = useQuery({
+    queryKey: ['notifications', 'webhook-policy'],
+    queryFn: () => apiFetch<NotificationWebhookPolicy>('/notifications/webhook-policy'),
+  })
+
+  const policyErrorNotice = webhookPolicyQuery.isError
+    ? resolveApiMessage(
+        webhookPolicyQuery.error,
+        'Failed to load webhook policy. Webhook writes are disabled until the policy can be checked.',
+      )
+    : null
+  const canManageWebhooks = webhookPolicyQuery.data?.can_manage_webhooks ?? false
+  const accessNotice = policyErrorNotice ?? webhookPolicyQuery.data?.reason ?? null
 
   const webhooksQuery = useQuery({
     queryKey: ['notifications', 'webhooks'],
@@ -138,7 +157,7 @@ export function NotificationsPage() {
   })
 
   const onConfirmDeleteWebhook = () => {
-    if (!pendingWebhookDelete) {
+    if (!pendingWebhookDelete || !canManageWebhooks) {
       return
     }
 
@@ -226,6 +245,9 @@ export function NotificationsPage() {
   }
 
   const onCreateNewWebhook = () => {
+    if (!canManageWebhooks) {
+      return
+    }
     confirmDiscardUnsavedWebhookChanges(() => {
       setSelectedWebhookId(null)
       setDraft(createDefaultDraft())
@@ -237,7 +259,7 @@ export function NotificationsPage() {
   }
 
   const onConfirmRetryDelivery = () => {
-    if (!pendingDeliveryRetry) {
+    if (!pendingDeliveryRetry || !canManageWebhooks) {
       return
     }
 
@@ -246,7 +268,7 @@ export function NotificationsPage() {
   }
 
   const onRequestDeleteWebhook = (webhook: NotificationWebhook | null) => {
-    if (!webhook) {
+    if (!webhook || !canManageWebhooks) {
       return
     }
 
@@ -256,6 +278,9 @@ export function NotificationsPage() {
   }
 
   const onSave = () => {
+    if (!canManageWebhooks) {
+      return
+    }
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
     setFormNotice(null)
@@ -263,6 +288,9 @@ export function NotificationsPage() {
   }
 
   const onTest = () => {
+    if (!canManageWebhooks) {
+      return
+    }
     const normalizedDraft = normalizeDraftUrlQuery(draft)
     setDraft(normalizedDraft)
     setFormNotice(null)
@@ -270,6 +298,14 @@ export function NotificationsPage() {
       webhook: createRequestFromDraft(normalizedDraft),
       sample_feed_id: sampleFeedId || (normalizedDraft.feed_scope === 'selected' ? normalizedDraft.feed_ids[0] : undefined),
     })
+  }
+
+  if (currentUserQuery.isLoading || webhookPolicyQuery.isLoading) {
+    return (
+      <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        Loading notification settings...
+      </div>
+    )
   }
 
   return (
@@ -283,6 +319,22 @@ export function NotificationsPage() {
         <p className="mt-2 text-xs text-slate dark:text-white/60">
           Variables use `{'{{ item.title }}'}` style placeholders, similar to Grafana-style notification templates.
         </p>
+        {accessNotice && (
+          <div
+            role={policyErrorNotice ? 'alert' : 'status'}
+            aria-live={policyErrorNotice ? 'assertive' : 'polite'}
+            aria-atomic="true"
+            className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
+              policyErrorNotice
+                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200'
+                : canManageWebhooks
+                ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-200'
+                : 'border-slate/20 bg-slate/5 text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70'
+            }`}
+          >
+            {accessNotice}
+          </div>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -389,12 +441,14 @@ export function NotificationsPage() {
         <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-display text-lg">Saved Webhooks</h3>
-            <button
-              className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
-              onClick={onCreateNewWebhook}
-            >
-              New webhook
-            </button>
+            {canManageWebhooks && (
+              <button
+                className="rounded border border-slate/30 px-3 py-1.5 text-sm font-semibold dark:border-cyan-900/40"
+                onClick={onCreateNewWebhook}
+              >
+                New webhook
+              </button>
+            )}
           </div>
 
           <div className="mt-3 max-h-[28rem] overflow-auto rounded-lg border border-slate/20 dark:border-cyan-900/40">
@@ -449,10 +503,17 @@ export function NotificationsPage() {
                 <h3 className="font-display text-lg">{selectedWebhookId ? 'Edit Webhook' : 'Create Webhook'}</h3>
                 <p className="mt-1 text-sm text-slate dark:text-white/75">{describeEventDescription(draft.event_type)}</p>
               </div>
-              <label className="flex items-center gap-2 rounded-full border border-slate/20 px-3 py-1 text-sm dark:border-cyan-900/40">
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1 text-sm ${
+                  canManageWebhooks
+                    ? 'border-slate/20 dark:border-cyan-900/40'
+                    : 'border-slate/15 text-slate/70 dark:border-white/10 dark:text-white/55'
+                }`}
+              >
                 <input
                   type="checkbox"
                   checked={draft.enabled}
+                  disabled={!canManageWebhooks}
                   onChange={(event) => setDraft((current) => ({ ...current, enabled: event.target.checked }))}
                 />
                 Enabled
@@ -466,7 +527,8 @@ export function NotificationsPage() {
                 </label>
                 <input
                   id="notification-webhook-name"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.name}
                   onChange={(event) => setDraft((current) => ({ ...current, name: event.target.value }))}
                   placeholder="Slack ingest webhook"
@@ -478,7 +540,8 @@ export function NotificationsPage() {
                 </label>
                 <select
                   id="notification-webhook-event-type"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.event_type}
                   onChange={(event) =>
                     setDraft((current) => applyEventType(current, event.target.value as NotificationEventType))
@@ -498,7 +561,8 @@ export function NotificationsPage() {
                 </label>
                 <select
                   id="notification-webhook-method"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.method}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -520,7 +584,8 @@ export function NotificationsPage() {
                 </label>
                 <input
                   id="notification-webhook-url"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.url_template}
                   onChange={(event) => setDraft((current) => ({ ...current, url_template: event.target.value }))}
                   onBlur={() => setDraft((current) => normalizeDraftUrlQuery(current))}
@@ -536,10 +601,11 @@ export function NotificationsPage() {
                 </label>
                 <input
                   id="notification-webhook-timeout"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
                   type="number"
                   min={1}
                   max={60}
+                  disabled={!canManageWebhooks}
                   value={draft.timeout_seconds}
                   onChange={(event) =>
                     setDraft((current) => ({
@@ -555,7 +621,8 @@ export function NotificationsPage() {
                 </label>
                 <select
                   id="notification-webhook-body-mode"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.body_mode}
                   onChange={(event) => setDraft((current) => applyBodyMode(current, event.target.value as NotificationWebhookDraft['body_mode']))}
                 >
@@ -571,8 +638,9 @@ export function NotificationsPage() {
                 </label>
                 <input
                   id="notification-webhook-content-type"
-                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
                   list="notification-content-types"
+                  disabled={!canManageWebhooks}
                   value={draft.content_type}
                   onChange={(event) => setDraft((current) => ({ ...current, content_type: event.target.value }))}
                   placeholder={`Auto (${resolveDefaultContentTypeLabel(draft.body_mode)})`}
@@ -598,12 +666,15 @@ export function NotificationsPage() {
                 <div
                   role="group"
                   aria-label="Webhook feed scope"
-                  className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40"
+                  className={`flex rounded-lg border p-1 ${
+                    canManageWebhooks ? 'border-slate/20 dark:border-cyan-900/40' : 'border-slate/15 dark:border-white/10'
+                  }`}
                 >
                   <button
                     type="button"
                     aria-pressed={draft.feed_scope === 'all'}
-                    className={`rounded px-3 py-1 text-sm ${
+                    disabled={!canManageWebhooks}
+                    className={`rounded px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                       draft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'
                     }`}
                     onClick={() => setDraft((current) => ({ ...current, feed_scope: 'all', feed_ids: [] }))}
@@ -613,7 +684,8 @@ export function NotificationsPage() {
                   <button
                     type="button"
                     aria-pressed={draft.feed_scope === 'selected'}
-                    className={`rounded px-3 py-1 text-sm ${
+                    disabled={!canManageWebhooks}
+                    className={`rounded px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                       draft.feed_scope === 'selected'
                         ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
                         : 'text-slate dark:text-white/75'
@@ -630,11 +702,17 @@ export function NotificationsPage() {
                   {feeds.map((feed) => {
                     const checked = draft.feed_ids.includes(feed.id)
                     return (
-                      <label key={feed.id} className="flex items-start gap-3 rounded border border-slate/20 p-3 text-sm dark:border-cyan-900/40">
+                      <label
+                        key={feed.id}
+                        className={`flex items-start gap-3 rounded border p-3 text-sm ${
+                          canManageWebhooks ? 'border-slate/20 dark:border-cyan-900/40' : 'border-slate/15 dark:border-white/10'
+                        }`}
+                      >
                         <input
                           className="mt-1"
                           type="checkbox"
                           checked={checked}
+                          disabled={!canManageWebhooks}
                           onChange={() => setDraft((current) => toggleFeedSelection(current, feed.id))}
                         />
                         <span>
@@ -658,6 +736,7 @@ export function NotificationsPage() {
                 addLabel="Add parameter"
                 keyPlaceholder="title"
                 valuePlaceholder="{{ item.title }}"
+                disabled={!canManageWebhooks}
                 onChange={(fields) => setDraft((current) => ({ ...current, query_params: fields }))}
               />
               <KeyValueEditor
@@ -667,6 +746,7 @@ export function NotificationsPage() {
                 addLabel="Add header"
                 keyPlaceholder="Authorization"
                 valuePlaceholder="Bearer {{ user.email }}"
+                disabled={!canManageWebhooks}
                 onChange={(fields) => setDraft((current) => ({ ...current, headers: fields }))}
               />
             </div>
@@ -684,6 +764,7 @@ export function NotificationsPage() {
                   addLabel={draft.body_mode === 'json' ? 'Add JSON field' : 'Add form field'}
                   keyPlaceholder={draft.body_mode === 'json' ? 'item.title' : 'title'}
                   valuePlaceholder="{{ item.title }}"
+                  disabled={!canManageWebhooks}
                   onChange={(fields) => setDraft((current) => ({ ...current, body_fields: fields }))}
                 />
               </div>
@@ -696,7 +777,8 @@ export function NotificationsPage() {
                 </label>
                 <textarea
                   id="notification-webhook-raw-body"
-                  className="mt-1 h-40 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+                  className="mt-1 h-40 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                  disabled={!canManageWebhooks}
                   value={draft.body_template}
                   onChange={(event) => setDraft((current) => ({ ...current, body_template: event.target.value }))}
                   placeholder={`{"title":"{{ item.title }}","url":"{{ item.url }}"}`}
@@ -704,51 +786,54 @@ export function NotificationsPage() {
               </div>
             )}
 
-            <div className="mt-5 flex flex-wrap items-center gap-2">
-              <button
-                className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]"
-                disabled={saveWebhook.isPending}
-                onClick={onSave}
-              >
-                {selectedWebhookId ? 'Save changes' : 'Create webhook'}
-              </button>
-              <button
-                className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
-                disabled={testWebhook.isPending || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
-                onClick={onTest}
-              >
-                Test webhook
-              </button>
-              {selectedWebhookId && (
+            {!isReadOnlyViewer && (
+              <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
-                  className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 dark:border-red-900/60 dark:text-red-300"
-                  disabled={deleteWebhook.isPending || Boolean(pendingWebhookDelete)}
-                  onClick={() => onRequestDeleteWebhook(webhooks.find((entry) => entry.id === selectedWebhookId) ?? null)}
+                  className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+                  disabled={saveWebhook.isPending || !canManageWebhooks}
+                  onClick={onSave}
                 >
-                  Delete webhook
+                  {selectedWebhookId ? 'Save changes' : 'Create webhook'}
                 </button>
-              )}
-              {(draft.feed_scope === 'all' || draft.feed_ids.length > 1) && (
-                <>
-                  <label htmlFor="notification-sample-feed" className="sr-only">
-                    Sample feed
-                  </label>
-                  <select
-                    id="notification-sample-feed"
-                    className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={sampleFeedId}
-                    onChange={(event) => setSampleFeedId(event.target.value)}
+                <button
+                  className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+                  disabled={testWebhook.isPending || !canManageWebhooks || (draft.feed_scope === 'selected' && !draft.feed_ids.length)}
+                  onClick={onTest}
+                >
+                  Test webhook
+                </button>
+                {selectedWebhookId && (
+                  <button
+                    className="rounded border border-red-300 px-3 py-2 text-sm font-semibold text-red-700 disabled:opacity-50 dark:border-red-900/60 dark:text-red-300"
+                    disabled={deleteWebhook.isPending || Boolean(pendingWebhookDelete) || !canManageWebhooks}
+                    onClick={() => onRequestDeleteWebhook(webhooks.find((entry) => entry.id === selectedWebhookId) ?? null)}
                   >
-                  <option value="">Auto sample feed</option>
-                  {testableFeeds.map((feed) => (
-                    <option key={feed.id} value={feed.id}>
-                      {feed.name}
-                    </option>
-                  ))}
-                  </select>
-                </>
-              )}
-            </div>
+                    Delete webhook
+                  </button>
+                )}
+                {(draft.feed_scope === 'all' || draft.feed_ids.length > 1) && (
+                  <>
+                    <label htmlFor="notification-sample-feed" className="sr-only">
+                      Sample feed
+                    </label>
+                    <select
+                      id="notification-sample-feed"
+                      className="rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+                      value={sampleFeedId}
+                      disabled={!canManageWebhooks}
+                      onChange={(event) => setSampleFeedId(event.target.value)}
+                    >
+                      <option value="">Auto sample feed</option>
+                      {testableFeeds.map((feed) => (
+                        <option key={feed.id} value={feed.id}>
+                          {feed.name}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            )}
 
             {formNotice && (
               <p
@@ -964,10 +1049,10 @@ export function NotificationsPage() {
 
                     <div className="mt-4 space-y-3 text-sm">
                       <div className="flex flex-wrap items-center gap-2">
-                        {isRetryableDelivery(delivery) ? (
+                        {!isReadOnlyViewer && isRetryableDelivery(delivery) ? (
                           <button
-                            className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-                            disabled={retryDelivery.isPending}
+                            className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+                            disabled={retryDelivery.isPending || !canManageWebhooks}
                             onClick={() => {
                               retryDelivery.reset()
                               setPendingDeliveryRetry(delivery)
@@ -1047,7 +1132,7 @@ export function NotificationsPage() {
         confirmLabel="Delete webhook"
         onCancel={() => setPendingWebhookDelete(null)}
         onConfirm={onConfirmDeleteWebhook}
-        confirmDisabled={deleteWebhook.isPending}
+        confirmDisabled={deleteWebhook.isPending || !canManageWebhooks}
         isConfirming={deleteWebhook.isPending}
       >
         {pendingWebhookDelete && (
@@ -1065,7 +1150,7 @@ export function NotificationsPage() {
         confirmLabel="Retry delivery"
         onCancel={() => setPendingDeliveryRetry(null)}
         onConfirm={onConfirmRetryDelivery}
-        confirmDisabled={retryDelivery.isPending}
+        confirmDisabled={retryDelivery.isPending || !canManageWebhooks}
         isConfirming={retryDelivery.isPending}
       >
         {pendingDeliveryRetry ? (
@@ -1092,6 +1177,7 @@ function KeyValueEditor({
   addLabel,
   keyPlaceholder,
   valuePlaceholder,
+  disabled,
   onChange,
 }: {
   title: string
@@ -1100,6 +1186,7 @@ function KeyValueEditor({
   addLabel: string
   keyPlaceholder: string
   valuePlaceholder: string
+  disabled: boolean
   onChange: (fields: NotificationWebhookField[]) => void
 }) {
   const fieldIdPrefix = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
@@ -1111,7 +1198,12 @@ function KeyValueEditor({
           <h4 className="font-semibold">{title}</h4>
           <p className="mt-1 text-xs text-slate dark:text-white/65">{description}</p>
         </div>
-        <button className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40" onClick={() => onChange([...fields, emptyField()])}>
+        <button
+          type="button"
+          className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+          disabled={disabled}
+          onClick={() => onChange([...fields, emptyField()])}
+        >
           {addLabel}
         </button>
       </div>
@@ -1129,7 +1221,8 @@ function KeyValueEditor({
             </label>
             <input
               id={keyId}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+              disabled={disabled}
               value={field.key}
               onChange={(event) => onChange(updateField(fields, index, { key: event.target.value }))}
               placeholder={keyPlaceholder}
@@ -1139,15 +1232,17 @@ function KeyValueEditor({
             </label>
             <input
               id={valueId}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
+              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+              disabled={disabled}
               value={field.value}
               onChange={(event) => onChange(updateField(fields, index, { value: event.target.value }))}
               placeholder={valuePlaceholder}
             />
             <button
               type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm dark:border-cyan-900/40"
+              className="rounded border border-slate/30 px-3 py-2 text-sm disabled:opacity-50 dark:border-cyan-900/40"
               aria-label={`Remove ${title} row ${index + 1}`}
+              disabled={disabled}
               onClick={() => onChange(fields.filter((_, candidateIndex) => candidateIndex !== index))}
             >
               Remove
