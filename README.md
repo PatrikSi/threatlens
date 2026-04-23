@@ -54,8 +54,17 @@ You'll need to configure at least:
 
 Use a distinct `APP_DATA_ENCRYPTION_KEY` for webhook/request encryption at rest instead of reusing `JWT_SECRET`. If you are upgrading an existing install and want older encrypted rows to remain readable during key rotation, keep the old encryption input in `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` until the stored secrets have been rewritten. In non-production, missing placeholder secrets still fall back to deterministic development-only values derived from the local runtime settings for throwaway workflows, but the shipped compose deployment now sets `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` so persistent stacks fail fast instead of silently creating unrecoverable data.
 
-Outbound webhook governance:
+First boot admin login:
 
+- Pick one bootstrap path for the first `api` start: set `SEED_ADMIN_ON_STARTUP=true` in `.env`, or run `docker compose exec api python -m app.scripts.seed_admin` after `docker compose exec api alembic upgrade head`.
+- Log in at `http://localhost:3000` with `ADMIN_EMAIL` and `ADMIN_PASSWORD` after the seed completes.
+- Once the account exists, set `SEED_ADMIN_ON_STARTUP=false` and keep `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
+
+Outbound egress:
+
+- Feed and article fetches use `ALLOW_PRIVATE_NETWORK_FETCH`; leave it `false` unless you explicitly trust private-network sources.
+- AI provider calls use `ALLOW_PRIVATE_NETWORK_AI`; leave it `false` unless you explicitly trust an internal AI endpoint.
+- Notification webhooks use `ALLOW_PRIVATE_NETWORK_WEBHOOKS`; leave it `false` unless you explicitly trust private-network targets.
 - Admins can always manage their own notification webhooks.
 - Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
 - `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts, exact `host:port` pairs, wildcard subdomains, or full `http(s)` URL prefixes, for example `hooks.slack.com,https://hooks.example.com/services/tenant-a,*.logic.azure.com`.
@@ -129,6 +138,7 @@ Startup flow for `docker-compose.yml`:
 - `worker` handles the non-AI queues (`ingest`, `processing`, `notifications`, `maintenance`) so manual feed refresh and scheduled polling stay responsive even when AI work is busy.
 - `ai-worker` isolates long-running AI enrichment and daily brief jobs onto the `ai` queue.
 - `worker`, `ai-worker`, and `beat` keep schema/admin startup mutations disabled.
+- If you leave `SEED_ADMIN_ON_STARTUP=false`, create the admin account once with `docker compose exec api python -m app.scripts.seed_admin` after migrations before you try to log in.
 - Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
 - The shipped compose stack treats its named Postgres and Redis volumes as durable and therefore requires an explicit `APP_DATA_ENCRYPTION_KEY` by setting `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` on `api`, `worker`, `ai-worker`, and `beat`.
@@ -189,6 +199,9 @@ docker compose exec api alembic upgrade head
 ```bash
 docker compose exec api python -m app.scripts.seed_admin
 ```
+
+The command creates the configured admin user if it is missing. To reset an existing admin password, set
+`SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=true` for that one run, then return it to `false`.
 
 ### Deployment troubleshooting (auth and startup)
 
@@ -524,6 +537,11 @@ docker compose run --rm -e HOME=/tmp api sh -lc \
 ## Backup & Restore
 
 These commands assume the production-oriented `.env.example` values: `POSTGRES_USER=threatlens` and `POSTGRES_DB=threatlens`. If your local `.env` overrides them, substitute your effective values.
+
+Keep `APP_DATA_ENCRYPTION_KEY` and any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS` with your database backup. Feed URLs, webhook
+templates, and delivery snapshots are encrypted in the database; restoring the dump without the matching key material leaves
+those rows unreadable. Admins can also download a full feed backup from `GET /v1/feeds/export/backup`; the normal
+`GET /v1/feeds/export` response is sanitized for sharing.
 
 Backup:
 
