@@ -100,7 +100,7 @@ Community and reporting paths:
 
 - Questions and bug reports: `https://github.com/PatrikSi/threatlens/issues`
 - Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
-- Security reporting policy: `SECURITY.md`
+- Security reporting policy: `SECURITY.md` for the current public first-contact process; ThreatLens does not currently publish a dedicated private inbox or GitHub private advisory submission form in-repo
 - Maintainer profile: `https://github.com/PatrikSi`
 
 ## Running with Docker
@@ -464,13 +464,16 @@ curl "http://localhost:3000/api/v1/audit-logs?action=feeds.create" \
 
 ## Local Development
 
+Use the checked-in dependency locks for local installs. `backend/requirements-dev.txt` is the backend dev/test entry point and includes the pinned application set from `backend/requirements-lock.txt`. For the frontend, prefer `npm ci` so installs match `web/package-lock.json`.
+
 ### Backend
 
 ```bash
 cd backend
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload
+python3 -m venv .venv
+./.venv/bin/pip install -r requirements-dev.txt
+./.venv/bin/alembic upgrade head
+./.venv/bin/uvicorn app.main:app --reload
 ```
 
 Optional one-time startup helper from the repository root:
@@ -490,7 +493,7 @@ celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
 
 ```bash
 cd web
-npm install
+npm ci
 npm run dev
 ```
 
@@ -506,14 +509,16 @@ docker compose run --rm -e HOME=/tmp api sh -lc \
 
 ## Backup & Restore
 
+These commands assume the shipped compose defaults: `POSTGRES_USER=threatlens` and `POSTGRES_DB=threatlens`. If you override them in `.env`, substitute your values.
+
 Backup:
 
 ```bash
-docker compose exec db pg_dump -U postgres threatlens > backup.sql
+docker compose exec -T db pg_dump -U threatlens threatlens > backup.sql
 ```
 
 Restore:
 
 ```bash
-cat backup.sql | docker compose exec -T db psql -U postgres threatlens
+docker compose exec -T db psql -U threatlens threatlens < backup.sql
 ```

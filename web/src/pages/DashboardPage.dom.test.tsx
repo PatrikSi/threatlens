@@ -171,11 +171,14 @@ vi.mock('@tanstack/react-query', () => ({
         error: null,
       }
     }),
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: { mutationKey?: unknown; onSuccess?: (data: unknown, variables: unknown) => void }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'dashboard-saved-views:delete') {
       return {
-        mutate: dashboardPageDomMocks.deleteMutate,
+        mutate: vi.fn((viewId: string) => {
+          dashboardPageDomMocks.deleteMutate(viewId)
+          options.onSuccess?.(undefined, viewId)
+        }),
         mutateAsync: vi.fn(),
         isPending: false,
         isError: false,
@@ -431,7 +434,70 @@ describe('DashboardPage DOM workflows', () => {
     expect(getButton('Edit Layout')).not.toBeNull()
   })
 
-  it('wires the Add Panel menu with expanded state and menu focus', () => {
+  it('keeps the active edit-session snapshot when deleting a different saved view', () => {
+    const view = renderPage()
+
+    const loadSelect = getSelect('Load saved dashboard view')
+    expect(loadSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(loadSelect!, 'view-rss')
+    })
+
+    expect(loadSelect?.value).toBe('view-rss')
+
+    act(() => {
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    act(() => {
+      getButton('Add Panel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const notesMenuButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Notes Panel ('),
+    )
+    expect(notesMenuButton).not.toBeNull()
+
+    act(() => {
+      notesMenuButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector('[aria-label="Notes Panel 1 scratch notes"]')).not.toBeNull()
+
+    act(() => {
+      getButton('Views')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const deleteButton = Array.from(document.querySelectorAll('button'))
+      .filter((button) => button.textContent?.trim() === 'Delete')
+      .at(1)
+    expect(deleteButton).not.toBeNull()
+
+    act(() => {
+      deleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Delete saved view?')
+    expect(pageText()).toContain('Imported Notes')
+
+    act(() => {
+      getButton('Delete view')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(dashboardPageDomMocks.deleteMutate).toHaveBeenCalledWith('view-notes')
+    expect(getSelect('Load saved dashboard view')?.value).toBe('view-rss')
+
+    act(() => {
+      getButton('Cancel')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector('[aria-label="Notes Panel 1 scratch notes"]')).toBeNull()
+    expect(getSelect('Load saved dashboard view')?.value).toBe('view-rss')
+    expect(getButton('Edit Layout')).not.toBeNull()
+  })
+
+  it('wires the Add Panel menu with expanded state and keyboard navigation', () => {
     renderPage()
 
     act(() => {
@@ -450,6 +516,31 @@ describe('DashboardPage DOM workflows', () => {
     const menu = document.querySelector('[role="menu"][aria-label="Add dashboard panel"]')
     expect(menu).not.toBeNull()
     expect(document.activeElement?.textContent).toContain('RSS Panel')
+
+    act(() => {
+      menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    })
+
+    expect(document.activeElement?.textContent).toContain('Alerts Panel')
+
+    act(() => {
+      menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }))
+    })
+
+    expect(document.activeElement?.textContent).toContain('Notes Panel')
+
+    act(() => {
+      menu?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }))
+    })
+
+    expect(document.activeElement?.textContent).toContain('RSS Panel')
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    })
+
+    expect(document.querySelector('[role="menu"][aria-label="Add dashboard panel"]')).toBeNull()
+    expect(document.activeElement).toBe(addPanelButton)
   })
 
   it('exposes pressed state for dashboard filter chips and view-mode toggles', () => {

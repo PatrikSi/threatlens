@@ -109,6 +109,7 @@ export function AiSettingsPage() {
 
   const setDraft: Dispatch<SetStateAction<AISettingsDraft>> = (value) => {
     setDraftDirty(true)
+    setTestResult(null)
     setDraftState(value)
   }
   const confirmDiscardUnsavedAiSettingsChanges = useUnsavedChangesWarning(
@@ -328,13 +329,13 @@ export function AiSettingsPage() {
       setTestResult(result)
       setNotice({
         tone: result.success ? 'success' : 'error',
-        message: result.success ? 'AI connection test succeeded.' : 'AI connection test failed.',
+        message: result.success ? 'Saved AI connection test succeeded.' : 'Saved AI connection test failed.',
       })
       invalidateAiQueries(queryClient)
     },
     onError: (error) => {
       setTestResult(null)
-      showActionError(error, 'Failed to test the AI connection.')
+      showActionError(error, 'Failed to test the saved AI connection.')
     },
   })
 
@@ -724,6 +725,7 @@ export function AiSettingsPage() {
               <ConfigurationTab
                 draft={draft}
                 setDraft={setDraft}
+                draftDirty={draftDirty}
                 settings={settingsQuery.data}
                 readiness={readiness}
                 isLoading={settingsQuery.isLoading}
@@ -2273,6 +2275,7 @@ function ActivityTab({
 function ConfigurationTab({
   draft,
   setDraft,
+  draftDirty,
   settings,
   readiness,
   isLoading,
@@ -2288,6 +2291,7 @@ function ConfigurationTab({
 }: {
   draft: AISettingsDraft
   setDraft: Dispatch<SetStateAction<AISettingsDraft>>
+  draftDirty: boolean
   settings: AISettings | undefined
   readiness: string | null
   isLoading: boolean
@@ -2301,6 +2305,13 @@ function ConfigurationTab({
   promptHistory: AIAuditEntryResponse[]
   manualActions: AIAuditEntryResponse[]
 }) {
+  const testSavedConnectionDisabled = testPending || draftDirty || !settings?.ai_configured
+  const providerTestMessage = draftDirty
+    ? 'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.'
+    : settings?.ai_configured
+      ? 'Test the saved provider configuration. Unsaved draft changes are not included.'
+      : 'Save the provider settings before testing the saved connection.'
+
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
       <div className="space-y-4">
@@ -2318,15 +2329,15 @@ function ConfigurationTab({
         <Panel title="Provider" subtitle="ThreatLens currently speaks to one OpenAI-compatible chat endpoint. Secrets stay in the environment.">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate/15 bg-slate/5 px-3 py-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
             <div className="text-sm text-slate dark:text-white/70">
-              Test the current provider configuration before saving broader AI changes.
+              {providerTestMessage}
             </div>
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
               onClick={onTestConnection}
-              disabled={testPending || !settings?.ai_configured}
+              disabled={testSavedConnectionDisabled}
             >
-              {testPending ? 'Testing...' : 'Test Connection'}
+              {testPending ? 'Testing...' : 'Test Saved Connection'}
             </button>
           </div>
           <div className="grid gap-3 md:grid-cols-2">

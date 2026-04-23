@@ -179,44 +179,45 @@ export function FeedsPage() {
   })
 
   const bulkRefreshFeeds = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const settled = await Promise.allSettled(ids.map((id) => apiFetch(`/feeds/${id}/refresh`, { method: 'POST' })))
-      return summarizeBulkResults(settled)
+    mutationKey: ['feeds', 'bulk-refresh'],
+    mutationFn: async (feeds: Feed[]) => {
+      const settled = await Promise.allSettled(feeds.map((feed) => apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' })))
+      return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
-      setManagementNotice(`Refresh queued for ${result.succeeded}/${result.attempted} feeds.`)
+      setManagementNotice(formatBulkResultNotice('Refresh queued for', result))
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
 
   const bulkSetEnabled = useMutation({
     mutationKey: ['feeds', 'bulk-set-enabled'],
-    mutationFn: async (payload: { ids: string[]; enabled: boolean }) => {
+    mutationFn: async (payload: { feeds: Feed[]; enabled: boolean }) => {
       const settled = await Promise.allSettled(
-        payload.ids.map((id) =>
-          apiFetch<Feed>(`/feeds/${id}`, {
+        payload.feeds.map((feed) =>
+          apiFetch<Feed>(`/feeds/${feed.id}`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: payload.enabled }),
           }),
         ),
       )
-      return { enabled: payload.enabled, ...summarizeBulkResults(settled) }
+      return { enabled: payload.enabled, ...summarizeBulkResults(payload.feeds, settled) }
     },
     onSuccess: (result) => {
       const actionLabel = result.enabled ? 'Enabled' : 'Disabled'
-      setManagementNotice(`${actionLabel} ${result.succeeded}/${result.attempted} feeds.`)
+      setManagementNotice(formatBulkResultNotice(actionLabel, result))
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
 
   const bulkDeleteFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-delete'],
-    mutationFn: async (ids: string[]) => {
-      const settled = await Promise.allSettled(ids.map((id) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' })))
-      return summarizeBulkResults(settled)
+    mutationFn: async (feeds: Feed[]) => {
+      const settled = await Promise.allSettled(feeds.map((feed) => apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' })))
+      return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
-      setManagementNotice(`Deleted ${result.succeeded}/${result.attempted} feeds.`)
+      setManagementNotice(formatBulkResultNotice('Deleted', result))
       void queryClient.invalidateQueries({ queryKey: ['feeds'] })
     },
   })
@@ -391,10 +392,10 @@ export function FeedsPage() {
       return
     }
 
-    const feedIds = pendingBulkDeleteFeeds.map((feed) => feed.id)
+    const feeds = pendingBulkDeleteFeeds
     setPendingBulkDeleteFeeds(null)
     setManagementNotice('')
-    bulkDeleteFeeds.mutate(feedIds)
+    bulkDeleteFeeds.mutate(feeds)
   }
 
   const onConfirmBulkSetEnabled = () => {
@@ -402,11 +403,11 @@ export function FeedsPage() {
       return
     }
 
-    const feedIds = pendingBulkSetEnabled.feeds.map((feed) => feed.id)
+    const feeds = pendingBulkSetEnabled.feeds
     const enabled = pendingBulkSetEnabled.enabled
     setPendingBulkSetEnabled(null)
     setManagementNotice('')
-    bulkSetEnabled.mutate({ ids: feedIds, enabled })
+    bulkSetEnabled.mutate({ feeds, enabled })
   }
 
   const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -797,7 +798,7 @@ export function FeedsPage() {
             disabled={!canManage || !visibleFeedIds.length || bulkRefreshFeeds.isPending}
             onClick={() => {
               setManagementNotice('')
-              bulkRefreshFeeds.mutate(visibleFeedIds)
+              bulkRefreshFeeds.mutate(filteredFeeds)
             }}
           >
             Refresh Filtered
@@ -1247,6 +1248,7 @@ type BulkSummary = {
   attempted: number
   succeeded: number
   failed: number
+  failedFeedNames: string[]
 }
 
 function feedSaveStatusText(status: FeedSaveStatus): string {
@@ -1262,14 +1264,24 @@ function feedSaveStatusClass(status: FeedSaveStatus, isDirty: boolean): string {
   return 'text-slate dark:text-slate-300'
 }
 
-function summarizeBulkResults(results: PromiseSettledResult<unknown>[]): BulkSummary {
+function summarizeBulkResults(feeds: Feed[], results: PromiseSettledResult<unknown>[]): BulkSummary {
   const attempted = results.length
-  const failed = results.filter((result) => result.status === 'rejected').length
+  const failedFeedNames = results.flatMap((result, index) =>
+    result.status === 'rejected' ? [feeds[index]?.name ?? `Feed ${index + 1}`] : [],
+  )
+  const failed = failedFeedNames.length
   return {
     attempted,
     failed,
     succeeded: attempted - failed,
+    failedFeedNames,
   }
+}
+
+function formatBulkResultNotice(actionLabel: string, result: BulkSummary): string {
+  const feedLabel = result.attempted === 1 ? 'feed' : 'feeds'
+  const failureSuffix = result.failedFeedNames.length ? ` Failed: ${result.failedFeedNames.join(', ')}.` : ''
+  return `${actionLabel} ${result.succeeded}/${result.attempted} ${feedLabel}.${failureSuffix}`
 }
 
 function timestamp(value: string | null): number {

@@ -446,4 +446,36 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain('Lookback Days must be a whole number greater than 0')
     expect(queueButton?.hasAttribute('disabled')).toBe(true)
   })
+
+  it('labels connection testing as a saved-config action and blocks it while the draft is dirty', () => {
+    const view = renderPage()
+
+    const configurationTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Configuration')
+    expect(configurationTab).not.toBeNull()
+
+    act(() => {
+      configurationTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const testSavedConnectionButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Test Saved Connection',
+    ) as HTMLButtonElement | undefined
+    expect(testSavedConnectionButton).not.toBeUndefined()
+    expect(testSavedConnectionButton?.disabled).toBe(false)
+    expect(pageText()).toContain('Test the saved provider configuration. Unsaved draft changes are not included.')
+
+    const baseUrlInput = Array.from(view.querySelectorAll('input')).find(
+      (input) => input.value === 'https://api.example.com/v1',
+    ) as HTMLInputElement | undefined
+    expect(baseUrlInput).not.toBeUndefined()
+
+    act(() => {
+      setInputValue(baseUrlInput!, 'https://draft.example.com/v1')
+    })
+
+    expect(testSavedConnectionButton?.disabled).toBe(true)
+    expect(pageText()).toContain(
+      'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.',
+    )
+  })
 })

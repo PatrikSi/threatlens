@@ -18,7 +18,7 @@ If no public tag exists yet, use the deployed commit SHA, container image digest
 
 ## Reporting
 
-ThreatLens does not currently publish a dedicated private security inbox or a verified GitHub private advisory form. Do not assume `https://github.com/PatrikSi/threatlens/security/advisories/new` is live unless this file is updated to list it and the repository UI exposes it.
+ThreatLens does not currently publish a dedicated private security inbox or an active GitHub private advisory submission form in-repo.
 
 For now, use the public issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
 
@@ -39,6 +39,8 @@ Use the first public message only to share:
 - a request for non-public follow-up if the issue needs deeper coordination
 
 Maintainers may continue coordination through a non-public channel after the initial report, but ThreatLens does not currently guarantee or pre-publish a separate private contact path in-repo.
+
+If no non-public path is available for a report, keep using the public issue only for coordination and avoid posting details that would materially increase exposure before a fix or mitigation is available.
 
 Once you have a private path, include as much of the following as you can:
 

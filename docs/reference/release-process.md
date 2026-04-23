@@ -7,13 +7,19 @@ ThreatLens treats the checked-in API, dependency, and governance artifacts as pa
 Before publishing a public tag, image, or source release:
 
 1. Verify the public repository paths in `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` still point to the active ThreatLens GitHub repository and maintainer profile.
-2. Verify `SECURITY.md` still matches the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository UI exposes it and maintainers have verified it; otherwise keep the policy on the public issue-based coordination path.
+2. Verify `SECURITY.md` still matches the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository is public, the repository UI exposes private vulnerability reporting, and maintainers have verified it; otherwise keep the policy on the public issue-based coordination path.
 3. Regenerate the API and dependency artifacts described below.
 4. Copy the current OpenAPI contract anchor from `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) into the release notes and changelog entry for the published tag.
 5. Run the contract-anchor guard below to confirm `CHANGELOG.md` matches the checked-in schema.
 6. Update `CHANGELOG.md` by moving relevant entries from `Unreleased` into a dated release section.
 7. Verify that bundled license texts and `THIRD_PARTY_NOTICES.md` still match the shipped runtime stack and assets.
 8. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+
+If the repository is still private while you are preparing the first open-source release, treat repository visibility and security-reporting setup as part of the release gate:
+
+1. Make the repository public only when the reviewed release commit, images, and docs are ready.
+2. Immediately enable GitHub private vulnerability reporting for the now-public repository.
+3. Update `SECURITY.md` to point to the live advisory/reporting path before announcing the release.
 
 ## Supported Code Lines
 

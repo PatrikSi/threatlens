@@ -13,12 +13,20 @@ Thank you for helping improve ThreatLens.
 - Backend: FastAPI + SQLAlchemy + Celery in `backend/`
 - Frontend: React + Vite in `web/`
 - Default local stack: `docker compose up --build`
+- Use the checked-in dependency locks for local installs: `backend/requirements-dev.txt` includes the pinned backend set from `backend/requirements-lock.txt`, and `web/package-lock.json` is the frontend lockfile used by `npm ci`.
 
 If `./backend/.venv` does not exist yet:
 
 ```bash
 python3 -m venv backend/.venv
 ./backend/.venv/bin/pip install -r backend/requirements-dev.txt
+```
+
+For frontend-only local work, install from the checked-in lockfile:
+
+```bash
+cd web
+npm ci
 ```
 
 Useful validation commands:
@@ -122,4 +130,4 @@ Before merging release-contract changes, review at least:
 
 For non-sensitive product questions, open an issue at `https://github.com/PatrikSi/threatlens/issues` or draft a pull request at `https://github.com/PatrikSi/threatlens/pulls`.
 
-For security-sensitive concerns, follow `SECURITY.md`. Do not post exploit details, credentials, or proof-of-concept data in a public issue or pull request.
+For security-sensitive concerns, follow `SECURITY.md`. ThreatLens does not currently publish a guaranteed private inbox or GitHub advisory submission form in-repo, so use the public first-contact guidance there and do not post exploit details, credentials, or proof-of-concept data in a public issue or pull request.

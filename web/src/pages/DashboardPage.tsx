@@ -1,4 +1,16 @@
-import { ChangeEvent, Dispatch, ReactNode, SetStateAction, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react'
+import {
+  ChangeEvent,
+  Dispatch,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  SetStateAction,
+  useDeferredValue,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -203,7 +215,8 @@ export function DashboardPage() {
   const renameWindowInputRef = useRef<HTMLInputElement | null>(null)
   const addWindowTriggerRef = useRef<HTMLButtonElement | null>(null)
   const addWindowMenuRef = useRef<HTMLDivElement | null>(null)
-  const addWindowFirstActionRef = useRef<HTMLButtonElement | null>(null)
+  const addWindowActionRefs = useRef<Array<HTMLButtonElement | null>>([])
+  const pendingAddWindowFocusIndexRef = useRef<number | null>(null)
   const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
 
@@ -515,10 +528,18 @@ export function DashboardPage() {
       apiFetch(`/views/${viewId}`, {
         method: 'DELETE',
       }),
-    onSuccess: () => {
-      setActiveSavedViewId(null)
-      setEditSessionSnapshot(null)
-      setPendingSavedViewLoad(null)
+    onSuccess: (_data, deletedViewId) => {
+      setActiveSavedViewId((current) => (current === deletedViewId ? null : current))
+      setEditSessionSnapshot((current) => {
+        if (!current || current.activeSavedViewId !== deletedViewId) {
+          return current
+        }
+        return {
+          ...current,
+          activeSavedViewId: null,
+        }
+      })
+      setPendingSavedViewLoad((current) => (current?.id === deletedViewId ? null : current))
       queryClient.invalidateQueries({ queryKey: ['views'] })
     },
   })
@@ -968,10 +989,66 @@ export function DashboardPage() {
 
   const closeAddWindowMenu = (restoreFocus = false) => {
     setShowAddWindowMenu(false)
-    if (!restoreFocus || typeof window === 'undefined') {
+    if (!restoreFocus) {
       return
     }
-    window.requestAnimationFrame(() => addWindowTriggerRef.current?.focus())
+    addWindowTriggerRef.current?.focus()
+  }
+
+  const focusAddWindowAction = (index: number) => {
+    const actions = addWindowActionRefs.current.filter((button): button is HTMLButtonElement => button !== null)
+    if (!actions.length) {
+      return
+    }
+
+    const normalizedIndex = ((index % actions.length) + actions.length) % actions.length
+    actions[normalizedIndex]?.focus()
+  }
+
+  const openAddWindowMenu = (focusIndex = 0) => {
+    pendingAddWindowFocusIndexRef.current = focusIndex
+    setShowAddWindowMenu(true)
+  }
+
+  const handleAddWindowTriggerKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') {
+      return
+    }
+
+    event.preventDefault()
+    if (showAddWindowMenu) {
+      focusAddWindowAction(event.key === 'ArrowUp' ? -1 : 0)
+      return
+    }
+
+    openAddWindowMenu(event.key === 'ArrowUp' ? -1 : 0)
+  }
+
+  const handleAddWindowMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const actions = addWindowActionRefs.current.filter((button): button is HTMLButtonElement => button !== null)
+    if (!actions.length) {
+      return
+    }
+
+    const currentIndex = actions.findIndex((button) => button === document.activeElement)
+    let nextIndex: number | null = null
+
+    if (event.key === 'ArrowDown') {
+      nextIndex = currentIndex < 0 ? 0 : currentIndex + 1
+    } else if (event.key === 'ArrowUp') {
+      nextIndex = currentIndex < 0 ? actions.length - 1 : currentIndex - 1
+    } else if (event.key === 'Home') {
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      nextIndex = actions.length - 1
+    }
+
+    if (nextIndex === null) {
+      return
+    }
+
+    event.preventDefault()
+    focusAddWindowAction(nextIndex)
   }
 
   useEffect(() => {
@@ -979,7 +1056,9 @@ export function DashboardPage() {
       return
     }
 
-    addWindowFirstActionRef.current?.focus()
+    const requestedFocusIndex = pendingAddWindowFocusIndexRef.current ?? 0
+    pendingAddWindowFocusIndexRef.current = null
+    focusAddWindowAction(requestedFocusIndex)
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') {
@@ -1834,7 +1913,14 @@ export function DashboardPage() {
                   type="button"
                   ref={addWindowTriggerRef}
                   className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
-                  onClick={() => setShowAddWindowMenu((current) => !current)}
+                  onClick={() => {
+                    if (showAddWindowMenu) {
+                      closeAddWindowMenu()
+                      return
+                    }
+                    openAddWindowMenu()
+                  }}
+                  onKeyDown={handleAddWindowTriggerKeyDown}
                   aria-haspopup="menu"
                   aria-expanded={showAddWindowMenu}
                   aria-controls={showAddWindowMenu ? addWindowMenuId : undefined}
@@ -1847,10 +1933,13 @@ export function DashboardPage() {
                     id={addWindowMenuId}
                     role="menu"
                     aria-label="Add dashboard panel"
+                    onKeyDown={handleAddWindowMenuKeyDown}
                     className="absolute right-0 top-[calc(100%+6px)] z-30 w-56 max-w-[calc(100vw-2rem)] rounded border border-slate/20 bg-white p-1 shadow-lg dark:border-cyan-900/40 dark:bg-[#041612]"
                   >
                     <button
-                      ref={addWindowFirstActionRef}
+                      ref={(node) => {
+                        addWindowActionRefs.current[0] = node
+                      }}
                       type="button"
                       role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
@@ -1859,6 +1948,9 @@ export function DashboardPage() {
                       RSS Panel ({rssWindowCount})
                     </button>
                     <button
+                      ref={(node) => {
+                        addWindowActionRefs.current[1] = node
+                      }}
                       type="button"
                       role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
@@ -1867,6 +1959,9 @@ export function DashboardPage() {
                       Alerts Panel ({alertWindowCount})
                     </button>
                     <button
+                      ref={(node) => {
+                        addWindowActionRefs.current[2] = node
+                      }}
                       type="button"
                       role="menuitem"
                       className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
@@ -1876,6 +1971,9 @@ export function DashboardPage() {
                     </button>
                     {aiDailyBriefEnabled && (
                       <button
+                        ref={(node) => {
+                          addWindowActionRefs.current[3] = node
+                        }}
                         type="button"
                         role="menuitem"
                         className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"

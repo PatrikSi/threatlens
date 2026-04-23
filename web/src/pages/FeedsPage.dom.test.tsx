@@ -10,10 +10,20 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   queryClient: {
     invalidateQueries: vi.fn(),
   },
+  bulkRefreshMutate: vi.fn(),
   deleteMutate: vi.fn(),
   bulkDeleteMutate: vi.fn(),
   bulkSetEnabledMutate: vi.fn(),
   importMutate: vi.fn(),
+  bulkRefreshResult: null as
+    | { attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
+    | null,
+  bulkDeleteResult: null as
+    | { attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
+    | null,
+  bulkSetEnabledResult: null as
+    | { enabled: boolean; attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
+    | null,
 }))
 
 const routerMocks = vi.hoisted(() => {
@@ -102,13 +112,56 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: { mutationKey?: unknown; onSuccess?: (result: unknown, variables: unknown) => void }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
+    if (mutationKey === 'feeds:bulk-refresh') {
+      return feedMutationResult(
+        vi.fn((feeds: Array<(typeof feedsData)[number]>) => {
+          feedsPageDomMocks.bulkRefreshMutate(feeds)
+          options.onSuccess?.(
+            feedsPageDomMocks.bulkRefreshResult ?? {
+              attempted: feeds.length,
+              succeeded: feeds.length,
+              failed: 0,
+              failedFeedNames: [],
+            },
+            feeds,
+          )
+        }),
+      )
+    }
     if (mutationKey === 'feeds:bulk-set-enabled') {
-      return feedMutationResult(feedsPageDomMocks.bulkSetEnabledMutate)
+      return feedMutationResult(
+        vi.fn((payload: { feeds: Array<(typeof feedsData)[number]>; enabled: boolean }) => {
+          feedsPageDomMocks.bulkSetEnabledMutate(payload)
+          options.onSuccess?.(
+            feedsPageDomMocks.bulkSetEnabledResult ?? {
+              enabled: payload.enabled,
+              attempted: payload.feeds.length,
+              succeeded: payload.feeds.length,
+              failed: 0,
+              failedFeedNames: [],
+            },
+            payload,
+          )
+        }),
+      )
     }
     if (mutationKey === 'feeds:bulk-delete') {
-      return feedMutationResult(feedsPageDomMocks.bulkDeleteMutate)
+      return feedMutationResult(
+        vi.fn((feeds: Array<(typeof feedsData)[number]>) => {
+          feedsPageDomMocks.bulkDeleteMutate(feeds)
+          options.onSuccess?.(
+            feedsPageDomMocks.bulkDeleteResult ?? {
+              attempted: feeds.length,
+              succeeded: feeds.length,
+              failed: 0,
+              failedFeedNames: [],
+            },
+            feeds,
+          )
+        }),
+      )
     }
     if (mutationKey === 'feeds:delete') {
       return feedMutationResult(feedsPageDomMocks.deleteMutate)
@@ -190,10 +243,14 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   window.sessionStorage.clear()
+  feedsPageDomMocks.bulkRefreshMutate.mockReset()
   feedsPageDomMocks.deleteMutate.mockReset()
   feedsPageDomMocks.bulkDeleteMutate.mockReset()
   feedsPageDomMocks.bulkSetEnabledMutate.mockReset()
   feedsPageDomMocks.importMutate.mockReset()
+  feedsPageDomMocks.bulkRefreshResult = null
+  feedsPageDomMocks.bulkDeleteResult = null
+  feedsPageDomMocks.bulkSetEnabledResult = null
   routerMocks.blocker.state = 'unblocked'
   routerMocks.blocker.proceed.mockReset()
   routerMocks.blocker.reset.mockReset()
@@ -304,6 +361,13 @@ describe('FeedsPage DOM workflows', () => {
 
   it('confirms bulk enable actions before mutating filtered feeds', () => {
     const view = renderPage()
+    feedsPageDomMocks.bulkSetEnabledResult = {
+      enabled: true,
+      attempted: 1,
+      succeeded: 0,
+      failed: 1,
+      failedFeedNames: ['Edge Advisories'],
+    }
 
     const bulkEnableButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Enable Disabled (Filtered)'),
@@ -325,9 +389,69 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.bulkSetEnabledMutate).toHaveBeenCalledWith({
-      ids: ['feed-2'],
+      feeds: [expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' })],
       enabled: true,
     })
+    expect(pageText()).toContain('Enabled 0/1 feed. Failed: Edge Advisories.')
+  })
+
+  it('reports failed feed names after a partial bulk refresh', () => {
+    const view = renderPage()
+    feedsPageDomMocks.bulkRefreshResult = {
+      attempted: 2,
+      succeeded: 1,
+      failed: 1,
+      failedFeedNames: ['Edge Advisories'],
+    }
+
+    const bulkRefreshButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Refresh Filtered'),
+    )
+    expect(bulkRefreshButton).not.toBeNull()
+
+    act(() => {
+      bulkRefreshButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(feedsPageDomMocks.bulkRefreshMutate).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'feed-1', name: 'Vendor Advisories' }),
+      expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' }),
+    ])
+    expect(pageText()).toContain('Refresh queued for 1/2 feeds. Failed: Edge Advisories.')
+  })
+
+  it('reports failed feed names after a partial bulk delete', () => {
+    const view = renderPage()
+    feedsPageDomMocks.bulkDeleteResult = {
+      attempted: 1,
+      succeeded: 0,
+      failed: 1,
+      failedFeedNames: ['Edge Advisories'],
+    }
+
+    const bulkDeleteButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Delete Disabled (Filtered)'),
+    )
+    expect(bulkDeleteButton).not.toBeNull()
+
+    act(() => {
+      bulkDeleteButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Delete filtered disabled feeds?')
+    expect(pageText()).toContain('Edge Advisories')
+
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Delete feeds')
+    expect(confirmButton).not.toBeNull()
+
+    act(() => {
+      confirmButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(feedsPageDomMocks.bulkDeleteMutate).toHaveBeenCalledWith([
+      expect.objectContaining({ id: 'feed-2', name: 'Edge Advisories' }),
+    ])
+    expect(pageText()).toContain('Deleted 0/1 feed. Failed: Edge Advisories.')
   })
 
   it('shows an import preflight summary and requires confirmation before overwrite imports', async () => {
