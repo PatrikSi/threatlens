@@ -397,7 +397,7 @@ export function NotificationsPage() {
             </button>
           </div>
 
-          <div className="mt-3 space-y-2">
+          <div className="mt-3 max-h-[28rem] overflow-auto rounded-lg border border-slate/20 dark:border-cyan-900/40">
             {webhooks.map((webhook) => {
               const selected = webhook.id === selectedWebhookId
               return (
@@ -405,43 +405,41 @@ export function NotificationsPage() {
                   key={webhook.id}
                   type="button"
                   aria-pressed={selected}
-                  className={`w-full rounded-lg border p-3 text-left transition ${
+                  className={`grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-slate/10 px-3 py-2 text-left text-sm transition last:border-b-0 dark:border-cyan-900/30 ${
                     selected
-                      ? 'border-cyan bg-cyan/10 dark:border-cyan-500 dark:bg-cyan-950/50'
-                      : 'border-slate/20 hover:border-slate/40 dark:border-cyan-900/40 dark:hover:border-cyan-700/60'
+                      ? 'bg-cyan/10 dark:bg-cyan-950/50'
+                      : 'hover:bg-slate/5 dark:hover:bg-white/[0.03]'
                   }`}
                   onClick={() => onSelectWebhook(webhook)}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{webhook.name}</p>
-                      <p className="mt-1 text-xs text-slate dark:text-white/65">
-                        {describeEventType(webhook.event_type)} · {webhook.method} · {describeFeedScope(webhook.feed_scope, webhook.feed_ids.length)}
-                      </p>
-                    </div>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        webhook.enabled
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                          : 'bg-slate/10 text-slate-700 dark:bg-white/10 dark:text-white/65'
-                      }`}
-                    >
-                      {webhook.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold">{webhook.name}</p>
+                    <p className="mt-0.5 truncate text-xs text-slate dark:text-white/65">
+                      {describeEventType(webhook.event_type)} · {webhook.method} · {describeFeedScope(webhook.feed_scope, webhook.feed_ids.length)}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs text-slate dark:text-white/55">{webhook.url_template}</p>
                   </div>
-                  <p className="mt-2 truncate text-xs text-slate dark:text-white/65">{webhook.url_template}</p>
+                  <span
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      webhook.enabled
+                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+                        : 'bg-slate/10 text-slate-700 dark:bg-white/10 dark:text-white/65'
+                    }`}
+                  >
+                    {webhook.enabled ? 'Enabled' : 'Disabled'}
+                  </span>
                 </button>
               )
             })}
-
-            {webhooksQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading webhooks...</p>}
-            {webhooksQuery.isError && <p className="text-sm text-red-600">{resolveApiMessage(webhooksQuery.error, 'Failed to load webhooks.')}</p>}
-            {!webhooksQuery.isLoading && !webhooks.length && (
-              <p className="rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
-                No webhooks yet. Create one to call external systems when ThreatLens sees new items, alert matches, feed failures, or digest windows.
-              </p>
-            )}
           </div>
+
+          {webhooksQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading webhooks...</p>}
+          {webhooksQuery.isError && <p className="mt-3 text-sm text-red-600">{resolveApiMessage(webhooksQuery.error, 'Failed to load webhooks.')}</p>}
+          {!webhooksQuery.isLoading && !webhooks.length && (
+            <p className="mt-3 rounded-lg border border-dashed border-slate/25 p-3 text-sm text-slate dark:border-cyan-900/40 dark:text-white/70">
+              No webhooks yet. Create one to call external systems when ThreatLens sees new items, alert matches, feed failures, or digest windows.
+            </p>
+          )}
         </section>
 
         <div className="space-y-4">

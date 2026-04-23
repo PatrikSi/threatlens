@@ -12,10 +12,12 @@ import {
 } from '../types/api'
 
 const FEED_CHART_COLORS = ['#0891b2', '#06b6d4', '#0ea5e9', '#14b8a6', '#10b981', '#22c55e', '#eab308', '#f97316']
+const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
   const [days, setDays] = useState(30)
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
+  const [showAllFeedRows, setShowAllFeedRows] = useState(false)
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -95,6 +97,11 @@ export function StatsPage() {
     const counts = (statsQuery.data?.feed_breakdown ?? []).map((point) => point.items_in_window)
     return counts.length ? Math.max(...counts, 1) : 1
   }, [statsQuery.data?.feed_breakdown])
+
+  const visibleFeedBreakdown = useMemo(() => {
+    const rows = statsQuery.data?.feed_breakdown ?? []
+    return showAllFeedRows ? rows : rows.slice(0, FEED_TABLE_PREVIEW_LIMIT)
+  }, [showAllFeedRows, statsQuery.data?.feed_breakdown])
 
   return (
     <div className="space-y-4">
@@ -291,7 +298,7 @@ export function StatsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {statsQuery.data.feed_breakdown.map((feed) => (
+                  {visibleFeedBreakdown.map((feed) => (
                     <tr key={feed.feed_id} className="border-b border-slate/10 dark:border-cyan-950/40">
                       <td className="px-2 py-2">{feed.feed_name}</td>
                       <td className="px-2 py-2">{feed.total_items}</td>
@@ -303,6 +310,20 @@ export function StatsPage() {
                   ))}
                 </tbody>
               </table>
+              {statsQuery.data.feed_breakdown.length > FEED_TABLE_PREVIEW_LIMIT && (
+                <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate dark:text-slate-300">
+                  <span>
+                    Showing {visibleFeedBreakdown.length} of {statsQuery.data.feed_breakdown.length} feeds
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/30 px-3 py-1.5 font-semibold text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
+                    onClick={() => setShowAllFeedRows((current) => !current)}
+                  >
+                    {showAllFeedRows ? 'Show top feeds' : 'Show all feeds'}
+                  </button>
+                </div>
+              )}
             </div>
           </section>
         </>

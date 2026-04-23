@@ -2043,12 +2043,9 @@ function ActivityTab({
                   <th scope="col" className="pb-2">Type</th>
                   <th scope="col" className="pb-2">Article</th>
                   <th scope="col" className="pb-2">Trigger</th>
-                  <th scope="col" className="pb-2">Queued</th>
-                  <th scope="col" className="pb-2">Finished</th>
-                  <th scope="col" className="pb-2">Duration</th>
+                  <th scope="col" className="pb-2">Timing</th>
                   <th scope="col" className="pb-2">Status</th>
-                  <th scope="col" className="pb-2">Worker</th>
-                  <th scope="col" className="pb-2">Model</th>
+                  <th scope="col" className="pb-2">Execution</th>
                   <th scope="col" className="pb-2">Tokens</th>
                   <th scope="col" className="pb-2">Error</th>
                   <th scope="col" className="pb-2">Inspect</th>
@@ -2090,14 +2087,19 @@ function ActivityTab({
                       )}
                     </td>
                     <td className="py-2">{formatTriggerLabel(run.trigger_source)}</td>
-                    <td className="py-2">{formatTimestamp(run.queued_at)}</td>
-                    <td className="py-2">{run.finished_at ? formatTimestamp(run.finished_at) : 'In progress'}</td>
-                    <td className="py-2">{formatDuration(run.duration_ms)}</td>
+                    <td className="py-2">
+                      <div>{formatTimestamp(run.queued_at)}</div>
+                      <div className="text-xs text-slate dark:text-white/55">
+                        {run.finished_at ? `Finished ${formatTimestamp(run.finished_at)}` : 'In progress'} · {formatDuration(run.duration_ms)}
+                      </div>
+                    </td>
                     <td className="py-2">
                       <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
                     </td>
-                    <td className="py-2">{run.worker_name || 'api'}</td>
-                    <td className="py-2">{run.model || 'n/a'}</td>
+                    <td className="py-2">
+                      <div>{run.worker_name || 'api'}</div>
+                      <div className="text-xs text-slate dark:text-white/55">{run.model || 'n/a'}</div>
+                    </td>
                     <td className="py-2">{run.total_tokens?.toLocaleString() || 'n/a'}</td>
                     <td className="py-2 text-xs text-slate dark:text-white/60">{truncate(run.error || run.reason || '', 36) || '—'}</td>
                     <td className="py-2">
