@@ -105,6 +105,7 @@ DOMAIN_SLOT_TTL_SECONDS = 30
 DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
 IOC_EXTRACTION_STATE_COMPLETED = "completed"
 IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
+ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 
@@ -337,70 +338,84 @@ def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | 
     )
 
 
+def _article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
+    if article is None:
+        return None, None
+
+    retrieved_at = article.retrieved_at
+    if retrieved_at.tzinfo is None:
+        retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
+    return str(article.id), retrieved_at.isoformat()
+
+
+def _article_was_refetched(
+    db: Session,
+    *,
+    item_id: uuid.UUID,
+    expected_token: tuple[str | None, str | None],
+) -> bool:
+    current_article = db.scalar(select(Article).where(Article.item_id == item_id))
+    return _article_freshness_token(current_article) != expected_token
+
+
+def _domain_slot_key(domain: str, slot_number: int) -> str:
+    return f"threatlens:domain:{domain}:slot:{slot_number}"
+
+
+def _best_effort_release_lease(key: str, token: str) -> None:
+    try:
+        redis_client.eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            key,
+            token,
+        )
+        redis_client.delete(_lease_heartbeat_key(key))
+    except redis.RedisError:
+        pass
+
+
 @contextmanager
 def domain_slot(domain: str, max_wait_seconds: int = 30):
     if not domain:
         yield
         return
 
-    key = f"threatlens:domain:{domain}"
+    concurrency_limit = max(1, int(getattr(settings, "per_domain_concurrency", 1) or 1))
     deadline = time.monotonic() + max_wait_seconds
+    token = secrets.token_hex(16)
+    acquired_key: str | None = None
 
-    acquired = False
-    while time.monotonic() < deadline:
-        try:
-            current = redis_client.incr(key)
-        except redis.RedisError as exc:
-            raise CoordinationUnavailableError("domain slot unavailable") from exc
-        try:
-            ttl_set = redis_client.expire(key, DOMAIN_SLOT_TTL_SECONDS)
-            if ttl_set is False:
-                raise redis.RedisError("domain slot ttl was not applied")
-        except redis.RedisError as exc:
-            _best_effort_release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
-            raise CoordinationUnavailableError("domain slot unavailable") from exc
-        if current <= settings.per_domain_concurrency:
-            acquired = True
-            break
-        _release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
-        time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
+    while time.monotonic() < deadline and acquired_key is None:
+        for slot_number in range(1, concurrency_limit + 1):
+            key = _domain_slot_key(domain, slot_number)
+            try:
+                acquired = bool(redis_client.set(key, token, nx=True, ex=DOMAIN_SLOT_TTL_SECONDS))
+                if not acquired:
+                    acquired = _try_take_stale_lease(
+                        key,
+                        DOMAIN_SLOT_TTL_SECONDS,
+                        token,
+                        error_message="domain slot unavailable",
+                    )
+            except redis.RedisError as exc:
+                raise CoordinationUnavailableError("domain slot unavailable") from exc
 
-    if not acquired:
+            if acquired:
+                acquired_key = key
+                break
+
+        if acquired_key is None:
+            time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
+
+    if acquired_key is None:
         raise TimeoutError(f"domain slot timeout for {domain}")
 
     try:
-        with _redis_lease_heartbeat(key, DOMAIN_SLOT_TTL_SECONDS):
+        with _redis_lease_heartbeat(acquired_key, DOMAIN_SLOT_TTL_SECONDS, token):
             yield
     finally:
-        _best_effort_release_domain_slot_counter(key, ttl_seconds=DOMAIN_SLOT_TTL_SECONDS)
-
-
-def _release_domain_slot_counter(key: str, *, ttl_seconds: int) -> None:
-    try:
-        remaining = redis_client.decr(key)
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError("domain slot unavailable") from exc
-    _finalize_domain_slot_counter(key, remaining=remaining, ttl_seconds=ttl_seconds)
-
-
-def _best_effort_release_domain_slot_counter(key: str, *, ttl_seconds: int) -> None:
-    try:
-        remaining = redis_client.decr(key)
-    except redis.RedisError:
-        return
-    _finalize_domain_slot_counter(key, remaining=remaining, ttl_seconds=ttl_seconds)
-
-
-def _finalize_domain_slot_counter(key: str, *, remaining: int, ttl_seconds: int) -> None:
-    try:
-        if remaining <= 0:
-            deleted = redis_client.delete(key)
-            if deleted == 0:
-                redis_client.expire(key, ttl_seconds)
-        else:
-            redis_client.expire(key, ttl_seconds)
-    except redis.RedisError:
-        pass
+        _best_effort_release_lease(acquired_key, token)
 
 
 @celery_app.task(
@@ -1859,6 +1874,7 @@ def classify_item(item_id: str):
             return {"status": "skipped", "reason": "not_found", "item_id": item_id}
 
         article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
+        article_freshness_token = _article_freshness_token(article)
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
         feed_name = feed.name if feed is not None else ""
         feed_url = feed.url if feed is not None else ""
@@ -1882,6 +1898,10 @@ def classify_item(item_id: str):
             article_text=article.text if article else None,
             feed_name=feed_name,
         )
+
+        if _article_was_refetched(db, item_id=parsed_item_id, expected_token=article_freshness_token):
+            logger.info("classification_stale_article_discarded item_id=%s", parsed_item_id)
+            return {"status": "skipped", "reason": ARTICLE_REFRESHED_SKIP_REASON, "item_id": item_id}
 
         row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
         if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
@@ -2395,6 +2415,7 @@ def extract_item_iocs(item_id: str):
             return {"status": "skipped", "reason": "not_found", "item_id": item_id}
 
         article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
+        article_freshness_token = _article_freshness_token(article)
         extracted = extract_iocs(
             title=item.title,
             summary=item.summary,
@@ -2417,6 +2438,10 @@ def extract_item_iocs(item_id: str):
             record["source_sections"] = set(record["source_sections"]).union({match.source_section})
             record["occurrences"] = int(record["occurrences"]) + 1
             record["confidence"] = max(float(record["confidence"]), match.confidence)
+
+        if _article_was_refetched(db, item_id=parsed_item_id, expected_token=article_freshness_token):
+            logger.info("ioc_extraction_stale_article_discarded item_id=%s", parsed_item_id)
+            return {"status": "skipped", "reason": ARTICLE_REFRESHED_SKIP_REASON, "item_id": item_id}
 
         linked_ioc_ids: set[uuid.UUID] = set()
         ioc_values_by_type: dict[str, list[str]] = {}

@@ -757,6 +757,37 @@ def test_browser_session_can_create_api_token_after_password_step_up(client: Tes
     assert access_response.status_code == 200
 
 
+def test_browser_session_token_creation_rejects_scopes_outside_role_envelope(
+    client: TestClient, db_session, seed_users
+):
+    _ = seed_users
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert login_response.status_code == 200
+    csrf_token = login_response.json()["csrf_token"]
+
+    token_response = client.post(
+        "/tokens",
+        json={
+            "name": "viewer-feed-writer",
+            "expires_in_days": 30,
+            "scopes": ["write:feeds"],
+            "current_password": "ViewerPass123!",
+        },
+        headers={"x-csrf-token": csrf_token},
+    )
+    assert token_response.status_code == 403
+    assert "Requested token scopes exceed the permissions allowed for your role" in token_response.json()["detail"]
+    assert "write:feeds" in token_response.json()["detail"]
+
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+    viewer_tokens = db_session.scalars(select(ApiToken).where(ApiToken.user_id == viewer.id)).all()
+    assert viewer_tokens == []
+
+
 def test_cookie_session_auth_rejects_inactive_user(client: TestClient, db_session, seed_users):
     _ = seed_users
     login_response = client.post(
@@ -1979,6 +2010,58 @@ def test_admin_can_remove_own_admin_role_when_another_active_approved_admin_exis
     )
     assert update_response.status_code == 200
     assert update_response.json()["role"] == "viewer"
+
+    db_session.refresh(admin)
+    assert admin.auth_token_version == 1
+
+    stale_token_response = client.get("/feeds", headers=auth_headers["admin"])
+    assert stale_token_response.status_code == 401
+    assert stale_token_response.json()["detail"] == "Invalid credentials"
+
+
+def test_role_promotion_invalidates_existing_browser_session_and_api_token(client: TestClient, db_session, seed_users, auth_headers):
+    viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
+    assert viewer is not None
+
+    login_response = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert login_response.status_code == 200
+
+    viewer_token = _issue_api_token(
+        db_session,
+        viewer,
+        name="viewer-reader",
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    update_response = client.patch(
+        f"/users/{viewer.id}",
+        json={"role": "analyst"},
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["role"] == "analyst"
+
+    db_session.refresh(viewer)
+    assert viewer.auth_token_version == 1
+
+    stale_session_response = client.get("/auth/me")
+    assert stale_session_response.status_code == 401
+    assert stale_session_response.json()["detail"] == "Invalid credentials"
+
+    stale_token_response = client.get("/feeds", headers={"Authorization": f"Bearer {viewer_token}"})
+    assert stale_token_response.status_code == 401
+    assert stale_token_response.json()["detail"] == "Invalid credentials"
+
+    relogin_response = client.post(
+        "/auth/login",
+        json={"email": "viewer@example.com", "password": "ViewerPass123!"},
+    )
+    assert relogin_response.status_code == 200
+    assert relogin_response.json()["csrf_token"]
 
 
 

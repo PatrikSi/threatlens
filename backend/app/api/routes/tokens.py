@@ -9,7 +9,13 @@ from app.api.deps import is_cookie_session_auth, require_token_scopes, resolve_c
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN
 from app.core.security import extract_api_token_prefix, generate_api_token, hash_api_token, verify_password
-from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES, SCOPE_READ_TOKENS, SCOPE_WRITE_TOKENS, missing_delegable_scopes
+from app.core.token_scopes import (
+    DEFAULT_API_TOKEN_SCOPES,
+    SCOPE_READ_TOKENS,
+    SCOPE_WRITE_TOKENS,
+    missing_delegable_scopes,
+    missing_role_token_scopes,
+)
 from app.db.session import get_db
 from app.models.api_token import ApiToken
 from app.models.user import User
@@ -29,6 +35,7 @@ SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL = (
 API_TOKEN_CHILD_MAX_LIFETIME = timedelta(hours=1)
 API_TOKEN_CHILD_SCOPE_DETAIL = "API tokens cannot mint child tokens with write:tokens scope"
 API_TOKEN_CHILD_EXPIRED_DETAIL = "Parent API token is too close to expiry to mint a child token"
+SESSION_TOKEN_SCOPE_DETAIL = "Requested token scopes exceed the permissions allowed for your role"
 
 
 @router.get("", response_model=list[ApiTokenResponse])
@@ -65,6 +72,7 @@ def create_token(
 
     token_value, token_prefix, token_hash = generate_api_token()
     scopes = payload.scopes if "scopes" in payload.model_fields_set else list(DEFAULT_API_TOKEN_SCOPES)
+    _enforce_requested_token_scopes_authorized(request, user, scopes)
     parent_token_scopes = getattr(request.state, "token_scopes", None)
     parent_api_token = _resolve_authenticated_parent_api_token(request, db)
     if parent_token_scopes is not None:
@@ -126,6 +134,18 @@ def _enforce_browser_session_step_up(request: Request, payload: ApiTokenCreateRe
         record_password_verification_failure(user.email, client_ip)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
     clear_password_verification_failures(user.email, client_ip)
+
+
+def _enforce_requested_token_scopes_authorized(request: Request, user: User, scopes: list[str]) -> None:
+    if not is_cookie_session_auth(request):
+        return
+
+    disallowed_scopes = missing_role_token_scopes(user.role, scopes)
+    if disallowed_scopes:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"{SESSION_TOKEN_SCOPE_DETAIL}: {', '.join(disallowed_scopes)}",
+        )
 
 
 def _resolve_authenticated_parent_api_token(request: Request, db: Session) -> ApiToken | None:

@@ -879,7 +879,7 @@ def _load_live_task_snapshot() -> tuple[bool, list[str], list[AILiveTaskResponse
         active_tasks = _flatten_live_tasks(active_raw, state="active")
         reserved_tasks = _flatten_live_tasks(reserved_raw, state="reserved")
         scheduled_tasks = _flatten_live_tasks(scheduled_raw, state="scheduled")
-        snapshot_available = True
+        snapshot_available = bool(workers or active_raw or reserved_raw or scheduled_raw)
     except Exception:
         workers = []
         active_tasks = []
@@ -915,69 +915,69 @@ def _reconcile_stale_ai_runs(
         snapshot_available = True
 
     _ = workers
+    can_reconcile_missing_live_tasks = bool(snapshot_available)
     live_task_ids = (
         {
             task.celery_task_id
             for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
             if task.celery_task_id
         }
-        if snapshot_available
+        if can_reconcile_missing_live_tasks
         else set()
     )
     now = datetime.now(timezone.utc)
-    stale_before = now - (
-        STALE_AI_RUN_GRACE_PERIOD if snapshot_available else STALE_AI_RUN_FALLBACK_GRACE_PERIOD
-    )
+    stale_before = now - STALE_AI_RUN_GRACE_PERIOD
     changed = False
     reconciled_count = 0
 
-    stale_item_runs = list(
-        db.scalars(
-            select(AITaskRun)
-            .where(
-                AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
-                AITaskRun.finished_at.is_(None),
-                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+    if can_reconcile_missing_live_tasks:
+        stale_item_runs = list(
+            db.scalars(
+                select(AITaskRun)
+                .where(
+                    AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
+                    AITaskRun.finished_at.is_(None),
+                    AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+                )
+                .order_by(AITaskRun.created_at.asc())
             )
-            .order_by(AITaskRun.created_at.asc())
         )
-    )
-    for run in stale_item_runs:
-        if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
-            continue
-        _finish_reconciled_stale_run(
-            db,
-            run=run,
-            snapshot_available=snapshot_available,
-            stale_reason="stale_task_lost",
-            stale_error="Task no longer appears in Celery and did not report completion",
-        )
-        changed = True
-        reconciled_count += 1
+        for run in stale_item_runs:
+            if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+                continue
+            _finish_reconciled_stale_run(
+                db,
+                run=run,
+                snapshot_available=can_reconcile_missing_live_tasks,
+                stale_reason="stale_task_lost",
+                stale_error="Task no longer appears in Celery and did not report completion",
+            )
+            changed = True
+            reconciled_count += 1
 
-    stale_daily_brief_runs = list(
-        db.scalars(
-            select(AITaskRun)
-            .where(
-                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
-                AITaskRun.finished_at.is_(None),
-                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+        stale_daily_brief_runs = list(
+            db.scalars(
+                select(AITaskRun)
+                .where(
+                    AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+                    AITaskRun.finished_at.is_(None),
+                    AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+                )
+                .order_by(AITaskRun.created_at.asc())
             )
-            .order_by(AITaskRun.created_at.asc())
         )
-    )
-    for run in stale_daily_brief_runs:
-        if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
-            continue
-        _finish_reconciled_stale_run(
-            db,
-            run=run,
-            snapshot_available=snapshot_available,
-            stale_reason="stale_task_lost",
-            stale_error="Task no longer appears in Celery and did not report completion",
-        )
-        changed = True
-        reconciled_count += 1
+        for run in stale_daily_brief_runs:
+            if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+                continue
+            _finish_reconciled_stale_run(
+                db,
+                run=run,
+                snapshot_available=can_reconcile_missing_live_tasks,
+                stale_reason="stale_task_lost",
+                stale_error="Task no longer appears in Celery and did not report completion",
+            )
+            changed = True
+            reconciled_count += 1
 
     stale_parent_runs = list(
         db.scalars(
@@ -1018,12 +1018,14 @@ def _reconcile_stale_ai_runs(
             changed = True
             reconciled_count += 1
             continue
+        if not can_reconcile_missing_live_tasks:
+            continue
         if unfinished_child_count > 0 or not _is_stale_unfinished_run(run, live_task_ids, stale_before):
             continue
         _finish_reconciled_stale_run(
             db,
             run=run,
-            snapshot_available=snapshot_available,
+            snapshot_available=can_reconcile_missing_live_tasks,
             stale_reason="stale_reprocess_tracking",
             stale_error="Reprocess task stopped updating and is no longer active in Celery",
         )

@@ -13,6 +13,7 @@ from app.models.ai_task_run import AITaskRun
 from app.models.alert_interest import AlertInterest
 from app.models.article import Article
 from app.models.feed import Feed
+from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
@@ -166,7 +167,7 @@ def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.
 
     feed_key = "threatlens:feed:lock:feed-1"
     brief_key = "threatlens:ai:daily_brief:lock"
-    domain_key = "threatlens:domain:example.com"
+    domain_key = "threatlens:domain:example.com:slot:1"
 
     with feed_lock("feed-1", ttl_seconds=1) as acquired:
         assert acquired is True
@@ -194,6 +195,22 @@ def test_feed_lock_can_take_over_a_stale_lease(monkeypatch: pytest.MonkeyPatch):
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
         assert acquired is True
         assert redis_client.get(stale_feed_key) != "dead-token"
+
+
+def test_domain_slot_can_take_over_a_stale_slot_while_another_slot_remains_live(monkeypatch: pytest.MonkeyPatch):
+    redis_client = _HeartbeatRedis()
+    stale_slot_key = "threatlens:domain:example.com:slot:1"
+    live_slot_key = "threatlens:domain:example.com:slot:2"
+    redis_client.set(stale_slot_key, "dead-token", ex=900)
+    redis_client.set(f"{stale_slot_key}:heartbeat", f"dead-token|{time.time() - 500:.6f}", ex=900)
+    redis_client.set(live_slot_key, "live-token", ex=900)
+    redis_client.set(f"{live_slot_key}:heartbeat", f"live-token|{time.time():.6f}", ex=900)
+    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_tasks.settings", SimpleNamespace(per_domain_concurrency=2))
+
+    with domain_slot("example.com", max_wait_seconds=0.1):
+        assert redis_client.get(stale_slot_key) != "dead-token"
+        assert redis_client.get(live_slot_key) == "live-token"
 
 
 def test_generate_item_ai_enrichment_task_claims_api_started_run_and_skips_duplicate_redelivery(db_session, monkeypatch):
@@ -2094,6 +2111,91 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     assert captured["task_run_id"]
 
 
+def test_classify_item_skips_stale_article_after_refetch(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="stale-classification-item",
+        url="https://example.com/articles/stale-classification-item",
+        canonical_url="https://example.com/articles/stale-classification-item",
+        title="Fortinet exploitation observed",
+        summary="Summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="stale-classification-item",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Old article text that should not win.",
+        extraction_method="readable",
+        retrieved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.load_active_ai_settings",
+        lambda _db: SimpleNamespace(
+            ai_enabled=True,
+            ai_configured=True,
+            auto_enrich_new_items=True,
+            model="local-threat-model",
+        ),
+    )
+    monkeypatch.setattr("app.tasks.feed_tasks.sync_item_algorithm_tags", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_item_iocs.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue IOC extraction")),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale classification should not enqueue AI enrichment")),
+    )
+
+    def _classify_item_content(**_kwargs):
+        current_article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+        assert current_article is not None
+        current_article.text = "New article text from a refetch."
+        current_article.retrieved_at = datetime.now(timezone.utc)
+        db_session.add(current_article)
+        db_session.flush()
+        return SimpleNamespace(
+            primary_category="vulnerability",
+            secondary_categories=[],
+            confidence=0.91,
+            scores={"vulnerability": 6.0},
+            matched_terms={"vulnerability": ["article:exploit"]},
+            source_hash="stale-source-hash",
+            rules_version="v2",
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.classify_item_content", _classify_item_content)
+
+    result = classify_item.run(str(item.id))
+
+    classification = db_session.scalar(select(ItemClassification).where(ItemClassification.item_id == item.id))
+
+    assert result == {"status": "skipped", "reason": "article_refetched", "item_id": str(item.id)}
+    assert classification is None
+
+
 def test_classify_item_continues_when_ioc_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
@@ -3195,6 +3297,7 @@ def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_se
 
 
 def test_process_reserved_notification_deliveries_schedules_retryable_failures(db_session, monkeypatch):
+    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",
@@ -3311,6 +3414,97 @@ def test_process_reserved_notification_deliveries_skips_missing_rows(db_session,
 
     assert delivered == 1
     assert failed == 0
+
+
+def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="IOC Feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ioc-stale",
+        url="https://example.com/articles/ioc-stale",
+        canonical_url="https://example.com/articles/ioc-stale",
+        title="Indicators changed after refetch",
+        summary="The stale extractor should back off.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="ioc-stale",
+        content_hash="4" * 64,
+        status="content_fetched",
+        ioc_extraction_state="completed",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Old article text with 1.1.1.1.",
+        extraction_method="readable",
+        retrieved_at=datetime.now(timezone.utc) - timedelta(minutes=5),
+    )
+    existing_ioc = IOC(
+        id=uuid.uuid4(),
+        type="domain",
+        value_raw="fresh.example",
+        value_norm="fresh.example",
+        first_seen_at=datetime.now(timezone.utc),
+        last_seen_at=datetime.now(timezone.utc),
+    )
+    existing_link = ItemIOC(
+        item_id=item.id,
+        ioc_id=existing_ioc.id,
+        source_section="article",
+        occurrences=1,
+        confidence=0.95,
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add_all([article, existing_ioc, existing_link])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.sync_item_algorithm_tags",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale IOC extraction should not retag items")),
+    )
+
+    def _extract_iocs(**_kwargs):
+        current_article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+        assert current_article is not None
+        current_article.text = "New article text with 2.2.2.2."
+        current_article.retrieved_at = datetime.now(timezone.utc)
+        db_session.add(current_article)
+        db_session.flush()
+        return [
+            SimpleNamespace(
+                type="ipv4",
+                value_raw="1.1.1.1",
+                value_norm="1.1.1.1",
+                source_section="article",
+                confidence=1.0,
+            )
+        ]
+
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_iocs", _extract_iocs)
+
+    result = extract_item_iocs.run(str(item.id))
+
+    db_session.expire_all()
+    refreshed_item = db_session.scalar(select(Item).where(Item.id == item.id))
+    refreshed_links = db_session.scalars(select(ItemIOC).where(ItemIOC.item_id == item.id)).all()
+    assert result == {"status": "skipped", "reason": "article_refetched", "item_id": str(item.id)}
+    assert refreshed_item is not None
+    assert refreshed_item.ioc_extraction_state == "completed"
+    assert len(refreshed_links) == 1
+    assert refreshed_links[0].ioc_id == existing_ioc.id
 
 
 def test_extract_item_iocs_marks_empty_results_terminal_for_dispatch(db_session, monkeypatch):

@@ -1,5 +1,7 @@
 from collections.abc import Iterable
 
+from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
+
 SCOPE_READ_FEEDS = "read:feeds"
 SCOPE_WRITE_FEEDS = "write:feeds"
 SCOPE_READ_ITEMS = "read:items"
@@ -60,6 +62,38 @@ DEFAULT_API_TOKEN_SCOPES = (
     SCOPE_READ_ALERTS,
 )
 
+ROLE_API_TOKEN_SCOPE_GRANTS = {
+    ROLE_ADMIN: frozenset({SCOPE_ANY_ALL}),
+    ROLE_ANALYST: frozenset(
+        {
+            SCOPE_READ_FEEDS,
+            SCOPE_READ_ITEMS,
+            SCOPE_READ_TAGS,
+            SCOPE_READ_NOTIFICATIONS,
+            SCOPE_READ_STATS,
+            SCOPE_WRITE_ALERTS,
+            SCOPE_WRITE_VIEWS,
+            SCOPE_WRITE_TOKENS,
+            SCOPE_WRITE_FEEDS,
+            SCOPE_WRITE_ITEMS,
+            SCOPE_WRITE_TAGS,
+            SCOPE_WRITE_NOTIFICATIONS,
+        }
+    ),
+    ROLE_VIEWER: frozenset(
+        {
+            SCOPE_READ_FEEDS,
+            SCOPE_READ_ITEMS,
+            SCOPE_READ_TAGS,
+            SCOPE_READ_NOTIFICATIONS,
+            SCOPE_READ_STATS,
+            SCOPE_WRITE_ALERTS,
+            SCOPE_WRITE_VIEWS,
+            SCOPE_WRITE_TOKENS,
+        }
+    ),
+}
+
 
 def normalize_token_scopes(scopes: Iterable[str] | None) -> list[str]:
     if scopes is None:
@@ -70,6 +104,10 @@ def normalize_token_scopes(scopes: Iterable[str] | None) -> list[str]:
 
 def is_scope_allowed(scope: str) -> bool:
     return scope in ALLOWED_API_TOKEN_SCOPES
+
+
+def get_role_api_token_scope_grants(role: str) -> frozenset[str]:
+    return ROLE_API_TOKEN_SCOPE_GRANTS.get(role, frozenset())
 
 
 def has_required_scope(granted_scopes: set[str], required_scope: str) -> bool:
@@ -99,5 +137,11 @@ def has_required_scope(granted_scopes: set[str], required_scope: str) -> bool:
 
 def missing_delegable_scopes(granted_scopes: Iterable[str], requested_scopes: Iterable[str]) -> list[str]:
     granted = set(normalize_token_scopes(granted_scopes))
+    requested = normalize_token_scopes(requested_scopes)
+    return [scope for scope in requested if not has_required_scope(granted, scope)]
+
+
+def missing_role_token_scopes(role: str, requested_scopes: Iterable[str]) -> list[str]:
+    granted = set(get_role_api_token_scope_grants(role))
     requested = normalize_token_scopes(requested_scopes)
     return [scope for scope in requested if not has_required_scope(granted, scope)]

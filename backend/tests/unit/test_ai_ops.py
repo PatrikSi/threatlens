@@ -10,12 +10,14 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
+    AI_STATUS_READY,
     AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
+    _load_live_task_snapshot,
     cancel_ai_task_run,
     finish_ai_task_run,
     list_ai_task_runs,
@@ -193,7 +195,32 @@ def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_obs
     assert refreshed.metadata_json["terminated_running_task"] is True
 
 
-def test_list_ai_task_runs_reconciles_obviously_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(monkeypatch):
+    class _EmptyInspector:
+        def ping(self):
+            return {}
+
+        def active(self):
+            return {}
+
+        def reserved(self):
+            return {}
+
+        def scheduled(self):
+            return {}
+
+    monkeypatch.setattr("app.services.ai_ops.celery_app.control.inspect", lambda timeout: _EmptyInspector())
+
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+
+    assert snapshot_available is False
+    assert workers == []
+    assert active_tasks == []
+    assert reserved_tasks == []
+    assert scheduled_tasks == []
+
+
+def test_list_ai_task_runs_keeps_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
     item = _create_item(db_session, source_guid="snapshot-unavailable")
 
     run = queue_ai_task_run(
@@ -222,11 +249,48 @@ def test_list_ai_task_runs_reconciles_obviously_stale_runs_when_live_snapshot_un
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
     assert refreshed is not None
-    assert refreshed.status == AI_STATUS_ERROR
-    assert refreshed.reason == "stale_task_lost"
-    assert refreshed.metadata_json["stale_snapshot_available"] is False
+    assert refreshed.status == AI_STATUS_RUNNING
+    assert refreshed.finished_at is None
+    assert "stale_snapshot_available" not in (refreshed.metadata_json or {})
 
-    assert response.items[0].status == AI_STATUS_ERROR
+    assert response.items[0].status == AI_STATUS_RUNNING
+
+
+def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 1},
+        target_count=1,
+    )
+    start_ai_task_run(db_session, run_id=parent_run.id, worker_name="celery@test", celery_task_id="parent-task-id")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    parent_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert parent_run is not None
+    parent_run.status = AI_STATUS_RUNNING
+    parent_run.processed_count = 1
+    parent_run.success_count = 1
+    parent_run.queued_at = stale_time
+    parent_run.started_at = stale_time
+    parent_run.created_at = stale_time
+    parent_run.updated_at = stale_time
+    db_session.add(parent_run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert refreshed_parent is not None
+    assert refreshed_parent.status == AI_STATUS_READY
+    assert refreshed_parent.reason is None
+    assert refreshed_parent.finished_at is not None
+
+    assert response.items[0].status == AI_STATUS_READY
 
 
 def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
