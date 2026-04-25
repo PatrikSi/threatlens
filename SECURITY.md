@@ -16,25 +16,13 @@ GitHub issue-based coordination remains a best-effort maintainer workflow, not a
 
 If no public tag exists yet, use the deployed commit SHA, container image digest, and checked-in OpenAPI contract digest as your release anchor when reporting issues.
 
-## Current Reporting Posture
-
-The configured GitHub origin for this checkout is `https://github.com/PatrikSi/threatlens`, and the repository is currently private with issues enabled for collaborators.
-
-The repository does not currently publish:
-
-- a dedicated private security inbox
-- a verified GitHub private advisory submission path
-- any separate public security intake route for people who do not already have repository access
-
-Until one of those paths is published, ThreatLens should not be described as having a fully public-release-ready confidential vulnerability intake.
-
 ## Reporting
 
-For now, collaborators with repository access can use the issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
+Use the repository's GitHub private vulnerability reporting flow when it is available from the Security tab. That path is preferred for vulnerability reports because it avoids exposing exploit details before maintainers can prepare a fix.
+
+If private vulnerability reporting is unavailable, use the issue tracker only to request maintainer follow-up and, if needed, a non-public coordination path:
 
 - `https://github.com/PatrikSi/threatlens/issues/new`
-
-If you do not already have repository access, this tree does not currently publish a repo-owned confidential reporting path. That remains an external blocker for broader public vulnerability intake.
 
 Please do not publish unpatched vulnerability details in an issue. Initial coordination requests should stay high-level and should not include:
 
@@ -50,11 +38,9 @@ Use the first issue only to share:
 - whether you need an urgent maintainer response because the issue is being exploited or exposes live credentials
 - a request for non-public follow-up if the issue needs deeper coordination
 
-Maintainers may continue coordination through a non-public channel after the initial report, but ThreatLens does not currently guarantee or pre-publish a separate private contact path in-repo.
+Maintainers may continue coordination through a non-public channel after the initial report. If no non-public path is available for a report, keep using the issue only for coordination and avoid posting details that would materially increase exposure before a fix or mitigation is available.
 
-If no non-public path is available for a report, keep using the issue only for coordination and avoid posting details that would materially increase exposure before a fix or mitigation is available.
-
-Once you have a private path, include as much of the following as you can:
+Once you have a private reporting or coordination path, include as much of the following as you can:
 
 - affected commit, branch, tag, or container image
 - deployment mode (`docker compose`, custom reverse proxy, local dev, and so on)

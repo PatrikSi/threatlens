@@ -51,6 +51,7 @@ RUN chmod +x /tmp/generate_frontend_os_package_artifacts.sh \
       /usr/share/doc/threatlens/frontend-os-package-legal \
     && rm -f /tmp/generate_frontend_os_package_artifacts.sh
 COPY compliance/LICENSE /usr/share/doc/threatlens/LICENSE
+COPY compliance/NOTICE /usr/share/doc/threatlens/NOTICE
 COPY compliance/README.md /usr/share/doc/threatlens/README.md
 COPY compliance/THIRD_PARTY_NOTICES.md /usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md
 COPY compliance/licenses/ /usr/share/doc/threatlens/licenses/

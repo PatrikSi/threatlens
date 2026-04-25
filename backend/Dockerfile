@@ -16,6 +16,7 @@ RUN chmod +x /app/scripts/start-api.sh \
     && mkdir -p /usr/share/doc/threatlens \
     && mkdir -p /usr/share/doc/threatlens/licenses \
     && cp /app/compliance/LICENSE /usr/share/doc/threatlens/LICENSE \
+    && cp /app/compliance/NOTICE /usr/share/doc/threatlens/NOTICE \
     && cp /app/compliance/README.md /usr/share/doc/threatlens/README.md \
     && cp /app/compliance/THIRD_PARTY_NOTICES.md /usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md \
     && cp /app/compliance/licenses/*.txt /usr/share/doc/threatlens/licenses/ \

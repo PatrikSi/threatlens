@@ -1,6 +1,6 @@
 # Third-Party Notices
 
-ThreatLens is licensed under Apache-2.0. This repository and its container images also redistribute third-party components. This file supplements the project `LICENSE`; it does not replace the license terms of upstream dependencies.
+ThreatLens is licensed under Apache-2.0. The project copyright notice is recorded in `NOTICE`. This repository and its container images also redistribute third-party components. This file supplements the project `LICENSE`; it does not replace the license terms of upstream dependencies.
 
 ## Dependency Sources and Runtime Inventories
 
@@ -134,8 +134,8 @@ These files are committed directly in this repository:
 
 - Built web bundles include code from the frontend runtime dependencies listed above.
 - Docker images built from this repository also install transitive Python and npm dependencies resolved from the lockfiles. The full resolved runtime inventories plus the generated backend/frontend package-legal bundles are committed under `docs/reference/` and can be regenerated with the command above.
-- Built backend images ship `LICENSE`, `README.md`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `backend-requirements.txt`, `backend-requirements-lock.txt`, `backend-runtime-dependencies.txt`, `backend-runtime-package-metadata.json`, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/` under `/usr/share/doc/threatlens/`.
-- Built web images ship `LICENSE`, `README.md`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `frontend-package-lock.json`, `frontend-runtime-dependencies.txt`, `frontend-runtime-package-metadata.json`, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/` under `/usr/share/doc/threatlens/`.
+- Built backend images ship `LICENSE`, `NOTICE`, `README.md`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `backend-requirements.txt`, `backend-requirements-lock.txt`, `backend-runtime-dependencies.txt`, `backend-runtime-package-metadata.json`, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/` under `/usr/share/doc/threatlens/`.
+- Built web images ship `LICENSE`, `NOTICE`, `README.md`, `THIRD_PARTY_NOTICES.md`, the bundled license texts, `frontend-package-lock.json`, `frontend-runtime-dependencies.txt`, `frontend-runtime-package-metadata.json`, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/` under `/usr/share/doc/threatlens/`.
 - Built web images copy package-published `LICENSE`, `NOTICE`, `COPYING`, and similar top-level legal files from each installed frontend runtime dependency into `/usr/share/doc/threatlens/frontend-runtime-package-legal/`.
 - Built web images preserve the Alpine runtime layer's per-package `APK-INFO` records under `/usr/share/doc/threatlens/frontend-os-package-legal/` and also copy any `/usr/share/licenses/<package>/` trees that the base image publishes.
 - The shipped backend image is based on the pinned `python:3.12.11-slim-bookworm` image and also redistributes Debian Bookworm packages installed during the Docker build. The shipped web image is based on the pinned `nginx:1.27-alpine` image. The pinned `node:22.20.0-alpine` image is a build-stage-only input and is not redistributed in the final web image.

@@ -20,11 +20,9 @@ Examples of unacceptable behavior:
 
 ## Reporting
 
-ThreatLens does not currently publish a dedicated private maintainer conduct inbox in-repo. The configured GitHub origin for this checkout is a private repository, so issue reports are collaborator-visible rather than a public or confidential channel.
-
-For project moderation concerns that can be shared with repository collaborators, open a minimal issue at `https://github.com/PatrikSi/threatlens/issues/new` without posting sensitive personal details.
+For project moderation concerns that can be shared publicly, open a minimal issue at `https://github.com/PatrikSi/threatlens/issues/new` without posting sensitive personal details.
 For private, platform-level, or maintainer-conflict conduct concerns, use GitHub's abuse reporting path at `https://support.github.com/contact/report-abuse`.
-If you do not already have repository access, GitHub abuse reporting is the only documented non-public path today; ThreatLens does not yet publish its own repo-owned confidential conduct route.
+Do not post personal contact details, private messages, or security-sensitive information in public issues.
 
 ## Maintainer Responsibilities
 

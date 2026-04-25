@@ -105,20 +105,18 @@ Release-contract artifacts shipped in the repo:
 
 Project status and support posture:
 
-- The configured GitHub origin for this checkout is `https://github.com/PatrikSi/threatlens`, and the repository is currently private.
 - Tagged releases, when published, are the preferred upgrade anchors for operators.
 - Until the first public tag exists, pin the exact commit SHA and container image digest you deploy. The default branch is the active development line, not a separate LTS channel.
-- GitHub issues and pull requests are currently collaborator workflows inside the private repository, not a public support or disclosure channel.
 - Maintainer responses remain best-effort rather than a contractual support SLA.
+- Security-sensitive reports should follow `SECURITY.md` and should not be filed as detailed public issues.
 
 Community and reporting paths:
 
 - Repository URL: `https://github.com/PatrikSi/threatlens`
-- Collaborator issue tracker: `https://github.com/PatrikSi/threatlens/issues`
-- Collaborator pull requests: `https://github.com/PatrikSi/threatlens/pulls`
-- Security reporting policy: `SECURITY.md` for the current collaborator-visible first-contact process; ThreatLens does not currently publish a dedicated private inbox or a verified GitHub private advisory submission path
-- Conduct and moderation policy: `CODE_OF_CONDUCT.md`; ThreatLens does not currently publish a dedicated private maintainer conduct inbox in-repo
-- If you do not already have repository access, this tree does not yet publish a public issue tracker, public discussion forum, or repo-owned confidential reporting path
+- Issues: `https://github.com/PatrikSi/threatlens/issues`
+- Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
+- Security reporting policy: `SECURITY.md`
+- Conduct and moderation policy: `CODE_OF_CONDUCT.md`
 
 ## Running with Docker
 

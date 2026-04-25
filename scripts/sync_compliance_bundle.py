@@ -13,6 +13,7 @@ def _sync_bundle(target_root: Path, repo_root: Path) -> None:
     licenses_target.mkdir(parents=True, exist_ok=True)
 
     shutil.copy2(repo_root / "LICENSE", target_root / "LICENSE")
+    shutil.copy2(repo_root / "NOTICE", target_root / "NOTICE")
     shutil.copy2(repo_root / "THIRD_PARTY_NOTICES.md", target_root / "THIRD_PARTY_NOTICES.md")
 
     for source in (repo_root / "docs" / "licenses").glob("*.txt"):

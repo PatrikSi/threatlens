@@ -128,6 +128,6 @@ Before merging release-contract changes, review at least:
 
 ## Questions
 
-For non-sensitive product questions, collaborators with repository access can open an issue at `https://github.com/PatrikSi/threatlens/issues` or draft a pull request at `https://github.com/PatrikSi/threatlens/pulls`. The configured GitHub remote is currently private, so those URLs are not a public community/support path for people without repository access.
+For non-sensitive product questions, open an issue at `https://github.com/PatrikSi/threatlens/issues` or draft a pull request at `https://github.com/PatrikSi/threatlens/pulls`.
 
-For security-sensitive concerns, follow `SECURITY.md`. ThreatLens does not currently publish a repo-owned private inbox or a verified GitHub advisory submission path in-repo, so collaborators should use the minimal issue-based coordination path described there, and people without repository access do not yet have a published repo-owned confidential intake route.
+For security-sensitive concerns, follow `SECURITY.md`. Do not include vulnerability details, secrets, tokens, session cookies, hostnames, IPs, or production data in public issues or pull requests.

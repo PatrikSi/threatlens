@@ -7,7 +7,7 @@ ThreatLens treats the checked-in API, dependency, and governance artifacts as pa
 Before publishing a public tag, image, or source release:
 
 1. Verify the repository paths in `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` still point to the active ThreatLens GitHub repository and still describe its actual access posture correctly.
-2. Verify `SECURITY.md` and `CODE_OF_CONDUCT.md` still match the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository is public, the repository UI exposes private vulnerability reporting, and maintainers have verified it. While the repository remains private, keep the docs explicit that issue and pull-request URLs are collaborator-only paths rather than a published public reporting surface.
+2. Verify `SECURITY.md` and `CODE_OF_CONDUCT.md` still match the reporting channels that are actually published. Only mention a GitHub advisory URL after the repository UI exposes private vulnerability reporting and maintainers have verified it.
 3. Regenerate the API and dependency artifacts described below.
 4. Copy the current OpenAPI contract anchor from `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) into the release notes and changelog entry for the published tag.
 5. Run the contract-anchor guard below to confirm `CHANGELOG.md` matches the checked-in schema.
@@ -15,12 +15,12 @@ Before publishing a public tag, image, or source release:
 7. Verify that bundled license texts and `THIRD_PARTY_NOTICES.md` still match the shipped runtime stack and assets.
 8. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
 
-If the repository is still private while you are preparing the first open-source release, treat repository visibility and security-reporting setup as part of the release gate:
+If you are preparing the first open-source release, treat repository visibility and security-reporting setup as part of the release gate:
 
 1. Make the repository public only when the reviewed release commit, images, and docs are ready.
 2. Enable GitHub private vulnerability reporting for the now-public repository, or publish an equivalent repo-owned confidential vulnerability intake path, before announcing the release.
 3. Update `SECURITY.md` to point to the live confidential advisory/reporting path before announcing the release.
-4. Recheck `README.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` so they no longer describe collaborator-only GitHub URLs as the public community/reporting surface.
+4. Recheck `README.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` so public community and reporting paths are accurate.
 
 ## Supported Code Lines
 
@@ -131,6 +131,7 @@ The backend image installs its Python application dependency layer from the chec
 Built backend images write release-compliance metadata to:
 
 - `/usr/share/doc/threatlens/LICENSE`
+- `/usr/share/doc/threatlens/NOTICE`
 - `/usr/share/doc/threatlens/README.md`
 - `/usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md`
 - `/usr/share/doc/threatlens/licenses/`
@@ -145,6 +146,7 @@ Built backend images write release-compliance metadata to:
 Built web images write release-compliance metadata to:
 
 - `/usr/share/doc/threatlens/LICENSE`
+- `/usr/share/doc/threatlens/NOTICE`
 - `/usr/share/doc/threatlens/README.md`
 - `/usr/share/doc/threatlens/THIRD_PARTY_NOTICES.md`
 - `/usr/share/doc/threatlens/licenses/`
