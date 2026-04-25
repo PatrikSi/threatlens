@@ -10,6 +10,7 @@ from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
+    AI_STATUS_QUEUED,
     AI_STATUS_READY,
     AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
@@ -113,6 +114,69 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
     assert refreshed_parent.finished_at is not None
 
     assert response.items[0].id == parent_run.id
+    assert response.items[0].status == AI_STATUS_ERROR
+
+
+def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="queued-backlog")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=30)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_QUEUED
+    run.queued_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_QUEUED
+    assert refreshed.finished_at is None
+    assert response.items[0].status == AI_STATUS_QUEUED
+
+
+def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="queued-backlog-stale")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=2)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_QUEUED
+    run.queued_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_ERROR
+    assert refreshed.reason == "stale_queued_task_unstarted"
+    assert refreshed.finished_at is not None
     assert response.items[0].status == AI_STATUS_ERROR
 
 
@@ -457,7 +521,7 @@ def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as
 
     assert refreshed_enrichment is not None
     assert refreshed_enrichment.status == AI_STATUS_ERROR
-    assert refreshed_enrichment.error == "Task exceeded the stale-run grace period while Celery inspection was unavailable"
+    assert refreshed_enrichment.error == "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
 
 
 def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(db_session, monkeypatch):

@@ -207,7 +207,7 @@ def test_validate_notification_webhook_payload_for_actor_rejects_non_default_por
         validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
 
 
-def test_validate_notification_webhook_payload_for_actor_allows_admin_staging_without_allowlist(monkeypatch):
+def test_validate_notification_webhook_payload_for_actor_blocks_admin_staging_without_allowlist(monkeypatch):
     monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
     monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
 
@@ -226,7 +226,11 @@ def test_validate_notification_webhook_payload_for_actor_allows_admin_staging_wi
         is_approved=True,
     )
 
-    validate_notification_webhook_payload_for_actor(payload, set(), actor_user=admin)
+    with pytest.raises(
+        ValueError,
+        match="Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
+    ):
+        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=admin)
 
 
 def test_notification_webhook_write_extracts_query_params_from_url_template():

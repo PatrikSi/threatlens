@@ -70,6 +70,7 @@ class AIIntegrationError(ValueError):
         response_json: object | None = None,
         status_code: int | None = None,
         retry_hint: str | None = None,
+        retryable: bool = False,
     ):
         super().__init__(message)
         self.request_url = request_url
@@ -78,6 +79,7 @@ class AIIntegrationError(ValueError):
         self.response_json = response_json
         self.status_code = status_code
         self.retry_hint = retry_hint
+        self.retryable = retryable
 
     def debug_payload(self) -> dict[str, object]:
         payload = _sanitize_provider_exchange(
@@ -90,6 +92,7 @@ class AIIntegrationError(ValueError):
         )
         if self.retry_hint:
             payload["retry_hint"] = self.retry_hint
+        payload["retryable"] = self.retryable
         return payload
 
 
@@ -920,7 +923,8 @@ def _request_json_with_usage(
                 current=request_max_tokens,
                 error=exc,
             )
-            retry_delay_seconds = _provider_retry_delay_seconds(attempt=attempt) if attempt < max_attempts else None
+            should_retry = attempt < max_attempts and _ai_error_is_retryable(exc)
+            retry_delay_seconds = _provider_retry_delay_seconds(attempt=attempt) if should_retry else None
             payload = {
                 **exc.debug_payload(),
                 "attempt": attempt,
@@ -935,7 +939,7 @@ def _request_json_with_usage(
                 record_ai_task_event(
                     db,
                     run_id=task_run_id,
-                    event_type="provider_exchange_retry" if attempt < max_attempts else "provider_exchange_failed",
+                    event_type="provider_exchange_retry" if should_retry else "provider_exchange_failed",
                     message=str(exc),
                     payload=payload,
                 )
@@ -949,7 +953,7 @@ def _request_json_with_usage(
                 daily_brief_id=daily_brief_id,
                 error=str(exc),
             )
-            if attempt < max_attempts:
+            if should_retry:
                 request_max_tokens = next_request_max_tokens
                 if retry_delay_seconds is not None and retry_delay_seconds > 0:
                     time.sleep(retry_delay_seconds)
@@ -1006,6 +1010,16 @@ def _provider_retry_delay_seconds(*, attempt: int) -> float:
     return base_delay_seconds + random.uniform(0.0, base_delay_seconds)
 
 
+def _ai_error_is_retryable(error: AIIntegrationError) -> bool:
+    if error.retry_hint == "expand_completion_budget":
+        return True
+    if error.retryable:
+        return True
+    if error.status_code is not None:
+        return error.status_code in {408, 409, 425, 429} or 500 <= error.status_code <= 599
+    return False
+
+
 def _next_retry_max_completion_tokens(
     *,
     feature_type: str,
@@ -1026,11 +1040,11 @@ def _call_ai_json(
     max_completion_tokens: int | None = None,
 ) -> AICompletionResult:
     if not active.ai_enabled:
-        raise AIIntegrationError("AI features are disabled")
+        raise AIIntegrationError("AI features are disabled", retryable=False)
     if not is_shared_ai_base_url_allowed(active.base_url, api_key=active.api_key):
-        raise AIIntegrationError("AI base URL is not allowed when the server AI_API_KEY is configured")
+        raise AIIntegrationError("AI base URL is not allowed when the server AI_API_KEY is configured", retryable=False)
     if not active.ai_configured or not active.base_url or not active.model:
-        raise AIIntegrationError("AI settings are incomplete")
+        raise AIIntegrationError("AI settings are incomplete", retryable=False)
 
     request_url = _build_chat_completion_url(active.base_url)
     request_payload = {
@@ -1073,12 +1087,14 @@ def _call_ai_json(
             response_body=response_body,
             response_json=response_json,
             status_code=exc.response.status_code,
+            retryable=_ai_status_code_is_retryable(exc.response.status_code),
         ) from exc
     except (httpx.HTTPError, SafeFetchError, ValueError) as exc:
         raise AIIntegrationError(
             f"AI request failed: {exc}",
             request_url=request_url,
             request_payload=request_payload,
+            retryable=True,
         ) from exc
 
     latency_ms = int((time.perf_counter() - started_at) * 1000)
@@ -1092,6 +1108,7 @@ def _call_ai_json(
             request_payload=request_payload,
             response_body=response_body,
             status_code=response.status_code,
+            retryable=True,
         ) from exc
 
     try:
@@ -1105,10 +1122,22 @@ def _call_ai_json(
             response_body=response_body,
             response_json=payload,
             status_code=response.status_code,
+            retryable=True,
         ) from exc
 
     finish_reason = choice.get("finish_reason") if isinstance(choice, dict) else None
-    content = _extract_message_content(message.get("content"))
+    try:
+        content = _extract_message_content(message.get("content"))
+    except AIIntegrationError as exc:
+        raise AIIntegrationError(
+            str(exc),
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            retryable=True,
+        ) from exc
     try:
         parsed = _parse_ai_json_content(content)
     except AIIntegrationError as exc:
@@ -1125,6 +1154,7 @@ def _call_ai_json(
             response_json=payload,
             status_code=response.status_code,
             retry_hint=retry_hint,
+            retryable=True,
         ) from exc
     usage = payload.get("usage") or {}
     prompt_char_count = sum(len(entry.get("content") or "") for entry in messages)
@@ -1152,6 +1182,10 @@ def _build_chat_completion_url(base_url: str) -> str:
     if cleaned.endswith("/chat/completions"):
         return cleaned
     return f"{cleaned}/chat/completions"
+
+
+def _ai_status_code_is_retryable(status_code: int) -> bool:
+    return status_code in {408, 409, 425, 429} or 500 <= status_code <= 599
 
 
 def _extract_message_content(content: object) -> str:

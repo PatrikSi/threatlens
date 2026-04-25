@@ -1626,7 +1626,8 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         db.commit()
                     return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
                 now = datetime.now(timezone.utc)
-                if not force and not _is_feed_due(feed, now):
+                is_retry_attempt = int(getattr(self.request, "retries", 0) or 0) > 0
+                if not force and not is_retry_attempt and not _is_feed_due(feed, now):
                     _clear_feed_dispatch_claim(feed)
                     _refresh_feed_next_fetch_at(feed, now)
                     db.add(feed)

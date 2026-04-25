@@ -41,7 +41,8 @@
 | `DEFAULT_API_TOKEN_EXPIRY_DAYS` (`default_api_token_expiry_days`) | `90` | Default token lifetime if not supplied. |
 | `AI_ENABLED` (`ai_enabled`) | `false` | Enables AI routes, nav visibility, enrichment, and daily-brief features. |
 | `AI_API_KEY` (`ai_api_key`) | _(empty)_ | Optional bearer key for the configured AI endpoint. May remain blank for local unauthenticated OpenAI-compatible endpoints. |
-| `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. The OpenAPI schema remains available at `/openapi.json`. |
+| `EXPOSE_API_DOCS_IN_PRODUCTION` (`expose_api_docs_in_production`) | `false` | Keeps `/docs` and `/redoc` disabled by default in production. |
+| `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION` (`expose_openapi_schema_in_production`) | `true` | Keeps the machine-readable OpenAPI contract available at `/openapi.json` by default. Set to `false` if the schema is distributed only as a checked-in artifact. |
 | `ADMIN_EMAIL` (`admin_email`) | `admin@example.com` | Seed admin identity. |
 | `ADMIN_PASSWORD` (`admin_password`) | `admin123` | Seed admin password. |
 | `FETCH_USER_AGENT` (`fetch_user_agent`) | `ThreatLensBot/1.0 (+https://localhost)` | User-Agent for feed/article HTTP requests. |
@@ -54,7 +55,8 @@
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
-| `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` (`notification_webhook_allowed_hosts`) | _(empty)_ | Comma-separated exact hosts, exact `host:port` pairs, wildcard subdomains, or full `http(s)` URL prefixes that non-admin users may target for create/update/test/retry webhook operations. Host-only entries default to `https` on port `443`; entries with explicit ports or path prefixes must match exactly, `*.suffix` only matches subdomains, and allowlist entries do not support embedded credentials, query strings, or fragments. When empty, analyst-managed webhook egress is disabled and only admins can manage outbound webhook destinations. |
+| `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` (`notification_webhook_allowed_hosts`) | _(empty)_ | Comma-separated exact hosts, exact `host:port` pairs, wildcard subdomains, or full `http(s)` URL prefixes that users may target for create/update/test/retry webhook operations. Host-only entries default to `https` on port `443`; entries with explicit ports or path prefixes must match exactly, `*.suffix` only matches subdomains, and allowlist entries do not support embedded credentials, query strings, or fragments. When empty, webhook egress is disabled unless `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true` is set for admin-managed destinations. |
+| `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED` (`notification_webhook_allow_admin_unrestricted`) | `false` | Allows admins to create, update, test, retry, and deliver webhook targets outside `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`. Leave `false` for shared or internet-exposed deployments. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
@@ -63,6 +65,7 @@
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | `127.0.0.1/32,::1/128,172.31.240.0/24` | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. The bundled compose stack reserves `172.31.240.0/24` for the `web` frontend network and trusts only that subnet by default. For other deployments, include only the exact hops you control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |
+| `ALLOWED_HOSTS` (`allowed_hosts`) | `api,localhost,127.0.0.1,::1` | Backend Host header allowlist enforced by FastAPI. Add public hostnames when exposing the API service directly or behind a proxy that preserves the public Host header. |
 | `AUTH_COOKIE_NAME` (`auth_cookie_name`) | `threatlens_session` | HttpOnly auth cookie name for browser sessions. |
 | `AUTH_COOKIE_DOMAIN` (`auth_cookie_domain`) | _(empty)_ | Optional cookie domain override for browser session and CSRF cookies. |
 | `AUTH_COOKIE_PATH` (`auth_cookie_path`) | `/` | Cookie path applied to browser session and CSRF cookies. |
@@ -118,7 +121,7 @@ When `APP_ENV` is `production` or `prod`:
 - `REDIS_PASSWORD` must be set to a non-default value.
 - `AUTH_COOKIE_SECURE` must be `true`.
 - `/docs` and `/redoc` are hidden by default unless `EXPOSE_API_DOCS_IN_PRODUCTION=true`.
-- `/openapi.json` remains available so the machine-readable API contract is always published.
+- `/openapi.json` remains available by default so the machine-readable API contract is published. Set `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION=false` to serve the contract only from the checked-in `docs/reference/openapi.json` artifact.
 
 Outside production:
 
@@ -152,7 +155,7 @@ Outside production:
 ## Trust and Egress Notes
 
 - Feed and article fetches, AI provider calls, and notification webhooks are separate outbound trust boundaries with separate deny-by-default private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`).
-- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the analyst webhook egress allowlist. ThreatLens reevaluates queued analyst-owned webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries. Host-only entries approve the default `https` origin, exact `host:port` or full URL prefix entries can pin non-default ports and tenant path prefixes, and wildcard entries do not cover the apex domain.
+- `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is the webhook egress allowlist. ThreatLens reevaluates queued webhook deliveries against the current allowlist before sending, so tightening the list also blocks older deliveries. Admin-managed destinations can bypass the allowlist only when `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true`; analyst-managed destinations must always match the allowlist. Host-only entries approve the default `https` origin, exact `host:port` or full URL prefix entries can pin non-default ports and tenant path prefixes, and wildcard entries do not cover the apex domain.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound allowlists, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
 - `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`.
 - Admin-only encrypted data inventory is available at `/health/encrypted-data` and includes both a current scan and the most recent startup scan summary for unreadable encrypted rows.

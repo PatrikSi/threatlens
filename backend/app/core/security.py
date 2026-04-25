@@ -9,11 +9,15 @@ from passlib.context import CryptContext
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated=["bcrypt"])
 API_TOKEN_MARKER = "tlp"
+LEGACY_BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2x$", "$2y$")
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if _is_legacy_bcrypt_hash(hashed_password) and len(plain_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
+        return False
     try:
         return pwd_context.verify(plain_password, hashed_password)
     except (TypeError, ValueError):
@@ -22,6 +26,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 def get_password_hash(password: str) -> str:
     return pwd_context.hash(password)
+
+
+def _is_legacy_bcrypt_hash(hashed_password: str) -> bool:
+    return hashed_password.startswith(LEGACY_BCRYPT_PREFIXES)
 
 
 def create_access_token(subject: str, *, token_version: int = 0) -> str:

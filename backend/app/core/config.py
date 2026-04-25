@@ -65,6 +65,28 @@ def _redis_url_is_passwordless_or_default(value: str | None) -> bool:
     return _looks_like_default_service_password(_url_password(normalized))
 
 
+def _is_unsafe_credentialed_cors_origin(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"*", "null"} or "*" in normalized:
+        return True
+    try:
+        parts = urlsplit(normalized)
+    except ValueError:
+        return True
+    if parts.scheme not in {"http", "https"} or not parts.netloc:
+        return True
+    if parts.path not in {"", "/"} or parts.query or parts.fragment:
+        return True
+    return False
+
+
+def _is_unsafe_allowed_host(value: str) -> bool:
+    normalized = value.strip().lower()
+    if not normalized or normalized == "*":
+        return True
+    return "://" in normalized or "/" in normalized
+
+
 def _generate_runtime_secret() -> str:
     return secrets.token_urlsafe(48)
 
@@ -107,6 +129,7 @@ class Settings(BaseSettings):
     ai_enabled: bool = False
     ai_api_key: str | None = None
     expose_api_docs_in_production: bool = False
+    expose_openapi_schema_in_production: bool = True
 
     auth_cookie_name: str = "threatlens_session"
     auth_cookie_domain: str | None = None
@@ -117,6 +140,7 @@ class Settings(BaseSettings):
     auth_csrf_header_name: str = "x-csrf-token"
     auth_require_csrf: bool = True
     trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
+    allowed_hosts: Annotated[list[str], NoDecode] = ["api", "localhost", "127.0.0.1", "::1", "testserver"]
 
     admin_email: str = "admin@example.com"
     admin_password: str = "admin123"
@@ -182,6 +206,7 @@ class Settings(BaseSettings):
     @field_validator(
         "cors_origins",
         "trusted_proxy_cidrs",
+        "allowed_hosts",
         "app_data_encryption_previous_keys",
         "notification_webhook_allowed_hosts",
         mode="before",
@@ -280,6 +305,10 @@ class Settings(BaseSettings):
                 raise ValueError("auth_require_csrf must be true in production")
             if self.allow_legacy_unscoped_tokens:
                 raise ValueError("allow_legacy_unscoped_tokens is not allowed in production")
+            if any(_is_unsafe_credentialed_cors_origin(origin) for origin in self.cors_origins):
+                raise ValueError("cors_origins must be explicit http(s) origins when credentialed CORS is enabled in production")
+            if not self.allowed_hosts or any(_is_unsafe_allowed_host(host) for host in self.allowed_hosts):
+                raise ValueError("allowed_hosts must list explicit trusted hosts in production")
             if _database_url_uses_weak_default(self.database_url):
                 raise ValueError("database_url must use explicit non-default database credentials in production")
             if _looks_like_default_service_password(self.postgres_password):

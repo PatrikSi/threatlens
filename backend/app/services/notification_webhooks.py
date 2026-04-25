@@ -302,8 +302,6 @@ def validate_notification_webhook_payload_for_actor(
     actor_user: User | SimpleNamespace | None,
 ) -> None:
     validate_notification_webhook_payload(payload, available_feed_ids)
-    if getattr(actor_user, "role", None) == ROLE_ADMIN:
-        return
     validate_notification_target_for_actor(
         payload.url_template,
         actor_user=actor_user,

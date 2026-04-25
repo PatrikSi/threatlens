@@ -54,6 +54,80 @@ def test_notification_webhook_policy_reflects_role_and_allowlist(client: TestCli
     assert allowed_analyst_response.json()["reason"] is None
 
 
+def test_admin_webhook_create_requires_allowlist_or_unrestricted_flag(client: TestClient, auth_headers, monkeypatch):
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
+
+    response = client.post(
+        "/notifications/webhooks",
+        json={
+            "name": "Blocked admin webhook",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/notify",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 403
+    assert "Admin-managed webhook deliveries are disabled" in response.json()["detail"]
+
+
+def test_admin_webhook_update_revalidates_allowlist(client: TestClient, auth_headers, db_session, seed_users, monkeypatch):
+    admin = seed_users["admin"]
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=admin.id,
+        name="Existing webhook",
+        enabled=True,
+        event_type="rss_item_new",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    db_session.add(webhook)
+    db_session.commit()
+
+    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
+
+    response = client.patch(
+        f"/notifications/webhooks/{webhook.id}",
+        json={
+            "name": "Blocked update",
+            "enabled": True,
+            "event_type": "rss_item_new",
+            "url_template": "https://hooks.example.com/changed",
+            "method": "POST",
+            "feed_scope": "all",
+            "feed_ids": [],
+            "query_params": [],
+            "headers": [],
+            "body_mode": "none",
+            "body_fields": [],
+            "timeout_seconds": 10,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 403
+    assert "Admin-managed webhook deliveries are disabled" in response.json()["detail"]
+
+
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):
     admin = seed_users["admin"]
     feed = Feed(

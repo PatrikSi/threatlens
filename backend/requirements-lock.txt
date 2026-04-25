@@ -1,5 +1,5 @@
 # Locked backend runtime dependency set used by backend/Dockerfile.
-# Refresh this file from a clean backend runtime image when requirements.txt changes.
+# Refresh this file from a backend runtime environment that matches backend/requirements.txt.
 alembic==1.16.4
 amqp==5.3.1
 annotated-types==0.7.0

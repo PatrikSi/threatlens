@@ -63,6 +63,12 @@ vi.mock('./pages/StatsPage', () => ({
   StatsPage: () => <div>Stats Test Page</div>,
 }))
 
+vi.mock('./pages/FeedsPage', () => ({
+  FeedsPage: () => {
+    throw new Error('Lazy feed route exploded')
+  },
+}))
+
 import App from './App'
 
 let root: Root | null = null
@@ -163,5 +169,19 @@ describe('App router integration', () => {
     })
 
     expect(await waitForText('Stats Test Page')).toBe(true)
+  })
+
+  it('renders a route error boundary when a lazy page fails during render', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    try {
+      await renderApp('/feeds')
+
+      expect(await waitForText('Page failed to load')).toBe(true)
+      expect(document.body.textContent ?? '').toContain('Lazy feed route exploded')
+      expect(document.querySelector('[role="alert"]')).not.toBeNull()
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 })

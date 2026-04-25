@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 
@@ -23,65 +23,35 @@ export function AppShell() {
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [logoutNotice, setLogoutNotice] = useState<string | null>(null)
-  const logoutRedirectTimerRef = useRef<number | null>(null)
 
   const isDashboardRoute = location.pathname === '/'
   const navLinks = NAV_LINKS
-
-  const clearLogoutRedirectTimer = () => {
-    if (logoutRedirectTimerRef.current === null) {
-      return
-    }
-
-    window.clearTimeout(logoutRedirectTimerRef.current)
-    logoutRedirectTimerRef.current = null
-  }
-
-  const scheduleLogoutRedirect = (onTimeout: () => void) => {
-    clearLogoutRedirectTimer()
-    logoutRedirectTimerRef.current = window.setTimeout(() => {
-      onTimeout()
-    }, 1200)
-  }
 
   const logout = useMutation({
     mutationFn: async () => {
       try {
         await apiFetch('/auth/logout', { method: 'POST' })
-        return { success: true as const }
+        return { shouldClearLocalSession: true as const }
       } catch (error) {
-        return { success: false as const, notice: resolveLogoutNotice(error) }
+        if (isServerExpiredLogout(error)) {
+          return { shouldClearLocalSession: true as const }
+        }
+        throw error
       }
     },
     onMutate: () => {
-      clearLogoutRedirectTimer()
       setLogoutNotice(null)
     },
     onSuccess: (result) => {
-      if (result.success) {
+      if (result.shouldClearLocalSession) {
         markLoggedOut()
         navigate('/login', { replace: true })
-        return
       }
-
-      setLogoutNotice(result.notice)
-      scheduleLogoutRedirect(() => {
-        markLoggedOut()
-        navigate('/login', { replace: true })
-      })
+    },
+    onError: (error) => {
+      setLogoutNotice(resolveLogoutFailureNotice(error))
     },
   })
-
-  useEffect(() => {
-    return () => {
-      if (logoutRedirectTimerRef.current === null) {
-        return
-      }
-
-      window.clearTimeout(logoutRedirectTimerRef.current)
-      logoutRedirectTimerRef.current = null
-    }
-  }, [])
 
   useEffect(() => {
     if (!meQuery.error) {
@@ -214,7 +184,11 @@ export function AppShell() {
             </button>
           </div>
         </div>
-        {logoutNotice && <div className="px-3 pb-3 text-sm text-amber-700 dark:px-6 dark:text-amber-300">{logoutNotice}</div>}
+        {logoutNotice && (
+          <div role="alert" aria-live="assertive" aria-atomic="true" className="px-3 pb-3 text-sm text-amber-700 dark:px-6 dark:text-amber-300">
+            {logoutNotice}
+          </div>
+        )}
       </header>
       <main className={`w-full ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
         <Outlet />
@@ -230,14 +204,24 @@ function isNavLinkActive(pathname: string, targetPath: string) {
   return pathname === targetPath || pathname.startsWith(`${targetPath}/`)
 }
 
-function resolveLogoutNotice(error: unknown) {
-  if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-    return 'Your session was already expired or logged out on the server. This browser has been signed out locally.'
+function isServerExpiredLogout(error: unknown) {
+  if (!(error instanceof ApiError)) {
+    return false
   }
+  if (error.status === 401) {
+    return true
+  }
+  return error.status === 403 && error.message !== 'Missing or invalid CSRF token'
+}
 
+function resolveLogoutFailureNotice(error: unknown) {
   if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return `Signed out locally, but the server logout request failed: ${error.message}`
+    return `Logout was not completed because the server returned an error: ${error.message}`
   }
 
-  return 'Signed out locally, but the server logout request could not be completed. You will be returned to the login screen.'
+  if (error instanceof Error && error.message.trim()) {
+    return `Logout was not completed because the request failed: ${error.message}`
+  }
+
+  return 'Logout was not completed. Check your connection and try again.'
 }

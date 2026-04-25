@@ -41,6 +41,12 @@ def test_trusted_proxy_cidrs_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch
     assert settings.trusted_proxy_cidrs == ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
 
 
+def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ALLOWED_HOSTS", "api, threatlens.example.com")
+    settings = Settings(_env_file=None)
+    assert settings.allowed_hosts == ["api", "threatlens.example.com"]
+
+
 def test_notification_webhook_admin_unrestricted_flag_parses_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
     settings = Settings(_env_file=None)
@@ -106,6 +112,18 @@ def test_production_requires_csrf_for_cookie_auth():
 def test_production_rejects_legacy_unscoped_token_bypass():
     with pytest.raises(ValueError):
         isolated_settings(**production_settings_kwargs(allow_legacy_unscoped_tokens=True))
+
+
+@pytest.mark.parametrize("origin", ["*", "null", "https://*.example.com", "https://example.com/path"])
+def test_production_rejects_unsafe_credentialed_cors_origins(origin: str):
+    with pytest.raises(ValueError, match="cors_origins"):
+        isolated_settings(**production_settings_kwargs(cors_origins=[origin]))
+
+
+@pytest.mark.parametrize("host", ["*", "", "https://example.com", "example.com/path"])
+def test_production_rejects_unsafe_allowed_hosts(host: str):
+    with pytest.raises(ValueError, match="allowed_hosts"):
+        isolated_settings(**production_settings_kwargs(allowed_hosts=[host]))
 
 
 @pytest.mark.parametrize(

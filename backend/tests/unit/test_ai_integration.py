@@ -1748,7 +1748,7 @@ def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retr
         _ = (active, messages)
         attempts["count"] += 1
         if attempts["count"] == 1:
-            raise AIIntegrationError("provider timeout")
+            raise AIIntegrationError("provider timeout", retryable=True)
         return AICompletionResult(
             payload={
                 "summary_text": "Retry succeeded.",
@@ -1781,6 +1781,90 @@ def test_run_item_ai_enrichment_applies_backoff_and_jitter_between_provider_retr
     assert sleep_calls == [pytest.approx(0.75)]
     assert retry_event is not None
     assert retry_event.payload_json["retry_delay_seconds"] == pytest.approx(0.75, rel=1e-3)
+
+
+def test_run_item_ai_enrichment_does_not_retry_terminal_provider_auth_errors(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Post",
+        url="https://example.com/threat-post-auth-error.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="threat-post-auth-error",
+        url="https://example.com/articles/threat-post-auth-error",
+        canonical_url="https://example.com/articles/threat-post-auth-error",
+        title="Terminal auth error",
+        summary="Provider credentials are invalid.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="threat-post-auth-error",
+        content_hash="9" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="The provider rejects this request with an authentication failure.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=3,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    attempts = {"count": 0}
+
+    def _always_auth_error(active, *, messages):
+        _ = (active, messages)
+        attempts["count"] += 1
+        raise AIIntegrationError("provider rejected credentials", status_code=401, retryable=False)
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _always_auth_error)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    retry_events = db_session.scalars(
+        select(AITaskEvent).where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_retry")
+    ).all()
+    failure_event = db_session.scalar(
+        select(AITaskEvent)
+        .where(AITaskEvent.task_run_id == run.id, AITaskEvent.event_type == "provider_exchange_failed")
+        .order_by(AITaskEvent.created_at.asc())
+    )
+
+    assert attempts["count"] == 1
+    assert result.status == "error"
+    assert retry_events == []
+    assert failure_event is not None
+    assert failure_event.payload_json["status_code"] == 401
+    assert failure_event.payload_json["retryable"] is False
 
 
 def test_run_item_ai_enrichment_stops_before_retry_when_cancel_requested_after_failure(
@@ -1851,7 +1935,7 @@ def test_run_item_ai_enrichment_stops_before_retry_when_cancel_requested_after_f
         task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
         db_session.add(task_run)
         db_session.flush()
-        raise AIIntegrationError("provider timeout")
+        raise AIIntegrationError("provider timeout", retryable=True)
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
 
@@ -2088,7 +2172,7 @@ def test_run_daily_brief_generation_stops_before_retry_when_cancel_requested_aft
         task_run.metadata_json = {"cancel_requested_at": datetime.now(timezone.utc).isoformat()}
         db_session.add(task_run)
         db_session.flush()
-        raise AIIntegrationError("provider timeout")
+        raise AIIntegrationError("provider timeout", retryable=True)
 
     monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fail_then_cancel)
 

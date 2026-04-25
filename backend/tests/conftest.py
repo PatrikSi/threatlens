@@ -33,6 +33,10 @@ from app.tasks import feed_tasks
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _TEST_DATABASE_URL_ENV = "THREATLENS_TEST_DATABASE_URL"
 _TEST_REDIS_URL_ENV = "THREATLENS_TEST_REDIS_URL"
+_TEST_POSTGRES_IMAGE_ENV = "THREATLENS_TEST_POSTGRES_IMAGE"
+_TEST_REDIS_IMAGE_ENV = "THREATLENS_TEST_REDIS_IMAGE"
+_DEFAULT_TEST_POSTGRES_IMAGE = "postgres:16@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f"
+_DEFAULT_TEST_REDIS_IMAGE = "redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065"
 _DOCKER_STARTUP_TIMEOUT_SECONDS = 60
 
 
@@ -234,7 +238,7 @@ def test_database_url():
                 "POSTGRES_USER=postgres",
                 "-e",
                 "POSTGRES_PASSWORD=postgres",
-                "postgres:16",
+                os.getenv(_TEST_POSTGRES_IMAGE_ENV, _DEFAULT_TEST_POSTGRES_IMAGE),
             )
             port = _docker_mapped_port(container_name, "5432/tcp")
             database_url = f"postgresql+psycopg://postgres:postgres@127.0.0.1:{port}/threatlens_test"
@@ -268,7 +272,7 @@ def test_redis_url():
                     "-P",
                     "--name",
                     container_name,
-                    "redis:7-alpine",
+                    os.getenv(_TEST_REDIS_IMAGE_ENV, _DEFAULT_TEST_REDIS_IMAGE),
                     "redis-server",
                     "--appendonly",
                     "no",

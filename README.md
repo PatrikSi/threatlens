@@ -65,8 +65,8 @@ Outbound egress:
 - Feed and article fetches use `ALLOW_PRIVATE_NETWORK_FETCH`; leave it `false` unless you explicitly trust private-network sources.
 - AI provider calls use `ALLOW_PRIVATE_NETWORK_AI`; leave it `false` unless you explicitly trust an internal AI endpoint.
 - Notification webhooks use `ALLOW_PRIVATE_NETWORK_WEBHOOKS`; leave it `false` unless you explicitly trust private-network targets.
-- Admins can always manage their own notification webhooks.
-- Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
+- Admins can manage notification webhooks when targets match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, or when `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true` is explicitly enabled.
+- Analysts can only create, update, test, or retry webhook deliveries after an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and the target matches that allowlist.
 - `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` accepts a comma-separated list of exact hosts, exact `host:port` pairs, wildcard subdomains, or full `http(s)` URL prefixes, for example `hooks.slack.com,https://hooks.example.com/services/tenant-a,*.logic.azure.com`.
 - Plain host entries approve the default `https` origin for that host. Use an explicit `host:port` or full URL prefix entry to allow a non-default port or a tenant-scoped path, and `*.suffix` only matches subdomains, not the apex `suffix`.
 
@@ -77,6 +77,9 @@ Secure defaults in the shipped template:
 - `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`
 - `SEED_ADMIN_ON_STARTUP=false`
 - `EXPOSE_API_DOCS_IN_PRODUCTION=false`
+- `EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION=true`
+- `ALLOWED_HOSTS=api,localhost,127.0.0.1,::1`
+- `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=false`
 
 For an HTTP-only local evaluation, set `APP_ENV=development` and `AUTH_COOKIE_SECURE=false` before first startup.
 
@@ -145,6 +148,7 @@ Startup flow for `docker-compose.yml`:
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
 - Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
 - The bundled compose stack reserves `172.31.240.0/24` for the `web` frontend network and trusts that exact subnet by default so browser auth throttling can recover the real client IP through the shipped proxy. If you deploy behind different proxies, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
+- The backend enforces an `ALLOWED_HOSTS` Host-header allowlist. The compose proxy forwards to the internal `api` host by default; add your public API hostnames if you expose the backend service through another proxy.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
 
@@ -291,7 +295,7 @@ curl http://localhost:3000/api/v1/health/ready
 ## Trust Boundaries
 
 - ThreatLens is a self-hosted, single-deployment application for one team or organization. It does not implement tenant isolation between separate customers.
-- The platform makes outbound requests to configured feed/article URLs, an optional AI endpoint, and user-configured webhook destinations. Private-network access is disabled by default and controlled separately for fetch, AI, and webhook traffic. Analyst-managed webhook destinations are denied by default unless `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is configured.
+- The platform makes outbound requests to configured feed/article URLs, an optional AI endpoint, and user-configured webhook destinations. Private-network access is disabled by default and controlled separately for fetch, AI, and webhook traffic. Webhook destinations are denied by default unless `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is configured, with an explicit `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true` escape hatch for admin-managed destinations.
 - Browser dashboard layouts, read state, and scratch notes are stored in local browser storage per user. Session credentials remain in cookies rather than browser storage.
 - Webhook templates and delivery snapshots are encrypted at rest with `APP_DATA_ENCRYPTION_KEY`, but authorized users can still view decrypted previews through the application.
 - AI summaries, daily briefs, and usage history are stored in the application database. Provider-exchange inspection stores sanitized request/response metadata, not full raw provider transcripts.
@@ -354,7 +358,7 @@ curl -X POST http://localhost:3000/api/v1/notifications/webhooks \
   }'
 ```
 
-If the caller is an `analyst`, the webhook target must match `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`: plain host entries map to the default `https` origin, exact `host:port` or full URL prefix entries can approve non-default ports or tenant-scoped paths, and `*.suffix` does not include the apex `suffix`. Admin-managed webhooks are not constrained by that allowlist.
+Webhook egress is disabled by default until `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` is configured. Analyst-managed targets must match that allowlist; admin-managed targets must either match it or have `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true` explicitly enabled. Plain host entries map to the default `https` origin, exact `host:port` or full URL prefix entries can approve non-default ports or tenant-scoped paths, and `*.suffix` does not include the apex `suffix`.
 
 Queue a Daily Brief after AI is configured:
 

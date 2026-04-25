@@ -13,7 +13,7 @@ from app.models.user import User
 from app.schemas.health import EncryptedDataInventoryResponse
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import QUEUE_AI, QUEUE_INGEST, QUEUE_MAINTENANCE, QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, celery_app
 
 router = APIRouter(prefix="/health", tags=["health"])
 
@@ -61,7 +61,7 @@ def _readiness_response(db: Session, *, detailed: bool):
     settings = get_settings()
     db_ok = _database_health_ok(db)
     redis_ok = _redis_health_ok(settings)
-    worker_ok, _workers = _worker_health_snapshot(settings)
+    worker_ok, _workers, _worker_queues = _worker_health_snapshot(settings)
     beat_ok, _heartbeat_raw, _age_seconds = _beat_health_snapshot(settings)
 
     ok = db_ok and redis_ok and worker_ok and beat_ok
@@ -84,12 +84,13 @@ def _readiness_response(db: Session, *, detailed: bool):
 
 def _worker_health_response(*, detailed: bool):
     settings = get_settings()
-    worker_ok, workers = _worker_health_snapshot(settings)
+    worker_ok, workers, queue_snapshot = _worker_health_snapshot(settings)
 
     status_code = status.HTTP_200_OK if worker_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     payload = {"ok": worker_ok}
     if detailed:
         payload["workers"] = workers
+        payload["queues"] = queue_snapshot
     return JSONResponse(status_code=status_code, content=payload)
 
 
@@ -131,19 +132,51 @@ def _redis_health_ok(settings) -> bool:
         return False
 
 
-def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str]]:
+def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str], dict[str, object]]:
     worker_ok = False
     workers: dict[str, str] = {}
+    queue_snapshot: dict[str, object] = {
+        "required": _required_worker_queues(settings),
+        "covered": [],
+        "missing": _required_worker_queues(settings),
+        "by_worker": {},
+    }
     try:
         inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
         raw_ping = inspector.ping() or {}
-        worker_ok = bool(raw_ping)
         for worker_name, response in raw_ping.items():
             pong_value = response.get("ok") if isinstance(response, dict) else None
             workers[worker_name] = str(pong_value or "unknown")
+        raw_queues = inspector.active_queues() or {}
+        covered_queues: set[str] = set()
+        queues_by_worker: dict[str, list[str]] = {}
+        for worker_name, queues in raw_queues.items():
+            worker_queue_names = sorted(
+                queue.get("name")
+                for queue in queues
+                if isinstance(queue, dict) and isinstance(queue.get("name"), str)
+            )
+            queues_by_worker[worker_name] = worker_queue_names
+            covered_queues.update(worker_queue_names)
+        required_queues = set(_required_worker_queues(settings))
+        missing_queues = sorted(required_queues - covered_queues)
+        queue_snapshot = {
+            "required": sorted(required_queues),
+            "covered": sorted(covered_queues),
+            "missing": missing_queues,
+            "by_worker": queues_by_worker,
+        }
+        worker_ok = bool(raw_ping) and not missing_queues
     except Exception:
         worker_ok = False
-    return worker_ok, workers
+    return worker_ok, workers, queue_snapshot
+
+
+def _required_worker_queues(settings) -> list[str]:
+    queues = [QUEUE_INGEST, QUEUE_PROCESSING, QUEUE_NOTIFICATIONS, QUEUE_MAINTENANCE]
+    if settings.ai_enabled:
+        queues.append(QUEUE_AI)
+    return queues
 
 
 def _beat_health_snapshot(settings) -> tuple[bool, str | None, int | None]:

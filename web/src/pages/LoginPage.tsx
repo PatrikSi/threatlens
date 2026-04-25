@@ -104,7 +104,12 @@ export function LoginPage() {
             : 'Self-registered accounts require admin approval before login.'}
         </p>
         {mode === 'login' && authMessage && (
-          <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          <p
+            role="alert"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+          >
             {authMessage}
           </p>
         )}
@@ -132,41 +137,69 @@ export function LoginPage() {
           </div>
         )}
 
-        <label className="mt-5 block text-sm font-semibold">Email</label>
+        <label htmlFor="login-email" className="mt-5 block text-sm font-semibold">
+          Email
+        </label>
         <input
+          id="login-email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           type="email"
+          autoComplete="email"
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
           required
         />
 
-        <label className="mt-4 block text-sm font-semibold">Password</label>
+        <label htmlFor="login-password" className="mt-4 block text-sm font-semibold">
+          Password
+        </label>
         <input
+          id="login-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           type="password"
+          autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
           required
         />
 
         {mode === 'register' && (
           <>
-            <label className="mt-4 block text-sm font-semibold">Confirm Password</label>
+            <label htmlFor="login-confirm-password" className="mt-4 block text-sm font-semibold">
+              Confirm Password
+            </label>
             <input
+              id="login-confirm-password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               type="password"
+              autoComplete="new-password"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               required
             />
           </>
         )}
 
-        {registerSuccessMessage && <p className="mt-3 text-sm text-green-700 dark:text-green-400">{registerSuccessMessage}</p>}
-        {registerFormError && <p className="mt-3 text-sm text-red-600">{registerFormError}</p>}
-        {mode === 'login' && login.isError && <p className="mt-3 text-sm text-red-600">{resolveLoginError(login.error)}</p>}
-        {mode === 'register' && register.isError && <p className="mt-3 text-sm text-red-600">{resolveRegisterError(register.error)}</p>}
+        {registerSuccessMessage && (
+          <p role="status" aria-live="polite" aria-atomic="true" className="mt-3 text-sm text-green-700 dark:text-green-400">
+            {registerSuccessMessage}
+          </p>
+        )}
+        {registerFormError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+            {registerFormError}
+          </p>
+        )}
+        {mode === 'login' && login.isError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+            {resolveLoginError(login.error)}
+          </p>
+        )}
+        {mode === 'register' && register.isError && (
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+            {resolveRegisterError(register.error)}
+          </p>
+        )}
 
         <button
           type="submit"

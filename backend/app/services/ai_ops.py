@@ -927,6 +927,7 @@ def _reconcile_stale_ai_runs(
     )
     now = datetime.now(timezone.utc)
     stale_before = now - STALE_AI_RUN_GRACE_PERIOD
+    fallback_stale_before = now - STALE_AI_RUN_FALLBACK_GRACE_PERIOD
     changed = False
     reconciled_count = 0
 
@@ -943,15 +944,24 @@ def _reconcile_stale_ai_runs(
     )
     for run in unfinished_leaf_runs:
         if can_reconcile_missing_live_tasks:
-            if not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+            if not _is_stale_unfinished_run(
+                run,
+                live_task_ids,
+                running_stale_before=stale_before,
+                queued_stale_before=fallback_stale_before,
+            ):
                 continue
-            stale_reason = "stale_task_lost"
-            stale_error = "Task no longer appears in Celery and did not report completion"
+            if run.status == AI_STATUS_QUEUED:
+                stale_reason = "stale_queued_task_unstarted"
+                stale_error = "Task remained queued beyond the stale-run grace period and no longer appears in Celery"
+            else:
+                stale_reason = "stale_task_lost"
+                stale_error = "Task no longer appears in Celery and did not report completion"
         else:
-            if not _is_unfinished_run_past_stale_grace(run, stale_before):
+            if not _is_unfinished_run_past_stale_grace(run, fallback_stale_before):
                 continue
             stale_reason = "stale_task_snapshot_unavailable"
-            stale_error = "Task exceeded the stale-run grace period while Celery inspection was unavailable"
+            stale_error = "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
         _finish_reconciled_stale_run(
             db,
             run=run,
@@ -1003,7 +1013,12 @@ def _reconcile_stale_ai_runs(
             continue
         if not can_reconcile_missing_live_tasks:
             continue
-        if unfinished_child_count > 0 or not _is_stale_unfinished_run(run, live_task_ids, stale_before):
+        if unfinished_child_count > 0 or not _is_stale_unfinished_run(
+            run,
+            live_task_ids,
+            running_stale_before=stale_before,
+            queued_stale_before=fallback_stale_before,
+        ):
             continue
         _finish_reconciled_stale_run(
             db,
@@ -1087,9 +1102,16 @@ def _extract_positional_item_id(task_name: str, args: list[Any]) -> Any:
     return None
 
 
-def _is_stale_unfinished_run(run: AITaskRun, live_task_ids: set[str], stale_before: datetime) -> bool:
+def _is_stale_unfinished_run(
+    run: AITaskRun,
+    live_task_ids: set[str],
+    *,
+    running_stale_before: datetime,
+    queued_stale_before: datetime,
+) -> bool:
     if run.celery_task_id and run.celery_task_id in live_task_ids:
         return False
+    stale_before = queued_stale_before if run.status == AI_STATUS_QUEUED else running_stale_before
     return _is_unfinished_run_past_stale_grace(run, stale_before)
 
 

@@ -315,6 +315,21 @@ describe('NotificationsPage DOM workflows', () => {
     expect(saveButton?.hasAttribute('disabled')).toBe(true)
   })
 
+  it('disables admin webhook writes when the egress policy is locked down', () => {
+    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
+    notificationsPageDomMocks.webhookPolicy.reason =
+      'Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled.'
+    const view = renderPage()
+
+    expect(pageText()).toContain('Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured')
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+
+    const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Create webhook'),
+    )
+    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('shows policy load errors instead of presenting them as a role restriction', () => {
     notificationsPageDomMocks.webhookPolicyError = true
     const view = renderPage()

@@ -38,6 +38,16 @@ def test_build_openapi_visibility_kwargs_allows_opt_in_docs_in_production():
     assert _build_openapi_visibility_kwargs(settings) == {}
 
 
+def test_build_openapi_visibility_kwargs_can_hide_openapi_schema_in_production():
+    settings = _production_settings(expose_openapi_schema_in_production=False)
+
+    assert _build_openapi_visibility_kwargs(settings) == {
+        "docs_url": None,
+        "redoc_url": None,
+        "openapi_url": None,
+    }
+
+
 def test_build_openapi_visibility_kwargs_keeps_docs_in_development():
     settings = Settings(app_env="development")
 

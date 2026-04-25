@@ -1,13 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
+  Link,
   Navigate,
   Outlet,
   Route,
   RouterProvider,
   createBrowserRouter,
   createRoutesFromElements,
+  isRouteErrorResponse,
+  useRouteError,
 } from 'react-router-dom'
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react'
+import { Component, Suspense, lazy, useEffect, useMemo, useState } from 'react'
 
 import { AppShell } from './components/AppShell'
 import { AuthProvider, useAuth } from './components/AuthContext'
@@ -50,7 +53,11 @@ function createQueryClient() {
 export default function App() {
   const [router] = useState(() => createAppRouter())
 
-  return <RouterProvider router={router} />
+  return (
+    <AppRenderErrorBoundary>
+      <RouterProvider router={router} />
+    </AppRenderErrorBoundary>
+  )
 }
 
 function RouteLoadingFallback({ label }: { label: string }) {
@@ -68,7 +75,7 @@ function suspenseRoute(element: React.ReactNode, label: string) {
 function createAppRouter() {
   return createBrowserRouter(
     createRoutesFromElements(
-      <Route element={<AppProviders />}>
+      <Route element={<AppProviders />} errorElement={<RouteErrorBoundary />}>
         <Route path="/login" element={<LoginPage />} />
         <Route
           path="/"
@@ -125,6 +132,88 @@ function createAppRouter() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>,
     ),
+  )
+}
+
+interface AppRenderErrorBoundaryState {
+  error: Error | null
+}
+
+class AppRenderErrorBoundary extends Component<{ children: React.ReactNode }, AppRenderErrorBoundaryState> {
+  state: AppRenderErrorBoundaryState = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <AppErrorState
+          title="ThreatLens could not render"
+          description="Refresh the page and try again. If the problem continues, contact an administrator."
+          errorMessage={this.state.error.message}
+        />
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+function RouteErrorBoundary() {
+  const error = useRouteError()
+  const title = isRouteErrorResponse(error) ? `Page failed (${error.status})` : 'Page failed to load'
+  const errorMessage = error instanceof Error ? error.message : isRouteErrorResponse(error) ? error.statusText : undefined
+
+  return (
+    <AppErrorState
+      title={title}
+      description="ThreatLens could not render this page. Return to the dashboard or refresh the browser."
+      errorMessage={errorMessage}
+      homeLink
+    />
+  )
+}
+
+function AppErrorState({
+  title,
+  description,
+  errorMessage,
+  homeLink = false,
+}: {
+  title: string
+  description: string
+  errorMessage?: string
+  homeLink?: boolean
+}) {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 text-ink dark:text-slate-100">
+      <div role="alert" className="w-full max-w-xl rounded-xl border border-red-300/60 bg-white/90 p-6 shadow-sm dark:border-red-500/30 dark:bg-[#041612]/95">
+        <h1 className="font-display text-3xl">{title}</h1>
+        <p className="mt-2 text-sm text-slate dark:text-slate-300">{description}</p>
+        {errorMessage && (
+          <p className="mt-3 rounded border border-slate/20 bg-slate/5 px-3 py-2 text-sm text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-200">
+            {errorMessage}
+          </p>
+        )}
+        <button
+          type="button"
+          className="mt-4 rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 dark:border-white/10 dark:text-slate-100"
+          onClick={() => window.location.reload()}
+        >
+          Reload app
+        </button>
+        {homeLink && (
+          <Link
+            to="/"
+            className="ml-2 mt-4 inline-flex rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
+          >
+            Go to dashboard
+          </Link>
+        )}
+      </div>
+    </div>
   )
 }
 

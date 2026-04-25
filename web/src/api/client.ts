@@ -75,7 +75,13 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
     return undefined as T
   }
 
-  return (await response.json()) as T
+  const raw = await response.text()
+  if (!raw.trim()) {
+    return undefined as T
+  }
+
+  const parsed = tryParseJsonResult(raw)
+  return (parsed.ok ? parsed.value : raw) as T
 }
 
 function composeAbortSignals(primary: AbortSignal | null | undefined, secondary: AbortSignal) {
@@ -125,6 +131,14 @@ function tryParseJson(value: string): unknown {
     return JSON.parse(value) as unknown
   } catch {
     return null
+  }
+}
+
+function tryParseJsonResult(value: string): { ok: true; value: unknown } | { ok: false } {
+  try {
+    return { ok: true, value: JSON.parse(value) as unknown }
+  } catch {
+    return { ok: false }
   }
 }
 

@@ -8,6 +8,7 @@ from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
@@ -50,9 +51,12 @@ API_ROUTERS: tuple[APIRouter, ...] = (
 
 def _build_openapi_visibility_kwargs(active_settings: Settings) -> dict[str, str | None]:
     is_production = active_settings.app_env.lower() in {"production", "prod"}
+    kwargs: dict[str, str | None] = {}
     if is_production and not active_settings.expose_api_docs_in_production:
-        return {"docs_url": None, "redoc_url": None}
-    return {}
+        kwargs.update({"docs_url": None, "redoc_url": None})
+    if is_production and not active_settings.expose_openapi_schema_in_production:
+        kwargs["openapi_url"] = None
+    return kwargs
 
 
 def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
@@ -109,6 +113,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if settings.allowed_hosts:
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):

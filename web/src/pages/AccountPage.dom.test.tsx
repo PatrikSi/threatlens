@@ -9,10 +9,20 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const accountPageDomMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  markLoggedOut: vi.fn(),
+  navigate: vi.fn(),
 }))
 
 vi.mock('../api/client', () => ({
   apiFetch: accountPageDomMocks.apiFetch,
+}))
+
+vi.mock('../components/AuthContext', () => ({
+  useAuth: () => ({
+    sessionVersion: 0,
+    markAuthenticated: vi.fn(),
+    markLoggedOut: accountPageDomMocks.markLoggedOut,
+  }),
 }))
 
 vi.mock('../hooks/useCurrentUser', () => ({
@@ -37,6 +47,10 @@ vi.mock('../hooks/useCurrentUser', () => ({
     isError: false,
     error: null,
   }),
+}))
+
+vi.mock('react-router-dom', () => ({
+  useNavigate: () => accountPageDomMocks.navigate,
 }))
 
 import { AccountPage } from './AccountPage'
@@ -87,10 +101,12 @@ afterEach(async () => {
   container = null
   document.body.innerHTML = ''
   accountPageDomMocks.apiFetch.mockReset()
+  accountPageDomMocks.markLoggedOut.mockReset()
+  accountPageDomMocks.navigate.mockReset()
 })
 
 describe('AccountPage DOM workflows', () => {
-  it('announces a successful password change politely', async () => {
+  it('redirects to login after a successful password change', async () => {
     accountPageDomMocks.apiFetch.mockResolvedValue({})
 
     const view = renderPage()
@@ -121,11 +137,13 @@ describe('AccountPage DOM workflows', () => {
       }),
     })
 
-    const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
-    expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('Password updated.')
     expect(currentPasswordInput?.value).toBe('')
     expect(newPasswordInput?.value).toBe('')
+    expect(accountPageDomMocks.markLoggedOut).toHaveBeenCalledTimes(1)
+    expect(accountPageDomMocks.navigate).toHaveBeenCalledWith('/login', {
+      replace: true,
+      state: { authMessage: 'Password updated. Sign in again with your new password.' },
+    })
   })
 
   it('announces a failed password change assertively', async () => {

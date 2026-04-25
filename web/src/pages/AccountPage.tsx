@@ -1,11 +1,15 @@
 import { FormEvent, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
+import { useAuth } from '../components/AuthContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { formatDateTime } from '../utils/datetime'
 
 export function AccountPage() {
+  const navigate = useNavigate()
+  const { markLoggedOut } = useAuth()
   const meQuery = useCurrentUser()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -22,6 +26,11 @@ export function AccountPage() {
     onSuccess: () => {
       setCurrentPassword('')
       setNewPassword('')
+      markLoggedOut()
+      navigate('/login', {
+        replace: true,
+        state: { authMessage: 'Password updated. Sign in again with your new password.' },
+      })
     },
   })
 
@@ -62,6 +71,7 @@ export function AccountPage() {
             <input
               id="account-current-password"
               type="password"
+              autoComplete="current-password"
               value={currentPassword}
               onChange={(event) => setCurrentPassword(event.target.value)}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -75,6 +85,7 @@ export function AccountPage() {
             <input
               id="account-new-password"
               type="password"
+              autoComplete="new-password"
               minLength={8}
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
@@ -85,11 +96,6 @@ export function AccountPage() {
           {changePassword.isError && (
             <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
               Failed to change password.
-            </p>
-          )}
-          {changePassword.isSuccess && (
-            <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-green-600">
-              Password updated.
             </p>
           )}
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={changePassword.isPending}>

@@ -1203,6 +1203,16 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
         def ping(self):
             return {"celery@worker-1": {"ok": "pong"}}
 
+        def active_queues(self):
+            return {
+                "celery@worker-1": [
+                    {"name": "ingest"},
+                    {"name": "processing"},
+                    {"name": "notifications"},
+                    {"name": "maintenance"},
+                ]
+            }
+
     monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
     monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
 
@@ -1264,6 +1274,16 @@ def test_health_worker_endpoint_reports_ok(client: TestClient, auth_headers, mon
     class _Inspector:
         def ping(self):
             return {"celery@worker-1": {"ok": "pong"}}
+
+        def active_queues(self):
+            return {
+                "celery@worker-1": [
+                    {"name": "ingest"},
+                    {"name": "processing"},
+                    {"name": "notifications"},
+                    {"name": "maintenance"},
+                ]
+            }
 
     monkeypatch.setattr(
         "app.api.routes.health.celery_app.control.inspect",
