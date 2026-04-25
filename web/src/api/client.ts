@@ -81,7 +81,10 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
   }
 
   const parsed = tryParseJsonResult(raw)
-  return (parsed.ok ? parsed.value : raw) as T
+  if (!parsed.ok) {
+    throw new ApiError(`Expected JSON response from API (${path})`, response.status, path, raw)
+  }
+  return parsed.value as T
 }
 
 function composeAbortSignals(primary: AbortSignal | null | undefined, secondary: AbortSignal) {

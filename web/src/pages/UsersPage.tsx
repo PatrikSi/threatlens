@@ -115,6 +115,9 @@ export function UsersPage() {
         },
       }))
       void queryClient.invalidateQueries({ queryKey: ['users'] })
+      if (currentUserQuery.data?.id === payload.id) {
+        void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+      }
     },
     onError: (error, payload) => {
       setRowNoticeByUserId((current) => ({

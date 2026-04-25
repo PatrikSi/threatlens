@@ -3451,6 +3451,12 @@ def test_set_item_tags_rejects_duplicate_tag_ids(client: TestClient, auth_header
     assert response.status_code == 422
 
 
+def test_create_tag_rejects_comma_names(client: TestClient, auth_headers):
+    response = client.post("/tags", json={"name": "foo,bar"}, headers=auth_headers["admin"])
+
+    assert response.status_code == 422
+
+
 def test_list_tags_only_returns_tags_attached_to_items(client: TestClient, auth_headers, db_session):
     feed_response = client.post(
         "/feeds",

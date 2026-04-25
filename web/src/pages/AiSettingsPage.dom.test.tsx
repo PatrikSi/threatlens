@@ -199,6 +199,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     page_size: 12,
   },
   cancelMutate: vi.fn(),
+  completeReprocessMutation: true,
   reprocessMutate: vi.fn(),
 }))
 
@@ -332,7 +333,9 @@ vi.mock('@tanstack/react-query', () => ({
       return aiMutationResult(
         vi.fn((payload: unknown) => {
           aiSettingsPageDomMocks.reprocessMutate(payload)
-          options.onSuccess?.({ task_id: 'task-reprocess-1' }, payload)
+          if (aiSettingsPageDomMocks.completeReprocessMutation) {
+            options.onSuccess?.({ task_id: 'task-reprocess-1' }, payload)
+          }
         }),
       )
     }
@@ -399,6 +402,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   aiSettingsPageDomMocks.cancelMutate.mockReset()
   aiSettingsPageDomMocks.reprocessMutate.mockReset()
+  aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
   aiSettingsPageDomMocks.settingsError = false
   routerMocks.useBlocker.mockReset()
@@ -566,6 +570,35 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(notice?.textContent).toContain('Queued AI reprocessing task task-reprocess-1.')
   })
 
+  it('does not treat a submitted reprocess scope as unsaved while queueing is still pending', () => {
+    aiSettingsPageDomMocks.completeReprocessMutation = false
+    const view = renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const startTimeInput = getLabeledInput('Start Time') as HTMLInputElement | null
+    const queueButton = getButton('Queue Reprocess')
+
+    expect(startTimeInput).not.toBeNull()
+    expect(queueButton).not.toBeNull()
+
+    act(() => {
+      setInputValue(startTimeInput!, '2026-04-21T08:30')
+    })
+
+    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(true)
+
+    act(() => {
+      queueButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(aiSettingsPageDomMocks.reprocessMutate).toHaveBeenCalledTimes(1)
+    expect(routerMocks.useBlocker).toHaveBeenLastCalledWith(false)
+    expect(view.textContent).not.toContain('Discard unsaved changes?')
+  })
+
   it('warns on blocked navigation when a reprocess scope is in progress', () => {
     const proceed = vi.fn()
     const reset = vi.fn()
@@ -659,5 +692,38 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain(
       'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.',
     )
+  })
+
+  it('blocks queue actions while provider settings have unsaved changes', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Configuration')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const baseUrlInput = Array.from(view.querySelectorAll('input')).find(
+      (input) => input.value === 'https://api.example.com/v1',
+    ) as HTMLInputElement | undefined
+    expect(baseUrlInput).not.toBeUndefined()
+
+    act(() => {
+      setInputValue(baseUrlInput!, 'http://localhost:11434/v1')
+    })
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain(
+      'Save your AI settings changes before queueing manual AI work. Queued jobs use the last saved provider configuration.',
+    )
+    expect(getButton('Queue Daily Brief')?.hasAttribute('disabled')).toBe(true)
+    expect(getButton('Queue Reprocess')?.hasAttribute('disabled')).toBe(true)
+
+    act(() => {
+      getButton('Queue Reprocess')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(aiSettingsPageDomMocks.reprocessMutate).not.toHaveBeenCalled()
   })
 })

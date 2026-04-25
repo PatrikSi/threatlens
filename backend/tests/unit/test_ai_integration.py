@@ -29,6 +29,7 @@ from app.services.ai_integration import (
     AICompletionResult,
     AIIntegrationError,
     FEATURE_DAILY_BRIEF,
+    _call_ai_json,
     _next_retry_max_completion_tokens,
     generate_daily_brief,
     generate_item_ai_enrichment,
@@ -116,6 +117,177 @@ def _fake_httpx_client_sequence_factory(response_payloads: list[dict[str, object
             return _FakeResponse()
 
     return _FakeClient
+
+
+def _ai_chat_response(content: str, *, model: str = "local-threat-model") -> dict[str, object]:
+    return {
+        "id": "chatcmpl-test",
+        "object": "chat.completion",
+        "created": 1774613335,
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "message": {"role": "assistant", "content": content},
+                "finish_reason": "stop",
+            }
+        ],
+        "usage": {
+            "prompt_tokens": 8,
+            "completion_tokens": 4,
+            "total_tokens": 12,
+        },
+    }
+
+
+def test_call_ai_json_omits_authorization_for_local_unauthenticated_endpoint(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    captured: dict[str, object] = {}
+    payload = _ai_chat_response('{"ok": true}')
+
+    class _FakeResponse:
+        status_code = 200
+        text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return payload
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def post(self, url, *, headers, json):
+            captured["url"] = url
+            captured["headers"] = dict(headers)
+            captured["body"] = dict(json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+
+    result = _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+
+    assert result.payload == {"ok": True}
+    assert captured["url"] == "http://localhost:11434/v1/chat/completions"
+    assert "Authorization" not in captured["headers"]
+
+
+def test_call_ai_json_sends_authorization_for_shared_openai_endpoint(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("AI_API_KEY", "shared-provider-secret")
+    get_settings.cache_clear()
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="https://api.openai.com/v1",
+            model="gpt-test",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    captured: dict[str, object] = {}
+    payload = _ai_chat_response('{"ok": true}', model="gpt-test")
+
+    class _FakeResponse:
+        status_code = 200
+        text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return payload
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def post(self, url, *, headers, json):
+            _ = (url, json)
+            captured["headers"] = dict(headers)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+
+    result = _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+
+    assert result.payload == {"ok": True}
+    assert captured["headers"]["Authorization"] == "Bearer shared-provider-secret"
+
+
+def test_call_ai_json_surfaces_nonstandard_provider_auth_error_without_retry_flag(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    payload = {"error": "Authentication required."}
+
+    class _FakeResponse:
+        status_code = 200
+        text = json.dumps(payload)
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return payload
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def post(self, url, *, headers, json):
+            _ = (url, headers, json)
+            return _FakeResponse()
+
+    monkeypatch.setattr("app.services.ai_integration.build_safe_http_client", lambda *args, **kwargs: _FakeClient())
+
+    with pytest.raises(AIIntegrationError) as exc_info:
+        _call_ai_json(active, messages=[{"role": "user", "content": '{"task":"connection_test"}'}])
+
+    assert str(exc_info.value) == "Authentication required."
+    assert exc_info.value.retryable is False
 
 
 def _persist_feed_item(db_session, feed: Feed, item: Item, *children: object) -> None:

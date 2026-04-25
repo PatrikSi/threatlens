@@ -16,13 +16,17 @@ describe('apiFetch', () => {
     await expect(apiFetch('/empty')).resolves.toBeUndefined()
   })
 
-  it('returns text for non-JSON successful responses instead of throwing', async () => {
+  it('throws for non-JSON successful API responses', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.resolve(new Response('accepted', { status: 202, headers: { 'content-type': 'text/plain' } }))),
     )
 
-    await expect(apiFetch<string>('/accepted')).resolves.toBe('accepted')
+    await expect(apiFetch('/accepted')).rejects.toMatchObject({
+      status: 202,
+      path: '/accepted',
+      detail: 'accepted',
+    })
   })
 
   it('preserves JSON null successful responses', async () => {

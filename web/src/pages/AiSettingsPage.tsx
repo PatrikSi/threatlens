@@ -99,6 +99,7 @@ export function AiSettingsPage() {
   const [reprocessFeedIds, setReprocessFeedIds] = useState<string[]>([])
   const [reprocessItemSearch, setReprocessItemSearch] = useState('')
   const [selectedReprocessItems, setSelectedReprocessItems] = useState<ItemListEntry[]>([])
+  const [queuedReprocessScopeFingerprint, setQueuedReprocessScopeFingerprint] = useState<string | null>(null)
   const [pendingReprocessScopeClear, setPendingReprocessScopeClear] = useState(false)
   const [cancelingRunId, setCancelingRunId] = useState<string | null>(null)
   const [pendingCancelRun, setPendingCancelRun] = useState<AITaskRunResponse | null>(null)
@@ -115,7 +116,28 @@ export function AiSettingsPage() {
     setTestResult(null)
     setDraftState(value)
   }
-  const reprocessScopeDirty = useMemo(
+  const reprocessScopeFingerprint = useMemo(
+    () =>
+      JSON.stringify({
+        days: reprocessDays.trim(),
+        limit: reprocessLimit.trim(),
+        startTime: reprocessStartTime.trim(),
+        endTime: reprocessEndTime.trim(),
+        feedIds: [...reprocessFeedIds].sort(),
+        itemSearch: reprocessItemSearch.trim(),
+        selectedItemIds: selectedReprocessItems.map((item) => item.id).sort(),
+      }),
+    [
+      reprocessDays,
+      reprocessEndTime,
+      reprocessFeedIds,
+      reprocessItemSearch,
+      reprocessLimit,
+      reprocessStartTime,
+      selectedReprocessItems,
+    ],
+  )
+  const rawReprocessScopeDirty = useMemo(
     () =>
       reprocessDays.trim() !== DEFAULT_REPROCESS_DAYS ||
       reprocessLimit.trim() !== DEFAULT_REPROCESS_LIMIT ||
@@ -134,6 +156,7 @@ export function AiSettingsPage() {
       selectedReprocessItems,
     ],
   )
+  const reprocessScopeDirty = rawReprocessScopeDirty && queuedReprocessScopeFingerprint !== reprocessScopeFingerprint
   const unsavedAiSettingsMessage = useMemo(() => {
     if (draftDirty && reprocessScopeDirty) {
       return 'You have unsaved AI settings changes and a reprocess scope in progress. Leave without saving or queueing that work?'
@@ -199,6 +222,9 @@ export function AiSettingsPage() {
     }
     if (aiEnabled && !settingsQuery.data) {
       return 'AI settings are still loading. Wait for the saved provider configuration before queueing manual work.'
+    }
+    if (draftDirty) {
+      return 'Save your AI settings changes before queueing manual AI work. Queued jobs use the last saved provider configuration.'
     }
     if (settingsQuery.data && !aiConfigured) {
       return 'AI is enabled, but the saved endpoint is not configured yet. Save the provider settings and test the connection before queueing manual work.'
@@ -422,6 +448,7 @@ export function AiSettingsPage() {
       invalidateAiQueries(queryClient)
     },
     onError: (error) => {
+      setQueuedReprocessScopeFingerprint(null)
       showActionError(error, 'Failed to queue AI reprocessing.')
     },
   })
@@ -529,6 +556,7 @@ export function AiSettingsPage() {
     (runningRunsQuery.isLoading && !runningRunsQuery.data)
 
   function clearReprocessScope() {
+    setQueuedReprocessScopeFingerprint(null)
     setReprocessDays(DEFAULT_REPROCESS_DAYS)
     setReprocessLimit(DEFAULT_REPROCESS_LIMIT)
     setReprocessStartTime('')
@@ -779,6 +807,7 @@ export function AiSettingsPage() {
                     return
                   }
                   setNotice(null)
+                  setQueuedReprocessScopeFingerprint(reprocessScopeFingerprint)
                   reprocessMutation.mutate(reprocessQueueState.payload)
                 }}
                 itemSearchLoading={candidateItemsQuery.isLoading}

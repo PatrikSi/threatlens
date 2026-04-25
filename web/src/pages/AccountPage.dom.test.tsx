@@ -11,6 +11,11 @@ const accountPageDomMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   markLoggedOut: vi.fn(),
   navigate: vi.fn(),
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
 }))
 
 vi.mock('../api/client', () => ({
@@ -51,6 +56,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => accountPageDomMocks.navigate,
+  useBlocker: accountPageDomMocks.useBlocker,
 }))
 
 import { AccountPage } from './AccountPage'
@@ -103,6 +109,12 @@ afterEach(async () => {
   accountPageDomMocks.apiFetch.mockReset()
   accountPageDomMocks.markLoggedOut.mockReset()
   accountPageDomMocks.navigate.mockReset()
+  accountPageDomMocks.useBlocker.mockReset()
+  accountPageDomMocks.useBlocker.mockImplementation(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  }))
 })
 
 describe('AccountPage DOM workflows', () => {
@@ -172,5 +184,18 @@ describe('AccountPage DOM workflows', () => {
     const notice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
     expect(notice?.textContent).toContain('Failed to change password.')
+  })
+
+  it('treats an unfinished password change as unsaved work', () => {
+    const view = renderPage()
+    const currentPasswordInput = view.querySelector<HTMLInputElement>('#account-current-password')
+
+    expect(currentPasswordInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(currentPasswordInput!, 'current-password')
+    })
+
+    expect(accountPageDomMocks.useBlocker).toHaveBeenLastCalledWith(true)
   })
 })

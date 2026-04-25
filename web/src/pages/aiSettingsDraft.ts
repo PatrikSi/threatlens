@@ -107,21 +107,21 @@ export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdate
     provider_type: 'openai_compatible',
     base_url: normalizeOptionalText(draft.base_url),
     model: normalizeOptionalText(draft.model),
-    temperature: Number(draft.temperature) || 0.2,
-    max_completion_tokens: Number(draft.max_completion_tokens) || 5000,
-    request_timeout_seconds: Number(draft.request_timeout_seconds) || 300,
-    request_max_retries: Math.max(0, Number(draft.request_max_retries) || 3),
+    temperature: parseNumberOrDefault(draft.temperature, 0.2),
+    max_completion_tokens: parseNumberOrDefault(draft.max_completion_tokens, 5000),
+    request_timeout_seconds: parseNumberOrDefault(draft.request_timeout_seconds, 300),
+    request_max_retries: Math.max(0, parseNumberOrDefault(draft.request_max_retries, 3)),
     summary_enabled: draft.summary_enabled,
     relevance_enabled: draft.relevance_enabled,
     daily_brief_enabled: draft.daily_brief_enabled,
     auto_enrich_new_items: draft.auto_enrich_new_items,
     daily_brief_schedule_hour_utc: dailyBriefSchedule.hour,
     daily_brief_schedule_minute_utc: dailyBriefSchedule.minute,
-    daily_brief_window_hours: Number(draft.daily_brief_window_hours) || 24,
-    daily_brief_max_items: Number(draft.daily_brief_max_items) || 20,
-    daily_brief_history_limit: Number(draft.daily_brief_history_limit) || 7,
-    relevance_medium_threshold: Number(draft.relevance_medium_threshold) || 0.55,
-    relevance_high_threshold: Number(draft.relevance_high_threshold) || 0.8,
+    daily_brief_window_hours: parseNumberOrDefault(draft.daily_brief_window_hours, 24),
+    daily_brief_max_items: parseNumberOrDefault(draft.daily_brief_max_items, 20),
+    daily_brief_history_limit: parseNumberOrDefault(draft.daily_brief_history_limit, 7),
+    relevance_medium_threshold: parseNumberOrDefault(draft.relevance_medium_threshold, 0.55),
+    relevance_high_threshold: parseNumberOrDefault(draft.relevance_high_threshold, 0.8),
     company_name: normalizeOptionalText(draft.company_name),
     company_industry: normalizeOptionalText(draft.company_industry),
     company_regions: parseListText(draft.company_regions),
@@ -149,6 +149,11 @@ function parseListText(value: string): string[] {
 function normalizeOptionalText(value: string): string | null {
   const normalized = value.trim()
   return normalized ? normalized : null
+}
+
+function parseNumberOrDefault(value: string, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
 }
 
 function formatUtcTimeInput(hour: number, minute: number) {

@@ -10,7 +10,7 @@ from app.core.config import get_settings
 from app.models.feed import Feed
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookField, NotificationWebhookWrite
-from app.services.ai_config import get_or_create_ai_settings, load_active_ai_settings
+from app.services.ai_config import get_or_create_ai_settings, load_active_ai_settings, resolve_ai_api_key_for_base_url
 from app.services.feed_pipeline import upsert_item_from_parsed
 from app.services.notification_webhooks import render_notification_request
 from app.services.url_utils import normalize_url
@@ -64,7 +64,7 @@ def test_ai_settings_reject_unsafe_base_url_when_server_ai_api_key_is_configured
         AISettingsUpdate(base_url="http://localhost:11434/v1")
 
 
-def test_load_active_ai_settings_marks_unsafe_base_url_unconfigured_with_shared_server_key(
+def test_load_active_ai_settings_does_not_share_server_key_with_non_shared_base_url(
     db_session,
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -80,7 +80,17 @@ def test_load_active_ai_settings_marks_unsafe_base_url_unconfigured_with_shared_
     active = load_active_ai_settings(db_session)
 
     assert active.ai_enabled is True
-    assert active.ai_configured is False
+    assert active.ai_configured is True
+    assert active.api_key is None
+
+
+def test_resolve_ai_api_key_keeps_shared_key_only_for_openai_host():
+    assert (
+        resolve_ai_api_key_for_base_url("https://api.openai.com/v1", "shared-provider-secret")
+        == "shared-provider-secret"
+    )
+    assert resolve_ai_api_key_for_base_url("http://localhost:11434/v1", "shared-provider-secret") is None
+    assert resolve_ai_api_key_for_base_url("https://attacker.example.com/v1", "shared-provider-secret") is None
 
 
 def test_render_notification_request_sanitizes_item_url_template_values():

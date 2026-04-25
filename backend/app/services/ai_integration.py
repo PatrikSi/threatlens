@@ -1080,14 +1080,17 @@ def _call_ai_json(
             response_json: object | None = exc.response.json()
         except ValueError:
             response_json = None
+        provider_error_message = _extract_provider_error_message(response_json)
         raise AIIntegrationError(
-            f"AI request failed: {exc}",
+            provider_error_message or f"AI request failed: {exc}",
             request_url=request_url,
             request_payload=request_payload,
             response_body=response_body,
             response_json=response_json,
             status_code=exc.response.status_code,
-            retryable=_ai_status_code_is_retryable(exc.response.status_code),
+            retryable=False
+            if _looks_like_provider_auth_error(provider_error_message)
+            else _ai_status_code_is_retryable(exc.response.status_code),
         ) from exc
     except (httpx.HTTPError, SafeFetchError, ValueError) as exc:
         raise AIIntegrationError(
@@ -1110,6 +1113,17 @@ def _call_ai_json(
             status_code=response.status_code,
             retryable=True,
         ) from exc
+    provider_error_message = _extract_provider_error_message(payload)
+    if provider_error_message:
+        raise AIIntegrationError(
+            provider_error_message,
+            request_url=request_url,
+            request_payload=request_payload,
+            response_body=response_body,
+            response_json=payload,
+            status_code=response.status_code,
+            retryable=not _looks_like_provider_auth_error(provider_error_message),
+        )
 
     try:
         choice = payload["choices"][0]
@@ -1186,6 +1200,42 @@ def _build_chat_completion_url(base_url: str) -> str:
 
 def _ai_status_code_is_retryable(status_code: int) -> bool:
     return status_code in {408, 409, 425, 429} or 500 <= status_code <= 599
+
+
+def _extract_provider_error_message(payload: object | None) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    raw_error = payload.get("error")
+    if isinstance(raw_error, str):
+        return _normalize_optional_text(raw_error)
+    if isinstance(raw_error, dict):
+        for key in ("message", "detail", "error"):
+            value = _normalize_optional_text(raw_error.get(key))
+            if value:
+                return value
+    for key in ("message", "detail"):
+        value = _normalize_optional_text(payload.get(key))
+        if value and "choices" not in payload:
+            return value
+    return None
+
+
+def _looks_like_provider_auth_error(message: str | None) -> bool:
+    lowered = (message or "").lower()
+    return any(
+        fragment in lowered
+        for fragment in (
+            "401",
+            "403",
+            "unauthorized",
+            "forbidden",
+            "authentication required",
+            "api key",
+            "invalid key",
+            "invalid token",
+            "credentials",
+        )
+    )
 
 
 def _extract_message_content(content: object) -> str:

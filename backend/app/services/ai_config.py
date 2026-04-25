@@ -166,7 +166,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
     runtime_settings = get_settings()
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
-    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     ai_configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     active = ActiveAISettings(
         id=settings.id,
@@ -210,7 +210,7 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         id=settings.id,
         ai_enabled=runtime_settings.ai_enabled,
         ai_configured=ai_configured,
-        api_key_configured=bool(runtime_settings.ai_api_key),
+        api_key_configured=bool(api_key),
         provider_type=settings.provider_type,
         base_url=base_url,
         model=model,
@@ -263,7 +263,7 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
     settings = get_or_create_ai_settings(db)
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
-    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     configured = bool(base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     return PublicAIFeatureFlags(
         ai_enabled=True,
@@ -279,7 +279,7 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
     settings = get_or_create_ai_settings(db)
     base_url = _normalize_optional_text(settings.base_url)
     model = _normalize_optional_text(settings.model)
-    api_key = runtime_settings.ai_api_key.strip() if runtime_settings.ai_api_key else None
+    api_key = resolve_ai_api_key_for_base_url(base_url, runtime_settings.ai_api_key)
     configured = bool(runtime_settings.ai_enabled and base_url and model and is_shared_ai_base_url_allowed(base_url, api_key=api_key))
     return ActiveAISettings(
         id=settings.id,
@@ -399,3 +399,24 @@ def is_shared_ai_base_url_allowed(base_url: str | None, *, api_key: str | None) 
 
     hostname = (parsed.hostname or "").lower().rstrip(".")
     return parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443)
+
+
+def resolve_ai_api_key_for_base_url(base_url: str | None, api_key: str | None) -> str | None:
+    normalized_api_key = _normalize_optional_text(api_key)
+    if not normalized_api_key:
+        return None
+
+    normalized_base_url = _normalize_optional_text(base_url)
+    if normalized_base_url is None:
+        return normalized_api_key
+
+    try:
+        parsed = urlsplit(normalized_base_url)
+        port = parsed.port
+    except ValueError:
+        return normalized_api_key
+
+    hostname = (parsed.hostname or "").lower().rstrip(".")
+    if parsed.scheme.lower() == "https" and hostname in SHARED_AI_API_KEY_ALLOWED_HOSTS and port in (None, 443):
+        return normalized_api_key
+    return None

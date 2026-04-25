@@ -153,6 +153,46 @@ describe('createRequestFromDraft', () => {
     expect(request.item_enrichment_system_prompt).toBeNull()
     expect(request.global_instructions).toBe('Keep it concise.')
   })
+
+  it('preserves valid zero-valued numeric settings', () => {
+    const request = createRequestFromDraft({
+      base_url: 'http://localhost:11434/v1',
+      model: 'local-threat-model',
+      temperature: '0',
+      max_completion_tokens: '5000',
+      request_timeout_seconds: '120',
+      request_max_retries: '0',
+      summary_enabled: true,
+      relevance_enabled: true,
+      daily_brief_enabled: true,
+      auto_enrich_new_items: true,
+      daily_brief_run_time_utc: '09:00',
+      daily_brief_window_hours: '24',
+      daily_brief_max_items: '20',
+      daily_brief_history_limit: '7',
+      relevance_medium_threshold: '0',
+      relevance_high_threshold: '0',
+      company_name: '',
+      company_industry: '',
+      company_regions: '',
+      company_stack: '',
+      company_priority_topics: '',
+      company_keywords: '',
+      company_exclusions: '',
+      company_profile_text: '',
+      item_enrichment_system_prompt: '',
+      daily_brief_system_prompt: '',
+      global_instructions: '',
+      item_summary_instructions: '',
+      relevance_instructions: '',
+      daily_brief_instructions: '',
+    })
+
+    expect(request.temperature).toBe(0)
+    expect(request.request_max_retries).toBe(0)
+    expect(request.relevance_medium_threshold).toBe(0)
+    expect(request.relevance_high_threshold).toBe(0)
+  })
 })
 
 describe('resolveAiReprocessQueueState', () => {

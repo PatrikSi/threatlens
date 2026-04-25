@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../api/client'
 import { useAuth } from '../components/AuthContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 
 export function AccountPage() {
@@ -13,6 +14,11 @@ export function AccountPage() {
   const meQuery = useCurrentUser()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const passwordDraftDirty = currentPassword.trim().length > 0 || newPassword.trim().length > 0
+  const confirmDiscardPasswordDraft = useUnsavedChangesWarning(
+    passwordDraftDirty,
+    'You have an unfinished password change. Leave without updating it?',
+  )
 
   const changePassword = useMutation({
     mutationFn: () =>
@@ -41,6 +47,7 @@ export function AccountPage() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_480px]">
+      {confirmDiscardPasswordDraft.discardDialog}
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Account</h2>
         {meQuery.data && (
