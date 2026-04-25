@@ -1,6 +1,6 @@
 This file bundles the SIL Open Font License 1.1 text used by the fonts shipped
 with ThreatLens. Font-specific copyright notices and Reserved Font Names are
-listed in THIRD_PARTY_NOTICES.md.
+preserved with the font assets and package legal inventories when available.
 
 
 -----------------------------------------------------------

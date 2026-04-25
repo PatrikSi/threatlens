@@ -2,7 +2,7 @@ MIT License
 
 This file bundles the standard MIT license terms used by ThreatLens runtime dependencies.
 Dependency-specific copyright notices remain with the originating projects and are
-summarized in THIRD_PARTY_NOTICES.md when needed.
+preserved in the package legal inventories under docs/reference/ when available.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

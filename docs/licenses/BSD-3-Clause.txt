@@ -2,8 +2,8 @@ BSD 3-Clause License
 
 This file bundles the standard BSD 3-Clause license conditions used by
 ThreatLens runtime dependencies. Dependency-specific copyright notices remain
-with the originating projects and are summarized in THIRD_PARTY_NOTICES.md
-when needed.
+with the originating projects and are preserved in the package legal inventories
+under docs/reference/ when available.
 
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:

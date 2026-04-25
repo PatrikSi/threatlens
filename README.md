@@ -100,26 +100,21 @@ Release-contract artifacts shipped in the repo:
 - Runtime package metadata inventories: `docs/reference/backend-runtime-package-metadata.json`, `docs/reference/frontend-runtime-package-metadata.json`
 - Backend runtime package legal artifacts: `docs/reference/backend-runtime-package-legal/`
 - Frontend runtime package legal artifacts: `docs/reference/frontend-runtime-package-legal/`
-- Image OS package notice artifacts: `docs/reference/backend-os-packages.txt`, `docs/reference/backend-os-package-legal/`, `docs/reference/frontend-os-packages.txt`, `docs/reference/frontend-os-package-metadata.tsv`, `docs/reference/frontend-os-package-legal/`
+- Image OS package legal artifacts: `docs/reference/backend-os-packages.txt`, `docs/reference/backend-os-package-legal/`, `docs/reference/frontend-os-packages.txt`, `docs/reference/frontend-os-package-metadata.tsv`, `docs/reference/frontend-os-package-legal/`
 - Release/support workflow: `docs/reference/release-process.md`
-- Third-party notices: `THIRD_PARTY_NOTICES.md`
 - Bundled common license texts: `docs/licenses/`
-- Governance/community docs: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`
 
 Project status and support posture:
 
 - Tagged releases, when published, are the preferred upgrade anchors for operators.
 - Until the first public tag exists, pin the exact commit SHA and container image digest you deploy. The default branch is the active development line, not a separate LTS channel.
 - Maintainer responses remain best-effort rather than a contractual support SLA.
-- Security-sensitive reports should follow `SECURITY.md` and should not be filed as detailed public issues.
 
 Community and reporting paths:
 
 - Repository URL: `https://github.com/PatrikSi/threatlens`
 - Issues: `https://github.com/PatrikSi/threatlens/issues`
 - Pull requests: `https://github.com/PatrikSi/threatlens/pulls`
-- Security reporting policy: `SECURITY.md`
-- Conduct and moderation policy: `CODE_OF_CONDUCT.md`
 
 ## Running with Docker
 
@@ -146,7 +141,7 @@ Startup flow for `docker-compose.yml`:
 - `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image so the standard `docker compose build` and `docker compose up --build` flow stamps OCI labels with the checked-out revision and build time. If you do not export them first, those labels fall back to `unknown`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
-- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, backend notices, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
+- Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
 - The bundled compose stack reserves `172.31.240.0/24` for the `web` frontend network and trusts that exact subnet by default so browser auth throttling can recover the real client IP through the shipped proxy. If you deploy behind different proxies, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 - The backend enforces an `ALLOWED_HOSTS` Host-header allowlist. The compose proxy forwards to the internal `api` host by default; add your public API hostnames if you expose the backend service through another proxy.
 
@@ -440,7 +435,6 @@ Notes:
 
 ## Redistribution Notes
 
-- `THIRD_PARTY_NOTICES.md` summarizes the bundled assets, selected direct runtime dependencies, redistribution notes, and regeneration commands for the committed runtime inventories.
 - `docs/reference/backend-runtime-dependencies.txt` and `docs/reference/frontend-runtime-dependencies.txt` are the full resolved runtime inventories committed with the source tree.
 - `docs/reference/backend-runtime-package-metadata.json` and `docs/reference/frontend-runtime-package-metadata.json` capture package-specific metadata used for redistribution review, including copied package-legal artifact paths and digests where those files are published by upstream packages.
 - `docs/reference/backend-runtime-package-legal/` preserves wheel-published legal files harvested from installed backend runtime dependencies when those files are present in the redistributed Python distributions.

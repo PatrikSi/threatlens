@@ -8,7 +8,6 @@ cannot be copied into the image during `docker build -f backend/Dockerfile backe
 Keep this bundle in sync with:
 
 - repository `LICENSE`
-- repository `THIRD_PARTY_NOTICES.md`
 - `docs/licenses/*.txt`
 - `python scripts/sync_compliance_bundle.py`
 
