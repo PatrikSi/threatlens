@@ -132,7 +132,6 @@ def test_production_rejects_unsafe_allowed_hosts(host: str):
         ("database_url", "postgresql+psycopg://postgres:postgres@db:5432/threatlens", "database_url"),
         ("postgres_password", None, "postgres_password"),
         ("postgres_password", "postgres", "postgres_password"),
-        ("redis_url", "redis://redis:6379/0", "redis_url"),
         ("redis_url", "redis://:redis@redis:6379/0", "redis_url"),
         ("redis_password", None, "redis_password"),
         ("redis_password", "redis", "redis_password"),
@@ -148,6 +147,30 @@ def test_bootstrap_mutation_flags_default_off():
 
     assert settings.run_migrations_on_startup is False
     assert settings.seed_admin_on_startup is False
+
+
+def test_redis_password_is_applied_to_passwordless_redis_url():
+    settings = isolated_settings(
+        redis_url="redis://redis:6379/0",
+        redis_password="strong-redis-pass",
+    )
+
+    assert settings.redis_url == "redis://:strong-redis-pass@redis:6379/0"
+
+
+def test_redis_url_keeps_explicit_password():
+    settings = isolated_settings(
+        redis_url="redis://:explicit-pass@redis:6379/0",
+        redis_password="strong-redis-pass",
+    )
+
+    assert settings.redis_url == "redis://:explicit-pass@redis:6379/0"
+
+
+def test_production_accepts_passwordless_redis_url_when_redis_password_is_set():
+    settings = isolated_settings(**production_settings_kwargs(redis_url="redis://redis:6379/0"))
+
+    assert settings.redis_url == "redis://:strong-redis-pass@redis:6379/0"
 
 
 def test_development_generates_runtime_secrets_when_not_configured():

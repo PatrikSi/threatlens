@@ -2,7 +2,7 @@ import hashlib
 import secrets
 from functools import lru_cache
 from typing import Annotated
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -63,6 +63,32 @@ def _redis_url_is_passwordless_or_default(value: str | None) -> bool:
     if normalized == _DEFAULT_REDIS_URL:
         return True
     return _looks_like_default_service_password(_url_password(normalized))
+
+
+def _redis_url_with_password(value: str | None, password: str | None) -> str | None:
+    if not value or not password:
+        return value
+    if _url_password(value):
+        return value
+
+    normalized = value.strip()
+    if not normalized:
+        return value
+    try:
+        parts = urlsplit(normalized)
+        port = parts.port
+    except ValueError:
+        return value
+    if parts.scheme.lower() not in {"redis", "rediss"} or not parts.hostname:
+        return value
+
+    hostname = parts.hostname
+    host = f"[{hostname}]" if ":" in hostname and not hostname.startswith("[") else hostname
+    if port is not None:
+        host = f"{host}:{port}"
+    username = f"{quote(parts.username, safe='')}:" if parts.username else ":"
+    credentials = f"{username}{quote(password.strip(), safe='')}@"
+    return urlunsplit((parts.scheme, f"{credentials}{host}", parts.path, parts.query, parts.fragment))
 
 
 def _is_unsafe_credentialed_cors_origin(value: str) -> bool:
@@ -259,6 +285,11 @@ class Settings(BaseSettings):
         is_production = self.app_env.lower() in {"production", "prod"}
         self._jwt_secret_was_derived = False
         self._app_data_encryption_key_was_derived = False
+
+        if self.redis_password:
+            normalized_redis_password = self.redis_password.strip()
+            self.redis_password = normalized_redis_password or None
+            self.redis_url = _redis_url_with_password(self.redis_url, self.redis_password) or self.redis_url
 
         if not self.jwt_secret or _looks_like_placeholder_secret(self.jwt_secret) or len(self.jwt_secret) < 32:
             if is_production:
