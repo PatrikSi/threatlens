@@ -519,8 +519,8 @@ export function buildDashboardSavedViewState(
 ): DashboardSavedViewState {
   const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
   const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
-  const rssWindowFilters = firstRssWindow?.rss_filters ?? createDefaultRssWindowFilters()
-  const alertWindowFilters = firstAlertWindow?.alert_filters ?? createDefaultAlertWindowFilters()
+  const rssWindowFilters = parseRssWindowFiltersCandidate(firstRssWindow?.rss_filters ?? null)
+  const alertWindowFilters = parseAlertWindowFiltersCandidate(firstAlertWindow?.alert_filters ?? null)
 
   return {
     schema_version: DASHBOARD_SAVED_VIEW_SCHEMA_VERSION,
@@ -531,6 +531,35 @@ export function buildDashboardSavedViewState(
     ui: {
       show_advanced_filters: rssWindowFilters.show_advanced_filters,
     },
+  }
+}
+
+function buildSavedViewWindowRssFilters(value: DashboardRssWindowFilters | null): SavedViewWindowRssFilters {
+  const filters = parseRssWindowFiltersCandidate(value)
+  return {
+    selected_feed_ids: [...filters.selected_feed_ids],
+    selected_tags: [...filters.selected_tags],
+    q: filters.q,
+    read_status: filters.read_status,
+    star_status: filters.star_status,
+    view_mode: filters.view_mode,
+    page: 1,
+    page_size: filters.page_size,
+    sort: filters.sort,
+    show_advanced_filters: filters.show_advanced_filters,
+  }
+}
+
+function buildSavedViewWindowAlertFilters(value: DashboardAlertWindowFilters | null): SavedViewWindowAlertFilters {
+  const filters = parseAlertWindowFiltersCandidate(value)
+  return {
+    selected_alert_ids: [...filters.selected_alert_ids],
+    selected_categories: [...filters.selected_categories],
+    q: filters.q,
+    view_mode: filters.view_mode,
+    page: 1,
+    page_size: filters.page_size,
+    sort: filters.sort,
   }
 }
 
@@ -549,12 +578,7 @@ function buildSavedViewWindowState(window: DashboardWindow): SavedViewWindow {
       ...base,
       type: 'rss',
       time_override: window.time_override ? { ...window.time_override } : null,
-      rss_filters: {
-        ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-        selected_feed_ids: [...(window.rss_filters?.selected_feed_ids ?? [])],
-        selected_tags: [...(window.rss_filters?.selected_tags ?? [])],
-        page: 1,
-      },
+      rss_filters: buildSavedViewWindowRssFilters(window.rss_filters),
       alert_filters: null,
       selected_daily_brief_id: null,
     }
@@ -566,12 +590,7 @@ function buildSavedViewWindowState(window: DashboardWindow): SavedViewWindow {
       type: 'alerts',
       time_override: window.time_override ? { ...window.time_override } : null,
       rss_filters: null,
-      alert_filters: {
-        ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-        selected_alert_ids: [...(window.alert_filters?.selected_alert_ids ?? [])],
-        selected_categories: [...(window.alert_filters?.selected_categories ?? [])],
-        page: 1,
-      },
+      alert_filters: buildSavedViewWindowAlertFilters(window.alert_filters),
       selected_daily_brief_id: null,
     }
   }

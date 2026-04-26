@@ -14,6 +14,7 @@ import {
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import type { SavedView } from '../types/api'
+import type { DashboardAlertWindowFilters, DashboardRssWindowFilters } from './dashboardSavedViews'
 
 function createLocalStorageMock() {
   const store = new Map<string, string>()
@@ -277,6 +278,86 @@ describe('saved view payloads', () => {
     expect(parsed.windows[1].type).toBe('daily_brief')
     expect(parsed.windows[1].time_override).toBeNull()
     expect(parsed.windows[1].selected_daily_brief_id).toBe('brief-snapshot-1')
+  })
+
+  it('strips dashboard time fields from per-panel filters before saving', () => {
+    const built = buildDashboardSavedViewState(
+      [
+        {
+          id: 'rss-1',
+          type: 'rss',
+          title: 'RSS Panel 1',
+          snap: 'left',
+          rect: { x: 0, y: 0, width: 690, height: 760 },
+          controls_collapsed: false,
+          scratch_note: '',
+          time_override: null,
+          rss_filters: {
+            selected_feed_ids: ['feed-1'],
+            selected_tags: [],
+            q: 'edge',
+            read_status: 'all',
+            star_status: 'all',
+            view_mode: 'compact',
+            page: 4,
+            page_size: 25,
+            sort: 'published_at_desc',
+            show_advanced_filters: false,
+            time_range: 'all',
+            custom_since_date: '',
+            custom_until_date: '',
+            rolling_days: '7',
+          } as unknown as DashboardRssWindowFilters,
+          alert_filters: null,
+          selected_daily_brief_id: null,
+        },
+        {
+          id: 'alerts-1',
+          type: 'alerts',
+          title: 'Alerts Panel 1',
+          snap: 'right',
+          rect: { x: 690, y: 0, width: 690, height: 760 },
+          controls_collapsed: false,
+          scratch_note: '',
+          time_override: null,
+          rss_filters: null,
+          alert_filters: {
+            selected_alert_ids: ['alert-1'],
+            selected_categories: [],
+            q: 'credential',
+            view_mode: 'expanded',
+            page: 2,
+            page_size: 50,
+            sort: 'first_seen_desc',
+            time_range: '7d',
+            custom_since_date: '',
+            custom_until_date: '',
+            rolling_days: '7',
+          } as unknown as DashboardAlertWindowFilters,
+          selected_daily_brief_id: null,
+        },
+      ],
+      {
+        time_range: '30d',
+        custom_since_date: '',
+        custom_until_date: '',
+        rolling_days: '30',
+      },
+    )
+
+    const rssFilters = built.windows[0].rss_filters as unknown as Record<string, unknown>
+    const alertFilters = built.windows[1].alert_filters as unknown as Record<string, unknown>
+
+    expect(rssFilters.page).toBe(1)
+    expect(alertFilters.page).toBe(1)
+    expect(rssFilters).not.toHaveProperty('time_range')
+    expect(rssFilters).not.toHaveProperty('custom_since_date')
+    expect(rssFilters).not.toHaveProperty('custom_until_date')
+    expect(rssFilters).not.toHaveProperty('rolling_days')
+    expect(alertFilters).not.toHaveProperty('time_range')
+    expect(alertFilters).not.toHaveProperty('custom_since_date')
+    expect(alertFilters).not.toHaveProperty('custom_until_date')
+    expect(alertFilters).not.toHaveProperty('rolling_days')
   })
 
   it('loads persisted dashboard windows through the shared window contract', () => {

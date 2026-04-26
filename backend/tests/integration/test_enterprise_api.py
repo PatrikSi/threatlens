@@ -176,6 +176,31 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
     updated = update_response.json()
     assert updated["query_json"]["rss_filters"]["q"] == "cve-2026"
 
+    polluted_payload = _saved_view_query_payload(query="rename-check")
+    polluted_payload["windows"][0]["rss_filters"].update(
+        {
+            "time_range": "all",
+            "custom_since_date": "",
+            "custom_until_date": "",
+            "rolling_days": "7",
+        }
+    )
+    polluted_update = client.patch(
+        f"/views/{created['id']}",
+        json={
+            "name": "Renamed ops layout",
+            "query_json": polluted_payload,
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert polluted_update.status_code == 200
+    polluted_window_filters = polluted_update.json()["query_json"]["windows"][0]["rss_filters"]
+    assert polluted_window_filters["q"] == "rename-check"
+    assert "time_range" not in polluted_window_filters
+    assert "custom_since_date" not in polluted_window_filters
+    assert "custom_until_date" not in polluted_window_filters
+    assert "rolling_days" not in polluted_window_filters
+
     invalid_update = client.patch(
         f"/views/{created['id']}",
         json={

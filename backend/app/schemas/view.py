@@ -28,6 +28,27 @@ ALLOWED_WINDOW_SNAPS = {
     "bottom_left",
     "bottom_right",
 }
+SAVED_VIEW_WINDOW_RSS_FILTER_KEYS = {
+    "selected_feed_ids",
+    "selected_tags",
+    "q",
+    "read_status",
+    "star_status",
+    "view_mode",
+    "page",
+    "page_size",
+    "sort",
+    "show_advanced_filters",
+}
+SAVED_VIEW_WINDOW_ALERT_FILTER_KEYS = {
+    "selected_alert_ids",
+    "selected_categories",
+    "q",
+    "view_mode",
+    "page",
+    "page_size",
+    "sort",
+}
 DEFAULT_WINDOW_RECT = {
     "x": 0,
     "y": 0,
@@ -368,6 +389,39 @@ def _normalize_legacy_saved_view_payload(value: Mapping[str, Any]) -> dict[str, 
     }
 
 
+def _strip_window_filter_extras(value: Any, *, allowed_keys: set[str]) -> Any:
+    if not _is_mapping(value):
+        return value
+    return {key: child_value for key, child_value in value.items() if key in allowed_keys}
+
+
+def _normalize_current_saved_view_payload(value: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = dict(value)
+    windows = value.get("windows")
+    if not isinstance(windows, list):
+        return normalized
+
+    normalized_windows: list[Any] = []
+    for entry in windows:
+        if not _is_mapping(entry):
+            normalized_windows.append(entry)
+            continue
+
+        normalized_window = dict(entry)
+        normalized_window["rss_filters"] = _strip_window_filter_extras(
+            normalized_window.get("rss_filters"),
+            allowed_keys=SAVED_VIEW_WINDOW_RSS_FILTER_KEYS,
+        )
+        normalized_window["alert_filters"] = _strip_window_filter_extras(
+            normalized_window.get("alert_filters"),
+            allowed_keys=SAVED_VIEW_WINDOW_ALERT_FILTER_KEYS,
+        )
+        normalized_windows.append(normalized_window)
+
+    normalized["windows"] = normalized_windows
+    return normalized
+
+
 class SavedViewWindowTimeFilter(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -503,7 +557,7 @@ class SavedViewQueryPayload(BaseModel):
         if not _is_mapping(value):
             return value
         if "schema_version" in value:
-            return dict(value)
+            return _normalize_current_saved_view_payload(value)
         return _normalize_legacy_saved_view_payload(value)
 
 
