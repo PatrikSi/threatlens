@@ -15,6 +15,10 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   bulkDeleteMutate: vi.fn(),
   bulkSetEnabledMutate: vi.fn(),
   importMutate: vi.fn(),
+  currentUser: {
+    id: 'admin-user',
+    role: 'admin',
+  } as { id: string; role: string } | null,
   bulkRefreshResult: null as
     | { attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
     | null,
@@ -230,9 +234,7 @@ vi.mock('@tanstack/react-query', () => ({
 
 vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
-    data: {
-      role: 'admin',
-    },
+    data: feedsPageDomMocks.currentUser,
   }),
 }))
 
@@ -245,14 +247,17 @@ vi.mock('react-router-dom', async () => {
 })
 
 import { FeedsPage } from './FeedsPage'
+import { getFeedScheduleDraftStorageKey } from './feedScheduleDraft'
 
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
-function renderPage() {
+function renderPage({ clearSessionStorage = true }: { clearSessionStorage?: boolean } = {}) {
   container = document.createElement('div')
   document.body.appendChild(container)
-  window.sessionStorage.clear()
+  if (clearSessionStorage) {
+    window.sessionStorage.clear()
+  }
   root = createRoot(container)
   act(() => {
     root?.render(<FeedsPage />)
@@ -306,12 +311,42 @@ afterEach(() => {
   feedsPageDomMocks.bulkRefreshResult = null
   feedsPageDomMocks.bulkDeleteResult = null
   feedsPageDomMocks.bulkSetEnabledResult = null
+  feedsPageDomMocks.currentUser = {
+    id: 'admin-user',
+    role: 'admin',
+  }
   routerMocks.blocker.state = 'unblocked'
   routerMocks.blocker.proceed.mockReset()
   routerMocks.blocker.reset.mockReset()
 })
 
 describe('FeedsPage DOM workflows', () => {
+  it('preserves user-scoped schedule drafts when feeds load before the current user id', () => {
+    feedsPageDomMocks.currentUser = null
+    const scopedKey = getFeedScheduleDraftStorageKey('admin-user')
+    const persistedDrafts = {
+      'feed-1': {
+        fetchMode: 'schedule',
+        intervalSeconds: '1800',
+        scheduleCron: '*/15 * * * *',
+      },
+    }
+    window.sessionStorage.setItem(scopedKey, JSON.stringify(persistedDrafts))
+    const view = renderPage({ clearSessionStorage: false })
+
+    expect(view.querySelector<HTMLSelectElement>('#feed-fetch-mode-feed-1')?.value).toBe('interval')
+
+    feedsPageDomMocks.currentUser = {
+      id: 'admin-user',
+      role: 'admin',
+    }
+    rerenderPage()
+
+    expect(view.querySelector<HTMLSelectElement>('#feed-fetch-mode-feed-1')?.value).toBe('schedule')
+    expect(JSON.parse(window.sessionStorage.getItem(scopedKey) ?? '{}')).toEqual(persistedDrafts)
+    expect(pageText()).toContain('Unsaved schedule')
+  })
+
   it('keeps the critical feed controls labeled and surfaces unsaved schedule changes after editing', () => {
     const view = renderPage()
 
@@ -628,5 +663,31 @@ describe('FeedsPage DOM workflows', () => {
     })
 
     expect(feedsPageDomMocks.importMutate).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects oversized import files before reading them', async () => {
+    const view = renderPage()
+    const fileInput = view.querySelector<HTMLInputElement>('input[type="file"]')
+    expect(fileInput).not.toBeNull()
+
+    const importFile = new File(['{}'], 'large-feeds.json', { type: 'application/json' })
+    const readSpy = vi.spyOn(importFile, 'text')
+    Object.defineProperty(importFile, 'size', {
+      configurable: true,
+      value: 2_000_001,
+    })
+    Object.defineProperty(fileInput!, 'files', {
+      configurable: true,
+      value: [importFile],
+    })
+
+    await act(async () => {
+      fileInput!.dispatchEvent(new Event('change', { bubbles: true }))
+      await Promise.resolve()
+    })
+
+    expect(pageText()).toContain('Import file is too large. Maximum supported size is 2 MB.')
+    expect(readSpy).not.toHaveBeenCalled()
+    expect(feedsPageDomMocks.importMutate).not.toHaveBeenCalled()
   })
 })

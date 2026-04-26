@@ -23,7 +23,15 @@ import {
   resolveAiReprocessQueueState,
   toApiDateTime,
 } from './aiReprocessQueueState'
-import { AISettingsDraft, createDraftFromSettings, createRequestFromDraft, DEFAULT_DRAFT } from './aiSettingsDraft'
+import {
+  AISettingsDraft,
+  AISettingsDraftValidation,
+  createDraftFromSettings,
+  createRequestFromDraft,
+  DEFAULT_DRAFT,
+  getFirstAISettingsDraftValidationError,
+  validateAISettingsDraft,
+} from './aiSettingsDraft'
 import { resolveVisibleRunSelection } from './aiRunSelection'
 import {
   AIAuditEntryResponse,
@@ -108,6 +116,7 @@ export function AiSettingsPage() {
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
+  const [settledActiveTab, setSettledActiveTab] = useState<AiTab | null>(null)
   const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
 
@@ -124,18 +133,9 @@ export function AiSettingsPage() {
         startTime: reprocessStartTime.trim(),
         endTime: reprocessEndTime.trim(),
         feedIds: [...reprocessFeedIds].sort(),
-        itemSearch: reprocessItemSearch.trim(),
         selectedItemIds: selectedReprocessItems.map((item) => item.id).sort(),
       }),
-    [
-      reprocessDays,
-      reprocessEndTime,
-      reprocessFeedIds,
-      reprocessItemSearch,
-      reprocessLimit,
-      reprocessStartTime,
-      selectedReprocessItems,
-    ],
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const rawReprocessScopeDirty = useMemo(
     () =>
@@ -144,17 +144,8 @@ export function AiSettingsPage() {
       reprocessStartTime.trim() !== '' ||
       reprocessEndTime.trim() !== '' ||
       reprocessFeedIds.length > 0 ||
-      reprocessItemSearch.trim() !== '' ||
       selectedReprocessItems.length > 0,
-    [
-      reprocessDays,
-      reprocessEndTime,
-      reprocessFeedIds,
-      reprocessItemSearch,
-      reprocessLimit,
-      reprocessStartTime,
-      selectedReprocessItems,
-    ],
+    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
   )
   const reprocessScopeDirty = rawReprocessScopeDirty && queuedReprocessScopeFingerprint !== reprocessScopeFingerprint
   const unsavedAiSettingsMessage = useMemo(() => {
@@ -172,7 +163,17 @@ export function AiSettingsPage() {
   )
 
   const aiEnabled = currentUserQuery.data?.features.ai_enabled ?? false
+  const overviewQueriesEnabled = aiEnabled && settledActiveTab === 'overview'
+  const activityQueriesEnabled = aiEnabled && settledActiveTab === 'activity'
+  const configurationQueriesEnabled = aiEnabled && settledActiveTab === 'configuration'
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSettledActiveTab(activeTab)
+    }, 700)
+    return () => window.clearTimeout(timer)
+  }, [activeTab])
 
   const handleAiTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: AiTab) => {
     let nextTab: AiTab | null = null
@@ -202,9 +203,11 @@ export function AiSettingsPage() {
 
   const settingsQuery = useQuery({
     queryKey: ['ai', 'settings'],
-    queryFn: () => apiFetch<AISettings>('/ai/settings'),
+    queryFn: ({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }),
     enabled: aiEnabled,
   })
+  const draftValidation = useMemo(() => validateAISettingsDraft(draft), [draft])
+  const draftValidationError = getFirstAISettingsDraftValidationError(draftValidation)
   const settingsReadyToSave = Boolean(settingsQuery.data) && !settingsQuery.isLoading && !settingsQuery.isError
   const settingsSaveBlockedReason = (() => {
     if (settingsQuery.isError) {
@@ -212,6 +215,9 @@ export function AiSettingsPage() {
     }
     if (!settingsReadyToSave) {
       return 'AI settings are still loading. Wait for the saved configuration before saving changes.'
+    }
+    if (draftValidationError) {
+      return draftValidationError
     }
     return null
   })()
@@ -234,36 +240,36 @@ export function AiSettingsPage() {
 
   const overviewQuery = useQuery({
     queryKey: ['ai', 'ops', 'overview', days],
-    queryFn: () => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`),
-    enabled: aiEnabled,
-    refetchInterval: activeTab === 'configuration' ? false : 10000,
+    queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }),
+    enabled: overviewQueriesEnabled,
+    refetchInterval: 10000,
   })
 
   const liveStatusQuery = useQuery({
     queryKey: ['ai', 'ops', 'live'],
-    queryFn: () => apiFetch<AILiveStatusResponse>('/ai/ops/live'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<AILiveStatusResponse>('/ai/ops/live', { signal }),
+    enabled: activityQueriesEnabled,
     refetchInterval: 5000,
   })
 
   const queuedRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'queued-top'],
-    queryFn: () => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30', { signal }),
+    enabled: activityQueriesEnabled,
     refetchInterval: 5000,
   })
 
   const runningRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'running-top'],
-    queryFn: () => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30', { signal }),
+    enabled: activityQueriesEnabled,
     refetchInterval: 5000,
   })
 
   const feedsQuery = useQuery({
     queryKey: ['feeds', 'ai-reprocess'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<Feed[]>('/feeds', { signal }),
+    enabled: activityQueriesEnabled,
   })
 
   const candidateItemsPath = useMemo(() => {
@@ -271,6 +277,8 @@ export function AiSettingsPage() {
     params.set('page', '1')
     params.set('page_size', '12')
     params.set('sort', 'published_at_desc')
+    params.set('has_article', 'true')
+    params.set('date_basis', 'published_at_or_first_seen_at')
     if (deferredItemSearch) {
       params.set('q', deferredItemSearch)
     }
@@ -290,20 +298,20 @@ export function AiSettingsPage() {
 
   const candidateItemsQuery = useQuery({
     queryKey: ['items', 'ai-reprocess-picker', deferredItemSearch, reprocessFeedIds, reprocessStartTime, reprocessEndTime],
-    queryFn: () => apiFetch<ItemListResponse>(candidateItemsPath),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<ItemListResponse>(candidateItemsPath, { signal }),
+    enabled: activityQueriesEnabled,
   })
 
   const promptHistoryQuery = useQuery({
     queryKey: ['ai', 'ops', 'prompt-history'],
-    queryFn: () => apiFetch<AIAuditEntryResponse[]>('/ai/ops/prompt-history?limit=12'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/prompt-history?limit=12', { signal }),
+    enabled: configurationQueriesEnabled,
   })
 
   const manualActionsQuery = useQuery({
     queryKey: ['ai', 'ops', 'manual-actions'],
-    queryFn: () => apiFetch<AIAuditEntryResponse[]>('/ai/ops/manual-actions?limit=12'),
-    enabled: aiEnabled,
+    queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/manual-actions?limit=12', { signal }),
+    enabled: configurationQueriesEnabled,
   })
 
   const runsPath = useMemo(() => {
@@ -331,25 +339,26 @@ export function AiSettingsPage() {
 
   const runsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', days, selectedModel, runPage, runFilters],
-    queryFn: () => apiFetch<AITaskRunListResponse>(runsPath),
-    enabled: aiEnabled,
-    refetchInterval: activeTab === 'activity' ? 10000 : false,
+    queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(runsPath, { signal }),
+    enabled: activityQueriesEnabled,
+    refetchInterval: 10000,
   })
 
   const runDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'run', selectedRunId],
-    queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`),
-    enabled: aiEnabled && Boolean(selectedRunId),
-    refetchInterval: activeTab === 'activity' ? 10000 : false,
+    queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`, { signal }),
+    enabled: activityQueriesEnabled && Boolean(selectedRunId),
+    refetchInterval: 10000,
   })
 
   const briefSourcesQuery = useQuery({
     queryKey: ['ai', 'daily-brief-sources', runDetailQuery.data?.run.daily_brief_id],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<AIDailyBriefSourceItemResponse[]>(
         `/ai/daily-briefs/${runDetailQuery.data?.run.daily_brief_id}/sources?limit=50`,
+        { signal },
       ),
-    enabled: aiEnabled && Boolean(runDetailQuery.data?.run.daily_brief_id),
+    enabled: activityQueriesEnabled && Boolean(runDetailQuery.data?.run.daily_brief_id),
   })
 
   useEffect(() => {
@@ -426,8 +435,8 @@ export function AiSettingsPage() {
         method: 'POST',
       }),
     onSuccess: (result) => {
-      setNotice({ tone: 'success', message: `Queued daily brief task ${result.task_id}.` })
-      invalidateAiQueries(queryClient)
+      setNotice({ tone: 'success', message: `Queued daily brief run ${result.run_id ?? result.task_id}.` })
+      markAiQueriesStale(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
     },
     onError: (error) => {
@@ -444,8 +453,8 @@ export function AiSettingsPage() {
       }),
     onSuccess: (result) => {
       clearReprocessScope()
-      setNotice({ tone: 'success', message: `Queued AI reprocessing task ${result.task_id}.` })
-      invalidateAiQueries(queryClient)
+      setNotice({ tone: 'success', message: `Queued AI reprocessing run ${result.run_id ?? result.task_id}.` })
+      markAiQueriesStale(queryClient)
     },
     onError: (error) => {
       setQueuedReprocessScopeFingerprint(null)
@@ -511,8 +520,13 @@ export function AiSettingsPage() {
     for (const row of overviewQuery.data?.per_model ?? []) {
       values.add(row.model)
     }
+    for (const run of runsQuery.data?.items ?? []) {
+      if (run.model) {
+        values.add(run.model)
+      }
+    }
     return ['all', ...Array.from(values)]
-  }, [overviewQuery.data?.per_model, settingsQuery.data?.model])
+  }, [overviewQuery.data?.per_model, runsQuery.data?.items, settingsQuery.data?.model])
 
   const activeTopLevelRuns = useMemo(() => {
     const byId = new Map<string, AITaskRunResponse>()
@@ -546,8 +560,17 @@ export function AiSettingsPage() {
         endTime: reprocessEndTime,
         feedIds: reprocessFeedIds,
         selectedItems: selectedReprocessItems,
+        itemSearch: reprocessItemSearch,
       }),
-    [reprocessDays, reprocessEndTime, reprocessFeedIds, reprocessLimit, reprocessStartTime, selectedReprocessItems],
+    [
+      reprocessDays,
+      reprocessEndTime,
+      reprocessFeedIds,
+      reprocessItemSearch,
+      reprocessLimit,
+      reprocessStartTime,
+      selectedReprocessItems,
+    ],
   )
 
   const activeTasksLoading =
@@ -588,7 +611,7 @@ export function AiSettingsPage() {
     setActiveTab('activity')
     void queryClient.prefetchQuery({
       queryKey: ['ai', 'ops', 'run', runId],
-      queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${runId}`),
+      queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${runId}`, { signal }),
     })
   }
 
@@ -844,13 +867,14 @@ export function AiSettingsPage() {
                 isError={settingsQuery.isError}
                 errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
                 savePending={saveMutation.isPending}
-                saveDisabled={!settingsReadyToSave}
+                saveDisabled={!settingsReadyToSave || Boolean(draftValidationError)}
                 saveDisabledReason={settingsSaveBlockedReason}
+                validation={draftValidation}
                 onSave={() => {
-                  if (!settingsReadyToSave) {
+                  if (!settingsReadyToSave || draftValidationError) {
                     setNotice({
                       tone: 'error',
-                      message: settingsSaveBlockedReason ?? 'AI settings must load before saving changes.',
+                      message: settingsSaveBlockedReason ?? 'AI settings must load and pass validation before saving changes.',
                     })
                     return
                   }
@@ -1370,7 +1394,10 @@ function QueueWorkPanel({
 }) {
   const usingExplicitScope = !shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedItems)
   const hasReprocessValidationError = Boolean(
-    reprocessValidation.days || reprocessValidation.limit || reprocessValidation.timeRange,
+    reprocessValidation.days ||
+      reprocessValidation.limit ||
+      reprocessValidation.timeRange ||
+      reprocessValidation.itemSelection,
   )
 
   return (
@@ -1528,7 +1555,11 @@ function QueueWorkPanel({
                 value={itemSearch}
                 onChange={(event) => setItemSearch(event.target.value)}
                 placeholder="Search items by title, summary, or URL"
+                aria-invalid={Boolean(reprocessValidation.itemSelection)}
               />
+              {reprocessValidation.itemSelection && (
+                <p className="mt-1 text-xs text-red-600">{reprocessValidation.itemSelection}</p>
+              )}
 
               {selectedItems.length > 0 && (
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -1912,7 +1943,7 @@ function ActivityTab({
 
   const inspectedRunDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'inspect-run', inspectedRunId],
-    queryFn: () => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`),
+    queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`, { signal }),
     enabled: Boolean(inspectedRunId),
   })
 
@@ -1924,9 +1955,10 @@ function ActivityTab({
 
   const childRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'child-runs', selectedRunId, articlePreviewLimit],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       apiFetch<AITaskRunListResponse>(
         `/ai/ops/runs?parent_run_id=${selectedRunId}&limit=${articlePreviewLimit}`,
+        { signal },
       ),
     enabled: Boolean(selectedRunId && selectedRun?.task_type === 'reprocess'),
     refetchInterval:
@@ -2433,6 +2465,7 @@ function ConfigurationTab({
   savePending,
   saveDisabled,
   saveDisabledReason,
+  validation,
   onSave,
   onTestConnection,
   testPending,
@@ -2451,6 +2484,7 @@ function ConfigurationTab({
   savePending: boolean
   saveDisabled: boolean
   saveDisabledReason: string | null
+  validation: AISettingsDraftValidation
   onSave: () => void
   onTestConnection: () => void
   testPending: boolean
@@ -2499,14 +2533,18 @@ function ConfigurationTab({
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.base_url}
                 onChange={(event) => updateDraft(setDraft, 'base_url', event.target.value)}
+                aria-invalid={Boolean(validation.base_url)}
               />
+              <FieldError message={validation.base_url} />
             </Field>
             <Field label="Model">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.model}
                 onChange={(event) => updateDraft(setDraft, 'model', event.target.value)}
+                aria-invalid={Boolean(validation.model)}
               />
+              <FieldError message={validation.model} />
             </Field>
             <Field label="Temperature">
               <input
@@ -2514,7 +2552,9 @@ function ConfigurationTab({
                 value={draft.temperature}
                 onChange={(event) => updateDraft(setDraft, 'temperature', event.target.value)}
                 inputMode="decimal"
+                aria-invalid={Boolean(validation.temperature)}
               />
+              <FieldError message={validation.temperature} />
             </Field>
             <Field label="Max Completion Tokens">
               <input
@@ -2522,7 +2562,9 @@ function ConfigurationTab({
                 value={draft.max_completion_tokens}
                 onChange={(event) => updateDraft(setDraft, 'max_completion_tokens', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.max_completion_tokens)}
               />
+              <FieldError message={validation.max_completion_tokens} />
             </Field>
             <Field label="Request Timeout Seconds" className="md:col-span-2">
               <input
@@ -2530,7 +2572,9 @@ function ConfigurationTab({
                 value={draft.request_timeout_seconds}
                 onChange={(event) => updateDraft(setDraft, 'request_timeout_seconds', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.request_timeout_seconds)}
               />
+              <FieldError message={validation.request_timeout_seconds} />
             </Field>
             <Field label="Max Retry Attempts" className="md:col-span-2">
               <input
@@ -2538,7 +2582,9 @@ function ConfigurationTab({
                 value={draft.request_max_retries}
                 onChange={(event) => updateDraft(setDraft, 'request_max_retries', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.request_max_retries)}
               />
+              <FieldError message={validation.request_max_retries} />
               <span className="mt-1 block text-xs text-slate dark:text-white/60">
                 Retry malformed or failed AI responses up to X additional times before marking the run as failed.
               </span>
@@ -2572,7 +2618,9 @@ function ConfigurationTab({
                 value={draft.relevance_medium_threshold}
                 onChange={(event) => updateDraft(setDraft, 'relevance_medium_threshold', event.target.value)}
                 inputMode="decimal"
+                aria-invalid={Boolean(validation.relevance_medium_threshold)}
               />
+              <FieldError message={validation.relevance_medium_threshold} />
             </Field>
             <Field label="High Relevance Threshold">
               <input
@@ -2580,7 +2628,9 @@ function ConfigurationTab({
                 value={draft.relevance_high_threshold}
                 onChange={(event) => updateDraft(setDraft, 'relevance_high_threshold', event.target.value)}
                 inputMode="decimal"
+                aria-invalid={Boolean(validation.relevance_high_threshold)}
               />
+              <FieldError message={validation.relevance_high_threshold} />
             </Field>
           </div>
         </Panel>
@@ -2593,7 +2643,9 @@ function ConfigurationTab({
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.daily_brief_run_time_utc}
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_run_time_utc', event.target.value || '09:00')}
+                aria-invalid={Boolean(validation.daily_brief_run_time_utc)}
               />
+              <FieldError message={validation.daily_brief_run_time_utc} />
               <span className="mt-1 block text-xs text-slate dark:text-white/60">
                 Scheduled checks run every 5 minutes and fire after this UTC time. Manual queueing stays available in Operations.
               </span>
@@ -2604,7 +2656,9 @@ function ConfigurationTab({
                 value={draft.daily_brief_window_hours}
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_window_hours', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.daily_brief_window_hours)}
               />
+              <FieldError message={validation.daily_brief_window_hours} />
               <span className="mt-1 block text-xs text-slate dark:text-white/60">
                 How far back ThreatLens looks when building the scheduled brief.
               </span>
@@ -2615,7 +2669,9 @@ function ConfigurationTab({
                 value={draft.daily_brief_max_items}
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_max_items', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.daily_brief_max_items)}
               />
+              <FieldError message={validation.daily_brief_max_items} />
               <span className="mt-1 block text-xs text-slate dark:text-white/60">
                 Cap how many articles are handed to the model for a single brief.
               </span>
@@ -2626,7 +2682,9 @@ function ConfigurationTab({
                 value={draft.daily_brief_history_limit}
                 onChange={(event) => updateDraft(setDraft, 'daily_brief_history_limit', event.target.value)}
                 inputMode="numeric"
+                aria-invalid={Boolean(validation.daily_brief_history_limit)}
               />
+              <FieldError message={validation.daily_brief_history_limit} />
               <span className="mt-1 block text-xs text-slate dark:text-white/60">
                 Keep only the most recent X daily briefings for dashboard selection.
               </span>
@@ -2641,14 +2699,18 @@ function ConfigurationTab({
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.company_name}
                 onChange={(event) => updateDraft(setDraft, 'company_name', event.target.value)}
+                aria-invalid={Boolean(validation.company_name)}
               />
+              <FieldError message={validation.company_name} />
             </Field>
             <Field label="Industry">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.company_industry}
                 onChange={(event) => updateDraft(setDraft, 'company_industry', event.target.value)}
+                aria-invalid={Boolean(validation.company_industry)}
               />
+              <FieldError message={validation.company_industry} />
             </Field>
             <TextAreaList label="Regions" value={draft.company_regions} onChange={(value) => updateDraft(setDraft, 'company_regions', value)} />
             <TextAreaList label="Technology Stack" value={draft.company_stack} onChange={(value) => updateDraft(setDraft, 'company_stack', value)} />
@@ -2660,19 +2722,51 @@ function ConfigurationTab({
                 className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                 value={draft.company_profile_text}
                 onChange={(event) => updateDraft(setDraft, 'company_profile_text', event.target.value)}
+                aria-invalid={Boolean(validation.company_profile_text)}
               />
+              <FieldError message={validation.company_profile_text} />
             </Field>
           </div>
         </Panel>
 
         <Panel title="Prompt Tuning" subtitle="Built-in defaults stay visible here, but you can edit and save them directly.">
           <div className="grid gap-3">
-            <PromptArea label="Item Enrichment System Prompt" value={draft.item_enrichment_system_prompt} onChange={(value) => updateDraft(setDraft, 'item_enrichment_system_prompt', value)} />
-            <PromptArea label="Daily Brief System Prompt" value={draft.daily_brief_system_prompt} onChange={(value) => updateDraft(setDraft, 'daily_brief_system_prompt', value)} />
-            <PromptArea label="Global Instructions" value={draft.global_instructions} onChange={(value) => updateDraft(setDraft, 'global_instructions', value)} />
-            <PromptArea label="Item Summary Instructions" value={draft.item_summary_instructions} onChange={(value) => updateDraft(setDraft, 'item_summary_instructions', value)} />
-            <PromptArea label="Relevance Instructions" value={draft.relevance_instructions} onChange={(value) => updateDraft(setDraft, 'relevance_instructions', value)} />
-            <PromptArea label="Daily Brief Instructions" value={draft.daily_brief_instructions} onChange={(value) => updateDraft(setDraft, 'daily_brief_instructions', value)} />
+            <PromptArea
+              label="Item Enrichment System Prompt"
+              value={draft.item_enrichment_system_prompt}
+              onChange={(value) => updateDraft(setDraft, 'item_enrichment_system_prompt', value)}
+              error={validation.item_enrichment_system_prompt}
+            />
+            <PromptArea
+              label="Daily Brief System Prompt"
+              value={draft.daily_brief_system_prompt}
+              onChange={(value) => updateDraft(setDraft, 'daily_brief_system_prompt', value)}
+              error={validation.daily_brief_system_prompt}
+            />
+            <PromptArea
+              label="Global Instructions"
+              value={draft.global_instructions}
+              onChange={(value) => updateDraft(setDraft, 'global_instructions', value)}
+              error={validation.global_instructions}
+            />
+            <PromptArea
+              label="Item Summary Instructions"
+              value={draft.item_summary_instructions}
+              onChange={(value) => updateDraft(setDraft, 'item_summary_instructions', value)}
+              error={validation.item_summary_instructions}
+            />
+            <PromptArea
+              label="Relevance Instructions"
+              value={draft.relevance_instructions}
+              onChange={(value) => updateDraft(setDraft, 'relevance_instructions', value)}
+              error={validation.relevance_instructions}
+            />
+            <PromptArea
+              label="Daily Brief Instructions"
+              value={draft.daily_brief_instructions}
+              onChange={(value) => updateDraft(setDraft, 'daily_brief_instructions', value)}
+              error={validation.daily_brief_instructions}
+            />
           </div>
         </Panel>
 
@@ -2743,6 +2837,13 @@ function Panel({
       <div className="mt-3">{children}</div>
     </section>
   )
+}
+
+function FieldError({ message }: { message?: string }) {
+  if (!message) {
+    return null
+  }
+  return <p className="mt-1 text-xs text-red-600 dark:text-red-300">{message}</p>
 }
 
 function OverviewSection({
@@ -2989,10 +3090,12 @@ function PromptArea({
   label,
   value,
   onChange,
+  error,
 }: {
   label: string
   value: string
   onChange: (value: string) => void
+  error?: string
 }) {
   return (
     <Field label={label}>
@@ -3000,7 +3103,9 @@ function PromptArea({
         className="mt-1 h-28 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        aria-invalid={Boolean(error)}
       />
+      <FieldError message={error} />
     </Field>
   )
 }
@@ -3028,6 +3133,10 @@ function EmptyInline({ children }: { children: ReactNode }) {
 
 function invalidateAiQueries(queryClient: ReturnType<typeof useQueryClient>) {
   void queryClient.invalidateQueries({ queryKey: ['ai'] })
+}
+
+function markAiQueriesStale(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: ['ai'], refetchType: 'none' })
 }
 
 function updateDraft<K extends keyof AISettingsDraft>(

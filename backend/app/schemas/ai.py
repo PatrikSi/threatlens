@@ -313,6 +313,7 @@ class AIQueuedTaskResponse(BaseModel):
     task_id: str
     queued: bool
     run_id: uuid.UUID | None = None
+    celery_task_id: str | None = None
 
 
 class AIReprocessResponse(AIQueuedTaskResponse):

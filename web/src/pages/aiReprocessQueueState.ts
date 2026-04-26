@@ -13,6 +13,7 @@ export type AIReprocessScopeValidation = {
   days: string | null
   limit: string | null
   timeRange: string | null
+  itemSelection: string | null
 }
 
 function parsePositiveWholeNumber(value: string) {
@@ -47,6 +48,7 @@ export function resolveAiReprocessQueueState({
   endTime,
   feedIds,
   selectedItems,
+  itemSearch = '',
 }: {
   days: string
   limit: string
@@ -54,6 +56,7 @@ export function resolveAiReprocessQueueState({
   endTime: string
   feedIds: string[]
   selectedItems: Array<Pick<ItemListEntry, 'id'>>
+  itemSearch?: string
 }): {
   payload: AIReprocessQueueRequest | null
   validation: AIReprocessScopeValidation
@@ -89,13 +92,21 @@ export function resolveAiReprocessQueueState({
     timeRangeError = 'Start Time must be earlier than End Time.'
   }
 
-  if (daysError || limitError || timeRangeError || parsedLimit == null) {
+  let itemSelectionError: string | null = null
+  if (itemSearch.trim() && selectedItems.length === 0) {
+    itemSelectionError = 'Add a matching article or clear the search before queueing. Search text is only used for picking articles.'
+  } else if (parsedLimit != null && selectedItems.length > parsedLimit) {
+    itemSelectionError = 'Selected articles cannot exceed Last X Articles. Increase the limit or remove selected articles.'
+  }
+
+  if (daysError || limitError || timeRangeError || itemSelectionError || parsedLimit == null) {
     return {
       payload: null,
       validation: {
         days: daysError,
         limit: limitError,
         timeRange: timeRangeError,
+        itemSelection: itemSelectionError,
       },
     }
   }
@@ -113,6 +124,7 @@ export function resolveAiReprocessQueueState({
       days: null,
       limit: null,
       timeRange: null,
+      itemSelection: null,
     },
   }
 }

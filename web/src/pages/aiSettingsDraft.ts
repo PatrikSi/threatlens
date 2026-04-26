@@ -33,6 +33,8 @@ export type AISettingsDraft = {
   daily_brief_instructions: string
 }
 
+export type AISettingsDraftValidation = Partial<Record<keyof AISettingsDraft, string>>
+
 export const DEFAULT_DRAFT: AISettingsDraft = {
   base_url: '',
   model: '',
@@ -64,6 +66,98 @@ export const DEFAULT_DRAFT: AISettingsDraft = {
   item_summary_instructions: '',
   relevance_instructions: '',
   daily_brief_instructions: '',
+}
+
+const NUMBER_RULES: Array<{
+  key: keyof AISettingsDraft
+  label: string
+  min: number
+  max: number
+  integer?: boolean
+}> = [
+  { key: 'temperature', label: 'Temperature', min: 0, max: 2 },
+  { key: 'max_completion_tokens', label: 'Max Completion Tokens', min: 128, max: 8192, integer: true },
+  { key: 'request_timeout_seconds', label: 'Request Timeout Seconds', min: 5, max: 300, integer: true },
+  { key: 'request_max_retries', label: 'Max Retry Attempts', min: 0, max: 5, integer: true },
+  { key: 'daily_brief_window_hours', label: 'Daily Brief Window Hours', min: 6, max: 168, integer: true },
+  { key: 'daily_brief_max_items', label: 'Daily Brief Max Articles', min: 5, max: 100, integer: true },
+  { key: 'daily_brief_history_limit', label: 'Retained Daily Briefings', min: 1, max: 90, integer: true },
+  { key: 'relevance_medium_threshold', label: 'Medium Relevance Threshold', min: 0, max: 1 },
+  { key: 'relevance_high_threshold', label: 'High Relevance Threshold', min: 0, max: 1 },
+]
+
+const TEXT_RULES: Array<{
+  key: keyof AISettingsDraft
+  label: string
+  max: number
+}> = [
+  { key: 'base_url', label: 'Base URL', max: 4000 },
+  { key: 'model', label: 'Model', max: 255 },
+  { key: 'company_name', label: 'Company Name', max: 255 },
+  { key: 'company_industry', label: 'Industry', max: 255 },
+  { key: 'company_profile_text', label: 'Additional Company Context', max: 4000 },
+  { key: 'item_enrichment_system_prompt', label: 'Item Enrichment System Prompt', max: 4000 },
+  { key: 'daily_brief_system_prompt', label: 'Daily Brief System Prompt', max: 4000 },
+  { key: 'global_instructions', label: 'Global Instructions', max: 4000 },
+  { key: 'item_summary_instructions', label: 'Item Summary Instructions', max: 4000 },
+  { key: 'relevance_instructions', label: 'Relevance Instructions', max: 4000 },
+  { key: 'daily_brief_instructions', label: 'Daily Brief Instructions', max: 4000 },
+]
+
+export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraftValidation {
+  const errors: AISettingsDraftValidation = {}
+
+  for (const rule of TEXT_RULES) {
+    const value = draft[rule.key]
+    if (typeof value !== 'string') {
+      continue
+    }
+    if (value.trim().length > rule.max) {
+      errors[rule.key] = `${rule.label} cannot exceed ${rule.max} characters.`
+    }
+  }
+
+  for (const rule of NUMBER_RULES) {
+    const value = draft[rule.key]
+    if (typeof value !== 'string') {
+      continue
+    }
+    const trimmed = value.trim()
+    const parsed = Number(trimmed)
+    if (!trimmed || !Number.isFinite(parsed)) {
+      errors[rule.key] = `${rule.label} must be a number.`
+      continue
+    }
+    if (rule.integer && !Number.isInteger(parsed)) {
+      errors[rule.key] = `${rule.label} must be a whole number.`
+      continue
+    }
+    if (parsed < rule.min || parsed > rule.max) {
+      errors[rule.key] = `${rule.label} must be between ${rule.min} and ${rule.max}.`
+    }
+  }
+
+  const medium = Number(draft.relevance_medium_threshold)
+  const high = Number(draft.relevance_high_threshold)
+  if (
+    Number.isFinite(medium) &&
+    Number.isFinite(high) &&
+    !errors.relevance_medium_threshold &&
+    !errors.relevance_high_threshold &&
+    medium >= high
+  ) {
+    errors.relevance_high_threshold = 'High Relevance Threshold must be greater than Medium Relevance Threshold.'
+  }
+
+  if (!isValidUtcTimeInput(draft.daily_brief_run_time_utc)) {
+    errors.daily_brief_run_time_utc = 'Daily Brief Run Time must be a valid UTC time.'
+  }
+
+  return errors
+}
+
+export function getFirstAISettingsDraftValidationError(validation: AISettingsDraftValidation): string | null {
+  return Object.values(validation).find((message): message is string => Boolean(message)) ?? null
 }
 
 export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
@@ -158,6 +252,16 @@ function parseNumberOrDefault(value: string, fallback: number) {
 
 function formatUtcTimeInput(hour: number, minute: number) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+}
+
+function isValidUtcTimeInput(value: string) {
+  const matched = /^(\d{1,2}):(\d{2})$/.exec(value.trim())
+  if (!matched) {
+    return false
+  }
+  const hour = Number(matched[1])
+  const minute = Number(matched[2])
+  return Number.isFinite(hour) && hour >= 0 && hour <= 23 && Number.isFinite(minute) && minute >= 0 && minute <= 59
 }
 
 function parseUtcTimeInput(value: string) {

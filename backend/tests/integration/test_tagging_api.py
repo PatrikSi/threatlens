@@ -143,8 +143,35 @@ def test_admin_can_queue_tagging_reapply(client: TestClient, auth_headers, monke
         headers=auth_headers["admin"],
     )
     assert response.status_code == 200
-    assert response.json() == {"task_id": "retag-task-123", "queued": True}
+    assert response.json() == {
+        "task_id": "retag-task-123",
+        "queued": True,
+        "celery_task_id": "retag-task-123",
+        "dispatch_token": "dispatch-token-1",
+    }
     assert captured == {"days": 14, "limit": 250, "dispatch_token": "dispatch-token-1"}
+
+
+def test_tagging_reapply_uses_dispatch_token_when_broker_returns_no_task_id(client: TestClient, auth_headers, monkeypatch):
+    class _FakeTask:
+        id = None
+
+    monkeypatch.setattr("app.api.routes.tagging.claim_tagging_reapply_dispatch", lambda: "dispatch-token-1")
+    monkeypatch.setattr("app.api.routes.tagging.reapply_recent_item_tags.delay", lambda *_args: _FakeTask())
+
+    response = client.post(
+        "/tagging/reapply",
+        json={"days": 14, "limit": 250},
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "task_id": "dispatch-token-1",
+        "queued": True,
+        "celery_task_id": None,
+        "dispatch_token": "dispatch-token-1",
+    }
 
 
 def test_tagging_reapply_returns_409_when_run_is_already_queued_or_in_progress(client: TestClient, auth_headers, monkeypatch):

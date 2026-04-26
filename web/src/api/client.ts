@@ -151,11 +151,42 @@ function extractErrorMessage(parsed: unknown, raw: string, statusCode: number): 
     if (typeof detail === 'string' && detail.trim()) {
       return detail
     }
+    if (Array.isArray(detail)) {
+      const messages = detail.map(formatValidationIssue).filter((message) => message.length > 0)
+      if (messages.length) {
+        return messages.join('; ')
+      }
+    }
   }
   if (raw.trim()) {
     return raw
   }
   return `HTTP ${statusCode}`
+}
+
+function formatValidationIssue(issue: unknown): string {
+  if (typeof issue === 'string') {
+    return issue.trim()
+  }
+
+  if (!issue || typeof issue !== 'object') {
+    return ''
+  }
+
+  const record = issue as { loc?: unknown; msg?: unknown }
+  const message = typeof record.msg === 'string' ? record.msg.trim() : ''
+  if (!message) {
+    return ''
+  }
+
+  if (!Array.isArray(record.loc)) {
+    return message
+  }
+
+  const location = record.loc
+    .filter((part): part is string | number => typeof part === 'string' || typeof part === 'number')
+    .join('.')
+  return location ? `${location}: ${message}` : message
 }
 
 function getCookieValue(name: string): string | null {

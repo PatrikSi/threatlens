@@ -86,6 +86,15 @@ def _effective_reprocess_limit(limit: int) -> int:
     return max(1, min(int(limit), int(settings.dispatch_ai_reprocess_batch_size)))
 
 
+def _celery_task_id(task: object) -> str | None:
+    task_id = getattr(task, "id", None)
+    return str(task_id) if task_id else None
+
+
+def _queue_response_task_id(task: object, run_id: uuid.UUID) -> str:
+    return _celery_task_id(task) or str(run_id)
+
+
 @router.get("/settings", response_model=AISettingsResponse, dependencies=[Depends(require_ai_enabled)])
 def get_ai_settings_route(
     db: Session = Depends(get_db),
@@ -401,19 +410,28 @@ def queue_daily_brief_route(
         db,
         run_id=run.id,
         task_factory=lambda: dispatch_daily_ai_brief_generation.delay(True, str(run.id), str(admin.id)),
+        on_enqueue_failure=lambda error: record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="ai.daily_brief.queue",
+            resource_type="ai_daily_brief",
+            success=False,
+            metadata={"run_id": str(run.id), "error": error},
+        ),
     )
-    task_id = getattr(task, "id", None)
-    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task_id)
+    celery_task_id = _celery_task_id(task)
+    task_id = _queue_response_task_id(task, run.id)
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=celery_task_id)
     record_audit(
         db,
         actor_user_id=admin.id,
         action="ai.daily_brief.queue",
         resource_type="ai_daily_brief",
         success=True,
-        metadata={"task_id": task_id, "run_id": str(run.id)},
+        metadata={"task_id": task_id, "celery_task_id": celery_task_id, "run_id": str(run.id)},
     )
     db.commit()
-    return AIQueuedTaskResponse(task_id=task_id, queued=True, run_id=run.id)
+    return AIQueuedTaskResponse(task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id)
 
 
 @router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])
@@ -462,9 +480,29 @@ def reprocess_ai_for_recent_items_route(
             task_run_id=str(run.id),
             actor_user_id=str(admin.id),
         ),
+        on_enqueue_failure=lambda error: record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="ai.reprocess.queue",
+            resource_type="ai_settings",
+            success=False,
+            metadata={
+                "days": payload.days,
+                "limit": payload.limit,
+                "effective_limit": effective_limit,
+                "start_time": payload.start_time.isoformat() if payload.start_time else None,
+                "end_time": payload.end_time.isoformat() if payload.end_time else None,
+                "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
+                "item_ids": [str(item_id) for item_id in payload.item_ids],
+                "run_id": str(run.id),
+                "error": error,
+                "date_basis": "published_at_or_first_seen_at",
+            },
+        ),
     )
-    task_id = getattr(task, "id", None)
-    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=task_id)
+    celery_task_id = _celery_task_id(task)
+    task_id = _queue_response_task_id(task, run.id)
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=celery_task_id)
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -479,26 +517,30 @@ def reprocess_ai_for_recent_items_route(
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
             "item_ids": [str(item_id) for item_id in payload.item_ids],
             "task_id": task_id,
+            "celery_task_id": celery_task_id,
             "run_id": str(run.id),
             "date_basis": "published_at_or_first_seen_at",
         },
     )
     db.commit()
-    return AIReprocessResponse(task_id=task_id, queued=True, run_id=run.id)
+    return AIReprocessResponse(task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id)
 
 
-def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory):
+def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory, on_enqueue_failure=None):
     try:
         return task_factory()
     except Exception as exc:
+        error = str(exc)
         finish_ai_task_run(
             db,
             run_id=run_id,
             status=AI_STATUS_ERROR,
             reason="enqueue_failed",
-            error=str(exc),
+            error=error,
             worker_name="api",
         )
+        if on_enqueue_failure is not None:
+            on_enqueue_failure(error)
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

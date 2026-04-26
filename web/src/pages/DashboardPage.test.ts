@@ -10,6 +10,7 @@ import {
   loadDashboardWindows,
   parseDashboardSavedView,
   resolveSavedViewSelectionChange,
+  serializeDashboardWindowLayouts,
 } from './dashboardSavedViews'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
@@ -193,6 +194,90 @@ describe('saved view payloads', () => {
     expect(parsed.rss_filters.q).toBe('exchange')
     expect(parsed.windows[0].rss_filters?.page).toBe(1)
     expect(parsed.windows[1].scratch_note).toBe('Track exposed assets.')
+  })
+
+  it('serializes per-window filters when persisting local window layouts', () => {
+    const serialized = serializeDashboardWindowLayouts([
+      {
+        id: 'rss-1',
+        type: 'rss',
+        title: 'RSS Panel 1',
+        snap: 'full',
+        rect: { x: 0, y: 0, width: 1200, height: 720 },
+        controls_collapsed: true,
+        scratch_note: '',
+        time_override: {
+          time_range: 'days',
+          custom_since_date: '',
+          custom_until_date: '',
+          rolling_days: '14',
+        },
+        rss_filters: {
+          selected_feed_ids: ['feed-1'],
+          selected_tags: ['vendor:microsoft'],
+          q: 'exchange',
+          read_status: 'unread',
+          star_status: 'starred',
+          view_mode: 'expanded',
+          page: 4,
+          page_size: 50,
+          sort: 'first_seen_desc',
+          show_advanced_filters: true,
+        },
+        alert_filters: null,
+        selected_daily_brief_id: null,
+      },
+      {
+        id: 'alerts-1',
+        type: 'alerts',
+        title: 'Alerts Panel 1',
+        snap: 'right',
+        rect: { x: 600, y: 0, width: 600, height: 720 },
+        controls_collapsed: false,
+        scratch_note: '',
+        time_override: null,
+        rss_filters: null,
+        alert_filters: {
+          selected_alert_ids: ['alert-1'],
+          selected_categories: ['vulnerability'],
+          q: 'fortinet',
+          view_mode: 'compact',
+          page: 2,
+          page_size: 10,
+          sort: 'published_at_asc',
+        },
+        selected_daily_brief_id: null,
+      },
+    ])
+
+    expect(serialized[0].rss_filters).toEqual({
+      selected_feed_ids: ['feed-1'],
+      selected_tags: ['vendor:microsoft'],
+      q: 'exchange',
+      read_status: 'unread',
+      star_status: 'starred',
+      view_mode: 'expanded',
+      page: 4,
+      page_size: 50,
+      sort: 'first_seen_desc',
+      show_advanced_filters: true,
+    })
+    expect(serialized[1].alert_filters).toEqual({
+      selected_alert_ids: ['alert-1'],
+      selected_categories: ['vulnerability'],
+      q: 'fortinet',
+      view_mode: 'compact',
+      page: 2,
+      page_size: 10,
+      sort: 'published_at_asc',
+    })
+
+    localStorageMock.setItem('dashboard-windows', JSON.stringify(serialized))
+    const roundTripped = loadDashboardWindows('dashboard-windows', 1200, 720)
+    expect(roundTripped[0].rss_filters?.q).toBe('exchange')
+    expect(roundTripped[0].rss_filters?.page).toBe(4)
+    expect(roundTripped[1].alert_filters?.q).toBe('fortinet')
+    expect(roundTripped[1].alert_filters?.page).toBe(2)
   })
 
   it('migrates legacy saved views into the current schema', () => {

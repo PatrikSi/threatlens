@@ -28,6 +28,56 @@ ALLOWED_WINDOW_SNAPS = {
     "bottom_left",
     "bottom_right",
 }
+SAVED_VIEW_QUERY_KEYS = {
+    "schema_version",
+    "version",
+    "rss_filters",
+    "alert_filters",
+    "windows",
+    "ui",
+}
+SAVED_VIEW_RSS_FILTER_KEYS = {
+    "selected_feed_ids",
+    "selected_tags",
+    "q",
+    "read_status",
+    "star_status",
+    "view_mode",
+    "page_size",
+    "time_range",
+    "custom_since_date",
+    "custom_until_date",
+    "rolling_days",
+    "sort",
+}
+SAVED_VIEW_ALERT_FILTER_KEYS = {
+    "selected_alert_ids",
+    "selected_categories",
+    "q",
+    "view_mode",
+    "page_size",
+    "time_range",
+    "custom_since_date",
+    "custom_until_date",
+    "rolling_days",
+    "sort",
+}
+SAVED_VIEW_WINDOW_KEYS = {
+    "id",
+    "type",
+    "title",
+    "snap",
+    "rect",
+    "controls_collapsed",
+    "scratch_note",
+    "time_override",
+    "rss_filters",
+    "alert_filters",
+    "selected_daily_brief_id",
+}
+SAVED_VIEW_RECT_KEYS = {"x", "y", "width", "height"}
+SAVED_VIEW_TIME_FILTER_KEYS = {"time_range", "custom_since_date", "custom_until_date", "rolling_days"}
+SAVED_VIEW_UI_KEYS = {"show_advanced_filters"}
 SAVED_VIEW_WINDOW_RSS_FILTER_KEYS = {
     "selected_feed_ids",
     "selected_tags",
@@ -389,14 +439,27 @@ def _normalize_legacy_saved_view_payload(value: Mapping[str, Any]) -> dict[str, 
     }
 
 
-def _strip_window_filter_extras(value: Any, *, allowed_keys: set[str]) -> Any:
+def _strip_mapping_extras(value: Any, *, allowed_keys: set[str]) -> Any:
     if not _is_mapping(value):
         return value
     return {key: child_value for key, child_value in value.items() if key in allowed_keys}
 
 
 def _normalize_current_saved_view_payload(value: Mapping[str, Any]) -> dict[str, Any]:
-    normalized = dict(value)
+    normalized = _strip_mapping_extras(value, allowed_keys=SAVED_VIEW_QUERY_KEYS)
+    if "rss_filters" in normalized:
+        normalized["rss_filters"] = _strip_mapping_extras(
+            normalized.get("rss_filters"),
+            allowed_keys=SAVED_VIEW_RSS_FILTER_KEYS,
+        )
+    if "alert_filters" in normalized:
+        normalized["alert_filters"] = _strip_mapping_extras(
+            normalized.get("alert_filters"),
+            allowed_keys=SAVED_VIEW_ALERT_FILTER_KEYS,
+        )
+    if "ui" in normalized:
+        normalized["ui"] = _strip_mapping_extras(normalized.get("ui"), allowed_keys=SAVED_VIEW_UI_KEYS)
+
     windows = value.get("windows")
     if not isinstance(windows, list):
         return normalized
@@ -407,12 +470,24 @@ def _normalize_current_saved_view_payload(value: Mapping[str, Any]) -> dict[str,
             normalized_windows.append(entry)
             continue
 
-        normalized_window = dict(entry)
-        normalized_window["rss_filters"] = _strip_window_filter_extras(
+        normalized_window = _strip_mapping_extras(entry, allowed_keys=SAVED_VIEW_WINDOW_KEYS)
+        normalized_window["rect"] = _strip_mapping_extras(
+            normalized_window.get("rect"),
+            allowed_keys=SAVED_VIEW_RECT_KEYS,
+        )
+        raw_time_override = normalized_window.get("time_override")
+        normalized_time_override = _strip_mapping_extras(
+            raw_time_override,
+            allowed_keys=SAVED_VIEW_TIME_FILTER_KEYS,
+        )
+        normalized_window["time_override"] = (
+            normalized_time_override if not _is_mapping(raw_time_override) or normalized_time_override else None
+        )
+        normalized_window["rss_filters"] = _strip_mapping_extras(
             normalized_window.get("rss_filters"),
             allowed_keys=SAVED_VIEW_WINDOW_RSS_FILTER_KEYS,
         )
-        normalized_window["alert_filters"] = _strip_window_filter_extras(
+        normalized_window["alert_filters"] = _strip_mapping_extras(
             normalized_window.get("alert_filters"),
             allowed_keys=SAVED_VIEW_WINDOW_ALERT_FILTER_KEYS,
         )

@@ -334,7 +334,15 @@ vi.mock('@tanstack/react-query', () => ({
         vi.fn((payload: unknown) => {
           aiSettingsPageDomMocks.reprocessMutate(payload)
           if (aiSettingsPageDomMocks.completeReprocessMutation) {
-            options.onSuccess?.({ task_id: 'task-reprocess-1' }, payload)
+            options.onSuccess?.(
+              {
+                task_id: 'task-reprocess-1',
+                queued: true,
+                run_id: 'run-reprocess-1',
+                celery_task_id: 'task-reprocess-1',
+              },
+              payload,
+            )
           }
         }),
       )
@@ -567,7 +575,7 @@ describe('AiSettingsPage DOM workflows', () => {
 
     const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('Queued AI reprocessing task task-reprocess-1.')
+    expect(notice?.textContent).toContain('Queued AI reprocessing run run-reprocess-1.')
   })
 
   it('does not treat a submitted reprocess scope as unsaved while queueing is still pending', () => {

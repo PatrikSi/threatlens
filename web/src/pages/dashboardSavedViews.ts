@@ -534,6 +534,90 @@ export function buildDashboardSavedViewState(
   }
 }
 
+function cloneDashboardWindowRssFilters(value: DashboardRssWindowFilters | null): DashboardRssWindowFilters {
+  const filters = parseRssWindowFiltersCandidate(value)
+  return {
+    selected_feed_ids: [...filters.selected_feed_ids],
+    selected_tags: [...filters.selected_tags],
+    q: filters.q,
+    read_status: filters.read_status,
+    star_status: filters.star_status,
+    view_mode: filters.view_mode,
+    page: filters.page,
+    page_size: filters.page_size,
+    sort: filters.sort,
+    show_advanced_filters: filters.show_advanced_filters,
+  }
+}
+
+function cloneDashboardWindowAlertFilters(value: DashboardAlertWindowFilters | null): DashboardAlertWindowFilters {
+  const filters = parseAlertWindowFiltersCandidate(value)
+  return {
+    selected_alert_ids: [...filters.selected_alert_ids],
+    selected_categories: [...filters.selected_categories],
+    q: filters.q,
+    view_mode: filters.view_mode,
+    page: filters.page,
+    page_size: filters.page_size,
+    sort: filters.sort,
+  }
+}
+
+export function serializeDashboardWindowLayouts(windows: DashboardWindow[]): DashboardWindow[] {
+  return windows.map((window) => {
+    const base = {
+      id: window.id,
+      title: window.title,
+      snap: window.snap,
+      rect: { ...window.rect },
+      controls_collapsed: window.controls_collapsed,
+      scratch_note: window.scratch_note,
+    }
+
+    if (window.type === 'rss') {
+      return {
+        ...base,
+        type: 'rss',
+        time_override: window.time_override ? { ...window.time_override } : null,
+        rss_filters: cloneDashboardWindowRssFilters(window.rss_filters),
+        alert_filters: null,
+        selected_daily_brief_id: null,
+      }
+    }
+
+    if (window.type === 'alerts') {
+      return {
+        ...base,
+        type: 'alerts',
+        time_override: window.time_override ? { ...window.time_override } : null,
+        rss_filters: null,
+        alert_filters: cloneDashboardWindowAlertFilters(window.alert_filters),
+        selected_daily_brief_id: null,
+      }
+    }
+
+    if (window.type === 'daily_brief') {
+      return {
+        ...base,
+        type: 'daily_brief',
+        time_override: null,
+        rss_filters: null,
+        alert_filters: null,
+        selected_daily_brief_id: window.selected_daily_brief_id,
+      }
+    }
+
+    return {
+      ...base,
+      type: 'notes',
+      time_override: null,
+      rss_filters: null,
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    }
+  })
+}
+
 function buildSavedViewWindowRssFilters(value: DashboardRssWindowFilters | null): SavedViewWindowRssFilters {
   const filters = parseRssWindowFiltersCandidate(value)
   return {

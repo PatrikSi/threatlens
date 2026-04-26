@@ -97,6 +97,8 @@ def list_items(
     is_read: bool | None = None,
     since: datetime | None = None,
     until: datetime | None = None,
+    has_article: bool | None = None,
+    date_basis: str = Query(default="first_seen_at", pattern="^(first_seen_at|published_at_or_first_seen_at)$"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=25, ge=1, le=100),
     sort: str = Query(
@@ -150,10 +152,20 @@ def list_items(
         )
     if selected_feed_ids:
         filters.append(Item.feed_id.in_(selected_feed_ids))
+    timeline_at = Item.first_seen_at
+    if date_basis == "published_at_or_first_seen_at":
+        timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
     if since:
-        filters.append(Item.first_seen_at >= since)
+        filters.append(timeline_at >= since)
     if until:
-        filters.append(Item.first_seen_at <= until)
+        filters.append(timeline_at <= until)
+    if has_article is not None:
+        article_exists = (
+            select(Article.id)
+            .where(and_(Article.item_id == Item.id, Article.text.is_not(None)))
+            .exists()
+        )
+        filters.append(article_exists if has_article else ~article_exists)
     if is_read is not None:
         filters.append(func.coalesce(state_subq.c.is_read, False) == is_read)
     if is_starred is not None:

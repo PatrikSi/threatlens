@@ -3,8 +3,12 @@ import { describe, expect, it } from 'vitest'
 import { Feed } from '../types/api'
 import {
   collectDirtyFeedScheduleDrafts,
+  FEED_SCHEDULE_DRAFT_STORAGE_KEY,
+  getFeedScheduleDraftStorageKey,
   isFeedScheduleDraftDirty,
+  migrateLegacyFeedScheduleDraftStorage,
   normalizeFeedScheduleDraft,
+  readPersistedFeedScheduleDrafts,
   validateFeedScheduleDraft,
 } from './feedScheduleDraft'
 
@@ -131,5 +135,56 @@ describe('collectDirtyFeedScheduleDrafts', () => {
         scheduleCron: '0 * * * *',
       },
     })
+  })
+})
+
+describe('feed schedule draft storage', () => {
+  it('migrates legacy global feed schedule drafts into a user-scoped key once', () => {
+    const store = new Map<string, string>()
+    const storage = {
+      getItem: (key: string) => (store.has(key) ? store.get(key)! : null),
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      },
+      removeItem: (key: string) => {
+        store.delete(key)
+      },
+    }
+    const legacyDrafts = {
+      'feed-1': {
+        fetchMode: 'schedule',
+        intervalSeconds: '1800',
+        scheduleCron: '0 * * * *',
+      },
+    }
+
+    store.set(FEED_SCHEDULE_DRAFT_STORAGE_KEY, JSON.stringify(legacyDrafts))
+    migrateLegacyFeedScheduleDraftStorage(storage, 'alice')
+
+    expect(store.has(FEED_SCHEDULE_DRAFT_STORAGE_KEY)).toBe(false)
+    expect(readPersistedFeedScheduleDrafts(storage, getFeedScheduleDraftStorageKey('alice'))).toEqual(legacyDrafts)
+    expect(readPersistedFeedScheduleDrafts(storage, getFeedScheduleDraftStorageKey('bob'))).toEqual({})
+
+    store.set(FEED_SCHEDULE_DRAFT_STORAGE_KEY, JSON.stringify({ 'feed-2': legacyDrafts['feed-1'] }))
+    migrateLegacyFeedScheduleDraftStorage(storage, 'alice')
+
+    expect(readPersistedFeedScheduleDrafts(storage, getFeedScheduleDraftStorageKey('alice'))).toEqual(legacyDrafts)
+    expect(store.has(FEED_SCHEDULE_DRAFT_STORAGE_KEY)).toBe(false)
+  })
+
+  it('ignores storage failures during legacy draft migration', () => {
+    const storage = {
+      getItem: () => {
+        throw new Error('storage unavailable')
+      },
+      setItem: () => {
+        throw new Error('storage unavailable')
+      },
+      removeItem: () => {
+        throw new Error('storage unavailable')
+      },
+    }
+
+    expect(() => migrateLegacyFeedScheduleDraftStorage(storage, 'alice')).not.toThrow()
   })
 })

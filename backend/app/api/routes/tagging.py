@@ -241,15 +241,28 @@ def queue_tagging_reapply(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Task queue is temporarily unavailable. Try again later.",
         ) from exc
+    celery_task_id = getattr(task, "id", None)
+    task_id = str(celery_task_id or dispatch_token)
     record_audit(
         db,
         actor_user_id=admin.id,
         action="tagging.reapply.queue",
         resource_type="tagging_settings",
-        metadata={"days": payload.days, "limit": payload.limit, "task_id": task.id},
+        metadata={
+            "days": payload.days,
+            "limit": payload.limit,
+            "task_id": task_id,
+            "celery_task_id": str(celery_task_id) if celery_task_id else None,
+            "dispatch_token": dispatch_token,
+        },
     )
     db.commit()
-    return TaggingReapplyResponse(task_id=task.id, queued=True)
+    return TaggingReapplyResponse(
+        task_id=task_id,
+        queued=True,
+        celery_task_id=str(celery_task_id) if celery_task_id else None,
+        dispatch_token=dispatch_token,
+    )
 
 
 def _validate_rule_payload(db: Session, payload: TaggingRuleWrite) -> str:

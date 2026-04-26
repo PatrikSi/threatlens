@@ -156,3 +156,5 @@ class TaggingReapplyRequest(BaseModel):
 class TaggingReapplyResponse(BaseModel):
     task_id: str
     queued: bool = True
+    celery_task_id: str | None = None
+    dispatch_token: str | None = None

@@ -813,6 +813,8 @@ export interface TaggingRulePreviewResponse {
 export interface TaggingReapplyResponse {
   task_id: string
   queued: boolean
+  celery_task_id: string | null
+  dispatch_token: string | null
 }
 
 export interface AIPromptPreview {
@@ -966,12 +968,14 @@ export interface AIReprocessResponse {
   task_id: string
   queued: boolean
   run_id: string | null
+  celery_task_id: string | null
 }
 
 export interface AIQueuedTaskResponse {
   task_id: string
   queued: boolean
   run_id: string | null
+  celery_task_id: string | null
 }
 
 export interface AITaskRunResponse {

@@ -1,6 +1,6 @@
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,11 +14,13 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.user import User
+from app.schemas.ai import AILiveTaskResponse
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import (
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
+    _reconcile_stale_ai_runs,
     queue_ai_task_run,
 )
 
@@ -302,6 +304,7 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     assert reprocess_response.status_code == 200
     response_payload = reprocess_response.json()
     assert response_payload["task_id"] == "ai-reprocess-123"
+    assert response_payload["celery_task_id"] == "ai-reprocess-123"
     assert response_payload["queued"] is True
     assert response_payload["run_id"]
     assert captured["days"] == 14
@@ -363,6 +366,92 @@ def test_reprocess_queue_marks_run_error_when_broker_publish_fails(
     assert run.status == "error"
     assert run.reason == "enqueue_failed"
     assert run.error == "broker down"
+
+    manual_actions_response = client.get("/ai/ops/manual-actions", headers=auth_headers["admin"])
+    assert manual_actions_response.status_code == 200
+    failed_action = next(entry for entry in manual_actions_response.json() if entry["action"] == "ai.reprocess.queue")
+    assert failed_action["success"] is False
+    assert failed_action["metadata"]["error"] == "broker down"
+    assert failed_action["metadata"]["run_id"] == str(run.id)
+    assert failed_action["metadata"]["days"] == 14
+    assert failed_action["metadata"]["limit"] == 250
+    assert failed_action["metadata"]["date_basis"] == "published_at_or_first_seen_at"
+
+
+def test_reprocess_queue_uses_run_id_when_broker_returns_no_task_id(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _FakeTask:
+        id = None
+
+    monkeypatch.setattr("app.api.routes.ai.reprocess_recent_ai_items.delay", lambda *_args, **_kwargs: _FakeTask())
+
+    response = client.post(
+        "/ai/reprocess",
+        json={"days": 14, "limit": 250},
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queued"] is True
+    assert payload["task_id"] == payload["run_id"]
+    assert payload["celery_task_id"] is None
+
+    run = db_session.get(AITaskRun, uuid.UUID(payload["run_id"]))
+    assert run is not None
+    assert run.celery_task_id is None
+
+
+def test_stale_reconciliation_keeps_run_with_missing_celery_id_when_live_task_has_run_id(
+    db_session,
+    seed_users,
+):
+    admin = seed_users["admin"]
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model="local-threat-model",
+    )
+    run.celery_task_id = None
+    run.created_at = datetime.now(timezone.utc) - timedelta(hours=3)
+    run.queued_at = datetime.now(timezone.utc) - timedelta(hours=3)
+    db_session.add(run)
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[
+            AILiveTaskResponse(
+                worker_name="worker@example",
+                celery_task_id="broker-task-id",
+                task_name="reprocess",
+                state="reserved",
+                run_id=run.id,
+                item_id=None,
+                parent_run_id=None,
+                eta=None,
+                received_at=None,
+                raw_name="app.tasks.feed_tasks.reprocess_recent_ai_items",
+            )
+        ],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    assert reconciled_count == 0
+    assert run.status == "queued"
+    assert run.reason is None
+    assert run.finished_at is None
 
 
 def test_reprocess_rejects_explicit_item_ids_above_effective_batch_limit(
@@ -466,11 +555,16 @@ def test_admin_can_queue_daily_brief_and_cancel_ai_runs(
     assert queue_response.status_code == 200
     queue_payload = queue_response.json()
     assert queue_payload["task_id"] == "ai-brief-123"
+    assert queue_payload["celery_task_id"] == "ai-brief-123"
     assert queue_payload["queued"] is True
     assert queue_payload["run_id"]
     assert captured["force"] is True
     assert captured["task_run_id"] == queue_payload["run_id"]
     assert captured["actor_user_id"]
+
+    manual_actions_response = client.get("/ai/ops/manual-actions", headers=auth_headers["admin"])
+    assert manual_actions_response.status_code == 200
+    assert "ai.daily_brief.queue" in {entry["action"] for entry in manual_actions_response.json()}
 
     run_id = uuid.UUID(queue_payload["run_id"])
     run = db_session.get(AITaskRun, run_id)
@@ -537,6 +631,31 @@ def test_daily_brief_queue_marks_run_error_when_broker_publish_fails(
     assert run.status == "error"
     assert run.reason == "enqueue_failed"
     assert run.error == "broker down"
+
+
+def test_daily_brief_queue_uses_run_id_when_broker_returns_no_task_id(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _FakeTask:
+        id = None
+
+    monkeypatch.setattr("app.api.routes.ai.dispatch_daily_ai_brief_generation.delay", lambda *_args, **_kwargs: _FakeTask())
+
+    response = client.post("/ai/daily-brief/queue", headers=auth_headers["admin"])
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queued"] is True
+    assert payload["task_id"] == payload["run_id"]
+    assert payload["celery_task_id"] is None
+
+    run = db_session.get(AITaskRun, uuid.UUID(payload["run_id"]))
+    assert run is not None
+    assert run.celery_task_id is None
 
 
 def test_admin_can_list_reprocess_child_runs_with_article_context(

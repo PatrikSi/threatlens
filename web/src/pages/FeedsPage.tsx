@@ -20,8 +20,11 @@ import {
   DEFAULT_SCHEDULE_CRON,
   FeedScheduleDraft,
   feedToScheduleDraft,
+  getFeedScheduleDraftStorageKey,
   isFeedScheduleDraftDirty,
+  migrateLegacyFeedScheduleDraftStorage,
   normalizeFeedScheduleDraft,
+  readPersistedFeedScheduleDrafts,
   validateFeedScheduleDraft,
 } from './feedScheduleDraft'
 
@@ -63,17 +66,14 @@ type DetectedFeedMetadata = {
   language: string
 }
 
-const FEED_SCHEDULE_DRAFT_STORAGE_KEY = 'threatlens.feed-schedule-drafts.v1'
+const MAX_FEED_IMPORT_FILE_BYTES = 2_000_000
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const canDelete = meQuery.data?.role === 'admin'
   const canBackup = meQuery.data?.role === 'admin'
-  const initialPersistedFeedDrafts = useMemo(
-    () => (typeof window === 'undefined' ? {} : readPersistedFeedScheduleDrafts(window.sessionStorage)),
-    [],
-  )
+  const feedScheduleDraftStorageKey = meQuery.data?.id ? getFeedScheduleDraftStorageKey(meQuery.data.id) : null
 
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
@@ -102,8 +102,10 @@ export function FeedsPage() {
   const [pendingImportReview, setPendingImportReview] = useState<FeedImportPreviewSummary | null>(null)
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
+  const [feedDraftHydratedStorageKey, setFeedDraftHydratedStorageKey] = useState<string | null>(null)
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
-  const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>(initialPersistedFeedDrafts)
+  const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
+  const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
 
   const feedsQuery = useQuery({
@@ -340,13 +342,45 @@ export function FeedsPage() {
   }, [feedsQuery.data])
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    if (!feedScheduleDraftStorageKey || !meQuery.data?.id) {
+      persistedFeedDraftsRef.current = {}
+      loadedFeedDraftStorageKeyRef.current = null
+      setFeedDraftHydratedStorageKey(null)
+      setFeedDrafts({})
+      setFeedSaveState({})
+      return
+    }
+
+    if (loadedFeedDraftStorageKeyRef.current === feedScheduleDraftStorageKey) {
+      return
+    }
+
+    migrateLegacyFeedScheduleDraftStorage(window.sessionStorage, meQuery.data.id)
+    persistedFeedDraftsRef.current = readPersistedFeedScheduleDrafts(window.sessionStorage, feedScheduleDraftStorageKey)
+    loadedFeedDraftStorageKeyRef.current = feedScheduleDraftStorageKey
+    setFeedDraftHydratedStorageKey(null)
+    setFeedDrafts({})
+    setFeedSaveState({})
+  }, [feedScheduleDraftStorageKey, meQuery.data?.id])
+
+  useEffect(() => {
+    if (feedScheduleDraftStorageKey && loadedFeedDraftStorageKeyRef.current !== feedScheduleDraftStorageKey) {
+      return
+    }
+
     const feeds = feedsQuery.data ?? []
     const validIds = new Set(feeds.map((feed) => feed.id))
 
     setFeedDrafts((previous) => {
       const next: Record<string, FeedScheduleDraft> = {}
       for (const feed of feeds) {
-        const draft = previous[feed.id] ?? persistedFeedDraftsRef.current[feed.id]
+        const previousDraft =
+          feedDraftHydratedStorageKey === feedScheduleDraftStorageKey ? previous[feed.id] : undefined
+        const draft = persistedFeedDraftsRef.current[feed.id] ?? previousDraft
         next[feed.id] = draft && isFeedScheduleDraftDirty(feed, draft) ? draft : feedToScheduleDraft(feed)
       }
       return next
@@ -361,13 +395,15 @@ export function FeedsPage() {
       }
       return next
     })
-  }, [feedsQuery.data])
+
+    setFeedDraftHydratedStorageKey(feedScheduleDraftStorageKey)
+  }, [feedDraftHydratedStorageKey, feedScheduleDraftStorageKey, feedsQuery.data])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return
     }
-    if (!feedsQuery.data) {
+    if (!feedsQuery.data || !feedScheduleDraftStorageKey || feedDraftHydratedStorageKey !== feedScheduleDraftStorageKey) {
       return
     }
 
@@ -376,14 +412,14 @@ export function FeedsPage() {
 
     try {
       if (Object.keys(dirtyDrafts).length > 0) {
-        window.sessionStorage.setItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY, JSON.stringify(dirtyDrafts))
+        window.sessionStorage.setItem(feedScheduleDraftStorageKey, JSON.stringify(dirtyDrafts))
       } else {
-        window.sessionStorage.removeItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY)
+        window.sessionStorage.removeItem(feedScheduleDraftStorageKey)
       }
     } catch {
       // Ignore storage write failures and keep editing in memory.
     }
-  }, [feedDrafts, feedsQuery.data])
+  }, [feedDraftHydratedStorageKey, feedDrafts, feedScheduleDraftStorageKey, feedsQuery.data])
 
   useEffect(() => {
     if (!detectedMetadata) {
@@ -468,6 +504,14 @@ export function FeedsPage() {
     setImportError('')
     setImportWarning('')
     setLastImportResult(null)
+
+    if (file.size > MAX_FEED_IMPORT_FILE_BYTES) {
+      setImportData(null)
+      setImportFilename('')
+      setImportError('Import file is too large. Maximum supported size is 2 MB.')
+      event.target.value = ''
+      return
+    }
 
     try {
       const text = await file.text()
@@ -1602,48 +1646,6 @@ function buildFeedImportPreviewSummary(
     overwriteCount,
     skipCount,
     matchingExistingFeeds,
-  }
-}
-
-function readPersistedFeedScheduleDrafts(storage: Pick<Storage, 'getItem'>): Record<string, FeedScheduleDraft> {
-  try {
-    const raw = storage.getItem(FEED_SCHEDULE_DRAFT_STORAGE_KEY)
-    if (!raw) {
-      return {}
-    }
-
-    const parsed = JSON.parse(raw) as unknown
-    if (typeof parsed !== 'object' || parsed === null) {
-      return {}
-    }
-
-    const next: Record<string, FeedScheduleDraft> = {}
-    for (const [feedId, entry] of Object.entries(parsed as Record<string, unknown>)) {
-      if (typeof entry !== 'object' || entry === null) {
-        continue
-      }
-
-      const draft = entry as Record<string, unknown>
-      const fetchMode = draft.fetchMode
-      const intervalSeconds = draft.intervalSeconds
-      const scheduleCron = draft.scheduleCron
-      if (fetchMode !== 'interval' && fetchMode !== 'schedule') {
-        continue
-      }
-      if (typeof intervalSeconds !== 'string' || typeof scheduleCron !== 'string') {
-        continue
-      }
-
-      next[feedId] = {
-        fetchMode,
-        intervalSeconds,
-        scheduleCron,
-      }
-    }
-
-    return next
-  } catch {
-    return {}
   }
 }
 

@@ -9,6 +9,7 @@ from sqlalchemy import select, text
 from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
+from app.models.article import Article
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
@@ -177,6 +178,19 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
     assert updated["query_json"]["rss_filters"]["q"] == "cve-2026"
 
     polluted_payload = _saved_view_query_payload(query="rename-check")
+    polluted_payload["future_top_level"] = "ignored"
+    polluted_payload["rss_filters"]["future_rss_filter"] = "ignored"
+    polluted_payload["alert_filters"]["future_alert_filter"] = "ignored"
+    polluted_payload["ui"]["future_ui_state"] = True
+    polluted_payload["windows"][0]["future_window_state"] = "ignored"
+    polluted_payload["windows"][0]["rect"]["future_rect_state"] = 1
+    polluted_payload["windows"][0]["time_override"] = {
+        "time_range": "days",
+        "custom_since_date": "",
+        "custom_until_date": "",
+        "rolling_days": "14",
+        "future_time_state": "ignored",
+    }
     polluted_payload["windows"][0]["rss_filters"].update(
         {
             "time_range": "all",
@@ -194,12 +208,34 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
         headers=auth_headers["viewer"],
     )
     assert polluted_update.status_code == 200
-    polluted_window_filters = polluted_update.json()["query_json"]["windows"][0]["rss_filters"]
+    polluted_query = polluted_update.json()["query_json"]
+    polluted_window = polluted_query["windows"][0]
+    polluted_window_filters = polluted_window["rss_filters"]
+    assert "future_top_level" not in polluted_query
+    assert "future_rss_filter" not in polluted_query["rss_filters"]
+    assert "future_alert_filter" not in polluted_query["alert_filters"]
+    assert "future_ui_state" not in polluted_query["ui"]
+    assert "future_window_state" not in polluted_window
+    assert "future_rect_state" not in polluted_window["rect"]
+    assert polluted_window["time_override"]["time_range"] == "days"
+    assert "future_time_state" not in polluted_window["time_override"]
     assert polluted_window_filters["q"] == "rename-check"
     assert "time_range" not in polluted_window_filters
     assert "custom_since_date" not in polluted_window_filters
     assert "custom_until_date" not in polluted_window_filters
     assert "rolling_days" not in polluted_window_filters
+
+    unknown_time_payload = _saved_view_query_payload(query="bad-time-override")
+    unknown_time_payload["windows"][0]["time_override"] = {"future_time_state": "ignored"}
+    unknown_time_update = client.patch(
+        f"/views/{created['id']}",
+        json={
+            "query_json": unknown_time_payload,
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert unknown_time_update.status_code == 200
+    assert unknown_time_update.json()["query_json"]["windows"][0]["time_override"] is None
 
     invalid_update = client.patch(
         f"/views/{created['id']}",
@@ -1705,6 +1741,35 @@ def test_feed_create_normalizes_default_ports_and_rejects_equivalent_duplicates(
     assert second_response.json()["detail"] == "Feed URL already exists"
 
 
+def test_feed_patch_to_interval_reuses_existing_interval_when_not_supplied(client: TestClient, auth_headers):
+    create_response = client.post(
+        "/feeds",
+        json={
+            "name": "Scheduled Feed",
+            "url": "https://example.com/scheduled-feed.xml",
+            "enabled": True,
+            "fetch_mode": "schedule",
+            "fetch_interval_seconds": 900,
+            "schedule_cron": "0 * * * *",
+        },
+        headers=auth_headers["admin"],
+    )
+    assert create_response.status_code == 201
+    feed_id = create_response.json()["id"]
+
+    patch_response = client.patch(
+        f"/feeds/{feed_id}",
+        json={"fetch_mode": "interval"},
+        headers=auth_headers["admin"],
+    )
+
+    assert patch_response.status_code == 200
+    payload = patch_response.json()
+    assert payload["fetch_mode"] == "interval"
+    assert payload["fetch_interval_seconds"] == 900
+    assert payload["schedule_cron"] is None
+
+
 def test_feed_create_still_succeeds_when_backfill_enqueue_fails(client: TestClient, auth_headers, db_session, monkeypatch):
     def _raise_send_task(*_args, **_kwargs):
         raise RuntimeError("broker unavailable")
@@ -2062,6 +2127,89 @@ def test_item_search_escapes_sql_wildcards(client: TestClient, auth_headers, db_
     payload = response.json()
     titles = [entry["title"] for entry in payload["items"]]
     assert titles == ["Coverage reached 100%"]
+
+
+def test_items_list_can_match_reprocess_article_selection_basis(client: TestClient, auth_headers, db_session):
+    now = datetime.now(timezone.utc)
+    feed = Feed(name="AI Picker Feed", url="https://example.com/ai-picker.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    eligible_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-picker-eligible",
+        url="https://example.com/articles/eligible",
+        title="Eligible article",
+        summary="Has extracted text and a recent publication date.",
+        published_at=now - timedelta(days=2),
+        first_seen_at=now,
+        dedupe_key="ai-picker-eligible",
+        content_hash="1" * 64,
+        status="content_fetched",
+    )
+    no_article_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-picker-no-article",
+        url="https://example.com/articles/no-article",
+        title="No article text",
+        summary="No extracted text.",
+        published_at=now - timedelta(days=1),
+        first_seen_at=now,
+        dedupe_key="ai-picker-no-article",
+        content_hash="2" * 64,
+        status="new",
+    )
+    old_published_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-picker-old-published",
+        url="https://example.com/articles/old-published",
+        title="Old published article",
+        summary="First seen recently but published outside the picker window.",
+        published_at=now - timedelta(days=30),
+        first_seen_at=now,
+        dedupe_key="ai-picker-old-published",
+        content_hash="3" * 64,
+        status="content_fetched",
+    )
+    db_session.add_all([eligible_item, no_article_item, old_published_item])
+    db_session.flush()
+    db_session.add_all(
+        [
+            Article(
+                item_id=eligible_item.id,
+                final_url=eligible_item.url,
+                http_status=200,
+                text="Extracted body text.",
+                extraction_method="readable",
+            ),
+            Article(
+                item_id=old_published_item.id,
+                final_url=old_published_item.url,
+                http_status=200,
+                text="Old extracted body text.",
+                extraction_method="readable",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/items",
+        params={
+            "page": 1,
+            "page_size": 50,
+            "has_article": "true",
+            "date_basis": "published_at_or_first_seen_at",
+            "since": (now - timedelta(days=7)).isoformat(),
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert [entry["title"] for entry in payload["items"]] == ["Eligible article"]
 
 
 def test_item_graph_endpoint_returns_related_nodes(client: TestClient, auth_headers, db_session):

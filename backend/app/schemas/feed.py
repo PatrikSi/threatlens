@@ -47,8 +47,6 @@ class FeedUpdate(BaseModel):
     @model_validator(mode="after")
     def validate_fetch_settings(self):
         if self.fetch_mode == "interval":
-            if self.fetch_interval_seconds is None:
-                raise ValueError("fetch_interval_seconds is required for interval mode")
             self.schedule_cron = None
             return self
 

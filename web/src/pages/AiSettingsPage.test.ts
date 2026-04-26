@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createDraftFromSettings, createRequestFromDraft } from './aiSettingsDraft'
+import { createDraftFromSettings, createRequestFromDraft, validateAISettingsDraft } from './aiSettingsDraft'
 import { resolveAiReprocessQueueState } from './aiReprocessQueueState'
 import { resolveVisibleRunSelection } from './aiRunSelection'
 
@@ -195,6 +195,132 @@ describe('createRequestFromDraft', () => {
   })
 })
 
+describe('validateAISettingsDraft', () => {
+  it('matches backend numeric bounds before saving settings', () => {
+    const validation = validateAISettingsDraft({
+      base_url: 'http://localhost:11434/v1',
+      model: 'local-threat-model',
+      temperature: '2.1',
+      max_completion_tokens: '127',
+      request_timeout_seconds: '4',
+      request_max_retries: '6',
+      summary_enabled: true,
+      relevance_enabled: true,
+      daily_brief_enabled: true,
+      auto_enrich_new_items: true,
+      daily_brief_run_time_utc: '09:00',
+      daily_brief_window_hours: '5',
+      daily_brief_max_items: '101',
+      daily_brief_history_limit: '0',
+      relevance_medium_threshold: '0.8',
+      relevance_high_threshold: '0.7',
+      company_name: '',
+      company_industry: '',
+      company_regions: '',
+      company_stack: '',
+      company_priority_topics: '',
+      company_keywords: '',
+      company_exclusions: '',
+      company_profile_text: '',
+      item_enrichment_system_prompt: '',
+      daily_brief_system_prompt: '',
+      global_instructions: '',
+      item_summary_instructions: '',
+      relevance_instructions: '',
+      daily_brief_instructions: '',
+    })
+
+    expect(validation.temperature).toBe('Temperature must be between 0 and 2.')
+    expect(validation.max_completion_tokens).toBe('Max Completion Tokens must be between 128 and 8192.')
+    expect(validation.request_timeout_seconds).toBe('Request Timeout Seconds must be between 5 and 300.')
+    expect(validation.request_max_retries).toBe('Max Retry Attempts must be between 0 and 5.')
+    expect(validation.daily_brief_window_hours).toBe('Daily Brief Window Hours must be between 6 and 168.')
+    expect(validation.daily_brief_max_items).toBe('Daily Brief Max Articles must be between 5 and 100.')
+    expect(validation.daily_brief_history_limit).toBe('Retained Daily Briefings must be between 1 and 90.')
+    expect(validation.relevance_high_threshold).toBe(
+      'High Relevance Threshold must be greater than Medium Relevance Threshold.',
+    )
+  })
+
+  it('matches backend text limits and rejects invalid scheduled brief times', () => {
+    const validation = validateAISettingsDraft({
+      base_url: 'x'.repeat(4001),
+      model: 'm'.repeat(256),
+      temperature: '0.2',
+      max_completion_tokens: '5000',
+      request_timeout_seconds: '300',
+      request_max_retries: '3',
+      summary_enabled: true,
+      relevance_enabled: true,
+      daily_brief_enabled: true,
+      auto_enrich_new_items: true,
+      daily_brief_run_time_utc: '24:00',
+      daily_brief_window_hours: '24',
+      daily_brief_max_items: '20',
+      daily_brief_history_limit: '7',
+      relevance_medium_threshold: '0.55',
+      relevance_high_threshold: '0.8',
+      company_name: 'c'.repeat(256),
+      company_industry: '',
+      company_regions: '',
+      company_stack: '',
+      company_priority_topics: '',
+      company_keywords: '',
+      company_exclusions: '',
+      company_profile_text: 'p'.repeat(4001),
+      item_enrichment_system_prompt: '',
+      daily_brief_system_prompt: '',
+      global_instructions: '',
+      item_summary_instructions: '',
+      relevance_instructions: '',
+      daily_brief_instructions: '',
+    })
+
+    expect(validation.base_url).toBe('Base URL cannot exceed 4000 characters.')
+    expect(validation.model).toBe('Model cannot exceed 255 characters.')
+    expect(validation.company_name).toBe('Company Name cannot exceed 255 characters.')
+    expect(validation.company_profile_text).toBe('Additional Company Context cannot exceed 4000 characters.')
+    expect(validation.daily_brief_run_time_utc).toBe('Daily Brief Run Time must be a valid UTC time.')
+  })
+
+  it('rejects equal relevance thresholds before the backend does', () => {
+    const validation = validateAISettingsDraft({
+      base_url: 'http://localhost:11434/v1',
+      model: 'local-threat-model',
+      temperature: '0.2',
+      max_completion_tokens: '5000',
+      request_timeout_seconds: '300',
+      request_max_retries: '3',
+      summary_enabled: true,
+      relevance_enabled: true,
+      daily_brief_enabled: true,
+      auto_enrich_new_items: true,
+      daily_brief_run_time_utc: '09:00',
+      daily_brief_window_hours: '24',
+      daily_brief_max_items: '20',
+      daily_brief_history_limit: '7',
+      relevance_medium_threshold: '0.8',
+      relevance_high_threshold: '0.8',
+      company_name: '',
+      company_industry: '',
+      company_regions: '',
+      company_stack: '',
+      company_priority_topics: '',
+      company_keywords: '',
+      company_exclusions: '',
+      company_profile_text: '',
+      item_enrichment_system_prompt: '',
+      daily_brief_system_prompt: '',
+      global_instructions: '',
+      item_summary_instructions: '',
+      relevance_instructions: '',
+      daily_brief_instructions: '',
+    })
+
+    expect(validation.relevance_high_threshold).toBe('High Relevance Threshold must be greater than Medium Relevance Threshold.')
+  })
+})
+
 describe('resolveAiReprocessQueueState', () => {
   it('blocks blank lookback input when no explicit scope is selected', () => {
     expect(
@@ -212,6 +338,7 @@ describe('resolveAiReprocessQueueState', () => {
         days: 'Lookback Days must be a whole number greater than 0 when no explicit time or article scope is selected.',
         limit: null,
         timeRange: null,
+        itemSelection: null,
       },
     })
   })
@@ -232,6 +359,7 @@ describe('resolveAiReprocessQueueState', () => {
         days: null,
         limit: 'Last X Articles must be a whole number greater than 0.',
         timeRange: null,
+        itemSelection: null,
       },
     })
   })
@@ -259,6 +387,50 @@ describe('resolveAiReprocessQueueState', () => {
         days: null,
         limit: null,
         timeRange: null,
+        itemSelection: null,
+      },
+    })
+  })
+
+  it('blocks search-only reprocess queues because search is only a picker filter', () => {
+    expect(
+      resolveAiReprocessQueueState({
+        days: '7',
+        limit: '25',
+        startTime: '',
+        endTime: '',
+        feedIds: [],
+        selectedItems: [],
+        itemSearch: 'fortinet',
+      }),
+    ).toEqual({
+      payload: null,
+      validation: {
+        days: null,
+        limit: null,
+        timeRange: null,
+        itemSelection: 'Add a matching article or clear the search before queueing. Search text is only used for picking articles.',
+      },
+    })
+  })
+
+  it('blocks explicit item selections that exceed the requested article limit', () => {
+    expect(
+      resolveAiReprocessQueueState({
+        days: '',
+        limit: '1',
+        startTime: '',
+        endTime: '',
+        feedIds: [],
+        selectedItems: [{ id: 'item-1' }, { id: 'item-2' }],
+      }),
+    ).toEqual({
+      payload: null,
+      validation: {
+        days: null,
+        limit: null,
+        timeRange: null,
+        itemSelection: 'Selected articles cannot exceed Last X Articles. Increase the limit or remove selected articles.',
       },
     })
   })

@@ -595,6 +595,7 @@ def list_ai_manual_actions(db: Session, *, limit: int = 50) -> list[AIAuditEntry
                     [
                         "ai.connection.test",
                         "ai.daily_brief.generate",
+                        "ai.daily_brief.queue",
                         "ai.reprocess.queue",
                     ]
                 )
@@ -925,6 +926,15 @@ def _reconcile_stale_ai_runs(
         if can_reconcile_missing_live_tasks
         else set()
     )
+    live_run_ids = (
+        {
+            task.run_id
+            for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
+            if task.run_id
+        }
+        if can_reconcile_missing_live_tasks
+        else set()
+    )
     now = datetime.now(timezone.utc)
     stale_before = now - STALE_AI_RUN_GRACE_PERIOD
     fallback_stale_before = now - STALE_AI_RUN_FALLBACK_GRACE_PERIOD
@@ -947,6 +957,7 @@ def _reconcile_stale_ai_runs(
             if not _is_stale_unfinished_run(
                 run,
                 live_task_ids,
+                live_run_ids,
                 running_stale_before=stale_before,
                 queued_stale_before=fallback_stale_before,
             ):
@@ -1016,6 +1027,7 @@ def _reconcile_stale_ai_runs(
         if unfinished_child_count > 0 or not _is_stale_unfinished_run(
             run,
             live_task_ids,
+            live_run_ids,
             running_stale_before=stale_before,
             queued_stale_before=fallback_stale_before,
         ):
@@ -1105,11 +1117,14 @@ def _extract_positional_item_id(task_name: str, args: list[Any]) -> Any:
 def _is_stale_unfinished_run(
     run: AITaskRun,
     live_task_ids: set[str],
+    live_run_ids: set[uuid.UUID],
     *,
     running_stale_before: datetime,
     queued_stale_before: datetime,
 ) -> bool:
     if run.celery_task_id and run.celery_task_id in live_task_ids:
+        return False
+    if run.id in live_run_ids:
         return False
     stale_before = queued_stale_before if run.status == AI_STATUS_QUEUED else running_stale_before
     return _is_unfinished_run_past_stale_grace(run, stale_before)

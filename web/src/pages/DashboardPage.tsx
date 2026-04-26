@@ -41,6 +41,7 @@ import {
   parseImportedSavedViews,
   resolveWindowRect,
   resolveSavedViewSelectionChange,
+  serializeDashboardWindowLayouts,
   WINDOW_MIN_HEIGHT,
   WINDOW_MIN_WIDTH,
   type DashboardSavedViewPreview,
@@ -4012,20 +4013,6 @@ function countNewEntriesSince<T extends { first_seen_at: string }>(entries: T[],
     }
   }
   return count
-}
-
-function serializeDashboardWindowLayouts(windows: DashboardWindow[]) {
-  return windows.map((window) => ({
-    id: window.id,
-    type: window.type,
-    title: window.title,
-    snap: window.snap,
-    rect: { ...window.rect },
-    controls_collapsed: window.controls_collapsed,
-    scratch_note: window.scratch_note,
-    time_override: window.time_override ? { ...window.time_override } : null,
-    selected_daily_brief_id: window.selected_daily_brief_id,
-  }))
 }
 
 function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {

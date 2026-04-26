@@ -37,4 +37,50 @@ describe('apiFetch', () => {
 
     await expect(apiFetch<null>('/nullable')).resolves.toBeNull()
   })
+
+  it('formats FastAPI validation issue arrays into readable messages', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              detail: [
+                {
+                  type: 'extra_forbidden',
+                  loc: ['body', 'query_json', 'windows', 1, 'rss_filters', 'time_range'],
+                  msg: 'Extra inputs are not permitted',
+                },
+              ],
+            }),
+            { status: 422, headers: { 'content-type': 'application/json' } },
+          ),
+        ),
+      ),
+    )
+
+    await expect(apiFetch('/views/view-1', { method: 'PATCH', body: '{}' })).rejects.toMatchObject({
+      status: 422,
+      message: 'body.query_json.windows.1.rss_filters.time_range: Extra inputs are not permitted',
+    })
+  })
+
+  it('formats string detail arrays into readable messages', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: ['first problem', 'second problem'] }), {
+            status: 422,
+            headers: { 'content-type': 'application/json' },
+          }),
+        ),
+      ),
+    )
+
+    await expect(apiFetch('/mixed-error')).rejects.toMatchObject({
+      status: 422,
+      message: 'first problem; second problem',
+    })
+  })
 })
