@@ -44,6 +44,9 @@
 
 :root {
   color-scheme: light;
+  --tl-font-body: 'Source Sans 3', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --tl-font-display: 'Space Grotesk', 'Source Sans 3', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --tl-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   --tl-focus-ring: rgba(44, 212, 167, 0.24);
   color: #0e1726;
   background:
@@ -101,7 +104,8 @@
 
 body {
   margin: 0;
-  font-family: 'Source Sans 3', sans-serif;
+  font-family: var(--tl-font-body);
+  font-synthesis: none;
   min-height: 100vh;
   line-height: 1.5;
   color: #0e1726;
@@ -499,7 +503,8 @@ textarea {
 .rss-reader h3,
 .rss-reader h4 {
   margin: 1.2rem 0 0.55rem;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--tl-font-body);
+  font-weight: 600;
   line-height: 1.32;
 }
 
@@ -518,8 +523,9 @@ textarea {
 
 .rss-reader .rss-heading {
   margin: 1.2rem 0 0.45rem;
-  font-family: 'Space Grotesk', sans-serif;
+  font-family: var(--tl-font-body);
   font-size: 1.02rem;
+  font-weight: 600;
   line-height: 1.35;
 }
 
@@ -579,7 +585,7 @@ textarea {
 }
 
 .rss-reader code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-family: var(--tl-font-mono);
   font-size: 0.85em;
 }
 

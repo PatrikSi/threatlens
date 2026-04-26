@@ -3369,6 +3369,135 @@ def test_reprocess_recent_ai_items_continues_after_enqueue_failure(db_session, m
     get_settings.cache_clear()
 
 
+def test_reprocess_recent_ai_items_uses_published_time_before_first_seen(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    recent_published = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="recent-published",
+        url="https://example.com/articles/recent-published",
+        canonical_url="https://example.com/articles/recent-published",
+        title="Recent published article",
+        summary="Summary",
+        published_at=now - timedelta(days=1),
+        first_seen_at=now - timedelta(days=1),
+        dedupe_key="recent-published",
+        content_hash="a" * 64,
+        status="content_fetched",
+    )
+    old_published_recent_seen = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="old-published-recent-seen",
+        url="https://example.com/articles/old-published-recent-seen",
+        canonical_url="https://example.com/articles/old-published-recent-seen",
+        title="Old published but newly discovered article",
+        summary="Summary",
+        published_at=now - timedelta(days=180),
+        first_seen_at=now - timedelta(days=1),
+        dedupe_key="old-published-recent-seen",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    undated_recent_seen = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="undated-recent-seen",
+        url="https://example.com/articles/undated-recent-seen",
+        canonical_url="https://example.com/articles/undated-recent-seen",
+        title="Undated recently discovered article",
+        summary="Summary",
+        published_at=None,
+        first_seen_at=now - timedelta(days=2),
+        dedupe_key="undated-recent-seen",
+        content_hash="c" * 64,
+        status="content_fetched",
+    )
+    for item in (recent_published, old_published_recent_seen, undated_recent_seen):
+        db_session.add(item)
+        db_session.flush()
+        db_session.add(
+            Article(
+                item_id=item.id,
+                final_url=item.url,
+                http_status=200,
+                text="Researchers observed Fortinet exploitation in the wild.",
+                extraction_method="readable",
+            )
+        )
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+    scheduled: list[str] = []
+
+    class _FakeTask:
+        def __init__(self, task_id: str):
+            self.id = task_id
+
+    def _fake_delay(item_id: str, force: bool = False, task_run_id: str | None = None):
+        _ = force
+        _ = task_run_id
+        scheduled.append(item_id)
+        return _FakeTask(f"child-{len(scheduled)}")
+
+    monkeypatch.setattr("app.tasks.feed_tasks.generate_item_ai_enrichment_task.delay", _fake_delay)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 10},
+    )
+    db_session.commit()
+
+    result = reprocess_recent_ai_items.run(7, 10, task_run_id=str(parent_run.id))
+
+    assert result["queued"] == 2
+    assert scheduled == [str(recent_published.id), str(undated_recent_seen.id)]
+    assert str(old_published_recent_seen.id) not in scheduled
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert refreshed_parent is not None
+    assert refreshed_parent.target_count == 2
+    assert refreshed_parent.metadata_json["date_basis"] == "published_at_or_first_seen_at"
+    get_settings.cache_clear()
+
+
 def test_generate_item_ai_enrichment_task_marks_unexpected_failures_on_task_runs(db_session, monkeypatch):
     @contextmanager
     def _db_session_override():

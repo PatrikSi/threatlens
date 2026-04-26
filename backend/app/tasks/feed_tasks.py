@@ -2509,6 +2509,7 @@ def reprocess_recent_ai_items(
                     "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                     "explicit_item_count": len(parsed_item_ids),
                     "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
+                    "date_basis": "published_at_or_first_seen_at",
                 },
             )
             db.commit()
@@ -2552,6 +2553,7 @@ def reprocess_recent_ai_items(
                 db.commit()
             return {"queued": 0, "reason": "ai_not_configured"}
 
+        reprocess_timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
         selection_query = select(Item.id).join(Article, Article.item_id == Item.id).where(Article.text.is_not(None))
         if parsed_item_ids:
             selection_query = selection_query.where(Item.id.in_(parsed_item_ids))
@@ -2559,15 +2561,15 @@ def reprocess_recent_ai_items(
             item_ids = [item_id for item_id in parsed_item_ids if item_id in selected_item_ids]
         else:
             if cutoff is not None:
-                selection_query = selection_query.where(Item.first_seen_at >= cutoff)
+                selection_query = selection_query.where(reprocess_timeline_at >= cutoff)
             if parsed_start_time is not None:
-                selection_query = selection_query.where(Item.first_seen_at >= parsed_start_time)
+                selection_query = selection_query.where(reprocess_timeline_at >= parsed_start_time)
             if parsed_end_time is not None:
-                selection_query = selection_query.where(Item.first_seen_at <= parsed_end_time)
+                selection_query = selection_query.where(reprocess_timeline_at <= parsed_end_time)
             if parsed_feed_ids:
                 selection_query = selection_query.where(Item.feed_id.in_(parsed_feed_ids))
             selection_query = selection_query.limit(effective_limit)
-            item_ids = db.scalars(selection_query.order_by(Item.first_seen_at.desc())).all()
+            item_ids = db.scalars(selection_query.order_by(reprocess_timeline_at.desc(), Item.first_seen_at.desc())).all()
 
         if parsed_run_id:
             run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
@@ -2588,6 +2590,7 @@ def reprocess_recent_ai_items(
                         "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                         "explicit_item_count": len(parsed_item_ids),
                         "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
+                        "date_basis": "published_at_or_first_seen_at",
                     },
                 )
                 db.commit()
@@ -2607,6 +2610,7 @@ def reprocess_recent_ai_items(
                         "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                         "explicit_item_count": len(parsed_item_ids),
                         "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
+                        "date_basis": "published_at_or_first_seen_at",
                     },
                 )
                 db.commit()
@@ -2656,6 +2660,7 @@ def reprocess_recent_ai_items(
                 "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
                 "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
                 "explicit_item_count": len(parsed_item_ids),
+                "date_basis": "published_at_or_first_seen_at",
             },
         )
         if queued_ok:

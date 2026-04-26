@@ -1810,7 +1810,7 @@ export function DashboardPage() {
     <div className="w-full">
       <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
         <div className="mb-1.5 flex items-center justify-between gap-2 sm:hidden">
-          <p className="text-xs font-medium text-slate dark:text-slate-300">Dashboard</p>
+          <p className="text-xs font-semibold text-slate dark:text-slate-300">Dashboard</p>
           <button
             type="button"
             className="h-8 rounded border border-slate/20 px-2 text-xs dark:border-cyan-900/40"
@@ -2028,7 +2028,7 @@ export function DashboardPage() {
               </div>
               {activeSavedViewId ? (
                 <>
-                  <span className="hidden items-center rounded border border-cyan/30 bg-cyan/8 px-2.5 text-xs font-medium text-cyan sm:flex dark:border-cyan-800/40 dark:bg-cyan-950/40 dark:text-cyan-200">
+                  <span className="hidden items-center rounded border border-cyan/30 bg-cyan/8 px-2.5 text-xs font-semibold text-cyan sm:flex dark:border-cyan-800/40 dark:bg-cyan-950/40 dark:text-cyan-200">
                     Editing &ldquo;{viewsQuery.data?.find((v) => v.id === activeSavedViewId)?.name}&rdquo;
                   </span>
                   <button
@@ -2213,29 +2213,29 @@ export function DashboardPage() {
                     <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
                       {windowMeta.label}
                     </span>
-                    <h2 className="font-display text-lg leading-tight text-ink dark:text-white">{windowLayout.title}</h2>
+                    <h2 className="text-base font-semibold leading-tight text-ink dark:text-white">{windowLayout.title}</h2>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     {isEditMode && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {formatWindowSnapLabel(windowLayout.snap)}
                       </span>
                     )}
-                    <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                    <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                       {windowTimeSummary}
                     </span>
                     {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && activeLocalFilterCount > 0 && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {activeLocalFilterCount} local filters
                       </span>
                     )}
                     {windowLayout.type === 'alerts' && (
-                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         {alertWindowItems.length} shown
                       </span>
                     )}
                     {windowLayout.type === 'notes' && (
-                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-medium text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         Scratch pad
                       </span>
                     )}
@@ -2250,7 +2250,7 @@ export function DashboardPage() {
                       </span>
                     )}
                     {isPanelRefreshing && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-medium text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         Updating...
                       </span>
                     )}
@@ -2774,7 +2774,7 @@ export function DashboardPage() {
                                     )}
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <p className="text-xs font-medium text-slate dark:text-slate-300">RSS summary</p>
+                                      <p className="text-xs font-semibold text-slate dark:text-slate-300">RSS summary</p>
                                       {detail.classification && (
                                         <p className="mt-1 text-xs text-slate dark:text-slate-300">
                                           Classification:{' '}
@@ -2791,7 +2791,7 @@ export function DashboardPage() {
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
                                       <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                        <p className="text-xs font-medium text-slate dark:text-slate-300">AI insight</p>
+                                        <p className="text-xs font-semibold text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
                                             <span className={`rounded px-2 py-1 text-xs font-semibold ${aiRelevanceTone(detail.ai_insight.relevance_label)}`}>
@@ -2828,7 +2828,7 @@ export function DashboardPage() {
                                     )}
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <p className="text-xs font-medium text-slate dark:text-slate-300">Full article</p>
+                                      <p className="text-xs font-semibold text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text ? (
                                         <div className="rss-reader mt-2 rounded bg-white/95 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
@@ -2877,7 +2877,7 @@ export function DashboardPage() {
                                     </div>
 
                                     <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
-                                      <label className="text-xs font-medium text-slate dark:text-slate-300">Notes</label>
+                                      <label className="text-xs font-semibold text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
                                         value={noteDraftsByItemId[detail.id] ?? detail.state.note ?? ''}
@@ -3290,7 +3290,7 @@ export function DashboardPage() {
                       <div className="rounded border border-slate/20 bg-white/92 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
-                            <span className="text-xs font-medium text-slate dark:text-white/55">Briefing</span>
+                            <span className="text-xs font-semibold text-slate dark:text-white/55">Briefing</span>
                             <select
                               className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
                               value={selectedBrief.id}
@@ -3313,7 +3313,7 @@ export function DashboardPage() {
 
                       {selectedBrief.key_points.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
-                          <p className="text-xs font-medium text-slate dark:text-slate-300">Key points</p>
+                          <p className="text-xs font-semibold text-slate dark:text-slate-300">Key points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.key_points.map((point, index) => (
                               <li key={`${windowLayout.id}-brief-point-${index}`}>{point}</li>
@@ -3324,7 +3324,7 @@ export function DashboardPage() {
 
                       {selectedBrief.recommended_actions.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
-                          <p className="text-xs font-medium text-slate dark:text-slate-300">Recommended actions</p>
+                          <p className="text-xs font-semibold text-slate dark:text-slate-300">Recommended actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.recommended_actions.map((action, index) => (
                               <li key={`${windowLayout.id}-brief-action-${index}`}>{action}</li>
@@ -3335,7 +3335,7 @@ export function DashboardPage() {
 
                       {selectedBrief.items.length > 0 && (
                         <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
-                          <p className="text-xs font-medium text-slate dark:text-slate-300">Referenced items</p>
+                          <p className="text-xs font-semibold text-slate dark:text-slate-300">Referenced items</p>
                           <div className="mt-2 space-y-2">
                             {selectedBrief.items.map((item) => (
                               <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
@@ -3372,7 +3372,7 @@ export function DashboardPage() {
                 </div>
               ) : (
                 <div className={`flex flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
-                  <label className="text-xs font-medium text-slate dark:text-slate-300">Scratch notes</label>
+                  <label className="text-xs font-semibold text-slate dark:text-slate-300">Scratch notes</label>
                   <textarea
                     className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
@@ -3429,7 +3429,7 @@ export function DashboardPage() {
             <div className="space-y-1">
               <label
                 htmlFor="dashboard-panel-title-input"
-                className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/60"
+                className="text-xs font-semibold uppercase text-slate dark:text-white/60"
               >
                 Panel title
               </label>

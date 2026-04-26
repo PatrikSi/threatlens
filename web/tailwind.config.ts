@@ -13,8 +13,8 @@ export default {
         slate: '#375A53',
       },
       fontFamily: {
-        display: ['Space Grotesk', 'sans-serif'],
-        body: ['Source Sans 3', 'sans-serif'],
+        display: ['Space Grotesk', 'Source Sans 3', 'system-ui', 'sans-serif'],
+        body: ['Source Sans 3', 'system-ui', 'sans-serif'],
       },
     },
   },

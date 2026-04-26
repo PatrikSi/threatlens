@@ -90,7 +90,7 @@ export function DialogSurface({
       >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            {eyebrow && <p className="text-xs font-medium text-slate dark:text-white/55">{eyebrow}</p>}
+            {eyebrow && <p className="text-xs font-semibold text-slate dark:text-white/55">{eyebrow}</p>}
             <h3 id={titleId} className="font-display text-xl text-ink dark:text-white">
               {title}
             </h3>

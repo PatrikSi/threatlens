@@ -445,6 +445,7 @@ def reprocess_ai_for_recent_items_route(
             "end_time": payload.end_time.isoformat() if payload.end_time else None,
             "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
             "item_ids": [str(item_id) for item_id in payload.item_ids],
+            "date_basis": "published_at_or_first_seen_at",
         },
     )
     db.commit()
@@ -479,6 +480,7 @@ def reprocess_ai_for_recent_items_route(
             "item_ids": [str(item_id) for item_id in payload.item_ids],
             "task_id": task_id,
             "run_id": str(run.id),
+            "date_basis": "published_at_or_first_seen_at",
         },
     )
     db.commit()

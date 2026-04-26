@@ -181,7 +181,7 @@ export function TokensPage() {
             <div className="space-y-1">
               <label
                 htmlFor="token-admin-user-filter"
-                className="block text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300"
+                className="block text-xs font-semibold uppercase text-slate dark:text-slate-300"
               >
                 Filter by User ID
               </label>

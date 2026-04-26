@@ -300,7 +300,7 @@ export function UsersPage() {
                   key={entry.role}
                   className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
                 >
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-900 dark:text-white">{entry.role}</h3>
+                  <h3 className="text-sm font-semibold uppercase text-slate-900 dark:text-white">{entry.role}</h3>
                   <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
                   <ul className="mt-3 list-disc space-y-1 pl-4 text-sm text-slate-900 dark:text-slate-200">
                     {entry.capabilities.map((item) => (

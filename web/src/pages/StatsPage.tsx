@@ -132,7 +132,7 @@ export function StatsPage() {
           </div>
         </div>
 
-        <label className="mt-4 block text-xs font-bold uppercase tracking-wide text-slate dark:text-slate-300">Feeds</label>
+        <label className="mt-4 block text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</label>
         <select
           multiple
           size={Math.min(Math.max(feedsQuery.data?.length ?? 4, 4), 8)}
@@ -608,7 +608,7 @@ function ActivityHeatmapPanel({ data }: { data: StatsActivityHeatmapResponse }) 
         </div>
       )}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+        <p className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
           Last {data.window_days} Days ({isHourly ? 'Hourly' : 'Daily'})
         </p>
         <div className="mt-1 rounded border border-slate/20 bg-white/70 p-2 dark:border-cyan-900/40 dark:bg-[#072019]/70">
@@ -842,7 +842,7 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
       </div>
 
       <div className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+        <p className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
           Window: Last {data.window_days}d ({data.total} classified posts)
         </p>
         <div className="mt-2 space-y-1.5">
@@ -964,7 +964,7 @@ function positionTooltipNearCursor(
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <p className="text-xs uppercase tracking-wide text-slate dark:text-slate-400">{label}</p>
+      <p className="text-xs uppercase text-slate dark:text-slate-400">{label}</p>
       <p className="mt-2 text-2xl font-bold text-cyan dark:text-cyan-300">{value}</p>
     </section>
   )

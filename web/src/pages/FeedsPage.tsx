@@ -871,7 +871,7 @@ export function FeedsPage() {
         <div className="mt-2">
           <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
             <div>
-              <label htmlFor="feed-search" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+              <label htmlFor="feed-search" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
                 Search
               </label>
               <input
@@ -883,7 +883,7 @@ export function FeedsPage() {
               />
             </div>
             <div>
-              <label htmlFor="feed-status-filter" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+              <label htmlFor="feed-status-filter" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
                 Status
               </label>
               <select
@@ -899,7 +899,7 @@ export function FeedsPage() {
               </select>
             </div>
             <div>
-              <label htmlFor="feed-sort" className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-slate-300">
+              <label htmlFor="feed-sort" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
                 Sort
               </label>
               <select
@@ -1319,7 +1319,7 @@ export function FeedsPage() {
             </div>
             {pendingImportReview.matchingExistingFeeds.length > 0 && (
               <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/60">
+                <p className="mb-2 text-xs font-semibold uppercase text-slate dark:text-white/60">
                   Existing feeds in scope
                 </p>
                 <ul className="space-y-1">

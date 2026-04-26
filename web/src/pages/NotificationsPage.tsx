@@ -313,7 +313,7 @@ export function NotificationsPage() {
   return (
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
+        <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
         <h2 className="mt-1 font-display text-xl">Webhook Notifications</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">
           Configure outbound webhooks for new RSS items, alert matches, feed failures, failed deliveries, and daily digests.
@@ -893,13 +893,13 @@ export function NotificationsPage() {
                   </div>
 
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered URL</p>
+                    <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered URL</p>
                     <code className="mt-1 block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{testResult.rendered_url}</code>
                   </div>
 
                   {testResult.rendered_headers.length > 0 && (
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Headers</p>
+                      <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Headers</p>
                       <div className="mt-1 space-y-1">
                         {testResult.rendered_headers.map((header, index) => (
                           <code key={`${header.key}-${index}`} className="block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
@@ -912,14 +912,14 @@ export function NotificationsPage() {
 
                   {testResult.rendered_body && (
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered Body</p>
+                      <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered Body</p>
                       <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{testResult.rendered_body}</pre>
                     </div>
                   )}
 
                   {testResult.response_body_preview && (
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Response Preview</p>
+                      <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response Preview</p>
                       <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
                         {testResult.response_body_preview}
                       </pre>
@@ -1072,13 +1072,13 @@ export function NotificationsPage() {
                       </div>
 
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered URL</p>
+                        <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered URL</p>
                         <code className="mt-1 block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{delivery.rendered_url}</code>
                       </div>
 
                       {delivery.rendered_headers.length > 0 && (
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Headers</p>
+                          <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Headers</p>
                           <div className="mt-1 space-y-1">
                             {delivery.rendered_headers.map((header, index) => (
                               <code key={`${delivery.id}-header-${index}`} className="block rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
@@ -1091,14 +1091,14 @@ export function NotificationsPage() {
 
                       {delivery.rendered_body && (
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Rendered Body</p>
+                          <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Rendered Body</p>
                           <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{delivery.rendered_body}</pre>
                         </div>
                       )}
 
                       {delivery.response_body_preview && (
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">Response Preview</p>
+                          <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Response Preview</p>
                           <pre className="mt-1 overflow-x-auto rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">
                             {delivery.response_body_preview}
                           </pre>
@@ -1260,7 +1260,7 @@ function KeyValueEditor({
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate dark:text-white/60">{label}</p>
+      <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">{label}</p>
       <p className="mt-1 text-sm font-semibold">{value}</p>
     </div>
   )

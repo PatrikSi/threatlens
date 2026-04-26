@@ -270,7 +270,7 @@ export function AiSettingsPage() {
     const params = new URLSearchParams()
     params.set('page', '1')
     params.set('page_size', '12')
-    params.set('sort', 'first_seen_desc')
+    params.set('sort', 'published_at_desc')
     if (deferredItemSearch) {
       params.set('q', deferredItemSearch)
     }
@@ -621,7 +621,7 @@ export function AiSettingsPage() {
   if (!aiEnabled) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
+        <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
         <h2 className="mt-1 font-display text-xl">AI Settings</h2>
         <p className="mt-2 text-sm text-slate dark:text-white/75">
           AI features are disabled by the deployment configuration. Enable `AI_ENABLED=true` and restart ThreatLens to use
@@ -636,18 +636,18 @@ export function AiSettingsPage() {
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-start gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Automation</p>
+            <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-2xl">AI Settings</h2>
-              <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
+              <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
                 {settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'}
               </span>
               {settingsQuery.data?.ai_configured ? (
-                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-semibold uppercase text-emerald-700 dark:text-emerald-300">
                   Configured
                 </span>
               ) : (
-                <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+                <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs font-semibold uppercase text-amber-700 dark:text-amber-300">
                   Needs setup
                 </span>
               )}
@@ -1099,7 +1099,7 @@ function OverviewTab({
           <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
             <div className="overflow-x-auto">
               <table className="min-w-full text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
+                <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                   <tr>
                     <th className="pb-2">Model</th>
                     <th className="pb-2">Requests</th>
@@ -1111,7 +1111,7 @@ function OverviewTab({
                 <tbody>
                   {overview.per_model.map((row) => (
                     <tr key={row.model} className="border-t border-slate/10 text-slate dark:border-cyan-900/30 dark:text-white/80">
-                      <td className="py-2 font-medium">{row.model}</td>
+                      <td className="py-2 font-semibold">{row.model}</td>
                       <td className="py-2">{row.total_requests}</td>
                       <td className="py-2">{row.success_rate_pct.toFixed(1)}%</td>
                       <td className="py-2">{row.average_latency_ms.toFixed(1)} ms</td>
@@ -1477,14 +1477,14 @@ function QueueWorkPanel({
               <p className="text-xs text-slate dark:text-white/60">
                 {usingExplicitScope
                   ? 'Explicit time or article scope is active, so lookback days are ignored for this run.'
-                  : 'Lookback days define the time window until you choose an explicit time or article scope.'}
+                  : 'Lookback days use article publication time, falling back to first-seen time only when a feed has no publication date.'}
               </p>
             )}
           </div>
 
           <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Feeds</p>
+              <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Feeds</p>
               <div className="mt-2 max-h-56 space-y-2 overflow-y-auto rounded-lg border border-slate/15 bg-slate/5 p-2 dark:border-cyan-900/30 dark:bg-white/[0.03]">
                 {feeds.map((feed) => (
                   <label
@@ -1503,7 +1503,7 @@ function QueueWorkPanel({
                       }
                     />
                     <span>
-                      <span className="block font-medium">{feed.name}</span>
+                      <span className="block font-semibold">{feed.name}</span>
                       <span className="block text-xs text-slate dark:text-white/60">{feed.url}</span>
                     </span>
                   </label>
@@ -1514,7 +1514,7 @@ function QueueWorkPanel({
 
             <div>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Specific Articles</p>
+                <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Specific Articles</p>
                 <span className="text-xs text-slate dark:text-white/60">
                   {selectedItems.length
                     ? `${selectedItems.length} selected article${selectedItems.length === 1 ? '' : 's'}`
@@ -1527,7 +1527,7 @@ function QueueWorkPanel({
                 className="mt-2 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
                 value={itemSearch}
                 onChange={(event) => setItemSearch(event.target.value)}
-                placeholder="Search recent items by title, summary, or URL"
+                placeholder="Search items by title, summary, or URL"
               />
 
               {selectedItems.length > 0 && (
@@ -1559,10 +1559,12 @@ function QueueWorkPanel({
                         <div>
                           <p className="text-sm font-semibold">{item.title}</p>
                           <p className="mt-1 text-xs text-slate dark:text-white/60">
-                            {item.feed_name} · first seen {formatTimestamp(item.first_seen_at)}
+                            {item.feed_name}
+                            {item.published_at ? ` · published ${formatTimestamp(item.published_at)}` : ''}
+                            {item.first_seen_at ? ` · first seen ${formatTimestamp(item.first_seen_at)}` : ''}
                           </p>
                         </div>
-                        <span className="rounded-full border border-slate/20 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate dark:border-cyan-900/40 dark:text-white/65">
+                        <span className="rounded-full border border-slate/20 px-2 py-1 text-[11px] font-semibold uppercase text-slate dark:border-cyan-900/40 dark:text-white/65">
                           Add
                         </span>
                       </div>
@@ -1578,7 +1580,7 @@ function QueueWorkPanel({
 
           <p className="mt-4 text-xs text-slate dark:text-white/60">
             Selected articles override the lookback window. Without selected articles, ThreatLens uses the time range and feed
-            filters against the last X articles.
+            filters against the last X articles by publication time, falling back to first-seen time for undated feed items.
           </p>
         </div>
       </div>
@@ -1610,7 +1612,7 @@ function RunArticlesSection({
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Article Runs</p>
+          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Article Runs</p>
           <p className="mt-1 text-xs text-slate dark:text-white/60">
             {totalChildRuns
               ? `Showing ${childRuns.length} of ${totalChildRuns} queued article runs${parentRun.target_count ? ` out of ${parentRun.target_count} target articles` : ''}.`
@@ -1776,7 +1778,7 @@ function ProviderExchangeModal({
               </pre>
               {responseJson != null && (
                 <>
-                  <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">
+                  <p className="mt-3 text-xs font-semibold uppercase text-slate dark:text-white/55">
                     Parsed Response JSON
                   </p>
                   <pre className="mt-2 overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
@@ -2120,7 +2122,7 @@ function ActivityTab({
           <div className="mt-4 overflow-x-auto">
             <table className="min-w-full text-sm">
               <caption className="sr-only">AI task history. Select a run to inspect its details below.</caption>
-              <thead className="text-left text-xs uppercase tracking-wide text-slate dark:text-white/55">
+              <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                 <tr>
                   <th scope="col" className="pb-2">
                     <span className="sr-only">Select</span>
@@ -2156,13 +2158,13 @@ function ActivityTab({
                       />
                     </td>
                     <td className="py-2">
-                      <div className="font-medium">{formatTaskTypeLabel(run.task_type)}</div>
+                      <div className="font-semibold">{formatTaskTypeLabel(run.task_type)}</div>
                       {run.feed_name && <div className="text-xs text-slate dark:text-white/55">{run.feed_name}</div>}
                     </td>
                     <td className="py-2">
                       {run.item_title ? (
                         <div className="max-w-xs">
-                          <div className="font-medium">{truncate(run.item_title, 72)}</div>
+                          <div className="font-semibold">{truncate(run.item_title, 72)}</div>
                           <div className="text-xs text-slate dark:text-white/55">
                             {run.item_published_at ? `Published ${formatTimestamp(run.item_published_at)}` : 'Article-linked run'}
                           </div>
@@ -2313,7 +2315,7 @@ function ActivityTab({
                 )}
                 {selectedRun.task_type === 'reprocess' && (
                   <div className="mt-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Progress</p>
+                    <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Progress</p>
                     <ProgressBar
                       className="mt-2"
                       value={selectedRun.processed_count}
@@ -2344,7 +2346,7 @@ function ActivityTab({
               )}
 
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Event Timeline</p>
+                <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Event Timeline</p>
                 <div className="mt-2 space-y-2">
                   {runDetailQuery.data?.events.map((event) => (
                     <div key={event.id} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
@@ -2360,7 +2362,7 @@ function ActivityTab({
 
               {Object.keys(selectedRun.metadata || {}).length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Request / Response Summary</p>
+                  <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Request / Response Summary</p>
                   <div className="mt-2 rounded-xl border border-slate/20 bg-white/70 p-3 text-xs dark:border-cyan-900/40 dark:bg-[#072019]/80">
                     <dl className="space-y-2">
                       {Object.entries(selectedRun.metadata).map(([key, value]) => (
@@ -2373,7 +2375,7 @@ function ActivityTab({
 
               {selectedRun.daily_brief_id && (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate dark:text-white/55">Daily Brief Source Items</p>
+                  <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Daily Brief Source Items</p>
                   <div className="mt-2 space-y-2">
                     {briefSourcesLoading && <EmptyInline>Loading source log for this brief...</EmptyInline>}
                     {!briefSourcesLoading && briefSourcesErrorMessage && (
@@ -2812,7 +2814,7 @@ function TabButton({
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-slate/20 bg-white/80 px-4 py-3 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <p className="text-xs uppercase tracking-wide text-slate dark:text-white/55">{label}</p>
+      <p className="text-xs uppercase text-slate dark:text-white/55">{label}</p>
       <p className="mt-1 text-xl font-semibold">{value}</p>
     </div>
   )
@@ -2821,7 +2823,7 @@ function StatCard({ label, value }: { label: string; value: string }) {
 function MiniStat({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-lg border border-slate/10 bg-slate/5 px-3 py-2 dark:border-cyan-900/30 dark:bg-white/[0.03]">
-      <p className="text-xs uppercase tracking-wide text-slate dark:text-white/55">{label}</p>
+      <p className="text-xs uppercase text-slate dark:text-white/55">{label}</p>
       <p className="mt-1 text-base font-semibold">{value}</p>
     </div>
   )
@@ -2831,7 +2833,7 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
       <dt className="text-slate dark:text-white/65">{label}</dt>
-      <dd className="text-right font-medium">{value}</dd>
+      <dd className="text-right font-semibold">{value}</dd>
     </div>
   )
 }
@@ -2845,7 +2847,7 @@ function StatusPill({ label, tone }: { label: string; tone: 'success' | 'warning
         : tone === 'danger'
           ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
           : 'border-slate/20 bg-slate/10 text-slate-700 dark:text-white/70'
-  return <span className={`rounded-full border px-2 py-1 text-xs font-semibold uppercase tracking-wide ${toneClass}`}>{label}</span>
+  return <span className={`rounded-full border px-2 py-1 text-xs font-semibold uppercase ${toneClass}`}>{label}</span>
 }
 
 function ProgressBar({ value, max, className = '' }: { value: number; max: number; className?: string }) {

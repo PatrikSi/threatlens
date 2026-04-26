@@ -395,7 +395,7 @@ export function AlertsPage() {
               }
               return (
                 <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
-                  <h3 className="text-sm font-semibold uppercase tracking-wide text-slate dark:text-slate-300">{categoryOption.label}</h3>
+                  <h3 className="text-sm font-semibold uppercase text-slate dark:text-slate-300">{categoryOption.label}</h3>
                   <div className="mt-2 space-y-2">
                     {entries.map((alert) => (
                       <article
