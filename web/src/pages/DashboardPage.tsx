@@ -2673,7 +2673,7 @@ export function DashboardPage() {
                                   {item.status !== 'content_fetched' && (
                                     <span className={`tl-chip ${itemStatusTone(item.status)}`}>{formatItemStatusLabel(item.status)}</span>
                                   )}
-                                  {!item.is_read && <span className="tl-chip tl-chip-info">Unread</span>}
+                                  {!item.is_read && <span className="tl-chip tl-chip-unread">Unread</span>}
                                   {item.is_starred && <span className="tl-chip tl-chip-neutral">Starred</span>}
                                   {aiRelevanceEnabled && item.ai_relevance_label && (
                                     <span className={`tl-chip ${aiRelevanceTone(item.ai_relevance_label)}`}>

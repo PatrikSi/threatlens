@@ -63,8 +63,8 @@
   --tl-accent-soft: #dbeafe;
   --tl-accent-contrast: #ffffff;
   --tl-accent-bg: rgba(37, 99, 235, 0.08);
-  --tl-accent-bg-strong: rgba(37, 99, 235, 0.14);
-  --tl-source-accent: #0f766e;
+  --tl-accent-bg-strong: rgba(37, 99, 235, 0.12);
+  --tl-source-accent: #0f5f59;
   --tl-source-accent-bg: rgba(15, 118, 110, 0.08);
   --tl-source-accent-border: rgba(15, 118, 110, 0.24);
   --tl-border-soft: rgba(15, 23, 42, 0.12);
@@ -165,7 +165,7 @@ textarea {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.62;
+  opacity: 0.72;
 }
 
 input:disabled,
@@ -249,6 +249,12 @@ textarea:disabled {
 .tl-chip-info {
   border-color: color-mix(in srgb, var(--tl-accent) 28%, transparent);
   background: var(--tl-accent-bg);
+  color: #1d4ed8;
+}
+
+.tl-chip-unread {
+  border-color: color-mix(in srgb, var(--tl-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--tl-accent-bg-strong) 82%, white 18%);
   color: #1d4ed8;
 }
 
