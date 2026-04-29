@@ -2667,7 +2667,7 @@ export function DashboardPage() {
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
                                   <span>Published {formatPublishedAt(item.published_at)}</span>
                                   {item.status !== 'content_fetched' && (
-                                    <span className="tl-chip tl-chip-neutral">{item.status}</span>
+                                    <span className={`tl-chip ${itemStatusTone(item.status)}`}>{formatItemStatusLabel(item.status)}</span>
                                   )}
                                   {!item.is_read && <span className="tl-chip tl-chip-info">Unread</span>}
                                   {item.is_starred && <span className="tl-chip tl-chip-neutral">Starred</span>}
@@ -3832,6 +3832,25 @@ function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
   }
   if (value === 'medium') {
     return 'tl-chip-info'
+  }
+  return 'tl-chip-neutral'
+}
+
+function formatItemStatusLabel(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === 'error') {
+    return 'content error'
+  }
+  if (normalized === 'new') {
+    return 'new item'
+  }
+  return normalized.replace(/_/g, ' ')
+}
+
+function itemStatusTone(value: string): string {
+  const normalized = value.trim().toLowerCase()
+  if (normalized.includes('error') || normalized.includes('failed')) {
+    return 'tl-chip-warning'
   }
   return 'tl-chip-neutral'
 }

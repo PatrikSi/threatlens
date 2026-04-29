@@ -102,6 +102,17 @@ export function StatsPage() {
     const rows = statsQuery.data?.feed_breakdown ?? []
     return showAllFeedRows ? rows : rows.slice(0, FEED_TABLE_PREVIEW_LIMIT)
   }, [showAllFeedRows, statsQuery.data?.feed_breakdown])
+  const allFeedIds = useMemo(() => feedsQuery.data?.map((feed) => feed.id) ?? [], [feedsQuery.data])
+  const selectedFeedLabel = selectedFeedIds.length ? `${selectedFeedIds.length} selected` : 'All feeds selected'
+
+  const toggleFeedSelection = (feedId: string) => {
+    setSelectedFeedIds((current) => {
+      if (current.includes(feedId)) {
+        return current.filter((id) => id !== feedId)
+      }
+      return [...current, feedId]
+    })
+  }
 
   return (
     <div className="space-y-4">
@@ -127,35 +138,48 @@ export function StatsPage() {
               className="w-full rounded border border-slate/30 px-3 py-2 text-sm text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
               onClick={() => setSelectedFeedIds([])}
             >
-              All feeds
+              Clear feed filter
             </button>
           </div>
         </div>
 
-        <label className="mt-4 block text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</label>
-        <select
-          multiple
-          size={Math.min(Math.max(feedsQuery.data?.length ?? 4, 4), 8)}
-          className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-          value={selectedFeedIds}
-          onChange={(event) => setSelectedFeedIds(Array.from(event.target.selectedOptions).map((option) => option.value))}
-        >
-          {feedsQuery.data?.map((feed) => (
-            <option key={feed.id} value={feed.id}>
-              {feed.name}
-            </option>
-          ))}
-        </select>
-        <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-xs text-slate dark:text-slate-300">
-          <span>{selectedFeedIds.length || 'All'} selected</span>
-          <button
-            type="button"
-            className="underline text-slate-700 dark:text-slate-100"
-            onClick={() => setSelectedFeedIds(feedsQuery.data?.map((feed) => feed.id) ?? [])}
-          >
-            Select all
-          </button>
-        </div>
+        <fieldset className="mt-4 rounded-lg border border-slate/20 bg-white/45 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+          <legend className="px-1 text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</legend>
+          <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-xs text-slate dark:text-slate-300">
+            <span>{selectedFeedLabel}</span>
+            <button type="button" className="underline text-slate-700 dark:text-slate-100" onClick={() => setSelectedFeedIds(allFeedIds)}>
+              Select all
+            </button>
+            <button type="button" className="underline text-slate-700 dark:text-slate-100" onClick={() => setSelectedFeedIds([])}>
+              Clear
+            </button>
+          </div>
+          <div className="mt-2 grid max-h-36 gap-1.5 overflow-auto pr-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {feedsQuery.data?.map((feed) => {
+              const checked = selectedFeedIds.includes(feed.id)
+              return (
+                <label
+                  key={feed.id}
+                  className={`flex min-w-0 items-center gap-2 rounded border px-2 py-1.5 text-sm transition ${
+                    checked
+                      ? 'border-cyan/40 bg-cyan/10 text-cyan-900 dark:border-cyan-500/35 dark:bg-cyan-500/10 dark:text-cyan-100'
+                      : 'border-slate/15 bg-white/55 text-slate-700 hover:border-slate/30 dark:border-cyan-900/30 dark:bg-white/[0.02] dark:text-slate-200 dark:hover:border-cyan-700/50'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 accent-cyan"
+                    checked={checked}
+                    onChange={() => toggleFeedSelection(feed.id)}
+                  />
+                  <span className="truncate">{feed.name}</span>
+                </label>
+              )
+            })}
+            {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading feeds...</p>}
+            {feedsQuery.isError && <p className="text-sm text-red-600 dark:text-red-300">Failed to load feeds.</p>}
+          </div>
+        </fieldset>
       </section>
 
       {statsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading stats...</p>}

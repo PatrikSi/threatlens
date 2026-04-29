@@ -100,8 +100,8 @@
   --tl-input-placeholder: #7f8ea2;
   --tl-text-main: #dde7f2;
   --tl-text-soft: #bdcad8;
-  --tl-text-muted: #98a7b9;
-  --tl-text-dim: #75849a;
+  --tl-text-muted: #a8b5c6;
+  --tl-text-dim: #8997aa;
   --tl-accent: #6bbfd2;
   --tl-accent-soft: #a7dce8;
   --tl-accent-contrast: #102932;
@@ -171,6 +171,14 @@ textarea:disabled {
 :focus-visible {
   outline: 2px solid var(--tl-focus-ring);
   outline-offset: 2px;
+}
+
+@media (pointer: coarse), (max-width: 640px) {
+  button,
+  select,
+  input:not([type='checkbox']):not([type='radio']) {
+    min-height: 2.75rem;
+  }
 }
 
 .tl-app-header {
