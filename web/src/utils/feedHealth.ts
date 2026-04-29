@@ -39,13 +39,6 @@ export function resolveFeedHealth(feed: FeedHealthInput): FeedHealthInfo {
   return { status: 'healthy', label: 'Healthy' }
 }
 
-export function feedHealthDotClass(status: FeedHealthStatus): string {
-  if (status === 'healthy') return 'bg-emerald-500'
-  if (status === 'failing') return 'bg-rose-500'
-  if (status === 'disabled') return 'bg-slate-400'
-  return 'bg-amber-500'
-}
-
 export function feedHealthBadgeClass(status: FeedHealthStatus): string {
   if (status === 'healthy') return 'tl-chip-success'
   if (status === 'failing') return 'tl-chip-danger'

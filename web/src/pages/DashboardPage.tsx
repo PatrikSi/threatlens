@@ -17,7 +17,7 @@ import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
-import { feedHealthDotClass, resolveFeedHealth } from '../utils/feedHealth'
+import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
@@ -2418,6 +2418,7 @@ export function DashboardPage() {
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active ? 'tl-chip-filter-active' : 'tl-chip-neutral'
                             }`}
+                            aria-label={`${windowLayout.title} ${feed.name} feed, ${health.label}`}
                             onClick={() =>
                               updateWindowRssFilters(windowLayout.id, (current) => ({
                                 ...current,
@@ -2427,8 +2428,8 @@ export function DashboardPage() {
                               }))
                             }
                           >
-                            <span className={`mr-1.5 inline-block h-1.5 w-1.5 rounded-full ${feedHealthDotClass(health.status)}`} />
                             {feed.name}
+                            <span className={`tl-chip ml-1.5 ${feedHealthBadgeClass(health.status)}`}>{health.label}</span>
                           </button>
                         )
                       })}
@@ -2655,7 +2656,7 @@ export function DashboardPage() {
                                   )}
                                 </h3>
                                 <div className="flex shrink-0 items-center gap-2">
-                                  <span className="text-xs text-slate dark:text-slate-300">{item.feed_name}</span>
+                                  <span className="tl-source-text text-xs font-semibold dark:text-slate-300">{item.feed_name}</span>
                                 </div>
                               </div>
                               <button
