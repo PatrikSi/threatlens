@@ -84,7 +84,7 @@ const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
 const KEYBOARD_PANEL_MOVE_STEP = 24
 const KEYBOARD_PANEL_RESIZE_STEP = 32
 const ROLLING_WINDOW_FIELD_CLASS =
-  'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[#041612]'
+  'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Floating (Advanced)' },
@@ -111,8 +111,7 @@ const WINDOW_TYPE_META: Record<
   rss: {
     label: 'RSS Triage',
     description: 'Track feeds, pivot by tags, and expand into article detail.',
-    badgeClassName:
-      'border-cyan/40 bg-cyan/15 text-cyan dark:border-cyan-800/50 dark:bg-cyan-950/55 dark:text-cyan-200',
+    badgeClassName: 'tl-chip-info',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -120,8 +119,7 @@ const WINDOW_TYPE_META: Record<
   alerts: {
     label: 'Alert Matches',
     description: 'Watch keyword-driven matches across your configured interests.',
-    badgeClassName:
-      'border-amber-300/55 bg-amber-50/90 text-amber-800 dark:border-amber-800/45 dark:bg-amber-950/25 dark:text-amber-200',
+    badgeClassName: 'tl-chip-neutral',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -129,8 +127,7 @@ const WINDOW_TYPE_META: Record<
   notes: {
     label: 'Notes',
     description: 'Keep scratch notes, pivots, and hypotheses attached to this view.',
-    badgeClassName:
-      'border-slate/20 bg-slate/10 text-slate-700 dark:border-slate-600/45 dark:bg-slate-800/40 dark:text-slate-200',
+    badgeClassName: 'tl-chip-neutral',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -138,8 +135,7 @@ const WINDOW_TYPE_META: Record<
   daily_brief: {
     label: 'Daily Brief',
     description: 'Review retained AI briefings and the items that shaped them.',
-    badgeClassName:
-      'border-slate/20 bg-white/80 text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612] dark:text-white/70',
+    badgeClassName: 'tl-chip-neutral',
     headerClassName: 'bg-white/92 dark:bg-[#041612]/90',
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
@@ -2403,8 +2399,8 @@ export function DashboardPage() {
                         aria-label={`${windowLayout.title} all feeds`}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_feed_ids.length === 0
-                            ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
-                            : 'border-slate/20 dark:border-cyan-900/40'
+                            ? 'tl-chip-filter-active'
+                            : 'tl-chip-neutral'
                         }`}
                         onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_feed_ids: [] }))}
                       >
@@ -2419,7 +2415,7 @@ export function DashboardPage() {
                             type="button"
                             aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
-                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
+                              active ? 'tl-chip-filter-active' : 'tl-chip-neutral'
                             }`}
                             onClick={() =>
                               updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -2444,8 +2440,8 @@ export function DashboardPage() {
                         aria-label={`${windowLayout.title} all tags`}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           rssFilters.selected_tags.length === 0
-                            ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                            : 'border-slate/20 dark:border-cyan-900/40'
+                            ? 'tl-chip-filter-active'
+                            : 'tl-chip-neutral'
                         }`}
                         onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_tags: [] }))}
                       >
@@ -2462,8 +2458,8 @@ export function DashboardPage() {
                             aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active
-                                ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                                  : 'border-slate/20 dark:border-cyan-900/40'
+                                ? 'tl-chip-filter-active'
+                                : 'tl-chip-neutral'
                               }`}
                               onClick={() =>
                                 updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -2637,7 +2633,7 @@ export function DashboardPage() {
                           <article
                             key={item.id}
                             className={`rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-3'} transition ${
-                              expanded ? 'border-cyan bg-cyan/5 dark:border-cyan-700/50 dark:bg-cyan-950/25' : 'border-slate/20 dark:border-cyan-900/40'
+                              expanded ? 'tl-row-selected' : 'border-slate/20 bg-white/65 dark:border-cyan-900/40 dark:bg-white/[0.02]'
                             } ${item.is_read ? 'opacity-85' : ''}`}
                           >
                             <div className="w-full text-left">
@@ -2671,12 +2667,12 @@ export function DashboardPage() {
                                 <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
                                   <span>Published {formatPublishedAt(item.published_at)}</span>
                                   {item.status !== 'content_fetched' && (
-                                    <span className="rounded bg-slate/15 px-1.5 py-0.5 dark:bg-[#0b1a33]">{item.status}</span>
+                                    <span className="tl-chip tl-chip-neutral">{item.status}</span>
                                   )}
-                                  {!item.is_read && <span className="rounded bg-cyan/20 px-1.5 py-0.5 text-cyan">Unread</span>}
-                                  {item.is_starred && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-amber-700">Starred</span>}
+                                  {!item.is_read && <span className="tl-chip tl-chip-info">Unread</span>}
+                                  {item.is_starred && <span className="tl-chip tl-chip-neutral">Starred</span>}
                                   {aiRelevanceEnabled && item.ai_relevance_label && (
-                                    <span className={`rounded px-1.5 py-0.5 ${aiRelevanceTone(item.ai_relevance_label)}`}>
+                                    <span className={`tl-chip ${aiRelevanceTone(item.ai_relevance_label)}`}>
                                       AI {formatAiRelevanceLabel(item.ai_relevance_label)}
                                     </span>
                                   )}
@@ -2686,7 +2682,7 @@ export function DashboardPage() {
                                     .map((tagName) => (
                                       <span
                                         key={`${item.id}-${tagName}`}
-                                        className="rounded bg-violet-100 px-1.5 py-0.5 text-violet-800 dark:bg-violet-900/35 dark:text-violet-200"
+                                        className="tl-chip tl-chip-neutral"
                                       >
                                         #{tagName}
                                       </span>
@@ -2757,7 +2753,7 @@ export function DashboardPage() {
                                             ? 'Unstar'
                                             : 'Star'}
                                       </button>
-                                      {!canManage && <span className="text-xs text-amber-600">Viewer role is read-only.</span>}
+                                      {!canManage && <span className="text-xs text-amber-600 dark:text-amber-300">Viewer role is read-only.</span>}
                                     </div>
                                     {itemActionFeedbackByItemId[detail.id] && (
                                       <p
@@ -2774,7 +2770,7 @@ export function DashboardPage() {
                                       </p>
                                     )}
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="tl-surface-muted mt-3 rounded p-3">
                                       <p className="text-xs font-semibold text-slate dark:text-slate-300">RSS summary</p>
                                       {detail.classification && (
                                         <p className="mt-1 text-xs text-slate dark:text-slate-300">
@@ -2785,17 +2781,17 @@ export function DashboardPage() {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="rss-reader mt-2 rounded bg-white/95 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
+                                      <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
                                         {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
                                       </div>
                                     </div>
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
-                                      <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                      <div className="tl-surface-muted mt-3 rounded p-3">
                                         <p className="text-xs font-semibold text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
-                                            <span className={`rounded px-2 py-1 text-xs font-semibold ${aiRelevanceTone(detail.ai_insight.relevance_label)}`}>
+                                            <span className={`tl-chip tl-chip-md ${aiRelevanceTone(detail.ai_insight.relevance_label)}`}>
                                               {formatAiRelevanceLabel(detail.ai_insight.relevance_label)} Relevance
                                             </span>
                                             {typeof detail.ai_insight.relevance_score === 'number' && (
@@ -2813,7 +2809,7 @@ export function DashboardPage() {
                                           </ul>
                                         )}
                                         {aiSummaryEnabled && detail.ai_insight.summary_text && (
-                                          <div className="mt-3 rounded bg-white/95 p-3 dark:bg-[#041612]/80">
+                                          <div className="tl-reader-surface mt-3 rounded p-3">
                                             {renderArticleBlocks(detail.ai_insight.summary_text, `${detail.id}-ai-summary`)}
                                           </div>
                                         )}
@@ -2828,10 +2824,10 @@ export function DashboardPage() {
                                       </div>
                                     )}
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="tl-surface-muted mt-3 rounded p-3">
                                       <p className="text-xs font-semibold text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text ? (
-                                        <div className="rss-reader mt-2 rounded bg-white/95 p-3 text-slate-900 dark:bg-[#041612]/80 dark:text-slate-100">
+                                        <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
                                         </div>
                                       ) : (
@@ -2877,7 +2873,7 @@ export function DashboardPage() {
                                       )}
                                     </div>
 
-                                    <div className="mt-3 rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/90">
+                                    <div className="tl-surface-muted mt-3 rounded p-3">
                                       <label className="text-xs font-semibold text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -2893,7 +2889,7 @@ export function DashboardPage() {
                                       />
                                       <div className="mt-2 flex items-center gap-2">
                                         <button
-                                          className="rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-slate-950"
+                                          className="rounded bg-ink px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50 dark:border dark:border-cyan-500/35 dark:bg-[var(--tl-accent-bg-strong)] dark:text-[var(--tl-accent-soft)]"
                                           onClick={() =>
                                             updateNote.mutate({
                                               itemId: detail.id,
@@ -2988,8 +2984,8 @@ export function DashboardPage() {
                         aria-pressed={alertFilters.selected_categories.length === 0}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_categories.length === 0
-                            ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55'
-                            : 'border-slate/20 dark:border-cyan-900/40'
+                            ? 'tl-chip-filter-active'
+                            : 'tl-chip-neutral'
                         }`}
                         onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_categories: [] }))}
                       >
@@ -3003,7 +2999,7 @@ export function DashboardPage() {
                             type="button"
                             aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
-                              active ? 'border-cyan bg-cyan/15 text-cyan dark:bg-cyan-950/55' : 'border-slate/20 dark:border-cyan-900/40'
+                              active ? 'tl-chip-filter-active' : 'tl-chip-neutral'
                             }`}
                             onClick={() =>
                               updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -3030,8 +3026,8 @@ export function DashboardPage() {
                         aria-pressed={alertFilters.selected_alert_ids.length === 0}
                         className={`rounded border px-3 py-1 text-xs font-semibold ${
                           alertFilters.selected_alert_ids.length === 0
-                            ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                            : 'border-slate/20 dark:border-cyan-900/40'
+                            ? 'tl-chip-filter-active'
+                            : 'tl-chip-neutral'
                         }`}
                         onClick={() => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, selected_alert_ids: [] }))}
                       >
@@ -3046,8 +3042,8 @@ export function DashboardPage() {
                             aria-pressed={active}
                             className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
                               active
-                                ? 'border-violet-500 bg-violet-500/15 text-violet-700 dark:bg-violet-950/45 dark:text-violet-300'
-                                : 'border-slate/20 dark:border-cyan-900/40'
+                                ? 'tl-chip-filter-active'
+                                : 'tl-chip-neutral'
                             }`}
                             onClick={() =>
                               updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -3191,7 +3187,7 @@ export function DashboardPage() {
                             {item.matches.map((match) => (
                               <span
                                 key={`${item.id}-${match.alert_id}`}
-                                className="rounded border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                                className="tl-chip tl-chip-neutral"
                               >
                                 {match.alert_name} ({formatClassificationLabel(match.category)})
                               </span>
@@ -3354,7 +3350,7 @@ export function DashboardPage() {
                                     <span className="text-sm font-semibold">{item.title}</span>
                                   )}
                                   {item.relevance_label && (
-                                    <span className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${aiRelevanceTone(item.relevance_label)}`}>
+                                    <span className={`tl-chip shrink-0 ${aiRelevanceTone(item.relevance_label)}`}>
                                       {formatAiRelevanceLabel(item.relevance_label)}
                                     </span>
                                   )}
@@ -3832,12 +3828,12 @@ function formatAiRelevanceLabel(value: 'low' | 'medium' | 'high'): string {
 
 function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
   if (value === 'high') {
-    return 'bg-red-100 text-red-800 dark:bg-red-950/35 dark:text-red-200'
+    return 'tl-chip-warning'
   }
   if (value === 'medium') {
-    return 'bg-amber-100 text-amber-800 dark:bg-amber-950/35 dark:text-amber-200'
+    return 'tl-chip-info'
   }
-  return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/35 dark:text-emerald-200'
+  return 'tl-chip-neutral'
 }
 
 function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {

@@ -388,8 +388,8 @@ export function TaggingSettingsPage() {
                     aria-pressed={active}
                     className={`rounded-full border px-3 py-1.5 text-sm ${
                       active
-                        ? 'border-cyan bg-cyan/10 text-cyan-900 dark:border-cyan-700/60 dark:bg-cyan-950/40 dark:text-cyan-100'
-                        : 'border-slate/20 text-slate hover:border-slate/40 dark:border-cyan-900/40 dark:text-white/70 dark:hover:border-cyan-700/60'
+                        ? 'tl-chip-filter-active'
+                        : 'tl-chip-neutral hover:border-slate/40 dark:hover:border-cyan-700/60'
                     }`}
                     onClick={() =>
                       setSettingsDraft((current) => ({
@@ -497,7 +497,7 @@ export function TaggingSettingsPage() {
                   aria-pressed={selected}
                   className={`w-full rounded-lg border p-3 text-left transition ${
                     selected
-                      ? 'border-cyan bg-cyan/10 dark:border-cyan-500 dark:bg-cyan-950/50'
+                      ? 'tl-row-selected'
                       : 'border-slate/20 hover:border-slate/40 dark:border-cyan-900/40 dark:hover:border-cyan-700/60'
                   }`}
                   onClick={() => onSelectRule(rule)}
@@ -510,10 +510,10 @@ export function TaggingSettingsPage() {
                       </p>
                     </div>
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      className={`tl-chip ${
                         rule.enabled
-                          ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                          : 'bg-slate/10 text-slate-700 dark:bg-white/10 dark:text-white/65'
+                          ? 'tl-chip-success'
+                          : 'tl-chip-neutral'
                       }`}
                     >
                       {rule.enabled ? 'Enabled' : 'Disabled'}
@@ -782,7 +782,7 @@ export function TaggingSettingsPage() {
                 </p>
               </div>
               {previewResult && (
-                <span className="rounded-full bg-cyan/10 px-3 py-1 text-sm font-semibold text-cyan-900 dark:bg-cyan/20 dark:text-cyan-100">
+                <span className="tl-chip tl-chip-md tl-chip-info">
                   {previewResult.total} current match{previewResult.total === 1 ? '' : 'es'}
                 </span>
               )}
@@ -805,7 +805,7 @@ export function TaggingSettingsPage() {
                           </p>
                         </div>
                         {item.classification && (
-                          <span className="rounded-full border border-cyan/30 bg-cyan/10 px-2 py-0.5 text-[11px] text-cyan-900 dark:border-cyan/40 dark:bg-cyan/15 dark:text-cyan-100">
+                          <span className="tl-chip tl-chip-neutral">
                             {formatCategoryLabel(item.classification)}
                           </span>
                         )}
@@ -814,7 +814,7 @@ export function TaggingSettingsPage() {
                         {item.matched_sections.map((section) => (
                           <span
                             key={`${item.id}-${section}`}
-                            className="rounded-full border border-emerald-300/60 bg-emerald-100/70 px-2 py-0.5 text-[11px] text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/25 dark:text-emerald-200"
+                            className="tl-chip tl-chip-neutral"
                           >
                             matched in {formatFieldLabel(section)}
                           </span>
@@ -933,8 +933,8 @@ function RuleSelectionGroup<T extends string>({
               aria-pressed={active}
               className={`rounded-full border px-3 py-1.5 text-sm ${
                 active
-                  ? 'border-cyan bg-cyan/10 text-cyan-900 dark:border-cyan-700/60 dark:bg-cyan-950/40 dark:text-cyan-100'
-                  : 'border-slate/20 text-slate hover:border-slate/40 dark:border-cyan-900/40 dark:text-white/70 dark:hover:border-cyan-700/60'
+                  ? 'tl-chip-filter-active'
+                  : 'tl-chip-neutral hover:border-slate/40 dark:hover:border-cyan-700/60'
               }`}
               onClick={() => onToggle(entry.value)}
             >

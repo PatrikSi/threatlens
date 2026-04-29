@@ -17,7 +17,7 @@ const NAV_LINKS = [
 
 export function AppShell() {
   const { markLoggedOut } = useAuth()
-  const { mode, setMode, isDark } = useTheme()
+  const { setMode, isDark } = useTheme()
   const meQuery = useCurrentUser()
   const navigate = useNavigate()
   const location = useLocation()
@@ -70,13 +70,13 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen text-ink dark:text-slate-100">
-      <header className="border-b border-slate/20 bg-white/70 backdrop-blur dark:border-white/10 dark:bg-slate-950/70">
+      <header className="tl-app-header">
         <div className="px-3 py-3 sm:px-4 lg:hidden">
           <div className="flex items-center justify-between gap-3">
             <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
             <button
               type="button"
-              className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100"
+              className="tl-subtle-control rounded px-3 py-1.5 text-sm"
               onClick={() => setMobileNavOpen((current) => !current)}
               aria-expanded={mobileNavOpen}
               aria-label="Toggle navigation menu"
@@ -116,10 +116,12 @@ export function AppShell() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  className="flex-1 rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate-700 transition hover:border-slate/30 hover:bg-white/80 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:bg-white/[0.08]"
+                  className="tl-subtle-control flex-1 rounded px-2.5 py-1.5 text-sm transition"
                   onClick={() => setMode(isDark ? 'light' : 'dark')}
+                  aria-pressed={isDark}
+                  aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
-                  {isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+                  {isDark ? 'Dark mode' : 'Light mode'}
                 </button>
                 <button
                   className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:border-red-800 dark:hover:text-red-300"
@@ -162,16 +164,18 @@ export function AppShell() {
 
           <div className="flex items-center gap-2">
             {meQuery.data && (
-              <div className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-200">
+              <div className="tl-subtle-control rounded px-2.5 py-1.5 text-sm">
                 {meQuery.data.email} ({meQuery.data.role})
               </div>
             )}
             <button
               type="button"
-              className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate-700 transition hover:border-slate/30 hover:bg-white/80 dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:bg-white/[0.08]"
+              className="tl-subtle-control rounded px-2.5 py-1.5 text-sm transition"
               onClick={() => setMode(isDark ? 'light' : 'dark')}
+              aria-pressed={isDark}
+              aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {mode === 'dark' ? 'Light mode' : 'Dark mode'}
+              {isDark ? 'Dark mode' : 'Light mode'}
             </button>
             <button
               className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:border-red-800 dark:hover:text-red-300"

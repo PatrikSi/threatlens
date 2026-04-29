@@ -662,17 +662,11 @@ export function AiSettingsPage() {
             <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="font-display text-2xl">AI Settings</h2>
-              <span className="rounded-full border border-cyan/20 bg-cyan/10 px-2 py-1 text-xs font-semibold uppercase text-cyan-900 dark:border-cyan/30 dark:text-cyan-100">
-                {settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'}
-              </span>
+              <StatusPill tone={settingsQuery.data?.ai_enabled ? 'info' : 'neutral'} label={settingsQuery.data?.ai_enabled ? 'Enabled' : 'Disabled'} />
               {settingsQuery.data?.ai_configured ? (
-                <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-semibold uppercase text-emerald-700 dark:text-emerald-300">
-                  Configured
-                </span>
+                <StatusPill tone="success" label="Configured" />
               ) : (
-                <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs font-semibold uppercase text-amber-700 dark:text-amber-300">
-                  Needs setup
-                </span>
+                <StatusPill tone="warning" label="Needs setup" />
               )}
             </div>
             <p className="mt-1 text-sm text-slate dark:text-white/75">
@@ -1656,7 +1650,7 @@ function RunArticlesSection({
           <StatusPill tone="success" label={`Ready ${parentRun.success_count}`} />
           <StatusPill tone="danger" label={`Errors ${parentRun.error_count}`} />
           <StatusPill tone="neutral" label={`Skipped ${parentRun.skipped_count}`} />
-          <StatusPill tone="warning" label={`Remaining ${remainingCount(parentRun)}`} />
+          <StatusPill tone="info" label={`Remaining ${remainingCount(parentRun)}`} />
         </div>
       </div>
 
@@ -2939,16 +2933,18 @@ function Metric({ label, value }: { label: string; value: ReactNode }) {
   )
 }
 
-function StatusPill({ label, tone }: { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }) {
+function StatusPill({ label, tone }: { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' | 'info' }) {
   const toneClass =
     tone === 'success'
-      ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+      ? 'tl-chip-success'
       : tone === 'warning'
-        ? 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300'
+        ? 'tl-chip-warning'
         : tone === 'danger'
-          ? 'border-red-500/20 bg-red-500/10 text-red-700 dark:text-red-300'
-          : 'border-slate/20 bg-slate/10 text-slate-700 dark:text-white/70'
-  return <span className={`rounded-full border px-2 py-1 text-xs font-semibold uppercase ${toneClass}`}>{label}</span>
+          ? 'tl-chip-danger'
+          : tone === 'info'
+            ? 'tl-chip-info'
+            : 'tl-chip-neutral'
+  return <span className={`tl-chip uppercase ${toneClass}`}>{label}</span>
 }
 
 function ProgressBar({ value, max, className = '' }: { value: number; max: number; className?: string }) {
@@ -3182,10 +3178,10 @@ function formatFeatureKey(value: string) {
   return value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
-function statusTone(value: string): 'success' | 'warning' | 'danger' | 'neutral' {
+function statusTone(value: string): 'success' | 'warning' | 'danger' | 'neutral' | 'info' {
   if (value === 'ready') return 'success'
   if (value === 'error') return 'danger'
-  if (value === 'running' || value === 'queued') return 'warning'
+  if (value === 'running' || value === 'queued') return 'info'
   return 'neutral'
 }
 

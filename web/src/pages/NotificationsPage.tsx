@@ -405,7 +405,7 @@ export function NotificationsPage() {
               <div className="rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
                 <div className="flex items-center justify-between gap-3">
                   <h4 className="font-semibold">Delivery Queue</h4>
-                  <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${queueStatusBadgeClass(analytics.queue)}`}>
+                  <span className={`tl-chip ${queueStatusBadgeClass(analytics.queue)}`}>
                     {describeQueueStatusLabel(analytics.queue)}
                   </span>
                 </div>
@@ -476,10 +476,10 @@ export function NotificationsPage() {
                     <p className="mt-0.5 truncate text-xs text-slate dark:text-white/55">{webhook.url_template}</p>
                   </div>
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    className={`tl-chip ${
                       webhook.enabled
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                        : 'bg-slate/10 text-slate-700 dark:bg-white/10 dark:text-white/65'
+                        ? 'tl-chip-success'
+                        : 'tl-chip-neutral'
                     }`}
                   >
                     {webhook.enabled ? 'Enabled' : 'Disabled'}
@@ -870,10 +870,10 @@ export function NotificationsPage() {
                 <h3 className="font-display text-lg">Test Result</h3>
                 {testResult && (
                   <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                    className={`tl-chip ${
                       testResult.success
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
-                        : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+                        ? 'tl-chip-success'
+                        : 'tl-chip-danger'
                     }`}
                   >
                     {testResult.success ? 'Success' : 'Failed'}
@@ -970,7 +970,7 @@ export function NotificationsPage() {
               </div>
               {deliveriesQuery.data?.deliveries[0] && (
                 <span
-                  className={`rounded-full px-3 py-1 text-xs font-semibold ${deliveryStatusBadgeClass(
+                  className={`tl-chip tl-chip-md ${deliveryStatusBadgeClass(
                     deliveriesQuery.data.deliveries[0],
                   )}`}
                 >
@@ -1023,16 +1023,16 @@ export function NotificationsPage() {
                         <div>
                           <div className="flex flex-wrap items-center gap-2">
                             <span
-                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${deliveryStatusBadgeClass(
+                              className={`tl-chip ${deliveryStatusBadgeClass(
                                 delivery,
                               )}`}
                             >
                               {describeDeliveryStatus(delivery)}
                             </span>
-                            <span className="rounded-full bg-slate/10 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-white/10 dark:text-white/70">
+                            <span className="tl-chip tl-chip-neutral">
                               {delivery.delivery_kind === 'retry' ? 'Retry' : 'Live'}
                             </span>
-                            <span className="rounded-full bg-slate/10 px-2 py-0.5 text-[11px] font-semibold text-slate-700 dark:bg-white/10 dark:text-white/70">
+                            <span className="tl-chip tl-chip-neutral">
                               {describeEventType(delivery.event_type)}
                             </span>
                           </div>
@@ -1217,13 +1217,13 @@ function KeyValueEditor({
           const valueId = `${fieldIdPrefix}-${index}-value`
 
           return (
-          <div key={`${title}-${index}`} className="grid gap-2 md:grid-cols-[1fr_1.4fr_auto]">
+          <div key={`${title}-${index}`} className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto]">
             <label htmlFor={keyId} className="sr-only">
               {title} row {index + 1} key
             </label>
             <input
               id={keyId}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+              className="min-w-0 rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
               disabled={disabled}
               value={field.key}
               onChange={(event) => onChange(updateField(fields, index, { key: event.target.value }))}
@@ -1234,7 +1234,7 @@ function KeyValueEditor({
             </label>
             <input
               id={valueId}
-              className="rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+              className="min-w-0 rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
               disabled={disabled}
               value={field.value}
               onChange={(event) => onChange(updateField(fields, index, { value: event.target.value }))}
@@ -1288,12 +1288,12 @@ function describeQueueStatusMessage(queue: NotificationQueueSnapshot): string {
 
 function queueStatusBadgeClass(queue: NotificationQueueSnapshot): string {
   if (queue.status === 'critical') {
-    return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+    return 'tl-chip-danger'
   }
   if (queue.status === 'degraded') {
-    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    return 'tl-chip-warning'
   }
-  return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+  return 'tl-chip-success'
 }
 
 function formatAgeSeconds(value: number): string {
@@ -1581,15 +1581,15 @@ function describeDeliverySecondaryStatus(delivery: NotificationWebhookDelivery):
 
 function deliveryStatusBadgeClass(delivery: NotificationWebhookDelivery): string {
   if (delivery.delivery_state === 'pending') {
-    return 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+    return 'tl-chip-info'
   }
   if (delivery.delivery_state === 'sending') {
-    return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-200'
+    return 'tl-chip-info'
   }
   if (delivery.success) {
-    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300'
+    return 'tl-chip-success'
   }
-  return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+  return 'tl-chip-danger'
 }
 
 function isRetryableDelivery(delivery: NotificationWebhookDelivery): boolean {

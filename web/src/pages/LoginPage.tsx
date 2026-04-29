@@ -94,7 +94,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <form
-        className="w-full max-w-sm rounded-2xl border border-slate/20 bg-white/80 p-6 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+        className="tl-surface w-full max-w-sm rounded-2xl p-6 shadow-sm"
         onSubmit={onSubmit}
       >
         <h2 className="font-display text-3xl">{mode === 'login' ? 'Analyst Login' : 'Create Account'}</h2>
@@ -186,17 +186,17 @@ export function LoginPage() {
           </p>
         )}
         {registerFormError && (
-          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600 dark:text-red-300">
             {registerFormError}
           </p>
         )}
         {mode === 'login' && login.isError && (
-          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600 dark:text-red-300">
             {resolveLoginError(login.error)}
           </p>
         )}
         {mode === 'register' && register.isError && (
-          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600">
+          <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-3 text-sm text-red-600 dark:text-red-300">
             {resolveRegisterError(register.error)}
           </p>
         )}

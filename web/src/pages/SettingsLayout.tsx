@@ -20,7 +20,7 @@ export function SettingsLayout() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-white/10 dark:bg-slate-950/65">
+      <aside className="tl-surface rounded-xl p-4">
         <h2 className="font-display text-xl">Settings</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/70">Manage access, automation, and administration tools from one place.</p>
 
@@ -46,7 +46,7 @@ export function SettingsLayout() {
           </div>
         </nav>
 
-        <div className="mt-5 rounded border border-cyan/20 bg-cyan/10 p-3 text-xs dark:border-cyan-500/30 dark:bg-cyan-500/12">
+        <div className="tl-surface-muted mt-5 rounded p-3 text-xs">
           <p className="font-semibold">Current role</p>
           <p className="mt-1 text-cyan-800 dark:text-cyan-200">{role || 'loading...'}</p>
         </div>

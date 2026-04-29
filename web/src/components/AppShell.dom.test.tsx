@@ -129,6 +129,9 @@ afterEach(async () => {
   document.body.innerHTML = ''
   appShellDomMocks.apiFetch.mockReset()
   appShellDomMocks.markLoggedOut.mockReset()
+  window.localStorage.clear()
+  document.documentElement.className = ''
+  document.documentElement.removeAttribute('data-color-mode')
 })
 
 describe('AppShell logout', () => {

@@ -23,9 +23,9 @@ export function RoleRoute({ roles, children }: RoleRouteProps) {
   }
   if (meQuery.error instanceof ApiError && meQuery.error.status === 403) {
     return (
-      <div className="mx-auto max-w-2xl rounded-2xl border border-amber-300/60 bg-white/90 p-6 shadow-sm dark:border-amber-500/30 dark:bg-[#041612]/95">
+      <div className="tl-surface mx-auto max-w-2xl rounded-2xl p-6 shadow-sm">
         <h2 className="font-display text-3xl text-ink dark:text-white">Access blocked</h2>
-        <p className="mt-2 text-sm text-slate dark:text-slate-300">
+        <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
           {meQuery.error.message || 'This account is authenticated, but it cannot access this area right now.'}
         </p>
       </div>
@@ -50,9 +50,9 @@ export function RoleRoute({ roles, children }: RoleRouteProps) {
 
   if (!roles.includes(meQuery.data.role)) {
     return (
-      <div className="mx-auto max-w-2xl rounded-2xl border border-amber-300/60 bg-white/90 p-6 shadow-sm dark:border-amber-500/30 dark:bg-[#041612]/95">
+      <div className="tl-surface mx-auto max-w-2xl rounded-2xl p-6 shadow-sm">
         <h2 className="font-display text-3xl text-ink dark:text-white">Role required</h2>
-        <p className="mt-2 text-sm text-slate dark:text-slate-300">
+        <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
           This page is limited to {roles.join(' or ')} accounts. Your current role is {meQuery.data?.role ?? 'unknown'}.
         </p>
         <div className="mt-4 flex flex-wrap gap-3">

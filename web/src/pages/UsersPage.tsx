@@ -339,7 +339,12 @@ export function UsersPage() {
             ))}
 
             {usersQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading users...</p>}
-            {usersQuery.isError && <p className="text-sm text-red-600">{resolveUsersError(usersQuery.error)}</p>}
+            {usersQuery.isError && <p className="text-sm text-red-600 dark:text-red-300">{resolveUsersError(usersQuery.error)}</p>}
+            {!usersQuery.isLoading && !usersQuery.isError && filteredUsers.length === 0 && (
+              <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                No users match the current filters.
+              </div>
+            )}
           </div>
         </section>
       </div>
@@ -437,7 +442,7 @@ function UserRow({
               {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}
             </p>
             {!user.is_approved && (
-              <p className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">
+              <p className="tl-chip tl-chip-warning mt-1">
                 Pending approval
               </p>
             )}

@@ -11,7 +11,7 @@ import {
   StatsSignalRadarResponse,
 } from '../types/api'
 
-const FEED_CHART_COLORS = ['#0891b2', '#06b6d4', '#0ea5e9', '#14b8a6', '#10b981', '#22c55e', '#eab308', '#f97316']
+const FEED_CHART_COLORS = ['#0e7490', '#2563eb', '#0f766e', '#64748b', '#7c3aed', '#b45309', '#4f46e5', '#059669']
 const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
@@ -425,10 +425,10 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
             <button
               key={series.feed_id}
               type="button"
-              className={`rounded-full border px-2.5 py-1 text-xs ${
-                hidden ? 'border-slate/30 text-slate dark:border-cyan-900/40 dark:text-slate-300' : 'text-ink dark:text-slate-100'
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 ${
+                hidden ? 'border-slate/30 opacity-60 dark:border-cyan-900/40' : 'border-slate/25 dark:border-white/10'
               }`}
-              style={hidden ? undefined : { borderColor: color, color }}
+              style={hidden ? undefined : { borderColor: `${color}66` }}
               onClick={() =>
                 setHiddenFeedIds((current) =>
                   current.includes(series.feed_id)
@@ -437,7 +437,8 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
                 )
               }
             >
-              {series.feed_name}
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+              <span>{series.feed_name}</span>
             </button>
           )
         })}
@@ -492,7 +493,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
                   stroke="rgba(148, 163, 184, 0.2)"
                   strokeWidth={1}
                 />
-                <text x={paddingLeft - 8} y={y + 4} textAnchor="end" fontSize={11} fill="#64748b">
+                <text x={paddingLeft - 8} y={y + 4} textAnchor="end" fontSize={11} className="fill-slate-500 dark:fill-[var(--tl-text-dim)]">
                   {value}
                 </text>
               </g>
@@ -833,7 +834,11 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
               fontSize={11}
               textAnchor={point.labelX >= center ? 'start' : 'end'}
               alignmentBaseline="middle"
-              fill={hoveredCategory === point.axis.category ? '#0891b2' : '#64748b'}
+              className={
+                hoveredCategory === point.axis.category
+                  ? 'fill-cyan dark:fill-[var(--tl-accent)]'
+                  : 'fill-slate-500 dark:fill-[var(--tl-text-dim)]'
+              }
             >
               {formatCategoryLabel(point.axis.category)}
             </text>

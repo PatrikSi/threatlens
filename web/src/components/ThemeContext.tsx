@@ -17,7 +17,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const root = document.documentElement
 
+    for (const className of Array.from(root.classList)) {
+      if (className.startsWith('theme-')) {
+        root.classList.remove(className)
+      }
+    }
     root.classList.toggle('dark', mode === 'dark')
+    root.classList.add(`theme-${mode}`)
     root.dataset.colorMode = mode
     persistTheme(mode)
   }, [mode])
@@ -65,7 +71,7 @@ function persistTheme(mode: ThemeMode) {
 }
 
 function normalizeThemeMode(stored: string | null): ThemeMode {
-  if (stored === 'dark' || stored?.startsWith('dark-')) {
+  if (stored === 'dark' || stored?.startsWith('dark-') || stored?.startsWith('theme-dark')) {
     return 'dark'
   }
   return 'light'

@@ -26,6 +26,7 @@ export function AuditLogsPage() {
   })
 
   const totalPages = Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize))
+  const logs = auditQuery.data?.logs ?? []
 
   const exportLogs = useMutation({
     mutationFn: () => {
@@ -102,7 +103,7 @@ export function AuditLogsPage() {
         </div>
       </div>
       {exportError && (
-        <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600">
+        <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600 dark:text-red-300">
           {exportError}
         </p>
       )}
@@ -124,7 +125,32 @@ export function AuditLogsPage() {
             </tr>
           </thead>
           <tbody>
-            {auditQuery.data?.logs.map((log) => (
+            {auditQuery.isLoading && (
+              <tr>
+                <td colSpan={5} className="px-2 py-6 text-center text-slate dark:text-slate-300">
+                  Loading audit logs...
+                </td>
+              </tr>
+            )}
+            {auditQuery.isError && (
+              <tr>
+                <td colSpan={5} className="px-2 py-6">
+                  <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
+                    {(auditQuery.error as Error).message || 'Audit logs could not be loaded.'}
+                  </div>
+                </td>
+              </tr>
+            )}
+            {!auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-2 py-6">
+                  <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                    No audit logs match the current filters.
+                  </div>
+                </td>
+              </tr>
+            )}
+            {logs.map((log) => (
               <tr key={log.id} className="border-b border-slate/10 dark:border-cyan-950/40">
                 <td className="px-2 py-2 whitespace-nowrap">{formatDateTime(log.created_at)}</td>
                 <td className="px-2 py-2 font-mono text-xs">{log.action}</td>
@@ -134,7 +160,15 @@ export function AuditLogsPage() {
                 </td>
                 <td className="px-2 py-2 font-mono text-xs">{log.actor_user_id || 'system'}</td>
                 <td className="px-2 py-2">
-                  <span className={log.success ? 'text-green-600' : 'text-red-600'}>{log.success ? 'success' : 'failed'}</span>
+                  <span
+                    className={
+                      log.success
+                        ? 'tl-chip tl-chip-neutral'
+                        : 'tl-chip tl-chip-danger'
+                    }
+                  >
+                    {log.success ? 'success' : 'failed'}
+                  </span>
                 </td>
               </tr>
             ))}
@@ -143,14 +177,14 @@ export function AuditLogsPage() {
       </div>
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
-        <button className="rounded border border-slate/30 px-2 py-1" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+        <button className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
           Prev
         </button>
         <span className="w-full text-center sm:w-auto">
           Page {page} / {totalPages}
         </span>
         <button
-          className="rounded border border-slate/30 px-2 py-1"
+          className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40"
           disabled={page >= totalPages}
           onClick={() => setPage((p) => p + 1)}
         >

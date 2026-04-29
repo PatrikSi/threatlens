@@ -47,8 +47,8 @@ export function feedHealthDotClass(status: FeedHealthStatus): string {
 }
 
 export function feedHealthBadgeClass(status: FeedHealthStatus): string {
-  if (status === 'healthy') return 'border-emerald-300/80 bg-emerald-100/80 text-emerald-800 dark:border-emerald-800/40 dark:bg-emerald-950/35 dark:text-emerald-200'
-  if (status === 'failing') return 'border-rose-300/80 bg-rose-100/80 text-rose-800 dark:border-rose-800/40 dark:bg-rose-950/35 dark:text-rose-200'
-  if (status === 'disabled') return 'border-slate-300/80 bg-slate-100/80 text-slate-700 dark:border-slate-700/50 dark:bg-slate-900/45 dark:text-slate-200'
-  return 'border-amber-300/80 bg-amber-100/80 text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/35 dark:text-amber-200'
+  if (status === 'healthy') return 'tl-chip-success'
+  if (status === 'failing') return 'tl-chip-danger'
+  if (status === 'stale') return 'tl-chip-warning'
+  return 'tl-chip-neutral'
 }

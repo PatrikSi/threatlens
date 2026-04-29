@@ -1149,16 +1149,16 @@ export function FeedsPage() {
                   <div className="flex items-center gap-2">
                     <p className="font-semibold">{feed.name}</p>
                     {feed.has_unreadable_url && (
-                      <span className="rounded-full border border-red-300/70 bg-red-100/80 px-2 py-0.5 text-[11px] font-semibold text-red-800 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200">
+                      <span className="tl-chip tl-chip-danger">
                         Broken URL
                       </span>
                     )}
                     {isDirty && (
-                      <span className="rounded-full border border-amber-300/70 bg-amber-100/80 px-2 py-0.5 text-[11px] font-semibold text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/30 dark:text-amber-200">
+                      <span className="tl-chip tl-chip-warning">
                         Unsaved schedule
                       </span>
                     )}
-                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${feedHealthBadgeClass(health.status)}`}>
+                    <span className={`tl-chip ${feedHealthBadgeClass(health.status)}`}>
                       {health.label}
                     </span>
                   </div>

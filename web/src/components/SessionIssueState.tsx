@@ -22,7 +22,7 @@ export function SessionIssueState({
   fullscreen = false,
 }: SessionIssueStateProps) {
   const panel = (
-    <div className="w-full max-w-lg rounded-2xl border border-amber-300/60 bg-white/90 p-6 shadow-sm dark:border-amber-500/30 dark:bg-[#041612]/95">
+    <div className="tl-surface w-full max-w-lg rounded-2xl p-6 shadow-sm">
       <h2 className="font-display text-3xl text-ink dark:text-white">{title}</h2>
       <p className="mt-2 text-sm text-slate dark:text-slate-300">{description}</p>
       {errorMessage ? <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/35 dark:text-red-200">{errorMessage}</p> : null}

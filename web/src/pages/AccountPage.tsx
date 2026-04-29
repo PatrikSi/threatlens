@@ -48,7 +48,7 @@ export function AccountPage() {
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_480px]">
       {confirmDiscardPasswordDraft.discardDialog}
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="tl-surface rounded-xl p-4">
         <h2 className="font-display text-xl">Account</h2>
         {meQuery.data && (
           <div className="mt-3 space-y-1 text-sm">
@@ -68,7 +68,7 @@ export function AccountPage() {
         )}
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="tl-surface rounded-xl p-4">
         <h2 className="font-display text-xl">Change Password</h2>
         <form className="mt-3 space-y-3" onSubmit={onSubmit}>
           <div>

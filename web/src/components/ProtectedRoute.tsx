@@ -18,14 +18,12 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   if (meQuery.error instanceof ApiError && meQuery.error.status === 403) {
     return (
       <div className="flex min-h-screen items-center justify-center px-4">
-        <div className="w-full max-w-lg rounded-2xl border border-amber-300/60 bg-white/90 p-6 shadow-sm dark:border-amber-500/30 dark:bg-[#041612]/95">
+        <div className="tl-surface w-full max-w-lg rounded-2xl p-6 shadow-sm">
           <h2 className="font-display text-3xl text-ink dark:text-white">Access blocked</h2>
-          <p className="mt-2 text-sm text-slate dark:text-slate-300">
-            {meQuery.error.message || 'This account is authenticated, but it cannot access ThreatLens right now.'}
-          </p>
-          <p className="mt-3 text-sm text-slate dark:text-slate-300">
-            Contact an administrator if this account should be active and approved.
-          </p>
+          <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
+            <p>{meQuery.error.message || 'This account is authenticated, but it cannot access ThreatLens right now.'}</p>
+            <p className="mt-2">Contact an administrator if this account should be active and approved.</p>
+          </div>
         </div>
       </div>
     )

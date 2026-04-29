@@ -209,7 +209,7 @@ export function TokensPage() {
               role={revocationNotice.tone === 'error' ? 'alert' : 'status'}
               aria-live={revocationNotice.tone === 'error' ? 'assertive' : 'polite'}
               aria-atomic="true"
-              className={`text-sm ${revocationNotice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600'}`}
+              className={`text-sm ${revocationNotice.tone === 'success' ? 'text-emerald-700 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'}`}
             >
               {revocationNotice.message}
             </p>
@@ -241,7 +241,12 @@ export function TokensPage() {
           ))}
 
           {tokensQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading tokens...</p>}
-          {tokensQuery.isError && <p className="text-sm text-red-600">Failed to load tokens.</p>}
+          {tokensQuery.isError && <p className="text-sm text-red-600 dark:text-red-300">Failed to load tokens.</p>}
+          {!tokensQuery.isLoading && !tokensQuery.isError && tokensQuery.data?.length === 0 && (
+            <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+              No API tokens match the current filters.
+            </div>
+          )}
         </div>
       </section>
 

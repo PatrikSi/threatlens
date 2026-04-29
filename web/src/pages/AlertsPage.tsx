@@ -305,7 +305,7 @@ export function AlertsPage() {
               </p>
             </div>
             {previewQuery.data && (
-              <span className="rounded-full bg-cyan/10 px-3 py-1 text-sm font-semibold text-cyan-900 dark:bg-cyan/20 dark:text-cyan-100">
+              <span className="tl-chip tl-chip-md tl-chip-info">
                 {previewQuery.data.total} current match{previewQuery.data.total === 1 ? '' : 'es'}
               </span>
             )}
@@ -339,7 +339,7 @@ export function AlertsPage() {
                             {item.feed_name} • {formatTimestamp(item.first_seen_at)}
                           </p>
                         </div>
-                        <span className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200">
+                        <span className="tl-chip tl-chip-neutral">
                           {describeAlertCategory(previewMatch?.category ?? category)}
                         </span>
                       </div>
@@ -349,7 +349,7 @@ export function AlertsPage() {
                           {previewMatch.matched_keywords.map((keyword) => (
                             <span
                               key={`${item.id}-${keyword}`}
-                              className="rounded-full border border-cyan/30 bg-cyan/10 px-2 py-0.5 text-[11px] text-cyan-900 dark:border-cyan/40 dark:bg-cyan/15 dark:text-cyan-100"
+                              className="tl-chip tl-chip-neutral"
                             >
                               {keyword}
                             </span>
@@ -439,7 +439,7 @@ export function AlertsPage() {
                           {alert.keywords.map((keyword) => (
                             <span
                               key={`${alert.id}-${keyword}`}
-                              className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                              className="tl-chip tl-chip-neutral"
                             >
                               {keyword}
                             </span>
@@ -484,7 +484,7 @@ export function AlertsPage() {
               {pendingDeleteAlert.keywords.map((keyword) => (
                 <span
                   key={`${pendingDeleteAlert.id}-${keyword}`}
-                  className="rounded-full border border-amber-300/60 bg-amber-100/70 px-2 py-0.5 text-[11px] text-amber-800 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-200"
+                  className="tl-chip tl-chip-neutral"
                 >
                   {keyword}
                 </span>

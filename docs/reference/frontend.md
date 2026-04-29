@@ -65,21 +65,14 @@ Route tree:
 Supported modes:
 
 - `light`
-- `dark-emerald`
-- `dark-cobalt`
-- `dark-slate`
-- `dark-carbon`
-- `dark-amber`
-- `dark-crimson`
-- `dark-violet`
-- `dark-ice`
-- `dark-forest`
-- `dark-solarized`
+- `dark`
 
 Root class behavior:
 
-- Adds `dark` class for all non-light modes.
-- Adds `theme-light` or `theme-<mode>` class to `<html>`.
+- Adds the `dark` class only for dark mode.
+- Adds `theme-light` or `theme-dark` to `<html>`.
+- Normalizes legacy stored values beginning with `dark-` or `theme-dark` to `dark`.
+- `/theme-init.js` applies the stored mode before React mounts to avoid a light-mode flash.
 
 ## App Shell (`AppShell.tsx`)
 
@@ -94,7 +87,7 @@ Top navigation links:
 Top-right controls:
 
 - Current user badge (`email (role)`)
-- Theme dropdown
+- Light/dark mode toggle
 - `Logout` button
 
 ## Page-Level Reference

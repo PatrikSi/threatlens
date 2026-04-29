@@ -166,17 +166,9 @@ Outside production:
 
 - Storage key: `threatlens.theme`
 - Light mode value: `light`
-- Dark theme values:
-  - `dark-emerald`
-  - `dark-cobalt`
-  - `dark-slate`
-  - `dark-carbon`
-  - `dark-amber`
-  - `dark-crimson`
-  - `dark-violet`
-  - `dark-ice`
-  - `dark-forest`
-  - `dark-solarized`
+- Dark mode value: `dark`
+- Legacy stored values beginning with `dark-` or `theme-dark` are normalized to `dark` on load.
+- The static `/theme-init.js` bootstrap applies `theme-light` or `theme-dark` before the React bundle loads so persisted dark mode does not flash through the light palette.
 
 ## Web Proxy Behavior (`web/nginx/default.conf.template`)
 
