@@ -125,7 +125,7 @@ services:
         "worker",
         "--loglevel=INFO",
         "--concurrency=${WORKER_CONCURRENCY:-4}",
-        "--queues=default,ingest,processing,notifications,maintenance",
+        "--queues=default,ingest,processing,notifications,maintenance,ai",
         "-n",
         "worker@%h",
       ]
@@ -134,55 +134,6 @@ services:
         [
           "CMD-SHELL",
           "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
-        ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 20s
-    networks:
-      - backplane
-
-  ai-worker:
-    build: *backend-build
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      APP_ENV: ${APP_ENV:-production}
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
-      REDIS_URL: ${REDIS_URL:?REDIS_URL must be set}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
-      RUN_MIGRATIONS_ON_STARTUP: "false"
-      SEED_ADMIN_ON_STARTUP: "false"
-      REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY: ${REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY:-true}
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
-      AUTH_REQUIRE_CSRF: ${AUTH_REQUIRE_CSRF:-true}
-      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-api,localhost,127.0.0.1,::1}
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      api:
-        condition: service_healthy
-    command:
-      [
-        "celery",
-        "-A",
-        "app.tasks.celery_app.celery_app",
-        "worker",
-        "--loglevel=INFO",
-        "--concurrency=${AI_WORKER_CONCURRENCY:-2}",
-        "--queues=ai",
-        "-n",
-        "ai-worker@%h",
-      ]
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai-worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
         ]
       interval: 30s
       timeout: 10s

@@ -8,8 +8,7 @@ The project is split into a few core services:
 
 - `web` - React + TypeScript frontend
 - `api` - FastAPI backend
-- `worker` - Celery worker for ingestion, processing, notifications, and maintenance queues
-- `ai-worker` - dedicated Celery worker for AI enrichment and daily brief jobs
+- `worker` - Celery worker for ingestion, processing, notifications, maintenance, and AI queues
 - `beat` - Celery beat scheduler
 - `db` - PostgreSQL
 - `redis` - queue + coordination layer
@@ -129,15 +128,15 @@ docker compose up --build -d
 Startup flow for `docker-compose.yml`:
 
 - `api` runs migrations on startup by default and can also seed the admin account when `SEED_ADMIN_ON_STARTUP=true`.
-- `worker`, `ai-worker`, and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
+- `worker` and `beat` wait for healthy `api`, plus healthy DB/Redis, before starting steady-state work.
 - `beat` runs as its own container so periodic jobs do not multiply with worker replicas.
-- `worker` handles the non-AI queues (`ingest`, `processing`, `notifications`, `maintenance`) so manual feed refresh and scheduled polling stay responsive even when AI work is busy.
-- `ai-worker` isolates long-running AI enrichment and daily brief jobs onto the `ai` queue.
-- `worker`, `ai-worker`, and `beat` keep schema/admin startup mutations disabled.
+- `worker` handles all Celery queues (`default`, `ingest`, `processing`, `notifications`, `maintenance`, `ai`) so local and small-team deployments do not pay for a second backend worker container.
+- For heavier production deployments, you can still split AI isolation back out by running another backend worker that consumes only the `ai` queue.
+- `worker` and `beat` keep schema/admin startup mutations disabled.
 - If you leave `SEED_ADMIN_ON_STARTUP=false`, create the admin account once with `docker compose exec api python -m app.scripts.seed_admin` after migrations before you try to log in.
 - Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
-- The shipped compose stack treats its named Postgres and Redis volumes as durable and therefore requires an explicit `APP_DATA_ENCRYPTION_KEY` by setting `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` on `api`, `worker`, `ai-worker`, and `beat`.
+- The shipped compose stack treats its named Postgres and Redis volumes as durable and therefore requires an explicit `APP_DATA_ENCRYPTION_KEY` by setting `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true` on `api`, `worker`, and `beat`.
 - `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image so the standard `docker compose build` and `docker compose up --build` flow stamps OCI labels with the checked-out revision and build time. If you do not export them first, those labels fall back to `unknown`.
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.

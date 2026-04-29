@@ -69,3 +69,26 @@ def test_worker_health_requires_ai_queue_when_ai_enabled(monkeypatch):
 
     assert ok is False
     assert queue_snapshot["missing"] == ["ai"]
+
+
+def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
+    _install_inspector(
+        monkeypatch,
+        {
+            "worker@test": [
+                "default",
+                "ingest",
+                "processing",
+                "notifications",
+                "maintenance",
+                "ai",
+            ],
+        },
+    )
+    settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=True)
+
+    ok, workers, queue_snapshot = health._worker_health_snapshot(settings)
+
+    assert ok is True
+    assert workers == {"worker@test": "pong"}
+    assert queue_snapshot["missing"] == []
