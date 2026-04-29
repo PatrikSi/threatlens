@@ -1145,13 +1145,13 @@ def test_retry_article_fetch_queues_manual_repair(client: TestClient, auth_heade
     db_session.add_all([feed, item])
     db_session.commit()
 
-    captured: list[str] = []
+    captured: list[tuple[str, bool]] = []
 
     class _FakeTask:
         id = "article-retry-123"
 
-    def _fake_delay(item_id: str):
-        captured.append(item_id)
+    def _fake_delay(item_id: str, *, force: bool = False):
+        captured.append((item_id, force))
         return _FakeTask()
 
     monkeypatch.setattr("app.api.routes.items.fetch_article.delay", _fake_delay)
@@ -1163,7 +1163,7 @@ def test_retry_article_fetch_queues_manual_repair(client: TestClient, auth_heade
 
     assert response.status_code == 202
     assert response.json() == {"status": "queued"}
-    assert captured == [str(item.id)]
+    assert captured == [(str(item.id), True)]
 
 
 def test_retry_article_fetch_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, db_session, monkeypatch):

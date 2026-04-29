@@ -2384,7 +2384,7 @@ def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, 
     assert queued == [str(item.id)]
 
 
-def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_can_retry(db_session, monkeypatch):
+def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_manual_retry_can_refetch(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Blocked feed",
@@ -2484,7 +2484,22 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_can_re
     assert article.extraction_method == "rss_summary_fallback"
     assert article.error == "http_status:403"
 
-    retry_result = fetch_article.run(str(item.id))
+    duplicate_result = fetch_article.run(str(item.id))
+
+    assert duplicate_result == {
+        "status": "skipped",
+        "reason": "degraded_article_cached",
+        "item_id": str(item.id),
+    }
+    db_session.refresh(item)
+    db_session.refresh(article)
+    assert item.status == "content_fetched"
+    assert item.last_error == "http_status:403"
+    assert article.text == "RSS summary with\nusable context\nwhile the source blocks extraction."
+    assert article.extraction_method == "rss_summary_fallback"
+    assert article.error == "http_status:403"
+
+    retry_result = fetch_article.run(str(item.id), force=True)
 
     assert retry_result == {"status": "ok", "item_id": str(item.id)}
     db_session.refresh(item)
@@ -2494,7 +2509,7 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_can_re
     assert article.text == "Full recovered article text."
     assert article.extraction_method == "readable"
     assert article.error is None
-    assert queued == [str(item.id), str(item.id)]
+    assert queued == [str(item.id), str(item.id), str(item.id)]
 
 
 def test_rss_summary_fallback_keeps_transient_article_errors_retryable():

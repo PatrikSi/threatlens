@@ -1834,7 +1834,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def fetch_article(self, item_id: str):
+def fetch_article(self, item_id: str, force: bool = False):
     with db_session() as db:
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -1853,9 +1853,11 @@ def fetch_article(self, item_id: str):
             return {"status": "skipped", "reason": "concurrent_fetch_in_progress", "item_id": item_id}
 
         existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
-        if existing_article is not None and item.status == "content_fetched" and not existing_article.error:
-            _enqueue_classification_task(item_id)
-            return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
+        if existing_article is not None and item.status == "content_fetched" and not force:
+            if existing_article.text:
+                _enqueue_classification_task(item_id)
+                reason = "already_fetched" if not existing_article.error else "degraded_article_cached"
+                return {"status": "skipped", "reason": reason, "item_id": item_id}
 
         candidate_urls: list[str] = []
         for candidate in (item.canonical_url, item.url):

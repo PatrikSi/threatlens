@@ -465,7 +465,7 @@ def retry_item_article_fetch(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
 
     try:
-        task = fetch_article.delay(str(item_id))
+        task = fetch_article.delay(str(item_id), force=True)
     except Exception as exc:
         record_audit(
             db,
