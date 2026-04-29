@@ -2383,6 +2383,119 @@ def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, 
     assert queued == [str(item.id)]
 
 
+def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_can_retry(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Blocked feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="blocked-item",
+        url="https://example.com/articles/blocked",
+        canonical_url="https://example.com/articles/blocked",
+        title="Blocked article",
+        summary="<p>RSS summary with <strong>usable context</strong> while the source blocks extraction.</p>",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="blocked-item",
+        content_hash="d" * 64,
+        status="new",
+    )
+    db_session.add_all([feed, item])
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _domain_slot_override(_domain: str, max_wait_seconds: int = 30):
+        _ = max_wait_seconds
+        yield
+
+    class _BlockedResponse:
+        status_code = 403
+        headers = {"content-type": "text/html; charset=utf-8"}
+        url = item.url
+
+        def iter_bytes(self):
+            yield b"<html><title>Just a moment...</title><body>Cloudflare challenge</body></html>"
+
+        def close(self):
+            pass
+
+    class _SuccessResponse:
+        status_code = 200
+        headers = {"content-type": "text/html; charset=utf-8"}
+        url = item.url
+
+        def iter_bytes(self):
+            yield b"<html><body><article><p>Full recovered article text.</p></article></body></html>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    responses = [_BlockedResponse(), _SuccessResponse()]
+    queued: list[str] = []
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.domain_slot", _domain_slot_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: responses.pop(0))
+    monkeypatch.setattr("app.tasks.feed_tasks.classify_item.delay", lambda queued_item_id: queued.append(queued_item_id))
+    monkeypatch.setattr("app.tasks.feed_tasks.extract_canonical_url", lambda _html: None)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.extract_readable_text",
+        lambda _html: {
+            "title": "Recovered article",
+            "text": "Full recovered article text.",
+            "method": "readable",
+            "language": "en",
+            "word_count": 4,
+            "error": None,
+        },
+    )
+
+    blocked_result = fetch_article.run(str(item.id))
+
+    assert blocked_result == {
+        "status": "degraded",
+        "reason": "rss_summary_fallback",
+        "item_id": str(item.id),
+    }
+    article = db_session.scalar(select(Article).where(Article.item_id == item.id))
+    assert article is not None
+    db_session.refresh(item)
+    assert item.status == "content_fetched"
+    assert item.last_error == "http_status:403"
+    assert article.text == "RSS summary with\nusable context\nwhile the source blocks extraction."
+    assert article.extraction_method == "rss_summary_fallback"
+    assert article.error == "http_status:403"
+
+    retry_result = fetch_article.run(str(item.id))
+
+    assert retry_result == {"status": "ok", "item_id": str(item.id)}
+    db_session.refresh(item)
+    db_session.refresh(article)
+    assert item.status == "content_fetched"
+    assert item.last_error is None
+    assert article.text == "Full recovered article text."
+    assert article.extraction_method == "readable"
+    assert article.error is None
+    assert queued == [str(item.id), str(item.id)]
+
+
 def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):
     @contextmanager
     def _db_session_override():

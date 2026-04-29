@@ -54,7 +54,7 @@ from app.services.ai_ops import (
 from app.services.connectors.rss import RSSConnector, RSSFeedParseError
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
-from app.services.extraction import extract_canonical_url, extract_readable_text
+from app.services.extraction import extract_canonical_url, extract_plain_text, extract_readable_text
 from app.services.feed_metadata import (
     apply_probe_metadata as _apply_probe_metadata,
     backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
@@ -109,6 +109,8 @@ ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
+RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD = "rss_summary_fallback"
+RSS_SUMMARY_FALLBACK_BLOCKED_ERRORS = {"missing_article_url", "unsafe_article_url"}
 
 
 class ResponseTooLargeError(Exception):
@@ -1845,7 +1847,7 @@ def fetch_article(self, item_id: str):
             return {"status": "skipped", "reason": "concurrent_fetch_in_progress", "item_id": item_id}
 
         existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
-        if existing_article is not None and item.status == "content_fetched":
+        if existing_article is not None and item.status == "content_fetched" and not existing_article.error:
             _enqueue_classification_task(item_id)
             return {"status": "skipped", "reason": "already_fetched", "item_id": item_id}
 
@@ -1868,7 +1870,7 @@ def fetch_article(self, item_id: str):
                 error="missing_article_url",
             )
             _enqueue_classification_task(item_id)
-            return {"status": "error", "item_id": item_id}
+            return _article_fetch_error_result(item, item_id)
 
         start = time.perf_counter()
 
@@ -1964,7 +1966,7 @@ def fetch_article(self, item_id: str):
                         error=error_code,
                     )
                     _enqueue_classification_task(item_id)
-                    return {"status": "error", "item_id": item_id}
+                    return _article_fetch_error_result(item, item_id)
             except ResponseTooLargeError as exc:
                 logger.error(
                     "article_fetch_too_large item_id=%s target_url=%s error_type=%s",
@@ -1987,13 +1989,13 @@ def fetch_article(self, item_id: str):
                     db,
                     item,
                     final_url=target_url,
-                        http_status=0,
-                        content_type=None,
-                        fetch_ms=fetch_ms,
-                        error="response_too_large",
-                    )
+                    http_status=0,
+                    content_type=None,
+                    fetch_ms=fetch_ms,
+                    error="response_too_large",
+                )
                 _enqueue_classification_task(item_id)
-                return {"status": "error", "item_id": item_id}
+                return _article_fetch_error_result(item, item_id)
 
             if status_code != 200:
                 last_response_error = (final_url, status_code, content_type, f"http_status:{status_code}")
@@ -2057,7 +2059,7 @@ def fetch_article(self, item_id: str):
                     error="article_fetch_failed",
                 )
             _enqueue_classification_task(item_id)
-            return {"status": "error", "item_id": item_id}
+            return _article_fetch_error_result(item, item_id)
 
         fetch_ms = int((time.perf_counter() - start) * 1000)
 
@@ -2072,7 +2074,7 @@ def fetch_article(self, item_id: str):
                 error=f"http_status:{status_code}",
             )
             _enqueue_classification_task(item_id)
-            return {"status": "error", "item_id": item_id}
+            return _article_fetch_error_result(item, item_id)
 
         if "text/html" not in (content_type or "").lower():
             _store_article_error(
@@ -2085,7 +2087,7 @@ def fetch_article(self, item_id: str):
                 error="non_html_response",
             )
             _enqueue_classification_task(item_id)
-            return {"status": "error", "item_id": item_id}
+            return _article_fetch_error_result(item, item_id)
 
         html = body_bytes.decode("utf-8", errors="ignore")
         canonical = extract_canonical_url(html)
@@ -2925,6 +2927,7 @@ def _store_article_error(
     fetch_ms: int,
     error: str,
 ):
+    fallback_text = _rss_summary_fallback_text(item, error)
     article = db.scalar(select(Article).where(Article.item_id == item.id))
     if article is None:
         article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
@@ -2937,16 +2940,52 @@ def _store_article_error(
     article.language = None
     article.fetch_ms = fetch_ms
     article.error = error
-    article.text = None
-    article.extraction_method = "none"
-    article.word_count = None
+    if fallback_text:
+        article.title_extracted = item.title
+        article.text = fallback_text
+        article.extraction_method = RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD
+        article.word_count = len(fallback_text.split())
+        item.status = "content_fetched"
+        item.ioc_extraction_state = None
+    else:
+        article.text = None
+        article.extraction_method = "none"
+        article.word_count = None
+        item.status = "error"
 
-    item.status = "error"
     item.last_error = error
 
     db.add(article)
     db.add(item)
     db.commit()
+
+
+def _rss_summary_fallback_text(item: Item, error: str) -> str | None:
+    if error in RSS_SUMMARY_FALLBACK_BLOCKED_ERRORS:
+        return None
+
+    raw_summary = (item.summary or "").strip()
+    if not raw_summary:
+        return None
+
+    text = extract_plain_text(raw_summary)
+    if not text:
+        return None
+
+    if item.title and text.strip().casefold() == item.title.strip().casefold():
+        return None
+
+    return text
+
+
+def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
+    if item.status == "content_fetched":
+        return {
+            "status": "degraded",
+            "reason": RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD,
+            "item_id": item_id,
+        }
+    return {"status": "error", "item_id": item_id}
 
 
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:

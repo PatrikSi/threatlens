@@ -2827,6 +2827,11 @@ export function DashboardPage() {
 
                                     <div className="tl-surface-muted mt-3 rounded p-3">
                                       <p className="text-xs font-semibold text-slate dark:text-slate-300">Full article</p>
+                                      {detail.article?.text && detail.article.extraction_method === 'rss_summary_fallback' && (
+                                        <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
+                                          Showing RSS summary because full article extraction returned {detail.article.error ?? 'an error'}.
+                                        </p>
+                                      )}
                                       {detail.article?.text ? (
                                         <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
                                           {renderRichContent(detail.article.text, detail.id, 'article')}
@@ -2834,7 +2839,7 @@ export function DashboardPage() {
                                       ) : (
                                         <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
                                       )}
-                                      {detail.article?.error && (
+                                      {detail.article?.error && detail.article.extraction_method !== 'rss_summary_fallback' && (
                                         <p className="mt-2 text-sm text-red-600">Extraction error: {detail.article.error}</p>
                                       )}
                                       {(!detail.article?.text || detail.article?.error) && (

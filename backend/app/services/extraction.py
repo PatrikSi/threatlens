@@ -11,6 +11,11 @@ def extract_canonical_url(html: str) -> str | None:
     return None
 
 
+def extract_plain_text(html_or_text: str) -> str:
+    text = BeautifulSoup(html_or_text, "lxml").get_text("\n", strip=True)
+    return "\n".join(line.strip() for line in text.splitlines() if line.strip())
+
+
 def extract_readable_text(html: str) -> dict[str, str | int | None]:
     trafilatura_text = trafilatura.extract(html, include_tables=False, include_images=False)
     if trafilatura_text:
@@ -27,7 +32,7 @@ def extract_readable_text(html: str) -> dict[str, str | int | None]:
         doc = Document(html)
         title = doc.short_title()
         summary_html = doc.summary()
-        text = BeautifulSoup(summary_html, "lxml").get_text("\n", strip=True)
+        text = extract_plain_text(summary_html)
         if text:
             return {
                 "text": text,
