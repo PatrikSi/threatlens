@@ -2429,7 +2429,9 @@ export function DashboardPage() {
                             }
                           >
                             {feed.name}
-                            <span className={`tl-chip ml-1.5 ${feedHealthBadgeClass(health.status)}`}>{health.label}</span>
+                            {health.status !== 'healthy' && (
+                              <span className={`tl-chip ml-1.5 ${feedHealthBadgeClass(health.status)}`}>{health.label}</span>
+                            )}
                           </button>
                         )
                       })}
