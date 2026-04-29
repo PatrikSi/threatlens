@@ -2637,8 +2637,8 @@ export function DashboardPage() {
                           <article
                             key={item.id}
                             className={`rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-3'} transition ${
-                              expanded ? 'tl-row-selected' : 'border-slate/20 bg-white/65 dark:border-cyan-900/40 dark:bg-white/[0.02]'
-                            } ${item.is_read ? 'opacity-85' : ''}`}
+                              expanded ? 'tl-row-selected' : 'tl-article-row'
+                            } ${item.is_read ? 'tl-article-row-read' : ''}`}
                           >
                             <div className="w-full text-left">
                               <div className="flex items-start justify-between gap-3">

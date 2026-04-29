@@ -292,6 +292,27 @@ textarea:disabled {
   color: var(--tl-danger-text);
 }
 
+.tl-article-row {
+  border-color: rgba(148, 163, 184, 0.32);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 1px 2px rgba(15, 23, 42, 0.035);
+}
+
+.tl-article-row:hover {
+  border-color: color-mix(in srgb, var(--tl-accent) 28%, var(--tl-border-soft));
+  background: #ffffff;
+}
+
+.tl-article-row-read {
+  background: color-mix(in srgb, var(--tl-panel-bg) 88%, var(--tl-bg-base) 12%);
+}
+
+.tl-article-row-read h3 {
+  color: var(--tl-text-soft);
+}
+
 .tl-row-selected {
   border-color: color-mix(in srgb, var(--tl-accent) 40%, var(--tl-border-soft));
   background: color-mix(in srgb, var(--tl-panel-bg-strong) 82%, var(--tl-accent-bg) 18%);
@@ -821,6 +842,25 @@ textarea:disabled {
   border-color: var(--tl-danger-border);
   background: var(--tl-danger-bg);
   color: var(--tl-danger-text);
+}
+
+.dark .tl-article-row {
+  border-color: var(--tl-border-soft);
+  background: rgba(248, 250, 252, 0.02);
+  box-shadow: none;
+}
+
+.dark .tl-article-row:hover {
+  border-color: color-mix(in srgb, var(--tl-accent) 32%, var(--tl-border-soft));
+  background: rgba(248, 250, 252, 0.035);
+}
+
+.dark .tl-article-row-read {
+  background: rgba(248, 250, 252, 0.016);
+}
+
+.dark .tl-article-row-read h3 {
+  color: var(--tl-text-soft);
 }
 
 .dark .tl-row-selected {
