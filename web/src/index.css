@@ -787,10 +787,22 @@ textarea:disabled {
   color: var(--tl-accent-soft);
 }
 
+.dark .tl-chip-unread {
+  border-color: color-mix(in srgb, var(--tl-accent) 34%, transparent);
+  background: rgba(79, 174, 196, 0.12);
+  color: var(--tl-accent-soft);
+}
+
 .dark .tl-chip-filter-active {
   border-color: var(--tl-border-strong);
   background: rgba(248, 250, 252, 0.08);
   color: var(--tl-text-main);
+}
+
+.dark .tl-chip-source {
+  border-color: var(--tl-source-accent-border);
+  background: var(--tl-source-accent-bg);
+  color: var(--tl-source-accent);
 }
 
 .dark .tl-chip-success {
