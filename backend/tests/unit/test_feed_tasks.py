@@ -30,6 +30,7 @@ from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
 from app.tasks.feed_tasks import (
     _process_reserved_notification_deliveries,
+    _rss_summary_fallback_text,
     _scheduled_daily_ai_brief_due,
     _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
@@ -2494,6 +2495,33 @@ def test_fetch_article_uses_rss_summary_when_article_fetch_is_blocked_and_can_re
     assert article.extraction_method == "readable"
     assert article.error is None
     assert queued == [str(item.id), str(item.id)]
+
+
+def test_rss_summary_fallback_keeps_transient_article_errors_retryable():
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=uuid.uuid4(),
+        source_guid="fallback-eligibility-item",
+        url="https://example.com/articles/fallback-eligibility",
+        title="Fallback eligibility",
+        summary="<p>RSS summary with useful fallback context.</p>",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="fallback-eligibility-item",
+        content_hash="e" * 64,
+        status="new",
+    )
+
+    assert (
+        _rss_summary_fallback_text(item, "http_status:403")
+        == "RSS summary with useful fallback context."
+    )
+    assert (
+        _rss_summary_fallback_text(item, "no_extractor_succeeded")
+        == "RSS summary with useful fallback context."
+    )
+    assert _rss_summary_fallback_text(item, "http_status:503") is None
+    assert _rss_summary_fallback_text(item, "http_status:429") is None
+    assert _rss_summary_fallback_text(item, "network_or_rate_limit_error") is None
 
 
 def test_fetch_article_rejects_invalid_item_ids(db_session, monkeypatch):

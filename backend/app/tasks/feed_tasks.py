@@ -110,7 +110,13 @@ TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
 RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD = "rss_summary_fallback"
-RSS_SUMMARY_FALLBACK_BLOCKED_ERRORS = {"missing_article_url", "unsafe_article_url"}
+RSS_SUMMARY_FALLBACK_HTTP_STATUSES = {401, 403, 404, 405, 410, 451}
+RSS_SUMMARY_FALLBACK_EXACT_ERRORS = {
+    "non_html_response",
+    "no_extractor_succeeded",
+    "response_too_large",
+}
+RSS_SUMMARY_FALLBACK_PREFIXES = ("readability_error:",)
 
 
 class ResponseTooLargeError(Exception):
@@ -2120,6 +2126,12 @@ def fetch_article(self, item_id: str):
             item.status = "content_fetched"
             item.ioc_extraction_state = None
             item.last_error = None
+        elif _apply_article_summary_fallback(
+            article,
+            item,
+            str(article.error or "no_extractor_succeeded"),
+        ):
+            article.error = str(article.error or "no_extractor_succeeded")
         else:
             item.status = "error"
             item.last_error = article.error
@@ -2927,7 +2939,6 @@ def _store_article_error(
     fetch_ms: int,
     error: str,
 ):
-    fallback_text = _rss_summary_fallback_text(item, error)
     article = db.scalar(select(Article).where(Article.item_id == item.id))
     if article is None:
         article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
@@ -2940,14 +2951,7 @@ def _store_article_error(
     article.language = None
     article.fetch_ms = fetch_ms
     article.error = error
-    if fallback_text:
-        article.title_extracted = item.title
-        article.text = fallback_text
-        article.extraction_method = RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD
-        article.word_count = len(fallback_text.split())
-        item.status = "content_fetched"
-        item.ioc_extraction_state = None
-    else:
+    if not _apply_article_summary_fallback(article, item, error):
         article.text = None
         article.extraction_method = "none"
         article.word_count = None
@@ -2961,7 +2965,7 @@ def _store_article_error(
 
 
 def _rss_summary_fallback_text(item: Item, error: str) -> str | None:
-    if error in RSS_SUMMARY_FALLBACK_BLOCKED_ERRORS:
+    if not _article_error_allows_summary_fallback(error):
         return None
 
     raw_summary = (item.summary or "").strip()
@@ -2976,6 +2980,40 @@ def _rss_summary_fallback_text(item: Item, error: str) -> str | None:
         return None
 
     return text
+
+
+def _apply_article_summary_fallback(article: Article, item: Item, error: str) -> bool:
+    fallback_text = _rss_summary_fallback_text(item, error)
+    if not fallback_text:
+        return False
+
+    article.title_extracted = item.title
+    article.text = fallback_text
+    article.extraction_method = RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD
+    article.word_count = len(fallback_text.split())
+    item.status = "content_fetched"
+    item.ioc_extraction_state = None
+    item.last_error = error
+    return True
+
+
+def _article_error_allows_summary_fallback(error: str) -> bool:
+    if error in RSS_SUMMARY_FALLBACK_EXACT_ERRORS:
+        return True
+
+    if any(error.startswith(prefix) for prefix in RSS_SUMMARY_FALLBACK_PREFIXES):
+        return True
+
+    prefix, separator, raw_status = error.partition(":")
+    if prefix != "http_status" or not separator:
+        return False
+
+    try:
+        status_code = int(raw_status)
+    except ValueError:
+        return False
+
+    return status_code in RSS_SUMMARY_FALLBACK_HTTP_STATUSES
 
 
 def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
