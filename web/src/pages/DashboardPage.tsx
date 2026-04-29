@@ -823,6 +823,7 @@ export function DashboardPage() {
         }),
         retry: 1,
         staleTime: 60_000,
+        refetchInterval: rssFilters.page === 1 ? 60_000 : false,
         placeholderData: (previousData: ItemListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()

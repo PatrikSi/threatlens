@@ -900,6 +900,69 @@ def test_items_list_rejects_invalid_sort_value(client: TestClient, auth_headers)
     assert response.status_code == 422
 
 
+def test_items_list_uses_stable_tie_breakers_for_pagination(client: TestClient, auth_headers, db_session):
+    feed = Feed(name="Stable Item Feed", url="https://example.com/stable.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    published_at = datetime(2026, 4, 28, 12, 0, tzinfo=timezone.utc)
+    shared_first_seen_at = datetime(2026, 4, 29, 10, 0, tzinfo=timezone.utc)
+    newest_seen_item = Item(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000003"),
+        feed_id=feed.id,
+        source_guid="stable-newest-seen",
+        url="https://example.com/stable-newest-seen",
+        title="Newest seen tie",
+        summary="Same publication date, newest arrival.",
+        published_at=published_at,
+        first_seen_at=shared_first_seen_at + timedelta(minutes=1),
+        dedupe_key="stable-newest-seen",
+        content_hash="a" * 64,
+        status="new",
+    )
+    higher_id_item = Item(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000002"),
+        feed_id=feed.id,
+        source_guid="stable-higher-id",
+        url="https://example.com/stable-higher-id",
+        title="Higher id tie",
+        summary="Same publication date and arrival time.",
+        published_at=published_at,
+        first_seen_at=shared_first_seen_at,
+        dedupe_key="stable-higher-id",
+        content_hash="b" * 64,
+        status="new",
+    )
+    lower_id_item = Item(
+        id=uuid.UUID("00000000-0000-0000-0000-000000000001"),
+        feed_id=feed.id,
+        source_guid="stable-lower-id",
+        url="https://example.com/stable-lower-id",
+        title="Lower id tie",
+        summary="Same publication date and arrival time.",
+        published_at=published_at,
+        first_seen_at=shared_first_seen_at,
+        dedupe_key="stable-lower-id",
+        content_hash="c" * 64,
+        status="new",
+    )
+    db_session.add_all([lower_id_item, higher_id_item, newest_seen_item])
+    db_session.commit()
+
+    page_titles = []
+    for page in (1, 2, 3):
+        response = client.get(
+            f"/items?page={page}&page_size=1&sort=published_at_desc&feed_id={feed.id}",
+            headers=auth_headers["viewer"],
+        )
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["total"] == 3
+        page_titles.append(payload["items"][0]["title"])
+
+    assert page_titles == ["Newest seen tie", "Higher id tie", "Lower id tie"]
+
+
 def test_admin_unapproval_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):
     viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
     assert viewer is not None

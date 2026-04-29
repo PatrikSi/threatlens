@@ -194,14 +194,28 @@ def list_items(
     total = db.scalar(count_stmt) or 0
 
     order_clauses = {
-        "published_at_desc": Item.published_at.desc().nullslast(),
-        "published_at_asc": Item.published_at.asc().nullsfirst(),
-        "first_seen_desc": Item.first_seen_at.desc(),
-        "first_seen_asc": Item.first_seen_at.asc(),
+        "published_at_desc": [
+            Item.published_at.desc().nullslast(),
+            Item.first_seen_at.desc(),
+            Item.id.desc(),
+        ],
+        "published_at_asc": [
+            Item.published_at.asc().nullsfirst(),
+            Item.first_seen_at.asc(),
+            Item.id.asc(),
+        ],
+        "first_seen_desc": [
+            Item.first_seen_at.desc(),
+            Item.id.desc(),
+        ],
+        "first_seen_asc": [
+            Item.first_seen_at.asc(),
+            Item.id.asc(),
+        ],
     }
     order_by = order_clauses[sort]
 
-    rows = db.execute(query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).all()
+    rows = db.execute(query.order_by(*order_by).offset((page - 1) * page_size).limit(page_size)).all()
 
     item_ids = [row.Item.id for row in rows]
     tags_by_item, tag_details_by_item = load_tags_for_items(db, item_ids=item_ids)
