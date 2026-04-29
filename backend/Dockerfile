@@ -32,8 +32,8 @@ RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:
 ENV PYTHONPATH=/app
 USER app
 
-LABEL org.opencontainers.image.title="ThreatLens API" \
-      org.opencontainers.image.description="ThreatLens FastAPI backend image" \
+LABEL org.opencontainers.image.title="ThreatLens Backend" \
+      org.opencontainers.image.description="ThreatLens FastAPI and Celery backend image" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="ThreatLens contributors" \
       org.opencontainers.image.created="${BUILD_DATE}" \

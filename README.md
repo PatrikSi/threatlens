@@ -133,6 +133,7 @@ Startup flow for `docker-compose.yml`:
 - `worker` handles all Celery queues (`default`, `ingest`, `processing`, `notifications`, `maintenance`, `ai`) so local and small-team deployments do not pay for a second backend worker container.
 - For heavier production deployments, you can still split AI isolation back out by running another backend worker that consumes only the `ai` queue.
 - `worker` and `beat` keep schema/admin startup mutations disabled.
+- `api`, `worker`, and `beat` share the same backend image by default (`THREATLENS_BACKEND_IMAGE`, default `threatlens-backend`) instead of keeping duplicate service-specific backend images.
 - If you leave `SEED_ADMIN_ON_STARTUP=false`, create the admin account once with `docker compose exec api python -m app.scripts.seed_admin` after migrations before you try to log in.
 - Only the `web` service is published by default. The API stays internal to the compose network and the shipped browser build targets the versioned proxy base at `/api/v1`.
 - `WEB_VITE_API_BASE_URL` defaults to `/api/v1` in the provided `.env.example`. For non-proxied deployments, set it to the full versioned API origin such as `https://api.example.com/v1`.
@@ -141,7 +142,7 @@ Startup flow for `docker-compose.yml`:
 - The machine-readable OpenAPI schema remains published separately at `/api/openapi.json`.
 - The bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`; other `/api/*` paths are intentionally outside the shipped browser/runtime contract.
 - Both shipped container images place release-compliance metadata under `/usr/share/doc/threatlens/`. The backend image ships a discoverable `README.md`, Python dependency inventories, `backend-runtime-package-legal/`, `backend-os-packages.txt`, and `backend-os-package-legal/`. The web image ships its own `README.md`, frontend package metadata, `frontend-runtime-package-legal/`, `frontend-os-packages.txt`, `frontend-os-package-metadata.tsv`, and `frontend-os-package-legal/`.
-- The bundled compose stack reserves `172.31.240.0/24` for the `web` frontend network and trusts that exact subnet by default so browser auth throttling can recover the real client IP through the shipped proxy. If you deploy behind different proxies, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
+- The bundled compose stack reserves `172.31.240.0/24` only for the `web` frontend network and trusts that exact subnet by default so browser auth throttling can recover the real client IP through the shipped proxy. The private backplane network uses Docker-assigned addressing. If you deploy behind different proxies, set `TRUSTED_PROXY_CIDRS` to the exact hop CIDRs you control instead of a broad Docker bridge range.
 - The backend enforces an `ALLOWED_HOSTS` Host-header allowlist. The compose proxy forwards to the internal `api` host by default; add your public API hostnames if you expose the backend service through another proxy.
 
 The production-oriented `.env.example` assumes the browser reaches ThreatLens over HTTPS, typically through a reverse proxy in front of the `web` container. For a localhost-only HTTP trial, switch the auth cookie settings back to development-safe values before first boot.
