@@ -1553,7 +1553,8 @@ def _next_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
         return None
 
     backoff_until = getattr(feed, "dispatch_backoff_until", None)
-    if backoff_until is not None:
+    claimed_at = getattr(feed, "dispatch_claimed_at", None)
+    if backoff_until is not None and claimed_at is None:
         if backoff_until.tzinfo is None:
             backoff_until = backoff_until.replace(tzinfo=timezone.utc)
         if backoff_until > now:
