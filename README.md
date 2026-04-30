@@ -80,7 +80,9 @@ Secure defaults in the shipped template:
 - `ALLOWED_HOSTS=api,localhost,127.0.0.1,::1`
 - `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=false`
 
-For an HTTP-only local evaluation, set `APP_ENV=development` and `AUTH_COOKIE_SECURE=false` before first startup.
+For an HTTP-only local evaluation, set `APP_ENV=development` and `AUTH_COOKIE_SECURE=false` before first startup. This
+matters when opening the app through a plain `http://<remote-ip>:3000` URL: an SSH tunnel to `localhost` can appear to work
+while a remote-IP browser session drops `Secure` login cookies.
 
 Admin startup behavior:
 
