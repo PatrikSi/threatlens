@@ -141,6 +141,7 @@ Window behaviors:
 - RSS and alerts filter state is isolated per window and preserved in saved views
 - The toolbar search reflects a shared cross-panel search only when searchable panels are aligned; otherwise it shows a mixed-state placeholder
 - RSS expanded item detail stays panel-scoped, while note drafts follow the item across panels until saved
+- RSS expanded item detail can open a right-side original article preview drawer with a sandboxed iframe and new-tab fallback
 - Daily Brief window selection is isolated per window and preserved in saved views
 
 RSS filter values:

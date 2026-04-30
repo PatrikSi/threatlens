@@ -81,6 +81,7 @@ All API paths on this page are relative to the published `/api/v1` base. Dashboa
 
 - Expand/collapse article row
 - Open source link
+- Preview original article in a right-side iframe drawer when the source allows embedding
 - Mark read/unread
 - Star/unstar
 - Edit note

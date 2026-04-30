@@ -774,6 +774,101 @@ describe('DashboardPage DOM workflows', () => {
     expect(lastUnsavedWarningCall?.[1]).toContain('unsaved dashboard note drafts')
   })
 
+  it('opens a right-side original article preview from expanded RSS detail', () => {
+    dashboardPageDomMocks.itemsData = [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        is_read: false,
+        is_starred: false,
+        tags: [],
+        ai_relevance_label: null,
+      },
+    ]
+    dashboardPageDomMocks.itemDetailById = {
+      'item-1': {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        source_guid: null,
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        classification: null,
+        last_error: null,
+        tags: [],
+        state: {
+          is_read: false,
+          is_starred: false,
+          note: '',
+          updated_at: '2026-04-21T11:00:00Z',
+        },
+        article: {
+          final_url: 'https://publisher.example.com/articles/critical-vendor-bulletin',
+          retrieved_at: '2026-04-21T11:01:00Z',
+          http_status: 200,
+          content_type: 'text/html',
+          title_extracted: 'Critical vendor bulletin',
+          text: 'Extracted text',
+          extraction_method: 'readability',
+          language: 'en',
+          word_count: 120,
+          fetch_ms: 90,
+          error: null,
+        },
+        ai_insight: null,
+      },
+    }
+
+    const view = renderPage()
+    const itemToggleButton = view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')
+    expect(itemToggleButton).not.toBeNull()
+
+    act(() => {
+      itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const previewButton = getButton('Preview Original')
+    expect(previewButton).not.toBeNull()
+
+    act(() => {
+      previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const previewDialog = document.querySelector<HTMLElement>('[aria-labelledby="article-preview-title"]')
+    expect(previewDialog).not.toBeNull()
+    expect(previewDialog?.textContent).toContain('Vendor Advisories')
+    expect(previewDialog?.textContent).toContain('Critical vendor bulletin')
+
+    const iframe = previewDialog?.querySelector<HTMLIFrameElement>('iframe')
+    expect(iframe?.getAttribute('src')).toBe('https://publisher.example.com/articles/critical-vendor-bulletin')
+    expect(iframe?.getAttribute('sandbox')).toContain('allow-scripts')
+
+    const originalLink = previewDialog?.querySelector<HTMLAnchorElement>('a[href="https://publisher.example.com/articles/critical-vendor-bulletin"]')
+    expect(originalLink?.textContent).toContain('Open Original')
+
+    const closeButton = previewDialog?.querySelector<HTMLButtonElement>('[aria-label="Close original article preview"]')
+    expect(closeButton).not.toBeNull()
+
+    act(() => {
+      closeButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.querySelector('[aria-labelledby="article-preview-title"]')).toBeNull()
+  })
+
   it('confirms before clearing a loaded saved view when note drafts are still dirty', () => {
     dashboardPageDomMocks.itemsData = [
       {

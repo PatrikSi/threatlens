@@ -75,6 +75,12 @@ interface DashboardEditSessionSnapshot {
   state: DashboardSavedViewState
 }
 
+interface ArticlePreviewState {
+  url: string
+  title: string
+  sourceLabel: string
+}
+
 const DRAG_EDGE_SNAP_THRESHOLD = 12
 const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
@@ -232,6 +238,10 @@ export function DashboardPage() {
   const [articleRetryFeedbackByItemId, setArticleRetryFeedbackByItemId] = useState<
     Record<string, { tone: 'success' | 'error'; message: string }>
   >({})
+  const [articlePreview, setArticlePreview] = useState<ArticlePreviewState | null>(null)
+  const [articlePreviewFrameState, setArticlePreviewFrameState] = useState<'loading' | 'loaded' | 'possibly_blocked'>(
+    'loading',
+  )
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -254,6 +264,16 @@ export function DashboardPage() {
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
   const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+
+  const openArticlePreview = (preview: ArticlePreviewState) => {
+    setArticlePreviewFrameState('loading')
+    setArticlePreview(preview)
+  }
+
+  const closeArticlePreview = () => {
+    setArticlePreview(null)
+  }
+
   const hasUnsavedNoteDrafts = useMemo(
     () =>
       Object.entries(noteDraftsByItemId).some(
@@ -310,6 +330,27 @@ export function DashboardPage() {
     window.addEventListener('resize', syncLayout)
     return () => window.removeEventListener('resize', syncLayout)
   }, [])
+
+  useEffect(() => {
+    if (!articlePreview) {
+      return
+    }
+
+    const blockedNoticeTimeout = window.setTimeout(() => {
+      setArticlePreviewFrameState((current) => (current === 'loading' ? 'possibly_blocked' : current))
+    }, 5000)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setArticlePreview(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.clearTimeout(blockedNoticeTimeout)
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [articlePreview])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -2712,14 +2753,29 @@ export function DashboardPage() {
                                   <>
                                     <div className="flex flex-wrap items-center gap-2">
                                       {detailHref ? (
-                                        <a
-                                          className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
-                                          href={detailHref}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          Open Source Link
-                                        </a>
+                                        <>
+                                          <button
+                                            type="button"
+                                            className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                                            onClick={() =>
+                                              openArticlePreview({
+                                                url: detailHref,
+                                                title: detail.title,
+                                                sourceLabel: detail.feed_name,
+                                              })
+                                            }
+                                          >
+                                            Preview Original
+                                          </button>
+                                          <a
+                                            className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                                            href={detailHref}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                          >
+                                            Open Source Link
+                                          </a>
+                                        </>
                                       ) : (
                                         <span className="rounded border border-slate/20 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:text-slate-400">
                                           Source link unavailable
@@ -3403,6 +3459,15 @@ export function DashboardPage() {
         })}
       </div>
 
+      {articlePreview && (
+        <ArticlePreviewDrawer
+          preview={articlePreview}
+          frameState={articlePreviewFrameState}
+          onFrameLoad={() => setArticlePreviewFrameState('loaded')}
+          onClose={closeArticlePreview}
+        />
+      )}
+
       {renamingWindowId && (
         <DialogSurface
           open
@@ -3604,6 +3669,81 @@ export function DashboardPage() {
       </ConfirmDialog>
       {confirmDiscardUnsavedDashboardChanges.discardDialog}
     </div>
+  )
+}
+
+function ArticlePreviewDrawer({
+  preview,
+  frameState,
+  onFrameLoad,
+  onClose,
+}: {
+  preview: ArticlePreviewState
+  frameState: 'loading' | 'loaded' | 'possibly_blocked'
+  onFrameLoad: () => void
+  onClose: () => void
+}) {
+  return (
+    <aside
+      role="dialog"
+      aria-labelledby="article-preview-title"
+      className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[44rem] flex-col border-l border-slate/20 bg-white shadow-2xl dark:border-cyan-900/50 dark:bg-[#03130f]"
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-slate/20 px-4 py-3 dark:border-cyan-900/40">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase text-slate dark:text-slate-400">{preview.sourceLabel}</p>
+          <h2 id="article-preview-title" className="truncate font-display text-lg font-semibold text-ink dark:text-slate-100">
+            Original article
+          </h2>
+          <p className="mt-0.5 truncate text-sm text-slate dark:text-slate-300">{preview.title}</p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <a
+            href={preview.url}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+          >
+            Open Original
+          </a>
+          <button
+            type="button"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+            onClick={onClose}
+            aria-label="Close original article preview"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      {frameState !== 'loaded' && (
+        <div
+          role={frameState === 'possibly_blocked' ? 'status' : undefined}
+          className={`border-b px-4 py-2 text-xs ${
+            frameState === 'possibly_blocked'
+              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'
+              : 'border-slate/20 bg-slate-50 text-slate dark:border-cyan-900/40 dark:bg-white/[0.03] dark:text-slate-300'
+          }`}
+        >
+          {frameState === 'possibly_blocked'
+            ? 'This source may block embedded previews.'
+            : 'Loading original site...'}
+        </div>
+      )}
+
+      <div className="min-h-0 flex-1 bg-white dark:bg-[#020b09]">
+        <iframe
+          key={preview.url}
+          title={`Original article preview: ${preview.title}`}
+          src={preview.url}
+          className="h-full w-full border-0 bg-white"
+          sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts"
+          referrerPolicy="no-referrer"
+          onLoad={onFrameLoad}
+        />
+      </div>
+    </aside>
   )
 }
 
