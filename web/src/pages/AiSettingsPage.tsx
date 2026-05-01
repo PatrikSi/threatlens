@@ -708,7 +708,7 @@ export function AiSettingsPage() {
           aria-atomic="true"
           className={`rounded px-3 py-2 text-sm ${
             notice.tone === 'success'
-              ? 'border border-cyan/20 bg-cyan/10 text-cyan-900 dark:border-cyan-900/40 dark:bg-cyan/10 dark:text-cyan-100'
+              ? 'border border-cyan/20 bg-cyan/10 text-cyan-900 dark:border-cyan-500/35 dark:bg-cyan/10 dark:text-cyan-100'
               : 'border border-red-500/20 bg-red-500/10 text-red-700 dark:border-red-900/40 dark:bg-red-950/20 dark:text-red-200'
           }`}
         >
@@ -3084,7 +3084,7 @@ function TabButton({
           ? `block rounded px-3 py-2 text-center text-sm transition lg:text-left ${
               active
                 ? 'bg-cyan/15 text-cyan dark:bg-cyan-900/35 dark:text-cyan-300'
-                : 'text-slate hover:bg-slate/10 dark:text-slate-200 dark:hover:bg-cyan-950/40'
+                : 'text-slate hover:bg-slate/10 dark:text-slate-200 dark:hover:bg-white/[0.06]'
             }`
           : `rounded-full px-3 py-2 text-sm font-semibold transition ${
               active

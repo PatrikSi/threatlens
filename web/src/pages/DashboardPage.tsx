@@ -2096,7 +2096,7 @@ export function DashboardPage() {
                       }}
                       type="button"
                       role="menuitem"
-                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      className="tl-menu-item w-full rounded px-2 py-1.5 text-left text-xs"
                       onClick={() => addWindow('rss')}
                     >
                       RSS Panel ({rssWindowCount})
@@ -2107,7 +2107,7 @@ export function DashboardPage() {
                       }}
                       type="button"
                       role="menuitem"
-                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      className="tl-menu-item w-full rounded px-2 py-1.5 text-left text-xs"
                       onClick={() => addWindow('alerts')}
                     >
                       Alerts Panel ({alertWindowCount})
@@ -2118,7 +2118,7 @@ export function DashboardPage() {
                       }}
                       type="button"
                       role="menuitem"
-                      className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                      className="tl-menu-item w-full rounded px-2 py-1.5 text-left text-xs"
                       onClick={() => addWindow('notes')}
                     >
                       Notes Panel ({notesWindowCount})
@@ -2130,7 +2130,7 @@ export function DashboardPage() {
                         }}
                         type="button"
                         role="menuitem"
-                        className="w-full rounded px-2 py-1.5 text-left text-xs hover:bg-cyan/10"
+                        className="tl-menu-item w-full rounded px-2 py-1.5 text-left text-xs"
                         onClick={() => addWindow('daily_brief')}
                       >
                         Daily Brief Panel ({dailyBriefWindowCount})

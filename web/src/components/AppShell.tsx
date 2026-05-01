@@ -97,7 +97,7 @@ export function AppShell() {
                       aria-current={active ? 'page' : undefined}
                       className={`rounded border px-3 py-1.5 text-center transition ${
                         active
-                          ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(37,99,235,0.14)] ring-1 ring-cyan/10 dark:border-cyan-500/40 dark:bg-cyan-500/15 dark:text-cyan-100'
+                          ? 'tl-nav-link-active font-bold'
                           : 'border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:border-white/10 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06] dark:hover:text-cyan-100'
                       }`}
                     >
@@ -151,7 +151,7 @@ export function AppShell() {
                     aria-current={active ? 'page' : undefined}
                     className={`rounded border px-3 py-1.5 transition ${
                       active
-                        ? 'border-cyan/40 bg-cyan/10 font-bold text-cyan shadow-[inset_0_0_0_1px_rgba(37,99,235,0.14)] ring-1 ring-cyan/10 dark:border-cyan-500/40 dark:bg-cyan-500/15 dark:text-cyan-100'
+                        ? 'tl-nav-link-active font-bold'
                         : 'border-transparent hover:border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06] dark:hover:text-cyan-100'
                     }`}
                   >

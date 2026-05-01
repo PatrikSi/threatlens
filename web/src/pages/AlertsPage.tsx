@@ -400,8 +400,10 @@ export function AlertsPage() {
                     {entries.map((alert) => (
                       <article
                         key={alert.id}
-                        className={`rounded border p-2 dark:border-cyan-900/40 ${
-                          editingAlertId === alert.id ? 'border-cyan bg-cyan/10 dark:bg-cyan-950/30' : 'border-slate/20 bg-white/75 dark:bg-[#072019]/45'
+                        className={`rounded border p-2 ${
+                          editingAlertId === alert.id
+                            ? 'border-cyan bg-cyan/10 dark:border-cyan-500/35 dark:bg-cyan-950/30'
+                            : 'border-slate/20 bg-white/75 dark:border-cyan-900/40 dark:bg-[#072019]/45'
                         }`}
                       >
                         <div className="flex items-center justify-between gap-2">

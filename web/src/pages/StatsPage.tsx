@@ -11,7 +11,16 @@ import {
   StatsSignalRadarResponse,
 } from '../types/api'
 
-const FEED_CHART_COLORS = ['#0e7490', '#2563eb', '#0f766e', '#64748b', '#7c3aed', '#b45309', '#4f46e5', '#059669']
+const FEED_CHART_COLORS = [
+  'var(--tl-chart-1)',
+  'var(--tl-chart-2)',
+  'var(--tl-chart-3)',
+  'var(--tl-chart-4)',
+  'var(--tl-chart-5)',
+  'var(--tl-chart-6)',
+  'var(--tl-chart-7)',
+  'var(--tl-chart-8)',
+]
 const FEED_TABLE_PREVIEW_LIMIT = 50
 
 export function StatsPage() {
@@ -452,7 +461,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 ${
                 hidden ? 'border-slate/30 opacity-60 dark:border-cyan-900/40' : 'border-slate/25 dark:border-white/10'
               }`}
-              style={hidden ? undefined : { borderColor: `${color}66` }}
+              style={hidden ? undefined : { borderColor: `color-mix(in srgb, ${color} 48%, transparent)` }}
               onClick={() =>
                 setHiddenFeedIds((current) =>
                   current.includes(series.feed_id)

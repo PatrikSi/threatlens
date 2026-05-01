@@ -203,7 +203,7 @@ export function LoginPage() {
 
         <button
           type="submit"
-          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate dark:bg-cyan dark:text-[#053c2e]"
+          className="mt-5 w-full rounded bg-ink px-3 py-2 font-semibold text-white hover:bg-slate dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90"
           disabled={login.isPending || register.isPending}
         >
           {mode === 'login' ? (login.isPending ? 'Signing in...' : 'Sign in') : register.isPending ? 'Submitting...' : 'Register'}
