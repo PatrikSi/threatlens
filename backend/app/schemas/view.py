@@ -1,9 +1,10 @@
+import math
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 SAVED_VIEW_SCHEMA_VERSION = 1
 SAVED_VIEW_LAYOUT_VERSION = 6
@@ -112,7 +113,7 @@ def _is_mapping(value: Any) -> bool:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
 
 def _normalize_string_list(value: Any) -> list[str]:
@@ -171,10 +172,10 @@ def _normalize_panel_rect(value: Any) -> dict[str, int] | None:
         return None
 
     rect = {
-        "x": max(0, int(x)),
-        "y": max(0, int(y)),
-        "width": int(width),
-        "height": int(height),
+        "x": max(0, round(x)),
+        "y": max(0, round(y)),
+        "width": round(width),
+        "height": round(height),
     }
     if rect["width"] <= 0 or rect["height"] <= 0:
         return None
@@ -572,6 +573,13 @@ class SavedViewPanelRect(BaseModel):
     y: int = Field(ge=0)
     width: int = Field(gt=0)
     height: int = Field(gt=0)
+
+    @field_validator("x", "y", "width", "height", mode="before")
+    @classmethod
+    def coerce_rect_numbers_to_ints(cls, value: Any):
+        if _is_number(value):
+            return round(value)
+        return value
 
 
 class SavedViewWindow(BaseModel):

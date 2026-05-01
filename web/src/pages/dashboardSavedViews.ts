@@ -185,27 +185,36 @@ export function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter
   }
 }
 
-export function normalizePanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
-  const maxWidth = Math.max(WINDOW_MIN_WIDTH, containerWidth)
-  const maxHeight = Math.max(WINDOW_MIN_HEIGHT, containerHeight)
+export function coercePanelRectToIntegers(panel: PanelRect): PanelRect {
+  return {
+    x: Math.max(0, Math.round(panel.x)),
+    y: Math.max(0, Math.round(panel.y)),
+    width: Math.max(1, Math.round(panel.width)),
+    height: Math.max(1, Math.round(panel.height)),
+  }
+}
 
-  const width = clamp(panel.width, WINDOW_MIN_WIDTH, maxWidth)
-  const height = clamp(panel.height, WINDOW_MIN_HEIGHT, maxHeight)
+export function normalizePanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
+  const maxWidth = Math.max(WINDOW_MIN_WIDTH, Math.round(containerWidth))
+  const maxHeight = Math.max(WINDOW_MIN_HEIGHT, Math.round(containerHeight))
+
+  const width = Math.round(clamp(panel.width, WINDOW_MIN_WIDTH, maxWidth))
+  const height = Math.round(clamp(panel.height, WINDOW_MIN_HEIGHT, maxHeight))
 
   const maxX = Math.max(0, maxWidth - width)
   const maxY = Math.max(0, maxHeight - height)
 
   return {
-    x: clamp(panel.x, 0, maxX),
-    y: clamp(panel.y, 0, maxY),
+    x: Math.round(clamp(panel.x, 0, maxX)),
+    y: Math.round(clamp(panel.y, 0, maxY)),
     width,
     height,
   }
 }
 
 export function getSnapRect(snap: DashboardWindowSnap, containerWidth: number, containerHeight: number): PanelRect {
-  const width = Math.max(WINDOW_MIN_WIDTH, containerWidth)
-  const height = Math.max(WINDOW_MIN_HEIGHT, containerHeight)
+  const width = Math.max(WINDOW_MIN_WIDTH, Math.round(containerWidth))
+  const height = Math.max(WINDOW_MIN_HEIGHT, Math.round(containerHeight))
 
   const halfWidth = Math.floor(width / 2)
   const halfHeight = Math.floor(height / 2)
@@ -268,11 +277,13 @@ export function createWindowLayout(
   snap: DashboardWindowSnap = 'free',
 ): DashboardWindow {
   const id = `${type}-${Date.now()}-${Math.random().toString(16).slice(2, 7)}`
-  const width = clamp(Math.round(containerWidth * 0.68), WINDOW_MIN_WIDTH, containerWidth)
-  const height = clamp(Math.round(containerHeight * 0.74), WINDOW_MIN_HEIGHT, containerHeight)
+  const normalizedContainerWidth = Math.max(WINDOW_MIN_WIDTH, Math.round(containerWidth))
+  const normalizedContainerHeight = Math.max(WINDOW_MIN_HEIGHT, Math.round(containerHeight))
+  const width = clamp(Math.round(normalizedContainerWidth * 0.68), WINDOW_MIN_WIDTH, normalizedContainerWidth)
+  const height = clamp(Math.round(normalizedContainerHeight * 0.74), WINDOW_MIN_HEIGHT, normalizedContainerHeight)
 
-  const maxX = Math.max(0, containerWidth - width)
-  const maxY = Math.max(0, containerHeight - height)
+  const maxX = Math.max(0, normalizedContainerWidth - width)
+  const maxY = Math.max(0, normalizedContainerHeight - height)
 
   const rect: PanelRect = {
     x: clamp((index * 28) % Math.max(1, maxX + 1), 0, maxX),
@@ -285,7 +296,7 @@ export function createWindowLayout(
     id,
     title: defaultWindowTitle(type, index),
     snap,
-    rect: snap === 'free' ? rect : getSnapRect(snap, containerWidth, containerHeight),
+    rect: snap === 'free' ? rect : getSnapRect(snap, normalizedContainerWidth, normalizedContainerHeight),
     controls_collapsed: false,
     scratch_note: '',
   }
@@ -569,7 +580,7 @@ export function serializeDashboardWindowLayouts(windows: DashboardWindow[]): Das
       id: window.id,
       title: window.title,
       snap: window.snap,
-      rect: { ...window.rect },
+      rect: coercePanelRectToIntegers(window.rect),
       controls_collapsed: window.controls_collapsed,
       scratch_note: window.scratch_note,
     }
@@ -652,7 +663,7 @@ function buildSavedViewWindowState(window: DashboardWindow): SavedViewWindow {
     id: window.id,
     title: window.title,
     snap: window.snap,
-    rect: { ...window.rect },
+    rect: coercePanelRectToIntegers(window.rect),
     controls_collapsed: window.controls_collapsed,
     scratch_note: window.scratch_note,
   }
