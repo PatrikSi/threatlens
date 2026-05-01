@@ -2,10 +2,12 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import HTMLResponse
 from sqlalchemy import String, and_, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
+from app.core.config import get_settings
 from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
 from app.db.session import get_db
 from app.models.article import Article
@@ -31,6 +33,11 @@ from app.schemas.item import (
     StarUpdateRequest,
 )
 from app.services.audit import record_audit
+from app.services.article_preview import (
+    ARTICLE_PREVIEW_RESPONSE_HEADERS,
+    ArticlePreviewFetchError,
+    fetch_article_preview_document,
+)
 from app.services.item_state import get_or_create_item_state
 from app.services.item_views import build_item_graph, load_item_tag_suggestions, load_tags_for_items
 from app.services.tag_feedback import record_feedback_events
@@ -351,6 +358,32 @@ def get_item_graph(
         related_item_limit=related_item_limit,
         ioc_limit=ioc_limit,
         since_days=since_days,
+    )
+
+
+@router.get(
+    "/{item_id}/article-preview",
+    response_class=HTMLResponse,
+    responses={200: {"content": {"text/html": {}}}},
+)
+def get_item_article_preview(
+    item_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_ITEMS)),
+):
+    item = db.scalar(select(Item).where(Item.id == item_id))
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Item not found")
+
+    article = db.scalar(select(Article).where(Article.item_id == item_id))
+    try:
+        preview = fetch_article_preview_document(item, article, settings=get_settings())
+    except ArticlePreviewFetchError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.detail) from exc
+
+    return HTMLResponse(
+        content=preview.html,
+        headers=ARTICLE_PREVIEW_RESPONSE_HEADERS,
     )
 
 

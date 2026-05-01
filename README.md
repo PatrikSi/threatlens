@@ -268,6 +268,7 @@ curl -X POST http://localhost:3000/api/v1/feeds/<feed_id>/refresh \
 # Uses `/api/v1` as the default production API base.
 # For non-proxied deployments, also set `THREATLENS_CSP_CONNECT_SRC` on the web container
 # to include the external API origin, e.g. `THREATLENS_CSP_CONNECT_SRC="'self' https://api.example.com"`.
+# Original-article previews render a sandboxed backend-fetched snapshot under `THREATLENS_CSP_FRAME_SRC`.
 docker build -q -f web/Dockerfile web
 ```
 

@@ -41,7 +41,8 @@ RUN npm run build
 FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
 ARG BUILD_DATE=unknown
 ARG VCS_REF=unknown
-ENV THREATLENS_CSP_CONNECT_SRC="'self'"
+ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
+    THREATLENS_CSP_FRAME_SRC="'self'"
 COPY compliance/generate_frontend_os_package_artifacts.sh /tmp/generate_frontend_os_package_artifacts.sh
 RUN chmod +x /tmp/generate_frontend_os_package_artifacts.sh \
     && mkdir -p /usr/share/doc/threatlens/licenses \

@@ -186,6 +186,9 @@ services:
         condition: service_healthy
     ports:
       - "3000:3000"
+    environment:
+      THREATLENS_CSP_CONNECT_SRC: "${THREATLENS_CSP_CONNECT_SRC:-'self'}"
+      THREATLENS_CSP_FRAME_SRC: "${THREATLENS_CSP_FRAME_SRC:-'self'}"
     networks:
       - frontend
 
