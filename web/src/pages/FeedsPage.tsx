@@ -1138,7 +1138,8 @@ export function FeedsPage() {
             const saveMessage = feedSaveState[feed.id]?.message
             const validationMessage = validateFeedScheduleDraft(draft)
             const isDirty = isFeedScheduleDraftDirty(feed, draft)
-            const scheduleNotice = saveState !== 'idle' ? validationMessage || saveMessage || feedSaveStatusText(saveState) : null
+            const scheduleNotice =
+              validationMessage ?? (saveState !== 'idle' ? saveMessage || feedSaveStatusText(saveState) : null)
             const scheduleHint =
               !scheduleNotice && isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : null
             const displayUrl = feed.url.trim() || 'URL unavailable until the original encryption key is restored.'

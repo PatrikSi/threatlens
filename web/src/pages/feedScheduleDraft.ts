@@ -9,6 +9,14 @@ export type FeedScheduleDraft = {
 export const DEFAULT_SCHEDULE_CRON = '0 * * * *'
 export const FEED_SCHEDULE_DRAFT_STORAGE_KEY = 'threatlens.feed-schedule-drafts.v1'
 
+const CRON_FIELD_RANGES = [
+  { min: 0, max: 59 },
+  { min: 0, max: 23 },
+  { min: 1, max: 31 },
+  { min: 1, max: 12, names: ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'] },
+  { min: 0, max: 7, names: ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'] },
+]
+
 export function getFeedScheduleDraftStorageKey(userId: string): string {
   return `${FEED_SCHEDULE_DRAFT_STORAGE_KEY}:${userId}`
 }
@@ -109,7 +117,14 @@ export function validateFeedScheduleDraft(draft: FeedScheduleDraft): string | nu
     return null
   }
 
-  return draft.scheduleCron.trim() ? null : 'Schedule cannot be empty.'
+  const scheduleCron = draft.scheduleCron.trim()
+  if (!scheduleCron) {
+    return 'Schedule cannot be empty.'
+  }
+  if (!isValidCronExpression(scheduleCron)) {
+    return 'Schedule must be a valid five-field cron expression.'
+  }
+  return null
 }
 
 export function isFeedScheduleDraftDirty(feed: Feed, draft: FeedScheduleDraft): boolean {
@@ -142,4 +157,76 @@ export function collectDirtyFeedScheduleDrafts(
   }
 
   return dirtyDrafts
+}
+
+function isValidCronExpression(value: string): boolean {
+  const fields = value.trim().split(/\s+/)
+  if (fields.length !== 5) {
+    return false
+  }
+
+  return fields.every((field, index) => isValidCronField(field, CRON_FIELD_RANGES[index]))
+}
+
+function isValidCronField(
+  field: string,
+  range: { min: number; max: number; names?: string[] },
+): boolean {
+  if (!field) {
+    return false
+  }
+
+  return field.split(',').every((segment) => isValidCronFieldSegment(segment, range))
+}
+
+function isValidCronFieldSegment(
+  segment: string,
+  range: { min: number; max: number; names?: string[] },
+): boolean {
+  const [base, step, extra] = segment.split('/')
+  if (extra !== undefined || !base) {
+    return false
+  }
+  if (step !== undefined && !isValidCronNumber(step, 1, range.max)) {
+    return false
+  }
+  if (base === '*' || base === '?') {
+    return true
+  }
+
+  const [start, end, trailing] = base.split('-')
+  if (trailing !== undefined || !start) {
+    return false
+  }
+
+  const startValue = parseCronFieldValue(start, range)
+  if (startValue == null) {
+    return false
+  }
+  if (end === undefined) {
+    return true
+  }
+
+  const endValue = parseCronFieldValue(end, range)
+  return endValue != null && startValue <= endValue
+}
+
+function parseCronFieldValue(value: string, range: { min: number; max: number; names?: string[] }): number | null {
+  const normalized = value.toUpperCase()
+  const namedIndex = range.names?.indexOf(normalized) ?? -1
+  if (namedIndex >= 0) {
+    return range.names?.[0] === 'SUN' ? namedIndex : namedIndex + 1
+  }
+  if (!isValidCronNumber(value, range.min, range.max)) {
+    return null
+  }
+  return Number(value)
+}
+
+function isValidCronNumber(value: string, min: number, max: number): boolean {
+  if (!/^\d+$/.test(value)) {
+    return false
+  }
+  const parsed = Number(value)
+  return Number.isInteger(parsed) && parsed >= min && parsed <= max
 }

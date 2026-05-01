@@ -385,6 +385,30 @@ describe('FeedsPage DOM workflows', () => {
     expect(pageText()).toContain('Unsaved schedule')
   })
 
+  it('shows invalid cron validation before saving a feed schedule', () => {
+    const view = renderPage()
+
+    const feedModeSelect = view.querySelector<HTMLSelectElement>('#feed-fetch-mode-feed-1')
+    expect(feedModeSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(feedModeSelect!, 'schedule')
+    })
+
+    const cronInput = view.querySelector<HTMLInputElement>('#feed-schedule-cron-feed-1')
+    expect(cronInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(cronInput!, 'not a cron')
+    })
+
+    const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'Save schedule',
+    )
+    expect(pageText()).toContain('Schedule must be a valid five-field cron expression.')
+    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('protects unsaved feed schedule edits before opening the delete confirmation', () => {
     const view = renderPage()
 

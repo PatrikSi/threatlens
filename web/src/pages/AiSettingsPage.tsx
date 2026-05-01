@@ -3283,8 +3283,10 @@ function AuditPreviewList({ entries, emptyLabel }: { entries: AIAuditEntryRespon
         <div key={entry.id} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
           {(() => {
             const changedFields = Array.isArray(entry.metadata.changed_fields)
-              ? (entry.metadata.changed_fields as string[])
-              : null
+              ? (entry.metadata.changed_fields as unknown[]).filter(
+                  (field): field is string => typeof field === 'string' && field.trim().length > 0,
+                )
+              : []
             return (
               <>
           <div className="flex items-start justify-between gap-3">
@@ -3294,7 +3296,7 @@ function AuditPreviewList({ entries, emptyLabel }: { entries: AIAuditEntryRespon
             </div>
             <span className="text-xs text-slate dark:text-white/60">{formatTimestamp(entry.created_at)}</span>
           </div>
-          {changedFields && (
+          {changedFields.length > 0 && (
             <p className="mt-2 text-xs text-slate dark:text-white/60">
               Changed: {changedFields.join(', ')}
             </p>

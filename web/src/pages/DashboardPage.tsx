@@ -20,7 +20,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
-import { looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
+import { formatPlainTextPreview, looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import {
@@ -3254,7 +3254,7 @@ export function DashboardPage() {
                           </div>
                           {!compactAlerts && (
                             <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">
-                              {item.summary || 'No summary available.'}
+                              {formatPlainTextPreview(item.summary, 'No summary available.')}
                             </p>
                           )}
                         </article>

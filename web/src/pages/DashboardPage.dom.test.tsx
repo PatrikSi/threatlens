@@ -55,6 +55,31 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
     ai_relevance_label: 'low' | 'medium' | 'high' | null
   }>,
   itemDetailById: {} as Record<string, unknown>,
+  alertMatchesData: [] as Array<{
+    id: string
+    feed_id: string
+    feed_name: string
+    title: string
+    url: string
+    canonical_url: string | null
+    summary: string | null
+    published_at: string | null
+    first_seen_at: string
+    status: string
+    classification: string | null
+    is_read: boolean
+    is_starred: boolean
+    tags: string[]
+    ai_relevance_score: number | null
+    ai_relevance_label: 'low' | 'medium' | 'high' | null
+    ai_status: string | null
+    matches: Array<{
+      alert_id: string
+      alert_name: string
+      category: string
+      matched_keywords: string[]
+    }>
+  }>,
   unsavedChangesWarning: vi.fn(),
 }))
 
@@ -143,7 +168,12 @@ vi.mock('@tanstack/react-query', () => ({
           data:
             key === 'items'
               ? { items: dashboardPageDomMocks.itemsData, total: dashboardPageDomMocks.itemsData.length, page: 1, page_size: 25 }
-              : { items: [], total: 0, page: 1, page_size: 25 },
+              : {
+                  items: dashboardPageDomMocks.alertMatchesData,
+                  total: dashboardPageDomMocks.alertMatchesData.length,
+                  page: 1,
+                  page_size: 25,
+                },
           isLoading: false,
           isFetching: false,
           isError: false,
@@ -332,6 +362,7 @@ beforeEach(() => {
   ]
   dashboardPageDomMocks.itemsData = []
   dashboardPageDomMocks.itemDetailById = {}
+  dashboardPageDomMocks.alertMatchesData = []
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -631,6 +662,63 @@ describe('DashboardPage DOM workflows', () => {
 
     expect(document.querySelector('[role="menu"][aria-label="Add dashboard panel"]')).toBeNull()
     expect(document.activeElement).toBe(addPanelButton)
+  })
+
+  it('renders alert panel summaries as decoded plain text', () => {
+    dashboardPageDomMocks.alertMatchesData = [
+      {
+        id: 'alert-item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Exploit chain observed',
+        url: 'https://example.com/alert-item',
+        canonical_url: null,
+        summary: '<p>Attackers chained <a href="https://example.com">edge bugs</a>&#8212;patch now.</p>',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        classification: null,
+        is_read: false,
+        is_starred: false,
+        tags: [],
+        ai_relevance_score: null,
+        ai_relevance_label: null,
+        ai_status: null,
+        matches: [
+          {
+            alert_id: 'alert-1',
+            alert_name: 'Edge threats',
+            category: 'threat',
+            matched_keywords: ['edge'],
+          },
+        ],
+      },
+    ]
+    renderPage()
+
+    act(() => {
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const addPanelButton = getButton('Add Panel')
+    expect(addPanelButton).not.toBeNull()
+
+    act(() => {
+      addPanelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const alertsPanelButton = Array.from(document.querySelectorAll('[role="menuitem"]')).find((button) =>
+      button.textContent?.includes('Alerts Panel'),
+    )
+    expect(alertsPanelButton).not.toBeNull()
+
+    act(() => {
+      alertsPanelButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Attackers chained edge bugs—patch now.')
+    expect(pageText()).not.toContain('<p>')
+    expect(pageText()).not.toContain('&#8212;')
   })
 
   it('exposes pressed state for dashboard filter chips and view-mode toggles', () => {

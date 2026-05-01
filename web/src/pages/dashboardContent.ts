@@ -172,6 +172,11 @@ export function stripHtml(value: string): string {
   return document.body.textContent?.trim() ?? ''
 }
 
+export function formatPlainTextPreview(value: string | null | undefined, fallback: string): string {
+  const text = stripHtml(value ?? '').replace(/\s+/g, ' ').trim()
+  return text || fallback
+}
+
 function isHeadingLine(line: string): boolean {
   if (/^#{1,4}\s+/.test(line)) {
     return true

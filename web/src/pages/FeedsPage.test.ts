@@ -56,6 +56,24 @@ describe('validateFeedScheduleDraft', () => {
       }),
     ).toBe('Schedule cannot be empty.')
   })
+
+  it('rejects invalid cron schedules before submit', () => {
+    expect(
+      validateFeedScheduleDraft({
+        fetchMode: 'schedule',
+        intervalSeconds: '1800',
+        scheduleCron: 'not a cron',
+      }),
+    ).toBe('Schedule must be a valid five-field cron expression.')
+
+    expect(
+      validateFeedScheduleDraft({
+        fetchMode: 'schedule',
+        intervalSeconds: '1800',
+        scheduleCron: '*/15 * * * MON-FRI',
+      }),
+    ).toBeNull()
+  })
 })
 
 describe('normalizeFeedScheduleDraft', () => {

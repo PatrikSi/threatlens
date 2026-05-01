@@ -196,6 +196,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
   activeRunsRefreshing: false,
   historyRunsDataByPage: {} as Record<number, { items: unknown[]; total: number; limit: number; offset: number }>,
   runDetailById: {} as Record<string, unknown>,
+  promptHistoryData: [] as unknown[],
   emptyItemsData: {
     items: [],
     total: 0,
@@ -311,7 +312,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (key === 'ai:ops:prompt-history' || key === 'ai:ops:manual-actions') {
       return {
         ...baseResult,
-        data: [],
+        data: key === 'ai:ops:prompt-history' ? aiSettingsPageDomMocks.promptHistoryData : [],
       }
     }
 
@@ -501,6 +502,7 @@ afterEach(() => {
   aiSettingsPageDomMocks.activeRunsRefreshing = false
   aiSettingsPageDomMocks.historyRunsDataByPage = {}
   aiSettingsPageDomMocks.runDetailById = {}
+  aiSettingsPageDomMocks.promptHistoryData = []
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -556,6 +558,36 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(pageText()).toContain('No AI settings changes to save.')
     expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('omits blank changed-field labels in AI prompt history', () => {
+    aiSettingsPageDomMocks.promptHistoryData = [
+      {
+        id: 'audit-blank',
+        action: 'ai.settings.update',
+        actor_email: 'admin@example.com',
+        created_at: '2026-05-01T22:23:00Z',
+        metadata: { changed_fields: [] },
+      },
+      {
+        id: 'audit-fields',
+        action: 'ai.settings.update',
+        actor_email: 'admin@example.com',
+        created_at: '2026-05-01T22:24:00Z',
+        metadata: { changed_fields: ['model', 'temperature'] },
+      },
+    ]
+    renderPage()
+
+    act(() => {
+      getButton('Configuration')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const changedFieldRows = Array.from(document.querySelectorAll('p')).filter((paragraph) =>
+      paragraph.textContent?.trim().startsWith('Changed:'),
+    )
+    expect(changedFieldRows).toHaveLength(1)
+    expect(changedFieldRows[0]?.textContent).toContain('Changed: model, temperature')
   })
 
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
