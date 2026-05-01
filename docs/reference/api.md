@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:65fa714280c8494ed06be4433ae2d1303f6a309eb0b1bfc88707d93300631646`
+- OpenAPI contract anchor: `openapi-sha256:942a7ba5dbe36961e7210bc1e5aab1ed2abe43159ca629fcd2991209957841a8`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -346,6 +346,8 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
   - `is_read` (query, optional): Is Read
   - `since` (query, optional): Since
   - `until` (query, optional): Until
+  - `has_article` (query, optional): Has Article
+  - `date_basis` (query, optional): string
   - `page` (query, optional): integer
   - `page_size` (query, optional): integer
   - `sort` (query, optional): string
@@ -357,6 +359,13 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Parameters:
   - `item_id` (path, required): string
 - Responses: `200` `application/json` -> ItemDetailResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/items/{item_id}/article-preview`
+- Summary: Get Item Article Preview
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Parameters:
+  - `item_id` (path, required): string
+- Responses: `200` `text/html` -> string, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/items/{item_id}/graph`
 - Summary: Get Item Graph
 - Auth: ApiTokenBearer or SessionCookieAuth

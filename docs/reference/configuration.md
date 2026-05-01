@@ -176,8 +176,11 @@ Outside production:
 - `/api/openapi.json` proxies the live OpenAPI schema from the backend service root.
 - Other `/api/*` paths return `404` in the bundled web image.
 - All other paths fall back to `/index.html` for SPA routing.
+- The web app CSP and `X-Frame-Options: DENY` header are applied only to SPA/static responses, not proxied API responses.
 - `THREATLENS_CSP_CONNECT_SRC` defaults to `'self'` in the web container image.
+- `THREATLENS_CSP_FRAME_SRC` defaults to `'self'` so dashboard original-article previews can embed the backend-fetched preview endpoint.
 - For non-proxied deployments, override `THREATLENS_CSP_CONNECT_SRC` to include the external API origin used by `VITE_API_BASE_URL`.
+- The article preview endpoint fetches source HTML server-side, strips active content, and serves it with a dedicated sandboxing CSP. Publisher-side `X-Frame-Options` or `frame-ancestors` policies do not apply to that ThreatLens-hosted snapshot.
 
 ## Celery Scheduling (`backend/app/tasks/celery_app.py`)
 

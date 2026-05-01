@@ -23,6 +23,11 @@ export class ApiError extends Error {
   }
 }
 
+export function buildApiUrl(path: string): string {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${API_BASE_URL}${normalizedPath}`
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
   const headers = new Headers(options.headers)
   const hasBody = options.body !== undefined && options.body !== null
@@ -48,7 +53,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE_URL}${path}`, {
+    response = await fetch(buildApiUrl(path), {
       ...options,
       headers,
       credentials: 'include',

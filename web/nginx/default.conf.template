@@ -6,11 +6,9 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    add_header X-Frame-Options "DENY" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
-    add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ${THREATLENS_CSP_CONNECT_SRC};" always;
 
     location = /api/openapi.json {
         proxy_pass http://api:8000/openapi.json;
@@ -39,6 +37,11 @@ server {
     }
 
     location / {
+        add_header X-Frame-Options "DENY" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+        add_header Content-Security-Policy "default-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src ${THREATLENS_CSP_CONNECT_SRC}; frame-src ${THREATLENS_CSP_FRAME_SRC}; child-src ${THREATLENS_CSP_FRAME_SRC};" always;
         try_files $uri /index.html;
     }
 }

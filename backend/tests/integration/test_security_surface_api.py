@@ -14,6 +14,7 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.user import User
+from app.services.article_preview import ArticlePreviewDocument
 from app.services.ai_ops import AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
 
 
@@ -179,3 +180,67 @@ def test_item_and_ai_responses_sanitize_raw_url_query_secrets(
     assert ai_response.status_code == 200
     ai_item = next(entry for entry in ai_response.json()["items"] if entry["item_id"] == str(item.id))
     assert ai_item["item_url"] == "https://example.com/articles/1?keep=1"
+
+
+def test_item_article_preview_route_returns_sandboxed_html_response(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Threat Feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="article-preview-item",
+        url="https://example.com/articles/preview",
+        canonical_url=None,
+        title="Preview item",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="article-preview-item",
+        content_hash="b" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url="https://example.com/articles/preview",
+        http_status=200,
+        content_type="text/html",
+        text="Extracted text",
+        extraction_method="readable",
+    )
+    db_session.add_all([feed, item])
+    db_session.flush()
+    db_session.add(article)
+    db_session.commit()
+
+    def fake_fetch_article_preview_document(item_arg, article_arg, *, settings):
+        assert item_arg.id == item.id
+        assert article_arg.item_id == item.id
+        assert settings.fetch_user_agent
+        return ArticlePreviewDocument(
+            html="<html><body><h1>Rendered source</h1></body></html>",
+            source_url="https://example.com/articles/preview",
+            final_url="https://example.com/articles/preview",
+            content_type="text/html",
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.items.fetch_article_preview_document",
+        fake_fetch_article_preview_document,
+    )
+
+    response = client.get(f"/items/{item.id}/article-preview", headers=auth_headers["viewer"])
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "script-src 'none'" in response.headers["content-security-policy"]
+    assert "allow-scripts" not in response.headers["content-security-policy"]
+    assert "Rendered source" in response.text

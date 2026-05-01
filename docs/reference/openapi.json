@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "65fa714280c8494ed06be4433ae2d1303f6a309eb0b1bfc88707d93300631646"
+    "x-threatlens-contract-sha256": "942a7ba5dbe36961e7210bc1e5aab1ed2abe43159ca629fcd2991209957841a8"
   },
   "servers": [
     {
@@ -818,6 +818,33 @@
             }
           },
           {
+            "name": "has_article",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Has Article"
+            }
+          },
+          {
+            "name": "date_basis",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(first_seen_at|published_at_or_first_seen_at)$",
+              "default": "first_seen_at",
+              "title": "Date Basis"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -1019,6 +1046,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ItemGraphResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/items/{item_id}/article-preview": {
+      "get": {
+        "tags": [
+          "items"
+        ],
+        "summary": "Get Item Article Preview",
+        "operationId": "get_item_article_preview_v1_items__item_id__article_preview_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Item Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6104,6 +6185,17 @@
               }
             ],
             "title": "Run Id"
+          },
+          "celery_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Celery Task Id"
           }
         },
         "type": "object",
@@ -6275,6 +6367,17 @@
               }
             ],
             "title": "Run Id"
+          },
+          "celery_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Celery Task Id"
           }
         },
         "type": "object",
@@ -12614,6 +12717,28 @@
             "type": "boolean",
             "title": "Queued",
             "default": true
+          },
+          "celery_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Celery Task Id"
+          },
+          "dispatch_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dispatch Token"
           }
         },
         "type": "object",
