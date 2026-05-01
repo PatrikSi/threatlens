@@ -76,7 +76,7 @@ SAVED_VIEW_WINDOW_KEYS = {
     "alert_filters",
     "selected_daily_brief_id",
 }
-SAVED_VIEW_RECT_KEYS = {"x", "y", "width", "height"}
+SAVED_VIEW_RECT_KEYS = {"x", "y", "width", "height", "xPct", "yPct", "widthPct", "heightPct"}
 SAVED_VIEW_TIME_FILTER_KEYS = {"time_range", "custom_since_date", "custom_until_date", "rolling_days"}
 SAVED_VIEW_UI_KEYS = {"show_advanced_filters"}
 SAVED_VIEW_WINDOW_RSS_FILTER_KEYS = {
@@ -160,7 +160,7 @@ def _normalize_rolling_days(value: Any) -> str:
     return DEFAULT_ROLLING_DAYS
 
 
-def _normalize_panel_rect(value: Any) -> dict[str, int] | None:
+def _normalize_panel_rect(value: Any) -> dict[str, int | float] | None:
     if not _is_mapping(value):
         return None
 
@@ -179,6 +179,21 @@ def _normalize_panel_rect(value: Any) -> dict[str, int] | None:
     }
     if rect["width"] <= 0 or rect["height"] <= 0:
         return None
+
+    x_pct = value.get("xPct")
+    y_pct = value.get("yPct")
+    width_pct = value.get("widthPct")
+    height_pct = value.get("heightPct")
+    if all(_is_number(candidate) for candidate in (x_pct, y_pct, width_pct, height_pct)):
+        if width_pct > 0 and height_pct > 0:
+            rect.update(
+                {
+                    "xPct": min(1.0, max(0.0, float(x_pct))),
+                    "yPct": min(1.0, max(0.0, float(y_pct))),
+                    "widthPct": min(1.0, float(width_pct)),
+                    "heightPct": min(1.0, float(height_pct)),
+                }
+            )
     return rect
 
 
@@ -573,6 +588,10 @@ class SavedViewPanelRect(BaseModel):
     y: int = Field(ge=0)
     width: int = Field(gt=0)
     height: int = Field(gt=0)
+    xPct: float | None = Field(default=None, ge=0, le=1)
+    yPct: float | None = Field(default=None, ge=0, le=1)
+    widthPct: float | None = Field(default=None, gt=0, le=1)
+    heightPct: float | None = Field(default=None, gt=0, le=1)
 
     @field_validator("x", "y", "width", "height", mode="before")
     @classmethod
@@ -580,6 +599,22 @@ class SavedViewPanelRect(BaseModel):
         if _is_number(value):
             return round(value)
         return value
+
+    @field_validator("xPct", "yPct", "widthPct", "heightPct", mode="before")
+    @classmethod
+    def coerce_rect_percentages_to_floats(cls, value: Any):
+        if value is None:
+            return value
+        if _is_number(value):
+            return float(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_percentage_rect_payload(self):
+        percentages = (self.xPct, self.yPct, self.widthPct, self.heightPct)
+        if any(value is not None for value in percentages) and not all(value is not None for value in percentages):
+            raise ValueError("Floating panel percentage geometry must include all percentage fields")
+        return self
 
 
 class SavedViewWindow(BaseModel):

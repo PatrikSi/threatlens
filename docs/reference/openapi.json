@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "942a7ba5dbe36961e7210bc1e5aab1ed2abe43159ca629fcd2991209957841a8"
+    "x-threatlens-contract-sha256": "0c57bead937527ef519dea4811282a316279142b7bad552ae059027e872c12e0"
   },
   "servers": [
     {
@@ -11910,6 +11910,58 @@
             "type": "integer",
             "exclusiveMinimum": 0.0,
             "title": "Height"
+          },
+          "xPct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xpct"
+          },
+          "yPct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ypct"
+          },
+          "widthPct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Widthpct"
+          },
+          "heightPct": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Heightpct"
           }
         },
         "additionalProperties": false,
