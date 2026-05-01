@@ -47,6 +47,18 @@ export interface ImportedSavedViewEntry {
   query_json: Record<string, unknown>
 }
 
+export interface DashboardWindowContainerDimensions {
+  width: number
+  height: number
+}
+
+type PanelRectPercentages = {
+  xPct: number
+  yPct: number
+  widthPct: number
+  heightPct: number
+}
+
 export const DASHBOARD_SAVED_VIEW_SCHEMA_VERSION = 1
 export const DASHBOARD_VIEW_VERSION = 6
 export const WINDOW_MIN_WIDTH = 460
@@ -186,12 +198,14 @@ export function parseWindowTimeFilterCandidate(value: unknown): WindowTimeFilter
 }
 
 export function coercePanelRectToIntegers(panel: PanelRect): PanelRect {
-  return {
+  const rect: PanelRect = {
     x: Math.max(0, Math.round(panel.x)),
     y: Math.max(0, Math.round(panel.y)),
     width: Math.max(1, Math.round(panel.width)),
     height: Math.max(1, Math.round(panel.height)),
   }
+  const percentages = parsePanelRectPercentages(panel)
+  return percentages ? { ...rect, ...percentages } : rect
 }
 
 export function normalizePanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
@@ -209,6 +223,64 @@ export function normalizePanelRect(panel: PanelRect, containerWidth: number, con
     y: Math.round(clamp(panel.y, 0, maxY)),
     width,
     height,
+  }
+}
+
+export function withPanelRectPercentages(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
+  const normalized = normalizePanelRect(panel, containerWidth, containerHeight)
+  const width = Math.max(WINDOW_MIN_WIDTH, Math.round(containerWidth))
+  const height = Math.max(WINDOW_MIN_HEIGHT, Math.round(containerHeight))
+
+  return {
+    ...normalized,
+    xPct: clamp(normalized.x / width, 0, 1),
+    yPct: clamp(normalized.y / height, 0, 1),
+    widthPct: clamp(normalized.width / width, Number.EPSILON, 1),
+    heightPct: clamp(normalized.height / height, Number.EPSILON, 1),
+  }
+}
+
+export function resolveFloatingPanelRect(panel: PanelRect, containerWidth: number, containerHeight: number): PanelRect {
+  const width = Math.max(WINDOW_MIN_WIDTH, Math.round(containerWidth))
+  const height = Math.max(WINDOW_MIN_HEIGHT, Math.round(containerHeight))
+  const percentages = parsePanelRectPercentages(panel)
+
+  if (!percentages) {
+    return withPanelRectPercentages(panel, width, height)
+  }
+
+  const normalized = normalizePanelRect(
+    {
+      x: percentages.xPct * width,
+      y: percentages.yPct * height,
+      width: percentages.widthPct * width,
+      height: percentages.heightPct * height,
+    },
+    width,
+    height,
+  )
+
+  return {
+    ...normalized,
+    ...percentages,
+  }
+}
+
+function parsePanelRectPercentages(value: unknown): PanelRectPercentages | null {
+  if (!isRecord(value)) return null
+  const { xPct, yPct, widthPct, heightPct } = value
+  if ([xPct, yPct, widthPct, heightPct].some((entry) => typeof entry !== 'number' || !Number.isFinite(entry))) {
+    return null
+  }
+  if ((widthPct as number) <= 0 || (heightPct as number) <= 0) {
+    return null
+  }
+
+  return {
+    xPct: clamp(xPct as number, 0, 1),
+    yPct: clamp(yPct as number, 0, 1),
+    widthPct: clamp(widthPct as number, Number.EPSILON, 1),
+    heightPct: clamp(heightPct as number, Number.EPSILON, 1),
   }
 }
 
@@ -257,7 +329,7 @@ export function getSnapRect(snap: DashboardWindowSnap, containerWidth: number, c
 
 export function resolveWindowRect(windowLayout: DashboardWindow, containerWidth: number, containerHeight: number): PanelRect {
   if (windowLayout.snap === 'free') {
-    return normalizePanelRect(windowLayout.rect, containerWidth, containerHeight)
+    return resolveFloatingPanelRect(windowLayout.rect, containerWidth, containerHeight)
   }
   return getSnapRect(windowLayout.snap, containerWidth, containerHeight)
 }
@@ -296,7 +368,7 @@ export function createWindowLayout(
     id,
     title: defaultWindowTitle(type, index),
     snap,
-    rect: snap === 'free' ? rect : getSnapRect(snap, normalizedContainerWidth, normalizedContainerHeight),
+    rect: snap === 'free' ? withPanelRectPercentages(rect, normalizedContainerWidth, normalizedContainerHeight) : getSnapRect(snap, normalizedContainerWidth, normalizedContainerHeight),
     controls_collapsed: false,
     scratch_note: '',
   }
@@ -353,7 +425,7 @@ export function normalizeDashboardWindows(windows: DashboardWindow[], containerW
     if (window.snap === 'free') {
       return {
         ...window,
-        rect: normalizePanelRect(window.rect, containerWidth, containerHeight),
+        rect: resolveFloatingPanelRect(window.rect, containerWidth, containerHeight),
       }
     }
 
@@ -385,6 +457,7 @@ export function parsePanelRectCandidate(value: unknown): PanelRect | null {
     y: Math.round(normalizedY),
     width: Math.round(normalizedWidth),
     height: Math.round(normalizedHeight),
+    ...(parsePanelRectPercentages(value) ?? {}),
   }
 }
 
@@ -527,6 +600,7 @@ export function parseDashboardSavedView(raw: unknown, containerWidth: number, co
 export function buildDashboardSavedViewState(
   windows: DashboardWindow[],
   dashboardTimeFilter: WindowTimeFilter,
+  containerDimensions?: DashboardWindowContainerDimensions,
 ): DashboardSavedViewState {
   const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
   const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
@@ -538,7 +612,7 @@ export function buildDashboardSavedViewState(
     version: DASHBOARD_VIEW_VERSION,
     rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
     alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
-    windows: windows.map(buildSavedViewWindowState),
+    windows: windows.map((window) => buildSavedViewWindowState(window, containerDimensions)),
     ui: {
       show_advanced_filters: rssWindowFilters.show_advanced_filters,
     },
@@ -574,13 +648,38 @@ function cloneDashboardWindowAlertFilters(value: DashboardAlertWindowFilters | n
   }
 }
 
-export function serializeDashboardWindowLayouts(windows: DashboardWindow[]): DashboardWindow[] {
+function stripPanelRectPercentages(panel: PanelRect): PanelRect {
+  const { x, y, width, height } = coercePanelRectToIntegers(panel)
+  return { x, y, width, height }
+}
+
+function serializeWindowRect(
+  window: DashboardWindow,
+  containerDimensions?: DashboardWindowContainerDimensions,
+): PanelRect {
+  if (window.snap !== 'free') {
+    return stripPanelRectPercentages(window.rect)
+  }
+
+  if (containerDimensions) {
+    return coercePanelRectToIntegers(
+      resolveFloatingPanelRect(window.rect, containerDimensions.width, containerDimensions.height),
+    )
+  }
+
+  return coercePanelRectToIntegers(window.rect)
+}
+
+export function serializeDashboardWindowLayouts(
+  windows: DashboardWindow[],
+  containerDimensions?: DashboardWindowContainerDimensions,
+): DashboardWindow[] {
   return windows.map((window) => {
     const base = {
       id: window.id,
       title: window.title,
       snap: window.snap,
-      rect: coercePanelRectToIntegers(window.rect),
+      rect: serializeWindowRect(window, containerDimensions),
       controls_collapsed: window.controls_collapsed,
       scratch_note: window.scratch_note,
     }
@@ -658,12 +757,15 @@ function buildSavedViewWindowAlertFilters(value: DashboardAlertWindowFilters | n
   }
 }
 
-function buildSavedViewWindowState(window: DashboardWindow): SavedViewWindow {
+function buildSavedViewWindowState(
+  window: DashboardWindow,
+  containerDimensions?: DashboardWindowContainerDimensions,
+): SavedViewWindow {
   const base = {
     id: window.id,
     title: window.title,
     snap: window.snap,
-    rect: coercePanelRectToIntegers(window.rect),
+    rect: serializeWindowRect(window, containerDimensions),
     controls_collapsed: window.controls_collapsed,
     scratch_note: window.scratch_note,
   }

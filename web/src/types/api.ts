@@ -168,6 +168,10 @@ export interface SavedViewPanelRect {
   y: number
   width: number
   height: number
+  xPct?: number | null
+  yPct?: number | null
+  widthPct?: number | null
+  heightPct?: number | null
 }
 
 interface SavedViewWindowBase {

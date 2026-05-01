@@ -8,10 +8,13 @@ import {
   buildSavedViewPreview,
   buildDashboardSavedViewState,
   loadDashboardWindows,
+  normalizeDashboardWindows,
   normalizePanelRect,
   parseDashboardSavedView,
+  resolveWindowRect,
   resolveSavedViewSelectionChange,
   serializeDashboardWindowLayouts,
+  withPanelRectPercentages,
 } from './dashboardSavedViews'
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
@@ -184,6 +187,7 @@ describe('saved view payloads', () => {
         custom_until_date: '',
         rolling_days: '7',
       },
+      { width: 1380, height: 760 },
     )
 
     expect(built.schema_version).toBe(1)
@@ -195,6 +199,8 @@ describe('saved view payloads', () => {
     expect(parsed.rss_filters.q).toBe('exchange')
     expect(parsed.windows[0].rss_filters?.page).toBe(1)
     expect(parsed.windows[1].scratch_note).toBe('Track exposed assets.')
+    expect(parsed.windows[1].rect.xPct).toBeCloseTo(24 / 1380)
+    expect(parsed.windows[1].rect.widthPct).toBeCloseTo(480 / 1380)
   })
 
   it('serializes per-window filters when persisting local window layouts', () => {
@@ -313,13 +319,89 @@ describe('saved view payloads', () => {
     const serialized = serializeDashboardWindowLayouts([fractionalWindow])
     expect(serialized[0].rect).toEqual({ x: 10, y: 21, width: 640, height: 421 })
 
-    const savedState = buildDashboardSavedViewState([fractionalWindow], {
-      time_range: 'all',
-      custom_since_date: '',
-      custom_until_date: '',
-      rolling_days: '7',
+    const serializedWithContainer = serializeDashboardWindowLayouts([fractionalWindow], { width: 1200, height: 720 })
+    expect(serializedWithContainer[0].rect).toMatchObject({ x: 10, y: 21, width: 640, height: 421 })
+    expect(serializedWithContainer[0].rect.xPct).toBeCloseTo(10 / 1200)
+    expect(serializedWithContainer[0].rect.yPct).toBeCloseTo(21 / 720)
+    expect(serializedWithContainer[0].rect.widthPct).toBeCloseTo(640 / 1200)
+    expect(serializedWithContainer[0].rect.heightPct).toBeCloseTo(421 / 720)
+
+    const savedState = buildDashboardSavedViewState(
+      [fractionalWindow],
+      {
+        time_range: 'all',
+        custom_since_date: '',
+        custom_until_date: '',
+        rolling_days: '7',
+      },
+      { width: 1200, height: 720 },
+    )
+    expect(savedState.windows[0].rect).toMatchObject({ x: 10, y: 21, width: 640, height: 421 })
+    expect(savedState.windows[0].rect.widthPct).toBeCloseTo(640 / 1200)
+  })
+
+  it('scales floating percentage geometry without changing fixed snap layouts', () => {
+    const floatingWindow = {
+      id: 'notes-1',
+      type: 'notes',
+      title: 'Notes Panel 1',
+      snap: 'free',
+      rect: withPanelRectPercentages({ x: 120, y: 72, width: 600, height: 360 }, 1200, 720),
+      controls_collapsed: false,
+      scratch_note: '',
+      time_override: null,
+      rss_filters: null,
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    } satisfies Parameters<typeof normalizeDashboardWindows>[0][number]
+    const fixedWindow = {
+      id: 'rss-1',
+      type: 'rss',
+      title: 'RSS Panel 1',
+      snap: 'left',
+      rect: {
+        x: 120,
+        y: 72,
+        width: 600,
+        height: 360,
+        xPct: 0.1,
+        yPct: 0.1,
+        widthPct: 0.5,
+        heightPct: 0.5,
+      },
+      controls_collapsed: false,
+      scratch_note: '',
+      time_override: null,
+      rss_filters: {
+        selected_feed_ids: [],
+        selected_tags: [],
+        q: '',
+        read_status: 'all',
+        star_status: 'all',
+        view_mode: 'compact',
+        page: 1,
+        page_size: 25,
+        sort: 'published_at_desc',
+        show_advanced_filters: false,
+      },
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    } satisfies Parameters<typeof normalizeDashboardWindows>[0][number]
+
+    const [scaledFloating, scaledFixed] = normalizeDashboardWindows([floatingWindow, fixedWindow], 1600, 900)
+
+    expect(resolveWindowRect(scaledFloating, 1600, 900)).toMatchObject({
+      x: 160,
+      y: 90,
+      width: 800,
+      height: 450,
     })
-    expect(savedState.windows[0].rect).toEqual({ x: 10, y: 21, width: 640, height: 421 })
+    expect(scaledFloating.rect.xPct).toBeCloseTo(0.1)
+    expect(scaledFloating.rect.widthPct).toBeCloseTo(0.5)
+    expect(scaledFixed.rect).toEqual({ x: 0, y: 0, width: 800, height: 900 })
+
+    const serializedFixed = serializeDashboardWindowLayouts([scaledFixed], { width: 1600, height: 900 })
+    expect(serializedFixed[0].rect).toEqual({ x: 0, y: 0, width: 800, height: 900 })
   })
 
   it('migrates legacy saved views into the current schema', () => {

@@ -35,14 +35,15 @@ import {
   isTimeRangeFilter,
   loadDashboardWindows,
   normalizeDashboardWindows,
-  normalizePanelRect,
   normalizeRollingDaysInput,
   PAGE_SIZE_OPTIONS,
   parseDashboardSavedView,
   parseImportedSavedViews,
+  resolveFloatingPanelRect,
   resolveWindowRect,
   resolveSavedViewSelectionChange,
   serializeDashboardWindowLayouts,
+  withPanelRectPercentages,
   WINDOW_MIN_HEIGHT,
   WINDOW_MIN_WIDTH,
   type DashboardSavedViewPreview,
@@ -443,7 +444,8 @@ export function DashboardPage() {
       return
     }
     const storageKeys = getDashboardStorageKeys(userId)
-    const serialized = JSON.stringify(serializeDashboardWindowLayouts(windows))
+    const { width, height } = getWindowContainerDimensions(rootRef.current)
+    const serialized = JSON.stringify(serializeDashboardWindowLayouts(windows, { width, height }))
     if (windowPersistenceTimeoutRef.current !== null) {
       window.clearTimeout(windowPersistenceTimeoutRef.current)
     }
@@ -878,13 +880,19 @@ export function DashboardPage() {
   })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
 
-  const captureCurrentDashboardViewState = () =>
-    buildDashboardSavedViewState(windows, {
-      time_range: dashboardTimeRange,
-      custom_since_date: dashboardCustomSinceDate,
-      custom_until_date: dashboardCustomUntilDate,
-      rolling_days: dashboardRollingDays,
-    })
+  const captureCurrentDashboardViewState = () => {
+    const { width, height } = getWindowContainerDimensions(rootRef.current)
+    return buildDashboardSavedViewState(
+      windows,
+      {
+        time_range: dashboardTimeRange,
+        custom_since_date: dashboardCustomSinceDate,
+        custom_until_date: dashboardCustomUntilDate,
+        rolling_days: dashboardRollingDays,
+      },
+      { width, height },
+    )
+  }
 
   const applyDashboardSavedViewState = (state: DashboardSavedViewState, nextActiveSavedViewId: string | null) => {
     const nextDashboardTimeRange =
@@ -1264,10 +1272,11 @@ export function DashboardPage() {
       current.map((window) => {
         if (window.id !== windowId) return window
         if (snap === 'free') {
+          const resolvedRect = resolveWindowRect(window, width, height)
           return {
             ...window,
             snap,
-            rect: normalizePanelRect(window.rect, width, height),
+            rect: withPanelRectPercentages(resolvedRect, width, height),
           }
         }
 
@@ -1366,7 +1375,7 @@ export function DashboardPage() {
 
     const startMouseX = event.clientX
     const startMouseY = event.clientY
-    const startRect = targetWindow.rect
+    const startRect = resolveFloatingPanelRect(targetWindow.rect, rootBounds.width, rootBounds.height)
 
     const onMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startMouseX
@@ -1399,9 +1408,9 @@ export function DashboardPage() {
           if (window.id !== windowId) return window
           return {
             ...window,
-            rect: normalizePanelRect(
+            rect: withPanelRectPercentages(
               {
-                ...window.rect,
+                ...startRect,
                 x: snapped.x,
                 y: snapped.y,
               },
@@ -1438,7 +1447,7 @@ export function DashboardPage() {
 
     const startMouseX = event.clientX
     const startMouseY = event.clientY
-    const startRect = targetWindow.rect
+    const startRect = resolveFloatingPanelRect(targetWindow.rect, rootBounds.width, rootBounds.height)
 
     const onMove = (moveEvent: MouseEvent) => {
       const deltaX = moveEvent.clientX - startMouseX
@@ -1451,9 +1460,9 @@ export function DashboardPage() {
           if (window.id !== windowId) return window
           return {
             ...window,
-            rect: normalizePanelRect(
+            rect: withPanelRectPercentages(
               {
-                ...window.rect,
+                ...startRect,
                 width: clamp(startRect.width + deltaX, WINDOW_MIN_WIDTH, maxWidth),
                 height: clamp(startRect.height + deltaY, WINDOW_MIN_HEIGHT, maxHeight),
               },
@@ -2239,10 +2248,7 @@ export function DashboardPage() {
           </div>
         )}
         {windows.map((windowLayout) => {
-          const resolvedRect =
-            windowLayout.snap === 'free'
-              ? normalizePanelRect(windowLayout.rect, containerDimensions.width, containerDimensions.height)
-              : getSnapRect(windowLayout.snap, containerDimensions.width, containerDimensions.height)
+          const resolvedRect = resolveWindowRect(windowLayout, containerDimensions.width, containerDimensions.height)
           const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
           const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
           const alertFilters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
