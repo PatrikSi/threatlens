@@ -2,6 +2,7 @@ import {
   ChangeEvent,
   Dispatch,
   KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
   ReactNode,
   SetStateAction,
   useDeferredValue,
@@ -13,7 +14,7 @@ import {
 } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { ApiError, apiFetch, buildApiUrl } from '../api/client'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -76,6 +77,7 @@ interface DashboardEditSessionSnapshot {
 }
 
 interface ArticlePreviewState {
+  itemId: string
   url: string
   title: string
   sourceLabel: string
@@ -85,15 +87,17 @@ const DRAG_EDGE_SNAP_THRESHOLD = 12
 const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
+const ARTICLE_PREVIEW_WIDTH_STORAGE_KEY = 'threatlens.article-preview.width.v1'
+const ARTICLE_PREVIEW_DEFAULT_WIDTH = 704
+const ARTICLE_PREVIEW_MIN_WIDTH = 420
+const ARTICLE_PREVIEW_MAX_WIDTH = 1120
 const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
-const KEYBOARD_PANEL_MOVE_STEP = 24
-const KEYBOARD_PANEL_RESIZE_STEP = 32
 const ROLLING_WINDOW_FIELD_CLASS =
   'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
-  { value: 'free', label: 'Floating (Advanced)' },
+  { value: 'free', label: 'Floating' },
   { value: 'full', label: 'Full' },
   { value: 'left', label: 'Left Half' },
   { value: 'right', label: 'Right Half' },
@@ -242,6 +246,8 @@ export function DashboardPage() {
   const [articlePreviewFrameState, setArticlePreviewFrameState] = useState<'loading' | 'loaded' | 'possibly_blocked'>(
     'loading',
   )
+  const [articlePreviewWidth, setArticlePreviewWidth] = useState(() => loadArticlePreviewWidth())
+  const [isArticlePreviewResizing, setIsArticlePreviewResizing] = useState(false)
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -258,6 +264,7 @@ export function DashboardPage() {
   const pendingAddWindowFocusIndexRef = useRef<number | null>(null)
   const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
+  const articlePreviewResizeCleanupRef = useRef<(() => void) | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
@@ -272,6 +279,78 @@ export function DashboardPage() {
 
   const closeArticlePreview = () => {
     setArticlePreview(null)
+  }
+
+  const updateArticlePreviewWidth = (width: number) => {
+    const nextWidth = clampArticlePreviewWidth(width)
+    setArticlePreviewWidth(nextWidth)
+    persistArticlePreviewWidth(nextWidth)
+  }
+
+  const adjustArticlePreviewWidth = (delta: number) => {
+    updateArticlePreviewWidth(articlePreviewWidth + delta)
+  }
+
+  const startArticlePreviewResize = (event: ReactPointerEvent<HTMLElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    articlePreviewResizeCleanupRef.current?.()
+
+    const resizeHandle = event.currentTarget
+    const pointerId = event.pointerId
+    const startX = event.clientX
+    const startWidth = articlePreviewWidth
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+
+    try {
+      resizeHandle.setPointerCapture(pointerId)
+    } catch {
+      // Pointer capture is best-effort in tests and older browser engines.
+    }
+
+    document.body.style.cursor = 'ew-resize'
+    document.body.style.userSelect = 'none'
+    setIsArticlePreviewResizing(true)
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return
+      moveEvent.preventDefault()
+      updateArticlePreviewWidth(startWidth + startX - moveEvent.clientX)
+    }
+
+    const cleanup = () => {
+      document.removeEventListener('pointermove', handlePointerMove, true)
+      document.removeEventListener('pointerup', handlePointerEnd, true)
+      document.removeEventListener('pointercancel', handlePointerEnd, true)
+      resizeHandle.removeEventListener('lostpointercapture', cleanup)
+      window.removeEventListener('blur', cleanup)
+      try {
+        if (resizeHandle.hasPointerCapture(pointerId)) {
+          resizeHandle.releasePointerCapture(pointerId)
+        }
+      } catch {
+        // The browser may already have released capture by this point.
+      }
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+      setIsArticlePreviewResizing(false)
+      articlePreviewResizeCleanupRef.current = null
+    }
+
+    const handlePointerEnd = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId === pointerId) {
+        cleanup()
+      }
+    }
+
+    articlePreviewResizeCleanupRef.current = cleanup
+    document.addEventListener('pointermove', handlePointerMove, true)
+    document.addEventListener('pointerup', handlePointerEnd, true)
+    document.addEventListener('pointercancel', handlePointerEnd, true)
+    resizeHandle.addEventListener('lostpointercapture', cleanup)
+    window.addEventListener('blur', cleanup)
   }
 
   const hasUnsavedNoteDrafts = useMemo(
@@ -317,6 +396,7 @@ export function DashboardPage() {
     const syncLayout = () => {
       const nextWide = window.innerWidth >= 1024
       setIsWideLayout(nextWide)
+      setArticlePreviewWidth((current) => clampArticlePreviewWidth(current))
 
       if (!nextWide) {
         return
@@ -330,6 +410,8 @@ export function DashboardPage() {
     window.addEventListener('resize', syncLayout)
     return () => window.removeEventListener('resize', syncLayout)
   }, [])
+
+  useEffect(() => () => articlePreviewResizeCleanupRef.current?.(), [])
 
   useEffect(() => {
     if (!articlePreview) {
@@ -1317,11 +1399,15 @@ export function DashboardPage() {
           if (window.id !== windowId) return window
           return {
             ...window,
-            rect: {
-              ...window.rect,
-              x: snapped.x,
-              y: snapped.y,
-            },
+            rect: normalizePanelRect(
+              {
+                ...window.rect,
+                x: snapped.x,
+                y: snapped.y,
+              },
+              rootBounds.width,
+              rootBounds.height,
+            ),
           }
         })
       })
@@ -1365,11 +1451,15 @@ export function DashboardPage() {
           if (window.id !== windowId) return window
           return {
             ...window,
-            rect: {
-              ...window.rect,
-              width: clamp(startRect.width + deltaX, WINDOW_MIN_WIDTH, maxWidth),
-              height: clamp(startRect.height + deltaY, WINDOW_MIN_HEIGHT, maxHeight),
-            },
+            rect: normalizePanelRect(
+              {
+                ...window.rect,
+                width: clamp(startRect.width + deltaX, WINDOW_MIN_WIDTH, maxWidth),
+                height: clamp(startRect.height + deltaY, WINDOW_MIN_HEIGHT, maxHeight),
+              },
+              rootBounds.width,
+              rootBounds.height,
+            ),
           }
         }),
       )
@@ -1382,38 +1472,6 @@ export function DashboardPage() {
 
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }
-
-  const adjustFreeWindowRect = (
-    windowId: string,
-    patch: Partial<Pick<PanelRect, 'x' | 'y' | 'width' | 'height'>>,
-  ) => {
-    if (!isWideLayout) {
-      return
-    }
-
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.snap !== 'free') {
-          return window
-        }
-
-        return {
-          ...window,
-          rect: normalizePanelRect(
-            {
-              x: window.rect.x + (patch.x ?? 0),
-              y: window.rect.y + (patch.y ?? 0),
-              width: window.rect.width + (patch.width ?? 0),
-              height: window.rect.height + (patch.height ?? 0),
-            },
-            width,
-            height,
-          ),
-        }
-      }),
-    )
   }
 
   const saveCurrentView = () => {
@@ -2349,84 +2407,6 @@ export function DashboardPage() {
                         </button>
                       </>
                     )}
-                    {isEditMode && isWideLayout && windowLayout.snap === 'free' && (
-                      <div
-                        role="group"
-                        aria-label={`${windowLayout.title} keyboard layout controls`}
-                        className="w-full rounded border border-slate/20 bg-white/80 p-2 text-[11px] dark:border-cyan-900/40 dark:bg-[#041612]/85"
-                      >
-                        <p className="font-semibold text-slate-800 dark:text-white/80">Keyboard panel controls</p>
-                        <p className="mt-1 text-slate dark:text-white/60">
-                          Position {resolvedRect.x}, {resolvedRect.y} · Size {resolvedRect.width} x {resolvedRect.height}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { x: -KEYBOARD_PANEL_MOVE_STEP })}
-                            aria-label={`Move ${windowLayout.title} left`}
-                          >
-                            Left
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { x: KEYBOARD_PANEL_MOVE_STEP })}
-                            aria-label={`Move ${windowLayout.title} right`}
-                          >
-                            Right
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { y: -KEYBOARD_PANEL_MOVE_STEP })}
-                            aria-label={`Move ${windowLayout.title} up`}
-                          >
-                            Up
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { y: KEYBOARD_PANEL_MOVE_STEP })}
-                            aria-label={`Move ${windowLayout.title} down`}
-                          >
-                            Down
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { width: -KEYBOARD_PANEL_RESIZE_STEP })}
-                            aria-label={`Make ${windowLayout.title} narrower`}
-                          >
-                            Narrower
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { width: KEYBOARD_PANEL_RESIZE_STEP })}
-                            aria-label={`Make ${windowLayout.title} wider`}
-                          >
-                            Wider
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { height: -KEYBOARD_PANEL_RESIZE_STEP })}
-                            aria-label={`Make ${windowLayout.title} shorter`}
-                          >
-                            Shorter
-                          </button>
-                          <button
-                            type="button"
-                            className="rounded border border-slate/20 px-2 py-1 text-[11px] dark:border-cyan-900/40"
-                            onClick={() => adjustFreeWindowRect(windowLayout.id, { height: KEYBOARD_PANEL_RESIZE_STEP })}
-                            aria-label={`Make ${windowLayout.title} taller`}
-                          >
-                            Taller
-                          </button>
-                        </div>
-                      </div>
-                    )}
                 </div>
               </div>
 
@@ -2698,8 +2678,24 @@ export function DashboardPage() {
                                     <span>{item.title}</span>
                                   )}
                                 </h3>
-                                <div className="flex shrink-0 items-center gap-2">
-                                  <span className="tl-source-text text-xs font-semibold dark:text-slate-300">{item.feed_name}</span>
+                                <div className="relative flex shrink-0 items-center gap-2">
+                                  <span className="tl-source-text text-right text-xs font-semibold dark:text-slate-300">{item.feed_name}</span>
+                                  {itemHref && (
+                                    <button
+                                      type="button"
+                                      className="absolute right-0 top-5 whitespace-nowrap rounded border border-slate/20 bg-white px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#041612]"
+                                      onClick={() =>
+                                        openArticlePreview({
+                                          itemId: item.id,
+                                          url: itemHref,
+                                          title: item.title,
+                                          sourceLabel: item.feed_name,
+                                        })
+                                      }
+                                    >
+                                      Preview Original
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                               <button
@@ -2753,29 +2749,14 @@ export function DashboardPage() {
                                   <>
                                     <div className="flex flex-wrap items-center gap-2">
                                       {detailHref ? (
-                                        <>
-                                          <button
-                                            type="button"
-                                            className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
-                                            onClick={() =>
-                                              openArticlePreview({
-                                                url: detailHref,
-                                                title: detail.title,
-                                                sourceLabel: detail.feed_name,
-                                              })
-                                            }
-                                          >
-                                            Preview Original
-                                          </button>
-                                          <a
-                                            className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
-                                            href={detailHref}
-                                            target="_blank"
-                                            rel="noreferrer"
-                                          >
-                                            Open Source Link
-                                          </a>
-                                        </>
+                                        <a
+                                          className="rounded border border-slate/20 px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+                                          href={detailHref}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
+                                          Open Source Link
+                                        </a>
                                       ) : (
                                         <span className="rounded border border-slate/20 px-2 py-1 text-xs text-slate dark:border-cyan-900/40 dark:text-slate-400">
                                           Source link unavailable
@@ -3463,6 +3444,12 @@ export function DashboardPage() {
         <ArticlePreviewDrawer
           preview={articlePreview}
           frameState={articlePreviewFrameState}
+          width={articlePreviewWidth}
+          minWidth={ARTICLE_PREVIEW_MIN_WIDTH}
+          maxWidth={getArticlePreviewMaxWidth()}
+          onResizeStart={startArticlePreviewResize}
+          onResizeBy={adjustArticlePreviewWidth}
+          isResizing={isArticlePreviewResizing}
           onFrameLoad={() => setArticlePreviewFrameState('loaded')}
           onClose={closeArticlePreview}
         />
@@ -3675,20 +3662,63 @@ export function DashboardPage() {
 function ArticlePreviewDrawer({
   preview,
   frameState,
+  width,
+  minWidth,
+  maxWidth,
+  onResizeStart,
+  onResizeBy,
+  isResizing,
   onFrameLoad,
   onClose,
 }: {
   preview: ArticlePreviewState
   frameState: 'loading' | 'loaded' | 'possibly_blocked'
+  width: number
+  minWidth: number
+  maxWidth: number
+  onResizeStart: (event: ReactPointerEvent<HTMLElement>) => void
+  onResizeBy: (delta: number) => void
+  isResizing: boolean
   onFrameLoad: () => void
   onClose: () => void
 }) {
+  const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview`)
+
   return (
     <aside
       role="dialog"
       aria-labelledby="article-preview-title"
-      className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[44rem] flex-col border-l border-slate/20 bg-white shadow-2xl dark:border-cyan-900/50 dark:bg-[#03130f]"
+      className="fixed inset-y-0 right-0 z-50 flex max-w-full flex-col border-l border-slate/20 bg-white shadow-2xl dark:border-cyan-900/50 dark:bg-[#03130f]"
+      style={{ width: `${width}px` }}
     >
+      <div
+        role="separator"
+        aria-label="Resize article preview width"
+        aria-orientation="vertical"
+        aria-valuemin={minWidth}
+        aria-valuemax={maxWidth}
+        aria-valuenow={width}
+        tabIndex={0}
+        className="absolute left-0 top-1/2 z-10 flex h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20 bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2 focus-visible:ring-cyan/50 dark:border-cyan-900/50 dark:bg-[#062019] dark:hover:border-cyan-500/60"
+        onPointerDown={onResizeStart}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowLeft') {
+            event.preventDefault()
+            onResizeBy(32)
+          } else if (event.key === 'ArrowRight') {
+            event.preventDefault()
+            onResizeBy(-32)
+          } else if (event.key === 'Home') {
+            event.preventDefault()
+            onResizeBy(minWidth - width)
+          } else if (event.key === 'End') {
+            event.preventDefault()
+            onResizeBy(maxWidth - width)
+          }
+        }}
+      >
+        <span className="h-12 w-1 rounded-full bg-slate/35 dark:bg-cyan-700/70" />
+      </div>
       <div className="flex items-start justify-between gap-3 border-b border-slate/20 px-4 py-3 dark:border-cyan-900/40">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-slate dark:text-slate-400">{preview.sourceLabel}</p>
@@ -3727,18 +3757,18 @@ function ArticlePreviewDrawer({
           }`}
         >
           {frameState === 'possibly_blocked'
-            ? 'This source may block embedded previews.'
+            ? 'Preview is still loading. Open the original source if it does not render here.'
             : 'Loading original site...'}
         </div>
       )}
 
-      <div className="min-h-0 flex-1 bg-white dark:bg-[#020b09]">
+      <div className={`min-h-0 flex-1 bg-white dark:bg-[#020b09] ${isResizing ? 'cursor-ew-resize select-none' : ''}`}>
         <iframe
           key={preview.url}
           title={`Original article preview: ${preview.title}`}
-          src={preview.url}
-          className="h-full w-full border-0 bg-white"
-          sandbox="allow-forms allow-popups allow-popups-to-escape-sandbox allow-scripts"
+          src={previewFrameUrl}
+          className={`h-full w-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
+          sandbox="allow-popups allow-popups-to-escape-sandbox"
           referrerPolicy="no-referrer"
           onLoad={onFrameLoad}
         />
@@ -4063,6 +4093,50 @@ function formatDashboardTimeRangeSummary(timeRange: TimeRangeFilter, customSince
   if (customSinceDate) return `Custom from ${formatDateOnly(customSinceDate)}`
   if (customUntilDate) return `Custom until ${formatDateOnly(customUntilDate)}`
   return 'Custom window'
+}
+
+function getArticlePreviewMaxWidth() {
+  if (typeof window === 'undefined') {
+    return ARTICLE_PREVIEW_MAX_WIDTH
+  }
+
+  return Math.max(ARTICLE_PREVIEW_MIN_WIDTH, Math.min(ARTICLE_PREVIEW_MAX_WIDTH, window.innerWidth - 48))
+}
+
+function clampArticlePreviewWidth(width: number) {
+  if (!Number.isFinite(width)) {
+    return ARTICLE_PREVIEW_DEFAULT_WIDTH
+  }
+
+  return Math.round(Math.min(Math.max(width, ARTICLE_PREVIEW_MIN_WIDTH), getArticlePreviewMaxWidth()))
+}
+
+function loadArticlePreviewWidth() {
+  if (typeof window === 'undefined') {
+    return ARTICLE_PREVIEW_DEFAULT_WIDTH
+  }
+
+  try {
+    const stored = window.localStorage.getItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY)
+    if (!stored) {
+      return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
+    }
+    return clampArticlePreviewWidth(Number(stored))
+  } catch {
+    return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
+  }
+}
+
+function persistArticlePreviewWidth(width: number) {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.setItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY, String(width))
+  } catch {
+    // Ignore storage failures; the in-memory width still works for this session.
+  }
 }
 
 function countActiveWindowFilters(

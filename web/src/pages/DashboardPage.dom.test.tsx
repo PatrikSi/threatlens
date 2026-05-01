@@ -689,7 +689,7 @@ describe('DashboardPage DOM workflows', () => {
     expect(clickSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('offers keyboard-accessible panel resize controls while editing free-layout dashboards', () => {
+  it('keeps floating layout chrome minimal while preserving drag resize', () => {
     const view = renderPage()
 
     act(() => {
@@ -698,21 +698,17 @@ describe('DashboardPage DOM workflows', () => {
 
     const layoutSelect = view.querySelector<HTMLSelectElement>('[aria-label="RSS Panel 1 panel layout"]')
     expect(layoutSelect).not.toBeNull()
+    const floatingOption = Array.from(layoutSelect!.options).find((option) => option.value === 'free')
+    expect(floatingOption?.textContent).toBe('Floating')
 
     act(() => {
       setSelectValue(layoutSelect!, 'free')
     })
 
-    expect(pageText()).toContain('Keyboard panel controls')
-    expect(document.querySelector('[aria-label="Move RSS Panel 1 left"]')).not.toBeNull()
-    const widerButton = document.querySelector<HTMLButtonElement>('[aria-label="Make RSS Panel 1 wider"]')
-    expect(widerButton).not.toBeNull()
-
-    act(() => {
-      widerButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(document.querySelector('[aria-label="Make RSS Panel 1 taller"]')).not.toBeNull()
+    expect(pageText()).not.toContain('Keyboard panel controls')
+    expect(document.querySelector('[aria-label="Move RSS Panel 1 left"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Make RSS Panel 1 wider"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Resize panel"]')).not.toBeNull()
   })
 
   it('does not auto-mark unread items as read on expansion and tracks dirty note drafts', () => {
@@ -774,7 +770,7 @@ describe('DashboardPage DOM workflows', () => {
     expect(lastUnsavedWarningCall?.[1]).toContain('unsaved dashboard note drafts')
   })
 
-  it('opens a right-side original article preview from expanded RSS detail', () => {
+  it('opens a right-side original article preview from the RSS row source action', () => {
     dashboardPageDomMocks.itemsData = [
       {
         id: 'item-1',
@@ -833,12 +829,7 @@ describe('DashboardPage DOM workflows', () => {
     }
 
     const view = renderPage()
-    const itemToggleButton = view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')
-    expect(itemToggleButton).not.toBeNull()
-
-    act(() => {
-      itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
+    expect(view.querySelector('[aria-controls="rss-item-detail-item-1"]')?.getAttribute('aria-expanded')).toBe('false')
 
     const previewButton = getButton('Preview Original')
     expect(previewButton).not.toBeNull()
@@ -853,11 +844,32 @@ describe('DashboardPage DOM workflows', () => {
     expect(previewDialog?.textContent).toContain('Critical vendor bulletin')
 
     const iframe = previewDialog?.querySelector<HTMLIFrameElement>('iframe')
-    expect(iframe?.getAttribute('src')).toBe('https://publisher.example.com/articles/critical-vendor-bulletin')
-    expect(iframe?.getAttribute('sandbox')).toContain('allow-scripts')
+    expect(iframe?.getAttribute('src')).toContain('/items/item-1/article-preview')
+    expect(iframe?.getAttribute('src')).not.toBe('https://publisher.example.com/articles/critical-vendor-bulletin')
+    expect(iframe?.getAttribute('sandbox')).toContain('allow-popups')
+    expect(iframe?.getAttribute('sandbox')).not.toContain('allow-scripts')
 
-    const originalLink = previewDialog?.querySelector<HTMLAnchorElement>('a[href="https://publisher.example.com/articles/critical-vendor-bulletin"]')
+    const originalLink = previewDialog?.querySelector<HTMLAnchorElement>('a[href="https://example.com/items/1"]')
     expect(originalLink?.textContent).toContain('Open Original')
+
+    const resizeHandle = previewDialog?.querySelector<HTMLElement>('[aria-label="Resize article preview width"]')
+    expect(resizeHandle).not.toBeNull()
+    expect(previewDialog?.style.width).toBe('704px')
+
+    act(() => {
+      resizeHandle!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 700 }))
+    })
+
+    expect(iframe?.className).toContain('pointer-events-none')
+
+    act(() => {
+      document.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 600 }))
+      document.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }))
+    })
+
+    expect(previewDialog?.style.width).toBe('804px')
+    expect(iframe?.className).not.toContain('pointer-events-none')
+    expect(window.localStorage.getItem('threatlens.article-preview.width.v1')).toBe('804')
 
     const closeButton = previewDialog?.querySelector<HTMLButtonElement>('[aria-label="Close original article preview"]')
     expect(closeButton).not.toBeNull()
@@ -867,6 +879,13 @@ describe('DashboardPage DOM workflows', () => {
     })
 
     expect(document.querySelector('[aria-labelledby="article-preview-title"]')).toBeNull()
+
+    act(() => {
+      previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const reopenedPreviewDialog = document.querySelector<HTMLElement>('[aria-labelledby="article-preview-title"]')
+    expect(reopenedPreviewDialog?.style.width).toBe('804px')
   })
 
   it('confirms before clearing a loaded saved view when note drafts are still dirty', () => {
