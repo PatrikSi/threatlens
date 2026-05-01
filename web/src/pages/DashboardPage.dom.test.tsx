@@ -52,7 +52,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
     is_read: boolean
     is_starred: boolean
     tags: string[]
-    ai_relevance_label: null
+    ai_relevance_label: 'low' | 'medium' | 'high' | null
   }>,
   itemDetailById: {} as Record<string, unknown>,
   unsavedChangesWarning: vi.fn(),
@@ -315,6 +315,7 @@ async function uploadFile(input: HTMLInputElement, file: File) {
 }
 
 beforeEach(() => {
+  dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = false
   dashboardPageDomMocks.views = [
     createSavedView(
       'view-rss',
@@ -709,6 +710,40 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Move RSS Panel 1 left"]')).toBeNull()
     expect(document.querySelector('[aria-label="Make RSS Panel 1 wider"]')).toBeNull()
     expect(document.querySelector('[aria-label="Resize panel"]')).not.toBeNull()
+  })
+
+  it('uses subtle semantic chip tones for starred, tagged, and AI relevance item state', () => {
+    dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = true
+    dashboardPageDomMocks.itemsData = [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        is_read: true,
+        is_starred: true,
+        tags: ['vendor:microsoft', 'priority', 'exploitability'],
+        ai_relevance_label: 'high',
+      },
+    ]
+
+    renderPage()
+
+    const starredChip = Array.from(document.querySelectorAll('span')).find((span) => span.textContent === 'Starred')
+    expect(starredChip?.className).toContain('tl-chip-starred')
+
+    const aiChip = Array.from(document.querySelectorAll('span')).find((span) => span.textContent === 'AI High')
+    expect(aiChip?.className).toContain('tl-chip-ai-high')
+
+    const tagChip = Array.from(document.querySelectorAll('span')).find((span) => span.textContent === '#vendor:microsoft')
+    expect(tagChip?.className).toContain('tl-chip-tag')
+    expect(pageText()).not.toContain('#priority')
   })
 
   it('does not auto-mark unread items as read on expansion and tracks dirty note drafts', () => {

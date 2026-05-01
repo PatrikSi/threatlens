@@ -2717,7 +2717,7 @@ export function DashboardPage() {
                                     <span className={`tl-chip ${itemStatusTone(item.status)}`}>{formatItemStatusLabel(item.status)}</span>
                                   )}
                                   {!item.is_read && <span className="tl-chip tl-chip-unread">Unread</span>}
-                                  {item.is_starred && <span className="tl-chip tl-chip-neutral">Starred</span>}
+                                  {item.is_starred && <span className="tl-chip tl-chip-starred">Starred</span>}
                                   {aiRelevanceEnabled && item.ai_relevance_label && (
                                     <span className={`tl-chip ${aiRelevanceTone(item.ai_relevance_label)}`}>
                                       AI {formatAiRelevanceLabel(item.ai_relevance_label)}
@@ -2729,7 +2729,7 @@ export function DashboardPage() {
                                     .map((tagName) => (
                                       <span
                                         key={`${item.id}-${tagName}`}
-                                        className="tl-chip tl-chip-neutral"
+                                        className="tl-chip tl-chip-tag"
                                       >
                                         #{tagName}
                                       </span>
@@ -4013,12 +4013,12 @@ function formatAiRelevanceLabel(value: 'low' | 'medium' | 'high'): string {
 
 function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
   if (value === 'high') {
-    return 'tl-chip-warning'
+    return 'tl-chip-ai-high'
   }
   if (value === 'medium') {
-    return 'tl-chip-info'
+    return 'tl-chip-ai-medium'
   }
-  return 'tl-chip-neutral'
+  return 'tl-chip-ai-low'
 }
 
 function formatItemStatusLabel(value: string): string {
