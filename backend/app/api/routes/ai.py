@@ -44,7 +44,9 @@ from app.services.ai_integration import (
 )
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
+    AI_STATUS_QUEUED,
     AI_STATUS_READY,
+    AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TASK_TYPE_DAILY_BRIEF,
@@ -601,6 +603,7 @@ def list_ai_ops_runs_route(
         since=since,
         parent_run_id=parent_run_id,
         only_failures=only_failures,
+        reconcile_stale=status_value in {AI_STATUS_QUEUED, AI_STATUS_RUNNING},
     )
 
 

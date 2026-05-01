@@ -224,6 +224,7 @@ function aiMutationResult(mutate: ReturnType<typeof vi.fn>) {
 }
 
 vi.mock('@tanstack/react-query', () => ({
+  keepPreviousData: <T,>(previousData: T) => previousData,
   useQueryClient: () => aiSettingsPageDomMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown[] }) => {
     const key = queryKey.join(':')

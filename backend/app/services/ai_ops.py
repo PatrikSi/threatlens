@@ -297,8 +297,10 @@ def list_ai_task_runs(
     since: datetime | None = None,
     parent_run_id: uuid.UUID | None = None,
     only_failures: bool = False,
+    reconcile_stale: bool = True,
 ) -> AITaskRunListResponse:
-    _reconcile_stale_ai_runs(db)
+    if reconcile_stale:
+        _reconcile_stale_ai_runs(db)
     base_query = select(AITaskRun)
     count_query = select(func.count(AITaskRun.id))
     if task_type:
@@ -334,10 +336,14 @@ def list_ai_task_runs(
 
 
 def get_ai_task_run_detail(db: Session, *, run_id: uuid.UUID) -> AITaskRunDetailResponse | None:
-    _reconcile_stale_ai_runs(db)
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
+    if run.status in {AI_STATUS_QUEUED, AI_STATUS_RUNNING}:
+        _reconcile_stale_ai_runs(db)
+        run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+        if run is None:
+            return None
     events = list(
         db.scalars(
             select(AITaskEvent).where(AITaskEvent.task_run_id == run_id).order_by(AITaskEvent.created_at.asc())

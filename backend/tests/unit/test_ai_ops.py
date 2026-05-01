@@ -21,6 +21,7 @@ from app.services.ai_ops import (
     _load_live_task_snapshot,
     cancel_ai_task_run,
     finish_ai_task_run,
+    get_ai_task_run_detail,
     list_ai_task_runs,
     queue_ai_task_run,
     start_ai_task_run,
@@ -115,6 +116,72 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
 
     assert response.items[0].id == parent_run.id
     assert response.items[0].status == AI_STATUS_ERROR
+
+
+def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="plain-history")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="plain-history-task")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    def fail_live_snapshot():
+        raise AssertionError("plain history reads should not inspect live workers")
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+
+    response = list_ai_task_runs(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        limit=10,
+        reconcile_stale=False,
+    )
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_RUNNING
+    assert refreshed.finished_at is None
+    assert response.items[0].status == AI_STATUS_RUNNING
+
+
+def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="finished-detail")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    finish_ai_task_run(db_session, run_id=run.id, status=AI_STATUS_READY)
+    db_session.commit()
+
+    def fail_live_snapshot():
+        raise AssertionError("finished run detail reads should not inspect live workers")
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+
+    detail = get_ai_task_run_detail(db_session, run_id=run.id)
+
+    assert detail is not None
+    assert detail.run.id == run.id
+    assert detail.run.status == AI_STATUS_READY
 
 
 def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(db_session, monkeypatch):

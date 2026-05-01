@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
@@ -84,6 +84,40 @@ const AI_TABS: Array<{ value: AiTab; label: string }> = [
   { value: 'activity', label: 'Jobs' },
   { value: 'configuration', label: 'Configuration' },
 ]
+
+type RunsQueryArgs = {
+  days: number
+  selectedModel: string
+  runPage: number
+  runFilters: RunFilters
+}
+
+function buildRunsPath({ days, selectedModel, runPage, runFilters }: RunsQueryArgs) {
+  const params = new URLSearchParams()
+  params.set('limit', String(RUN_PAGE_SIZE))
+  params.set('offset', String(runPage * RUN_PAGE_SIZE))
+  params.set('days', String(days))
+  if (selectedModel !== 'all') {
+    params.set('model', selectedModel)
+  }
+  if (runFilters.taskType) {
+    params.set('task_type', runFilters.taskType)
+  }
+  if (runFilters.status) {
+    params.set('status', runFilters.status)
+  }
+  if (runFilters.triggerSource) {
+    params.set('trigger_source', runFilters.triggerSource)
+  }
+  if (runFilters.onlyFailures) {
+    params.set('only_failures', 'true')
+  }
+  return `/ai/ops/runs?${params.toString()}`
+}
+
+function buildRunsQueryKey({ days, selectedModel, runPage, runFilters }: RunsQueryArgs) {
+  return ['ai', 'ops', 'runs', days, selectedModel, runPage, runFilters] as const
+}
 
 function getAiTabButtonId(tab: AiTab) {
   return `ai-settings-tab-${tab}`
@@ -325,35 +359,22 @@ export function AiSettingsPage() {
     staleTime: AI_REFERENCE_STALE_MS,
   })
 
-  const runsPath = useMemo(() => {
-    const params = new URLSearchParams()
-    params.set('limit', String(RUN_PAGE_SIZE))
-    params.set('offset', String(runPage * RUN_PAGE_SIZE))
-    params.set('days', String(days))
-    if (selectedModel !== 'all') {
-      params.set('model', selectedModel)
-    }
-    if (runFilters.taskType) {
-      params.set('task_type', runFilters.taskType)
-    }
-    if (runFilters.status) {
-      params.set('status', runFilters.status)
-    }
-    if (runFilters.triggerSource) {
-      params.set('trigger_source', runFilters.triggerSource)
-    }
-    if (runFilters.onlyFailures) {
-      params.set('only_failures', 'true')
-    }
-    return `/ai/ops/runs?${params.toString()}`
-  }, [days, runFilters.onlyFailures, runFilters.status, runFilters.taskType, runFilters.triggerSource, runPage, selectedModel])
+  const runsPath = useMemo(
+    () => buildRunsPath({ days, selectedModel, runPage, runFilters }),
+    [days, runFilters, runPage, selectedModel],
+  )
+  const runsQueryKey = useMemo(
+    () => buildRunsQueryKey({ days, selectedModel, runPage, runFilters }),
+    [days, runFilters, runPage, selectedModel],
+  )
 
   const runsQuery = useQuery({
-    queryKey: ['ai', 'ops', 'runs', days, selectedModel, runPage, runFilters],
+    queryKey: runsQueryKey,
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(runsPath, { signal }),
     enabled: activityQueriesEnabled,
     refetchInterval: 10000,
     staleTime: 5000,
+    placeholderData: keepPreviousData,
   })
 
   const runDetailQuery = useQuery({
@@ -383,14 +404,39 @@ export function AiSettingsPage() {
   }, [draftDirty, settingsQuery.data])
 
   useEffect(() => {
-    if (!runsQuery.data) {
+    if (!runsQuery.data || runsQuery.isPlaceholderData) {
       return
     }
     const nextSelectedRunId = resolveVisibleRunSelection(runsQuery.data?.items, selectedRunId)
     if (nextSelectedRunId !== selectedRunId) {
       setSelectedRunId(nextSelectedRunId)
     }
-  }, [runsQuery.data, selectedRunId])
+  }, [runsQuery.data, runsQuery.isPlaceholderData, selectedRunId])
+
+  useEffect(() => {
+    if (!activityQueriesEnabled || !runsQuery.data || runsQuery.isPlaceholderData) {
+      return
+    }
+    const totalPages = Math.max(1, Math.ceil(runsQuery.data.total / RUN_PAGE_SIZE))
+    const pagesToPrefetch = [runPage + 1, runPage - 1].filter((page) => page >= 0 && page < totalPages)
+    pagesToPrefetch.forEach((page) => {
+      const prefetchArgs = { days, selectedModel, runPage: page, runFilters }
+      void queryClient.prefetchQuery({
+        queryKey: buildRunsQueryKey(prefetchArgs),
+        queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(buildRunsPath(prefetchArgs), { signal }),
+        staleTime: 5000,
+      })
+    })
+  }, [
+    activityQueriesEnabled,
+    days,
+    queryClient,
+    runFilters,
+    runPage,
+    runsQuery.data,
+    runsQuery.isPlaceholderData,
+    selectedModel,
+  ])
 
   const showActionError = (error: unknown, fallback: string) => {
     const message =
@@ -2094,10 +2140,19 @@ function ActivityTab({
   const selectedRun = runDetailQuery.data?.run
   const runTotal = runsQuery.data?.total ?? 0
   const runOffset = runPage * RUN_PAGE_SIZE
+  const visibleRunOffset = runsQuery.isPlaceholderData ? (runsQuery.data?.offset ?? runOffset) : runOffset
   const runCount = runsQuery.data?.items.length ?? 0
   const totalPages = Math.max(1, Math.ceil(runTotal / RUN_PAGE_SIZE))
   const runListLoading = runsQuery.isLoading && !runsQuery.data
-  const runListRefreshing = runsQuery.isFetching && Boolean(runsQuery.data)
+  const runListPageLoading = runsQuery.isFetching && runsQuery.isPlaceholderData
+  const runListRefreshing = runsQuery.isFetching && Boolean(runsQuery.data) && !runsQuery.isPlaceholderData
+  const runListStatusMessage = runListLoading
+    ? 'Loading AI run history...'
+    : runListPageLoading
+      ? `Loading page ${runPage + 1}...`
+      : runListRefreshing
+        ? 'Refreshing run history...'
+        : null
   const [articlePreviewLimit, setArticlePreviewLimit] = useState(8)
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
 
@@ -2106,14 +2161,14 @@ function ActivityTab({
   }, [selectedRunId])
 
   useEffect(() => {
-    if (!runsQuery.data || runPage === 0) {
+    if (!runsQuery.data || runsQuery.isPlaceholderData || runPage === 0) {
       return
     }
     if (runsQuery.data.total > runOffset) {
       return
     }
     setRunPage(Math.max(0, Math.ceil(runsQuery.data.total / RUN_PAGE_SIZE) - 1))
-  }, [runOffset, runPage, runsQuery.data, setRunPage])
+  }, [runOffset, runPage, runsQuery.data, runsQuery.isPlaceholderData, setRunPage])
 
   const inspectedRunDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'inspect-run', inspectedRunId],
@@ -2323,10 +2378,12 @@ function ActivityTab({
             </div>
           </div>
 
-          {runListLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading AI run history...</p>}
-          {runListRefreshing && (
-            <p className="mt-3 text-xs font-semibold uppercase text-slate dark:text-white/55">Refreshing run history...</p>
-          )}
+          <div
+            className="mt-3 flex min-h-5 items-center text-xs font-semibold uppercase text-slate dark:text-white/55"
+            aria-live="polite"
+          >
+            {runListStatusMessage ?? <span aria-hidden="true">&nbsp;</span>}
+          </div>
           {runsQuery.isError && (
             <p className="mt-3 text-sm text-red-600">
               Failed to load AI runs. {(runsQuery.error as Error | undefined)?.message ?? ''}
@@ -2334,7 +2391,10 @@ function ActivityTab({
           )}
 
           <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm" aria-busy={runListLoading || runListRefreshing}>
+            <table
+              className={`min-w-full text-sm transition-opacity ${runListPageLoading ? 'opacity-70' : ''}`}
+              aria-busy={runListLoading || runListRefreshing || runListPageLoading}
+            >
               <caption className="sr-only">AI task history. Select a run to inspect its details below.</caption>
               <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                 <tr>
@@ -2425,14 +2485,14 @@ function ActivityTab({
             </table>
           </div>
 
-          {!runListLoading && !runsQuery.isError && !runsQuery.data?.items.length && (
+          {!runListLoading && !runListPageLoading && !runsQuery.isError && !runsQuery.data?.items.length && (
             <EmptyInline>No AI runs matched the current filters.</EmptyInline>
           )}
 
           <div className="mt-4 flex items-center justify-between gap-3 text-sm">
             <span className="text-slate dark:text-white/60">
               {runCount > 0
-                ? `Showing ${runOffset + 1}-${runOffset + runCount} of ${runTotal}`
+                ? `Showing ${visibleRunOffset + 1}-${visibleRunOffset + runCount} of ${runTotal}`
                 : `Showing 0 of ${runTotal}`}
             </span>
             <div className="flex items-center gap-2">
