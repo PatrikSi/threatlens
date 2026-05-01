@@ -1248,7 +1248,8 @@ export function DashboardPage() {
     }
   }, [showAddWindowMenu])
 
-  const handleToggleItem = (windowId: string, itemId: string) => {
+  const handleToggleItem = (windowId: string, itemId: string, isRead: boolean) => {
+    const isOpening = expandedItemIdsByWindowId[windowId] !== itemId
     clearItemFeedback(setItemActionFeedbackByItemId, itemId)
     clearItemFeedback(setArticleRetryFeedbackByItemId, itemId)
     setExpandedItemIdsByWindowId((current) => {
@@ -1262,6 +1263,12 @@ export function DashboardPage() {
         [windowId]: itemId,
       }
     })
+    if (isOpening && !isRead && canManage && !(updateRead.isPending && updateRead.variables?.itemId === itemId)) {
+      updateRead.mutate({
+        itemId,
+        isRead: true,
+      })
+    }
   }
 
   const setWindowSnap = (windowId: string, snap: DashboardWindowSnap) => {
@@ -2707,7 +2714,7 @@ export function DashboardPage() {
                               <button
                                 type="button"
                                 className="mt-1 w-full text-left text-slate-900 dark:text-slate-100"
-                                onClick={() => handleToggleItem(windowLayout.id, item.id)}
+                                onClick={() => handleToggleItem(windowLayout.id, item.id, item.is_read)}
                                 aria-expanded={expanded}
                                 aria-controls={`rss-item-detail-${item.id}`}
                               >

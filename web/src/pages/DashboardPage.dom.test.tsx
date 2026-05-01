@@ -746,7 +746,7 @@ describe('DashboardPage DOM workflows', () => {
     expect(pageText()).not.toContain('#priority')
   })
 
-  it('does not auto-mark unread items as read on expansion and tracks dirty note drafts', () => {
+  it('auto-marks unread items as read on expansion and tracks dirty note drafts', () => {
     dashboardPageDomMocks.itemsData = [
       {
         id: 'item-1',
@@ -791,7 +791,10 @@ describe('DashboardPage DOM workflows', () => {
       itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(dashboardPageDomMocks.readMutate).not.toHaveBeenCalled()
+    expect(dashboardPageDomMocks.readMutate).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      isRead: true,
+    })
 
     const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')
     expect(notesTextarea).not.toBeNull()
