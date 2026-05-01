@@ -219,6 +219,9 @@ export function NotificationsPage() {
     hasUnsavedWebhookDraftChanges,
     'Discard unsaved webhook changes?',
   )
+  const showWebhookEditor = canManageWebhooks || Boolean(selectedWebhookId)
+  const webhookEditorBlockedNotice =
+    accessNotice ?? 'Webhook writes are unavailable until an operator updates the notification policy.'
 
   useEffect(() => {
     if (!sampleFeedId) {
@@ -499,6 +502,7 @@ export function NotificationsPage() {
         </section>
 
         <div className="space-y-4">
+          {showWebhookEditor ? (
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -788,7 +792,7 @@ export function NotificationsPage() {
               </div>
             )}
 
-            {!isReadOnlyViewer && (
+            {canManageWebhooks && !isReadOnlyViewer && (
               <div className="mt-5 flex flex-wrap items-center gap-2">
                 <button
                   className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
@@ -863,6 +867,18 @@ export function NotificationsPage() {
               </p>
             )}
           </section>
+          ) : (
+            <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+              <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Webhook Editor</p>
+              <h3 className="mt-1 font-display text-lg">Webhook writes unavailable</h3>
+              <p className="mt-2 text-sm text-slate dark:text-white/75">{webhookEditorBlockedNotice}</p>
+              {webhooks.length > 0 && (
+                <p className="mt-3 text-sm text-slate dark:text-white/70">
+                  Select a saved webhook to inspect its current configuration in read-only mode.
+                </p>
+              )}
+            </section>
+          )}
 
           <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
             <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">

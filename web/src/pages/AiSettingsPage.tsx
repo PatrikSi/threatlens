@@ -649,6 +649,13 @@ export function AiSettingsPage() {
   ]
     .filter(Boolean)
     .join(' ')
+  const configurationSaveBlockedReason =
+    settingsSaveBlockedReason ??
+    (testConnectionMutation.isPending
+      ? 'Wait for the saved connection test to finish before saving settings.'
+      : !draftDirty
+        ? 'No AI settings changes to save.'
+        : null)
 
   function clearReprocessScope() {
     setQueuedReprocessScopeFingerprint(null)
@@ -936,14 +943,19 @@ export function AiSettingsPage() {
                 isError={settingsQuery.isError}
                 errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
                 savePending={saveMutation.isPending}
-                saveDisabled={!settingsReadyToSave || Boolean(draftValidationError)}
-                saveDisabledReason={settingsSaveBlockedReason}
+                saveDisabled={
+                  !settingsReadyToSave ||
+                  !draftDirty ||
+                  testConnectionMutation.isPending ||
+                  Boolean(draftValidationError)
+                }
+                saveDisabledReason={configurationSaveBlockedReason}
                 validation={draftValidation}
                 onSave={() => {
-                  if (!settingsReadyToSave || draftValidationError) {
+                  if (configurationSaveBlockedReason) {
                     setNotice({
                       tone: 'error',
-                      message: settingsSaveBlockedReason ?? 'AI settings must load and pass validation before saving changes.',
+                      message: configurationSaveBlockedReason,
                     })
                     return
                   }

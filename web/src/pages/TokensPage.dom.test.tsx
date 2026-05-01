@@ -33,6 +33,11 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   },
   createMutate: vi.fn(),
   revokeMutate: vi.fn(),
+  useBlocker: vi.fn(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  })),
 }))
 
 function tokenMutationResult(mutate: ReturnType<typeof vi.fn>) {
@@ -88,6 +93,10 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => tokensPageDomMocks.currentUser,
 }))
 
+vi.mock('react-router-dom', () => ({
+  useBlocker: tokensPageDomMocks.useBlocker,
+}))
+
 import { TokensPage } from './TokensPage'
 
 let root: Root | null = null
@@ -117,6 +126,12 @@ afterEach(() => {
   document.body.innerHTML = ''
   tokensPageDomMocks.createMutate.mockReset()
   tokensPageDomMocks.revokeMutate.mockReset()
+  tokensPageDomMocks.useBlocker.mockReset()
+  tokensPageDomMocks.useBlocker.mockImplementation(() => ({
+    state: 'unblocked' as const,
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  }))
 })
 
 describe('TokensPage DOM workflows', () => {
@@ -152,4 +167,36 @@ describe('TokensPage DOM workflows', () => {
 
     expect(tokensPageDomMocks.revokeMutate).toHaveBeenCalledWith('token-2')
   })
+
+  it('validates token creation before sending the request', () => {
+    const view = renderPage()
+    const nameInput = view.querySelector<HTMLInputElement>('#token-name')
+    const expiryInput = view.querySelector<HTMLInputElement>('#token-expiry-days')
+    const passwordInput = view.querySelector<HTMLInputElement>('#token-current-password')
+    const form = view.querySelector('form')
+
+    expect(nameInput).not.toBeNull()
+    expect(expiryInput).not.toBeNull()
+    expect(passwordInput).not.toBeNull()
+    expect(form).not.toBeNull()
+
+    act(() => {
+      setInputValue(nameInput!, 'Agent token')
+      setInputValue(expiryInput!, '0')
+      setInputValue(passwordInput!, 'wrong-password')
+    })
+
+    act(() => {
+      form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    })
+
+    expect(pageText()).toContain('Expiry must be between 1 and 3650 days.')
+    expect(tokensPageDomMocks.createMutate).not.toHaveBeenCalled()
+  })
 })
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}

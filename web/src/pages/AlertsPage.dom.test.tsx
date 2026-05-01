@@ -13,6 +13,7 @@ const alertsPageDomMocks = vi.hoisted(() => ({
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   deleteMutate: vi.fn(),
+  previewItems: [] as unknown[],
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -65,8 +66,8 @@ vi.mock('@tanstack/react-query', () => ({
         ...baseResult,
         data: enabled
           ? {
-              items: [],
-              total: 0,
+              items: alertsPageDomMocks.previewItems,
+              total: alertsPageDomMocks.previewItems.length,
               page: 1,
               page_size: 5,
             }
@@ -124,6 +125,12 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function setTextAreaValue(input: HTMLTextAreaElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -135,9 +142,40 @@ afterEach(() => {
   alertsPageDomMocks.saveMutate.mockReset()
   alertsPageDomMocks.updateMutate.mockReset()
   alertsPageDomMocks.deleteMutate.mockReset()
+  alertsPageDomMocks.previewItems = []
 })
 
 describe('AlertsPage DOM workflows', () => {
+  it('disables empty alert submissions and renders preview summaries as text', () => {
+    alertsPageDomMocks.previewItems = [
+      {
+        id: 'item-1',
+        title: 'Ransomware report',
+        feed_name: 'Security Feed',
+        first_seen_at: '2026-04-21T10:00:00Z',
+        summary: '<p><em><strong>Introduction</strong></em></p>&#xd;<a href="https://example.com">Read more</a>',
+        matches: [{ category: 'malware', matched_keywords: ['ransomware'] }],
+      },
+    ]
+    const view = renderPage()
+    const addButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Add Interest'))
+    const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')
+    const keywordsInput = view.querySelector<HTMLTextAreaElement>('#alert-interest-keywords')
+
+    expect(addButton).not.toBeNull()
+    expect(addButton?.hasAttribute('disabled')).toBe(true)
+    expect(pageText()).toContain('Enter an interest name.')
+
+    act(() => {
+      setInputValue(nameInput!, 'Agent2 Preview Only')
+      setTextAreaValue(keywordsInput!, 'ransomware')
+    })
+
+    expect(pageText()).toContain('Introduction Read more')
+    expect(pageText()).not.toContain('<p>')
+    expect(pageText()).not.toContain('&#xd;')
+  })
+
   it('loads alert edits, protects unsaved changes, toggles alert state, and confirms deletion', () => {
     const view = renderPage()
 

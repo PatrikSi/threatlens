@@ -78,6 +78,14 @@ vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => tokensPageMocks.currentUser,
 }))
 
+vi.mock('react-router-dom', () => ({
+  useBlocker: () => ({
+    state: 'unblocked',
+    proceed: vi.fn(),
+    reset: vi.fn(),
+  }),
+}))
+
 import { TokensPage } from './TokensPage'
 
 describe('reduceTokenCreateFormState', () => {

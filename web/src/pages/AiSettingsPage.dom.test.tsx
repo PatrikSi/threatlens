@@ -547,6 +547,17 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
   })
 
+  it('blocks no-op AI settings saves', () => {
+    renderPage()
+
+    act(() => {
+      getButton('Configuration')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('No AI settings changes to save.')
+    expect(getButton('Save Settings')?.hasAttribute('disabled')).toBe(true)
+  })
+
   it('renders accessible tab and selection controls, then wires the queued-task cancellation dialog', () => {
     const view = renderPage()
 

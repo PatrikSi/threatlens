@@ -4,7 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
-import { useTokenCreateFormState } from '../hooks/useTokenCreateFormState'
+import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import {
+  DEFAULT_TOKEN_EXPIRY_DAYS,
+  type TokenCreateFormState,
+  useTokenCreateFormState,
+} from '../hooks/useTokenCreateFormState'
 import { ApiToken, ApiTokenCreateResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -12,10 +17,20 @@ export function TokensPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
   const [tokenFormState, dispatchTokenForm] = useTokenCreateFormState()
+  const [tokenFormError, setTokenFormError] = useState('')
   const [adminUserFilter, setAdminUserFilter] = useState('')
   const [pendingRevocation, setPendingRevocation] = useState<ApiToken | null>(null)
   const [revocationNotice, setRevocationNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null)
   const isAdmin = meQuery.data?.role === 'admin'
+  const tokenDraftDirty =
+    tokenFormState.name.trim().length > 0 ||
+    tokenFormState.scopesText.trim().length > 0 ||
+    tokenFormState.currentPassword.trim().length > 0 ||
+    tokenFormState.expiresInDays !== DEFAULT_TOKEN_EXPIRY_DAYS
+  const confirmDiscardTokenDraft = useUnsavedChangesWarning(
+    tokenDraftDirty,
+    'You have an unfinished API token draft. Leave without creating it?',
+  )
 
   const tokenQueryKey = ['tokens', adminUserFilter]
   const tokensQuery = useQuery({
@@ -92,14 +107,26 @@ export function TokensPage() {
 
   const onCreateSubmit = (event: FormEvent) => {
     event.preventDefault()
+    const validationError = getTokenCreateValidationError(tokenFormState)
+    if (validationError) {
+      setTokenFormError(validationError)
+      return
+    }
+    setTokenFormError('')
     dispatchTokenForm({ type: 'createStarted' })
     createToken.mutate()
+  }
+
+  const updateTokenForm = (action: Parameters<typeof dispatchTokenForm>[0]) => {
+    setTokenFormError('')
+    dispatchTokenForm(action)
   }
 
   const legacyUnscopedTokens = tokensQuery.data?.filter((token) => token.scopes.length === 0) ?? []
 
   return (
     <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
+      {confirmDiscardTokenDraft.discardDialog}
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <h2 className="font-display text-xl">Create API Token</h2>
         <p className="mt-1 text-sm text-slate dark:text-slate-300">Token value is only shown once after creation.</p>
@@ -109,14 +136,14 @@ export function TokensPage() {
         <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
           Browser sessions must confirm the current account password before creating a durable API token.
         </div>
-        <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
+        <form className="mt-3 space-y-3" onSubmit={onCreateSubmit} noValidate>
           <div>
             <label htmlFor="token-name" className="text-sm font-semibold">Name</label>
             <input
               id="token-name"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={tokenFormState.name}
-              onChange={(event) => dispatchTokenForm({ type: 'setName', value: event.target.value })}
+              onChange={(event) => updateTokenForm({ type: 'setName', value: event.target.value })}
               required
             />
           </div>
@@ -129,7 +156,7 @@ export function TokensPage() {
               min={1}
               max={3650}
               value={tokenFormState.expiresInDays}
-              onChange={(event) => dispatchTokenForm({ type: 'setExpiresInDays', value: Number(event.target.value) })}
+              onChange={(event) => updateTokenForm({ type: 'setExpiresInDays', value: Number(event.target.value) })}
               required
             />
           </div>
@@ -139,7 +166,7 @@ export function TokensPage() {
               id="token-scopes"
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               value={tokenFormState.scopesText}
-              onChange={(event) => dispatchTokenForm({ type: 'setScopesText', value: event.target.value })}
+              onChange={(event) => updateTokenForm({ type: 'setScopesText', value: event.target.value })}
               placeholder="read:feeds,write:items"
             />
           </div>
@@ -151,14 +178,19 @@ export function TokensPage() {
               type="password"
               autoComplete="current-password"
               value={tokenFormState.currentPassword}
-              onChange={(event) => dispatchTokenForm({ type: 'setCurrentPassword', value: event.target.value })}
+              onChange={(event) => updateTokenForm({ type: 'setCurrentPassword', value: event.target.value })}
               required
             />
           </div>
           <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={createToken.isPending}>
             Generate Token
           </button>
-          {createToken.isError && (
+          {tokenFormError && (
+            <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600 dark:text-red-300">
+              {tokenFormError}
+            </p>
+          )}
+          {createToken.isError && !tokenFormError && (
             <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
               {createToken.error instanceof ApiError ? createToken.error.message : 'Failed to create token.'}
             </p>
@@ -281,4 +313,17 @@ export function TokensPage() {
       </ConfirmDialog>
     </div>
   )
+}
+
+function getTokenCreateValidationError(state: TokenCreateFormState) {
+  if (!state.name.trim()) {
+    return 'Enter a token name.'
+  }
+  if (!Number.isInteger(state.expiresInDays) || state.expiresInDays < 1 || state.expiresInDays > 3650) {
+    return 'Expiry must be between 1 and 3650 days.'
+  }
+  if (!state.currentPassword.trim()) {
+    return 'Enter your current password.'
+  }
+  return ''
 }

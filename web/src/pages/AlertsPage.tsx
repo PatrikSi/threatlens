@@ -40,6 +40,11 @@ export function AlertsPage() {
     [keywordsText],
   )
   const previewEnabled = parsedKeywords.length > 0 && category.trim().length > 0
+  const saveDisabledReason = !name.trim()
+    ? 'Enter an interest name.'
+    : parsedKeywords.length === 0
+      ? 'Enter at least one keyword.'
+      : null
 
   const alertsQuery = useQuery({
     queryKey: ['alerts', showDisabled],
@@ -150,7 +155,7 @@ export function AlertsPage() {
 
   const onSave = (event: FormEvent) => {
     event.preventDefault()
-    if (!name.trim() || parsedKeywords.length === 0) {
+    if (saveDisabledReason) {
       return
     }
 
@@ -279,7 +284,8 @@ export function AlertsPage() {
               <button
                 className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
                 type="submit"
-                disabled={saveAlert.isPending}
+                disabled={saveAlert.isPending || Boolean(saveDisabledReason)}
+                title={saveDisabledReason ?? undefined}
               >
                 {editingAlertId ? 'Save changes' : 'Add Interest'}
               </button>
@@ -293,6 +299,11 @@ export function AlertsPage() {
                 </button>
               )}
             </div>
+            {saveDisabledReason && (
+              <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-slate dark:text-white/70">
+                {saveDisabledReason}
+              </p>
+            )}
             {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
           </form>
 
@@ -343,7 +354,11 @@ export function AlertsPage() {
                           {describeAlertCategory(previewMatch?.category ?? category)}
                         </span>
                       </div>
-                      {item.summary && <p className="mt-2 text-sm text-slate dark:text-white/75">{item.summary}</p>}
+                      {item.summary && (
+                        <p className="mt-2 text-sm text-slate dark:text-white/75">
+                          {formatAlertPreviewSummary(item.summary)}
+                        </p>
+                      )}
                       {previewMatch && (
                         <div className="mt-2 flex flex-wrap gap-1.5">
                           {previewMatch.matched_keywords.map((keyword) => (
@@ -511,4 +526,31 @@ function describeAlertCategory(category: string): string {
 
 function formatTimestamp(value: string | null): string {
   return value ? formatDateTime(value) : 'Unknown time'
+}
+
+function formatAlertPreviewSummary(value: string): string {
+  return decodeHtmlEntities(value.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim()
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&#x([0-9a-f]+);/gi, (match, codePoint: string) => decodeCodePoint(match, Number.parseInt(codePoint, 16)))
+    .replace(/&#(\d+);/g, (match, codePoint: string) => decodeCodePoint(match, Number.parseInt(codePoint, 10)))
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+}
+
+function decodeCodePoint(fallback: string, codePoint: number) {
+  if (!Number.isFinite(codePoint)) {
+    return fallback
+  }
+  try {
+    return String.fromCodePoint(codePoint)
+  } catch {
+    return fallback
+  }
 }

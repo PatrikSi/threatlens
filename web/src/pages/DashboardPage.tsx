@@ -2427,7 +2427,7 @@ export function DashboardPage() {
                 <>
                   {!windowLayout.controls_collapsed && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
-                      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={`${windowLayout.title} feed filters`}>
+                      <div className="flex max-h-24 min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto pb-0.5" role="group" aria-label={`${windowLayout.title} feed filters`}>
                       <button
                         type="button"
                         aria-pressed={rssFilters.selected_feed_ids.length === 0}
@@ -2471,7 +2471,7 @@ export function DashboardPage() {
                       })}
                       </div>
 
-                      <div className="mt-1 flex items-center gap-1.5 overflow-x-auto pb-0.5" role="group" aria-label={`${windowLayout.title} tag filters`}>
+                      <div className="mt-1 flex max-h-24 min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto pb-0.5" role="group" aria-label={`${windowLayout.title} tag filters`}>
                       <button
                         type="button"
                         aria-pressed={rssFilters.selected_tags.length === 0}
@@ -3034,7 +3034,7 @@ export function DashboardPage() {
                   {!windowLayout.controls_collapsed && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
                     <div
-                      className="flex items-center gap-2 overflow-x-auto pb-1"
+                      className="flex max-h-24 min-w-0 flex-wrap items-center gap-2 overflow-y-auto pb-1"
                       role="group"
                       aria-label={`${windowLayout.title} alert category filters`}
                     >
@@ -3076,7 +3076,7 @@ export function DashboardPage() {
                     </div>
 
                     <div
-                      className="mt-2 flex items-center gap-2 overflow-x-auto pb-1"
+                      className="mt-2 flex max-h-24 min-w-0 flex-wrap items-center gap-2 overflow-y-auto pb-1"
                       role="group"
                       aria-label={`${windowLayout.title} alert interest filters`}
                     >

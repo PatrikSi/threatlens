@@ -9,15 +9,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const auditLogsDomMocks = vi.hoisted(() => ({
   exportMutate: vi.fn(),
   exportShouldFail: false,
+  queryOptions: [] as Array<{ queryKey: unknown[]; enabled?: boolean }>,
 }))
 
 vi.mock('@tanstack/react-query', () => ({
-  useQuery: () => ({
-    data: { logs: [], total: 0, page: 1, page_size: 50 },
-    isLoading: false,
-    isError: false,
-    error: null,
-  }),
+  useQuery: (options: { queryKey: unknown[]; enabled?: boolean }) => {
+    auditLogsDomMocks.queryOptions.push(options)
+    return {
+      data: options.enabled === false ? undefined : { logs: [], total: 0, page: 1, page_size: 50 },
+      isLoading: false,
+      isError: false,
+      error: null,
+    }
+  },
   useMutation: (options: { onSuccess?: (payload: unknown) => void; onError?: (error: Error) => void }) => ({
     mutate: vi.fn(() => {
       auditLogsDomMocks.exportMutate()
@@ -84,6 +88,7 @@ afterEach(() => {
   document.body.innerHTML = ''
   auditLogsDomMocks.exportMutate.mockReset()
   auditLogsDomMocks.exportShouldFail = false
+  auditLogsDomMocks.queryOptions = []
   vi.restoreAllMocks()
 })
 
@@ -132,4 +137,27 @@ describe('AuditLogsPage DOM workflows', () => {
     expect(errorNotice).not.toBeNull()
     expect(errorNotice?.textContent).toContain('Failed to export audit logs')
   })
+
+  it('validates actor UUID filters before querying or exporting', () => {
+    const view = renderPage()
+    const actorInput = view.querySelector<HTMLInputElement>('#audit-log-actor-filter')
+    const exportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Export JSON'))
+
+    expect(actorInput).not.toBeNull()
+    expect(exportButton).not.toBeNull()
+
+    act(() => {
+      setInputValue(actorInput!, 'not-a-uuid')
+    })
+
+    expect(view.textContent).toContain('Actor user ID must be a valid UUID.')
+    expect(auditLogsDomMocks.queryOptions.at(-1)?.enabled).toBe(false)
+    expect(exportButton?.hasAttribute('disabled')).toBe(true)
+  })
 })
+
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}

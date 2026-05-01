@@ -19,8 +19,8 @@ export function SettingsLayout() {
   ]
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-      <aside className="tl-surface rounded-xl p-4">
+    <div className="grid min-w-0 gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="tl-surface min-w-0 rounded-xl p-4">
         <h2 className="font-display text-xl">Settings</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/70">Manage access, automation, and administration tools from one place.</p>
 
@@ -52,7 +52,7 @@ export function SettingsLayout() {
         </div>
       </aside>
 
-      <section>
+      <section className="min-w-0">
         <Outlet />
       </section>
     </div>

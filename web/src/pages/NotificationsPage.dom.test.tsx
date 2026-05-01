@@ -287,10 +287,11 @@ describe('NotificationsPage DOM workflows', () => {
     const view = renderPage()
 
     expect(pageText()).toContain('Viewer access is read-only')
+    expect(pageText()).toContain('Webhook writes unavailable')
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Test webhook'))).toBe(false)
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('Delete webhook'))).toBe(false)
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
     expect(view.querySelector<HTMLButtonElement>('button[aria-label="Remove Headers row 1"]')).toBeNull()
   })
 
@@ -302,17 +303,19 @@ describe('NotificationsPage DOM workflows', () => {
     const view = renderPage()
 
     expect(pageText()).toContain('Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.')
+    expect(pageText()).toContain('Webhook writes unavailable')
+    expect(pageText()).toContain('Select a saved webhook to inspect its current configuration in read-only mode.')
 
     const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
-    expect(nameInput?.disabled).toBe(true)
+    expect(nameInput).toBeNull()
 
     const testButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Test webhook'))
-    expect(testButton?.hasAttribute('disabled')).toBe(true)
+    expect(testButton).toBeUndefined()
 
     const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Create webhook'),
     )
-    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+    expect(saveButton).toBeUndefined()
   })
 
   it('disables admin webhook writes when the egress policy is locked down', () => {
@@ -322,12 +325,13 @@ describe('NotificationsPage DOM workflows', () => {
     const view = renderPage()
 
     expect(pageText()).toContain('Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured')
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+    expect(pageText()).toContain('Webhook writes unavailable')
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
 
     const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Create webhook'),
     )
-    expect(saveButton?.hasAttribute('disabled')).toBe(true)
+    expect(saveButton).toBeUndefined()
   })
 
   it('shows policy load errors instead of presenting them as a role restriction', () => {
@@ -337,7 +341,7 @@ describe('NotificationsPage DOM workflows', () => {
     expect(pageText()).toContain('Failed to load webhook policy.')
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('Failed to load webhook policy.')
     expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')?.disabled).toBe(true)
+    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
   })
 
   it('marks the selected webhook and keeps the request-shaping controls accessible', () => {

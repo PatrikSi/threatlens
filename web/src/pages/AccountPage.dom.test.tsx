@@ -186,6 +186,32 @@ describe('AccountPage DOM workflows', () => {
     expect(notice?.textContent).toContain('Failed to change password.')
   })
 
+  it('shows inline validation before sending a short password change', async () => {
+    const view = renderPage()
+    const currentPasswordInput = view.querySelector<HTMLInputElement>('#account-current-password')
+    const newPasswordInput = view.querySelector<HTMLInputElement>('#account-new-password')
+    const form = view.querySelector('form')
+
+    expect(currentPasswordInput).not.toBeNull()
+    expect(newPasswordInput).not.toBeNull()
+    expect(form).not.toBeNull()
+
+    act(() => {
+      setInputValue(currentPasswordInput!, 'wrong-password-qa')
+      setInputValue(newPasswordInput!, 'short')
+    })
+
+    await act(async () => {
+      form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flushPromises()
+    })
+
+    const notice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('New password must be at least 8 characters.')
+    expect(accountPageDomMocks.apiFetch).not.toHaveBeenCalled()
+  })
+
   it('treats an unfinished password change as unsaved work', () => {
     const view = renderPage()
     const currentPasswordInput = view.querySelector<HTMLInputElement>('#account-current-password')

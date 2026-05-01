@@ -5,6 +5,8 @@ import { apiFetch } from '../api/client'
 import { AuditLogExportResponse, AuditLogListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 export function AuditLogsPage() {
   const [action, setAction] = useState('')
   const [actorUserId, setActorUserId] = useState('')
@@ -12,6 +14,10 @@ export function AuditLogsPage() {
   const pageSize = 50
   const [exportError, setExportError] = useState('')
   const [exportMessage, setExportMessage] = useState('')
+  const trimmedActorUserId = actorUserId.trim()
+  const actorUserIdError =
+    trimmedActorUserId && !UUID_PATTERN.test(trimmedActorUserId) ? 'Actor user ID must be a valid UUID.' : ''
+  const auditQueryEnabled = !actorUserIdError
 
   const auditQuery = useQuery({
     queryKey: ['audit-logs', action, actorUserId, page],
@@ -20,19 +26,20 @@ export function AuditLogsPage() {
       params.set('page', String(page))
       params.set('page_size', String(pageSize))
       if (action.trim()) params.set('action', action.trim())
-      if (actorUserId.trim()) params.set('actor_user_id', actorUserId.trim())
+      if (trimmedActorUserId) params.set('actor_user_id', trimmedActorUserId)
       return apiFetch<AuditLogListResponse>(`/audit-logs?${params.toString()}`)
     },
+    enabled: auditQueryEnabled,
   })
 
-  const totalPages = Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize))
-  const logs = auditQuery.data?.logs ?? []
+  const totalPages = auditQueryEnabled ? Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize)) : 1
+  const logs = auditQueryEnabled ? (auditQuery.data?.logs ?? []) : []
 
   const exportLogs = useMutation({
     mutationFn: () => {
       const params = new URLSearchParams()
       if (action.trim()) params.set('action', action.trim())
-      if (actorUserId.trim()) params.set('actor_user_id', actorUserId.trim())
+      if (trimmedActorUserId) params.set('actor_user_id', trimmedActorUserId)
       params.set('limit', '10000')
       return apiFetch<AuditLogExportResponse>(`/audit-logs/export?${params.toString()}`)
     },
@@ -62,7 +69,7 @@ export function AuditLogsPage() {
   })
 
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+    <section className="min-w-0 overflow-hidden rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="font-display text-xl">Audit Logs</h2>
         <div className="grid w-full gap-2 sm:flex sm:w-auto sm:flex-wrap">
@@ -90,18 +97,31 @@ export function AuditLogsPage() {
               setActorUserId(event.target.value)
             }}
             placeholder="Actor user ID"
+            aria-invalid={Boolean(actorUserIdError)}
+            aria-describedby={actorUserIdError ? 'audit-log-actor-filter-error' : undefined}
             className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm sm:w-64 dark:border-cyan-900/40 dark:bg-[#072019]"
           />
           <button
             type="button"
             className="w-full rounded border border-slate/30 px-3 py-2 text-sm sm:w-auto dark:border-cyan-900/40"
             onClick={() => exportLogs.mutate()}
-            disabled={exportLogs.isPending}
+            disabled={exportLogs.isPending || Boolean(actorUserIdError)}
           >
             {exportLogs.isPending ? 'Exporting...' : 'Export JSON'}
           </button>
         </div>
       </div>
+      {actorUserIdError && (
+        <p
+          id="audit-log-actor-filter-error"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="mt-2 text-sm text-red-600 dark:text-red-300"
+        >
+          {actorUserIdError}
+        </p>
+      )}
       {exportError && (
         <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-sm text-red-600 dark:text-red-300">
           {exportError}
@@ -113,8 +133,8 @@ export function AuditLogsPage() {
         </p>
       )}
 
-      <div className="mt-3 overflow-x-auto">
-        <table className="min-w-full text-left text-sm">
+      <div className="mt-3 max-w-full overflow-x-auto">
+        <table className="min-w-[720px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate/20 dark:border-cyan-900/40">
               <th className="px-2 py-2">Time</th>
@@ -125,14 +145,14 @@ export function AuditLogsPage() {
             </tr>
           </thead>
           <tbody>
-            {auditQuery.isLoading && (
+            {auditQueryEnabled && auditQuery.isLoading && (
               <tr>
                 <td colSpan={5} className="px-2 py-6 text-center text-slate dark:text-slate-300">
                   Loading audit logs...
                 </td>
               </tr>
             )}
-            {auditQuery.isError && (
+            {auditQueryEnabled && auditQuery.isError && (
               <tr>
                 <td colSpan={5} className="px-2 py-6">
                   <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
@@ -141,7 +161,7 @@ export function AuditLogsPage() {
                 </td>
               </tr>
             )}
-            {!auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
+            {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
               <tr>
                 <td colSpan={5} className="px-2 py-6">
                   <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
