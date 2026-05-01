@@ -8,6 +8,7 @@ import {
   buildSavedViewPreview,
   buildDashboardSavedViewState,
   loadDashboardWindows,
+  normalizePanelRect,
   parseDashboardSavedView,
   resolveSavedViewSelectionChange,
   serializeDashboardWindowLayouts,
@@ -278,6 +279,47 @@ describe('saved view payloads', () => {
     expect(roundTripped[0].rss_filters?.page).toBe(4)
     expect(roundTripped[1].alert_filters?.q).toBe('fortinet')
     expect(roundTripped[1].alert_filters?.page).toBe(2)
+  })
+
+  it('normalizes fractional panel geometry before saving dashboard layouts', () => {
+    const normalized = normalizePanelRect({ x: 10.4, y: 20.6, width: 640.2, height: 420.9 }, 1200.8, 720.2)
+    expect(normalized).toEqual({ x: 10, y: 21, width: 640, height: 421 })
+
+    const fractionalWindow = {
+      id: 'rss-1',
+      type: 'rss',
+      title: 'RSS Panel 1',
+      snap: 'free',
+      rect: { x: 10.4, y: 20.6, width: 640.2, height: 420.9 },
+      controls_collapsed: false,
+      scratch_note: '',
+      time_override: null,
+      rss_filters: {
+        selected_feed_ids: [],
+        selected_tags: [],
+        q: '',
+        read_status: 'all',
+        star_status: 'all',
+        view_mode: 'compact',
+        page: 1,
+        page_size: 25,
+        sort: 'published_at_desc',
+        show_advanced_filters: false,
+      },
+      alert_filters: null,
+      selected_daily_brief_id: null,
+    } satisfies Parameters<typeof serializeDashboardWindowLayouts>[0][number]
+
+    const serialized = serializeDashboardWindowLayouts([fractionalWindow])
+    expect(serialized[0].rect).toEqual({ x: 10, y: 21, width: 640, height: 421 })
+
+    const savedState = buildDashboardSavedViewState([fractionalWindow], {
+      time_range: 'all',
+      custom_since_date: '',
+      custom_until_date: '',
+      rolling_days: '7',
+    })
+    expect(savedState.windows[0].rect).toEqual({ x: 10, y: 21, width: 640, height: 421 })
   })
 
   it('migrates legacy saved views into the current schema', () => {

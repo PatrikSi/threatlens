@@ -237,6 +237,29 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
     assert unknown_time_update.status_code == 200
     assert unknown_time_update.json()["query_json"]["windows"][0]["time_override"] is None
 
+    fractional_rect_payload = _saved_view_query_payload(query="fractional-rect")
+    fractional_rect_payload["windows"][0]["snap"] = "free"
+    fractional_rect_payload["windows"][0]["rect"] = {
+        "x": 10.4,
+        "y": 20.6,
+        "width": 640.2,
+        "height": 420.9,
+    }
+    fractional_rect_update = client.patch(
+        f"/views/{created['id']}",
+        json={
+            "query_json": fractional_rect_payload,
+        },
+        headers=auth_headers["viewer"],
+    )
+    assert fractional_rect_update.status_code == 200
+    assert fractional_rect_update.json()["query_json"]["windows"][0]["rect"] == {
+        "x": 10,
+        "y": 21,
+        "width": 640,
+        "height": 421,
+    }
+
     invalid_update = client.patch(
         f"/views/{created['id']}",
         json={
