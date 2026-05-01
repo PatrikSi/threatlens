@@ -244,6 +244,10 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
         "y": 20.6,
         "width": 640.2,
         "height": 420.9,
+        "xPct": 0.01,
+        "yPct": 0.03,
+        "widthPct": 0.53,
+        "heightPct": 0.58,
     }
     fractional_rect_update = client.patch(
         f"/views/{created['id']}",
@@ -258,6 +262,10 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
         "y": 21,
         "width": 640,
         "height": 421,
+        "xPct": 0.01,
+        "yPct": 0.03,
+        "widthPct": 0.53,
+        "heightPct": 0.58,
     }
 
     invalid_update = client.patch(
