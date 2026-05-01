@@ -68,6 +68,8 @@ type NoticeState = {
 }
 
 const RUN_PAGE_SIZE = 20
+const AI_QUERY_STALE_MS = 15_000
+const AI_REFERENCE_STALE_MS = 60_000
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
   status: '',
@@ -116,7 +118,7 @@ export function AiSettingsPage() {
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
-  const [settledActiveTab, setSettledActiveTab] = useState<AiTab | null>(null)
+  const [settledActiveTab, setSettledActiveTab] = useState<AiTab>('overview')
   const activityTabRef = useRef<HTMLElement | null>(null)
   const selectedRunSectionRef = useRef<HTMLDivElement | null>(null)
 
@@ -169,10 +171,7 @@ export function AiSettingsPage() {
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
 
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      setSettledActiveTab(activeTab)
-    }, 700)
-    return () => window.clearTimeout(timer)
+    setSettledActiveTab(activeTab)
   }, [activeTab])
 
   const handleAiTabKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, currentTab: AiTab) => {
@@ -205,6 +204,7 @@ export function AiSettingsPage() {
     queryKey: ['ai', 'settings'],
     queryFn: ({ signal }) => apiFetch<AISettings>('/ai/settings', { signal }),
     enabled: aiEnabled,
+    staleTime: AI_REFERENCE_STALE_MS,
   })
   const draftValidation = useMemo(() => validateAISettingsDraft(draft), [draft])
   const draftValidationError = getFirstAISettingsDraftValidationError(draftValidation)
@@ -243,6 +243,7 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AIOpsOverviewResponse>(`/ai/ops/overview?days=${days}`, { signal }),
     enabled: overviewQueriesEnabled,
     refetchInterval: 10000,
+    staleTime: AI_QUERY_STALE_MS,
   })
 
   const liveStatusQuery = useQuery({
@@ -250,6 +251,7 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AILiveStatusResponse>('/ai/ops/live', { signal }),
     enabled: activityQueriesEnabled,
     refetchInterval: 5000,
+    staleTime: 2500,
   })
 
   const queuedRunsQuery = useQuery({
@@ -257,6 +259,7 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30', { signal }),
     enabled: activityQueriesEnabled,
     refetchInterval: 5000,
+    staleTime: 2500,
   })
 
   const runningRunsQuery = useQuery({
@@ -264,13 +267,18 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30', { signal }),
     enabled: activityQueriesEnabled,
     refetchInterval: 5000,
+    staleTime: 2500,
   })
 
   const feedsQuery = useQuery({
     queryKey: ['feeds', 'ai-reprocess'],
     queryFn: ({ signal }) => apiFetch<Feed[]>('/feeds', { signal }),
     enabled: activityQueriesEnabled,
+    staleTime: AI_REFERENCE_STALE_MS,
   })
+
+  const candidateItemsReady =
+    deferredItemSearch.length >= 2 || reprocessFeedIds.length > 0 || Boolean(reprocessStartTime || reprocessEndTime)
 
   const candidateItemsPath = useMemo(() => {
     const params = new URLSearchParams()
@@ -299,19 +307,22 @@ export function AiSettingsPage() {
   const candidateItemsQuery = useQuery({
     queryKey: ['items', 'ai-reprocess-picker', deferredItemSearch, reprocessFeedIds, reprocessStartTime, reprocessEndTime],
     queryFn: ({ signal }) => apiFetch<ItemListResponse>(candidateItemsPath, { signal }),
-    enabled: activityQueriesEnabled,
+    enabled: activityQueriesEnabled && candidateItemsReady,
+    staleTime: AI_QUERY_STALE_MS,
   })
 
   const promptHistoryQuery = useQuery({
     queryKey: ['ai', 'ops', 'prompt-history'],
     queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/prompt-history?limit=12', { signal }),
     enabled: configurationQueriesEnabled,
+    staleTime: AI_REFERENCE_STALE_MS,
   })
 
   const manualActionsQuery = useQuery({
     queryKey: ['ai', 'ops', 'manual-actions'],
     queryFn: ({ signal }) => apiFetch<AIAuditEntryResponse[]>('/ai/ops/manual-actions?limit=12', { signal }),
     enabled: configurationQueriesEnabled,
+    staleTime: AI_REFERENCE_STALE_MS,
   })
 
   const runsPath = useMemo(() => {
@@ -342,6 +353,7 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>(runsPath, { signal }),
     enabled: activityQueriesEnabled,
     refetchInterval: 10000,
+    staleTime: 5000,
   })
 
   const runDetailQuery = useQuery({
@@ -349,6 +361,7 @@ export function AiSettingsPage() {
     queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${selectedRunId}`, { signal }),
     enabled: activityQueriesEnabled && Boolean(selectedRunId),
     refetchInterval: 10000,
+    staleTime: 5000,
   })
 
   const briefSourcesQuery = useQuery({
@@ -359,6 +372,7 @@ export function AiSettingsPage() {
         { signal },
       ),
     enabled: activityQueriesEnabled && Boolean(runDetailQuery.data?.run.daily_brief_id),
+    staleTime: AI_QUERY_STALE_MS,
   })
 
   useEffect(() => {
@@ -574,9 +588,21 @@ export function AiSettingsPage() {
   )
 
   const activeTasksLoading =
-    (liveStatusQuery.isLoading && !liveStatusQuery.data) ||
-    (queuedRunsQuery.isLoading && !queuedRunsQuery.data) ||
-    (runningRunsQuery.isLoading && !runningRunsQuery.data)
+    activityQueriesEnabled &&
+    ((liveStatusQuery.isLoading && !liveStatusQuery.data) ||
+      (queuedRunsQuery.isLoading && !queuedRunsQuery.data) ||
+      (runningRunsQuery.isLoading && !runningRunsQuery.data))
+  const activeTasksRefreshing =
+    activityQueriesEnabled &&
+    !activeTasksLoading &&
+    (liveStatusQuery.isFetching || queuedRunsQuery.isFetching || runningRunsQuery.isFetching)
+  const activeTasksErrorMessage = [
+    liveStatusQuery.isError ? `Live status: ${(liveStatusQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
+    queuedRunsQuery.isError ? `Queued tasks: ${(queuedRunsQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
+    runningRunsQuery.isError ? `Running tasks: ${(runningRunsQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
 
   function clearReprocessScope() {
     setQueuedReprocessScopeFingerprint(null)
@@ -770,6 +796,8 @@ export function AiSettingsPage() {
                 runs={activeTopLevelRuns}
                 live={liveStatusQuery.data}
                 activeTasksLoading={activeTasksLoading}
+                activeTasksRefreshing={activeTasksRefreshing}
+                activeTasksErrorMessage={activeTasksErrorMessage}
                 onOpenRun={openRunInHistory}
                 onCancelRun={requestRunCancellation}
                 cancelingRunId={cancelingRunId}
@@ -829,6 +857,7 @@ export function AiSettingsPage() {
                 }}
                 itemSearchLoading={candidateItemsQuery.isLoading}
                 itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
+                itemSearchReady={candidateItemsReady}
                 filters={runFilters}
                 setFilters={setRunFilters}
                 runPage={runPage}
@@ -1239,6 +1268,8 @@ function ActiveTasksPanel({
   runs,
   live,
   isLoading,
+  isRefreshing,
+  errorMessage,
   onOpenRun,
   onCancelRun,
   cancelingRunId,
@@ -1246,6 +1277,8 @@ function ActiveTasksPanel({
   runs: AITaskRunResponse[]
   live: AILiveStatusResponse | undefined
   isLoading: boolean
+  isRefreshing: boolean
+  errorMessage: string
   onOpenRun: (runId: string) => void
   onCancelRun: (run: AITaskRunResponse) => void
   cancelingRunId: string | null
@@ -1264,9 +1297,17 @@ function ActiveTasksPanel({
       </div>
 
       <div className="mt-4 space-y-3">
+        {isRefreshing && (
+          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Refreshing active task state...</p>
+        )}
+        {errorMessage && (
+          <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+            {errorMessage}
+          </p>
+        )}
         {isLoading && !runs.length && (
           <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
-            Loading queued and running AI tasks...
+            Checking queued and running AI tasks...
           </div>
         )}
         {runs.map((run) => (
@@ -1321,7 +1362,7 @@ function ActiveTasksPanel({
             )}
           </div>
         ))}
-        {!isLoading && !runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
+        {!isLoading && !errorMessage && !runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
       </div>
     </Panel>
   )
@@ -1356,6 +1397,7 @@ function QueueWorkPanel({
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
+  itemSearchReady,
 }: {
   dailyBriefEnabled: boolean
   generatePending: boolean
@@ -1385,6 +1427,7 @@ function QueueWorkPanel({
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
+  itemSearchReady: boolean
 }) {
   const usingExplicitScope = !shouldUseLookbackWindow(reprocessStartTime, reprocessEndTime, selectedItems)
   const hasReprocessValidationError = Boolean(
@@ -1571,8 +1614,12 @@ function QueueWorkPanel({
               )}
 
               <div className="mt-3 max-h-72 space-y-2 overflow-y-auto">
-                {itemSearchLoading && <EmptyInline>Loading matching items...</EmptyInline>}
-                {!itemSearchLoading &&
+                {!itemSearchReady && (
+                  <EmptyInline>Search by title, summary, or URL, or narrow by feed/time to preview matching articles.</EmptyInline>
+                )}
+                {itemSearchReady && itemSearchLoading && <EmptyInline>Loading matching items...</EmptyInline>}
+                {itemSearchReady &&
+                  !itemSearchLoading &&
                   candidateItems.map((item) => (
                     <button
                       key={item.id}
@@ -1595,10 +1642,10 @@ function QueueWorkPanel({
                       </div>
                     </button>
                   ))}
-                {!itemSearchLoading && !candidateItems.length && !itemSearchError && (
+                {itemSearchReady && !itemSearchLoading && !candidateItems.length && !itemSearchError && (
                   <EmptyInline>No recent items matched the current scope.</EmptyInline>
                 )}
-                {itemSearchError && <p className="text-sm text-red-600">Failed to load items. {itemSearchError}</p>}
+                {itemSearchReady && itemSearchError && <p className="text-sm text-red-600">Failed to load items. {itemSearchError}</p>}
               </div>
             </div>
           </div>
@@ -1754,11 +1801,15 @@ function ProviderExchangeModal({
     return null
   }
 
-  const requestPayload = event?.payload?.request_payload
+  const payload = event?.payload ?? {}
+  const requestPayload = payload.request_payload
   const requestUrl = typeof event?.payload?.request_url === 'string' ? event.payload.request_url : null
-  const responseBody = typeof event?.payload?.response_body === 'string' ? event.payload.response_body : null
-  const responseJson = event?.payload?.response_json
-  const statusCode = typeof event?.payload?.status_code === 'number' ? event.payload.status_code : null
+  const responseBody = typeof payload.response_body === 'string' ? payload.response_body : null
+  const responseJson = payload.response_json
+  const responseJsonSummary = payload.response_json_summary
+  const statusCode = typeof payload.status_code === 'number' ? payload.status_code : null
+  const requestSummary = buildProviderRequestSummary(payload)
+  const responseSummary = buildProviderResponseSummary(payload)
 
   return (
     <DialogSurface
@@ -1791,16 +1842,34 @@ function ProviderExchangeModal({
 
           <div className="grid gap-4 xl:grid-cols-2">
             <Panel title="Request">
-              {requestUrl && <p className="mb-3 text-xs text-slate dark:text-white/60">{requestUrl}</p>}
-              <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
-                {requestPayload != null ? formatDebugPayload(requestPayload) : 'No request payload recorded.'}
-              </pre>
+              {requestUrl && <p className="mb-3 break-all text-xs text-slate dark:text-white/60">{requestUrl}</p>}
+              {requestPayload != null ? (
+                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                  {formatDebugPayload(requestPayload)}
+                </pre>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-slate dark:text-white/60">
+                    Raw prompt payload is redacted; the persisted exchange keeps the operational request summary below.
+                  </p>
+                  <ExchangeSummaryList entries={requestSummary} emptyMessage="No request summary was recorded." />
+                </>
+              )}
             </Panel>
 
             <Panel title="Response">
-              <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
-                {responseBody || 'No raw response body recorded.'}
-              </pre>
+              {responseBody ? (
+                <pre className="overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                  {responseBody}
+                </pre>
+              ) : (
+                <>
+                  <p className="mb-3 text-xs text-slate dark:text-white/60">
+                    Raw provider response is redacted; the persisted exchange keeps response size, status, and parsed-shape summary.
+                  </p>
+                  <ExchangeSummaryList entries={responseSummary} emptyMessage="No response summary was recorded." />
+                </>
+              )}
               {responseJson != null && (
                 <>
                   <p className="mt-3 text-xs font-semibold uppercase text-slate dark:text-white/55">
@@ -1811,12 +1880,102 @@ function ProviderExchangeModal({
                   </pre>
                 </>
               )}
+              {responseJson == null && responseJsonSummary != null && (
+                <>
+                  <p className="mt-3 text-xs font-semibold uppercase text-slate dark:text-white/55">
+                    Parsed Response Summary
+                  </p>
+                  <pre className="mt-2 overflow-x-auto rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                    {formatDebugPayload(responseJsonSummary)}
+                  </pre>
+                </>
+              )}
             </Panel>
           </div>
         </div>
       )}
     </DialogSurface>
   )
+}
+
+type ExchangeSummaryEntry = {
+  label: string
+  value: string | number
+}
+
+function ExchangeSummaryList({
+  entries,
+  emptyMessage,
+}: {
+  entries: ExchangeSummaryEntry[]
+  emptyMessage: string
+}) {
+  if (!entries.length) {
+    return <EmptyInline>{emptyMessage}</EmptyInline>
+  }
+
+  return (
+    <dl className="space-y-2 rounded-lg border border-slate/15 bg-slate/5 p-3 text-xs dark:border-cyan-900/30 dark:bg-white/[0.03]">
+      {entries.map((entry) => (
+        <div key={entry.label} className="grid gap-1 sm:grid-cols-[140px_minmax(0,1fr)]">
+          <dt className="font-semibold uppercase text-slate dark:text-white/55">{entry.label}</dt>
+          <dd className="min-w-0 break-words text-slate-900 dark:text-white/80">{entry.value}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function buildProviderRequestSummary(payload: Record<string, unknown>): ExchangeSummaryEntry[] {
+  return compactExchangeEntries([
+    { label: 'Host', value: stringPayloadValue(payload.request_host) },
+    { label: 'Path', value: stringPayloadValue(payload.request_path) },
+    { label: 'Model', value: stringPayloadValue(payload.request_model) },
+    { label: 'Messages', value: numberPayloadValue(payload.request_message_count) },
+    { label: 'Roles', value: arrayPayloadValue(payload.request_message_roles) },
+    { label: 'Prompt chars', value: numberPayloadValue(payload.request_prompt_chars) },
+    { label: 'Temperature', value: numberPayloadValue(payload.request_temperature) },
+    { label: 'Max tokens', value: numberPayloadValue(payload.request_max_tokens) },
+    { label: 'Attempt', value: formatAttemptSummary(payload) },
+  ])
+}
+
+function buildProviderResponseSummary(payload: Record<string, unknown>): ExchangeSummaryEntry[] {
+  return compactExchangeEntries([
+    { label: 'Body chars', value: numberPayloadValue(payload.response_body_chars) },
+    { label: 'Body SHA-256', value: stringPayloadValue(payload.response_body_sha256) },
+    { label: 'Finish reason', value: stringPayloadValue(payload.finish_reason) },
+    { label: 'Attempt', value: formatAttemptSummary(payload) },
+  ])
+}
+
+function compactExchangeEntries(entries: Array<{ label: string; value: string | number | null }>): ExchangeSummaryEntry[] {
+  return entries.filter((entry): entry is ExchangeSummaryEntry => entry.value !== null)
+}
+
+function stringPayloadValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function numberPayloadValue(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function arrayPayloadValue(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null
+  }
+  const entries = value.filter((entry): entry is string | number => typeof entry === 'string' || typeof entry === 'number')
+  return entries.length ? entries.join(', ') : null
+}
+
+function formatAttemptSummary(payload: Record<string, unknown>): string | null {
+  const attempt = numberPayloadValue(payload.attempt)
+  const maxAttempts = numberPayloadValue(payload.max_attempts)
+  if (attempt === null) {
+    return null
+  }
+  return maxAttempts === null ? String(attempt) : `${attempt} / ${maxAttempts}`
 }
 
 function ActivityTab({
@@ -1829,6 +1988,8 @@ function ActivityTab({
   runs,
   live,
   activeTasksLoading,
+  activeTasksRefreshing,
+  activeTasksErrorMessage,
   onOpenRun,
   dailyBriefEnabled,
   generatePending,
@@ -1858,6 +2019,7 @@ function ActivityTab({
   onQueueReprocess,
   itemSearchLoading,
   itemSearchError,
+  itemSearchReady,
   filters,
   setFilters,
   runPage,
@@ -1882,6 +2044,8 @@ function ActivityTab({
   runs: AITaskRunResponse[]
   live: AILiveStatusResponse | undefined
   activeTasksLoading: boolean
+  activeTasksRefreshing: boolean
+  activeTasksErrorMessage: string
   onOpenRun: (runId: string) => void
   dailyBriefEnabled: boolean
   generatePending: boolean
@@ -1911,6 +2075,7 @@ function ActivityTab({
   onQueueReprocess: () => void
   itemSearchLoading: boolean
   itemSearchError: string
+  itemSearchReady: boolean
   filters: RunFilters
   setFilters: Dispatch<SetStateAction<RunFilters>>
   runPage: number
@@ -1927,7 +2092,12 @@ function ActivityTab({
   cancelingRunId: string | null
 }) {
   const selectedRun = runDetailQuery.data?.run
-  const totalPages = Math.max(1, Math.ceil((runsQuery.data?.total ?? 0) / RUN_PAGE_SIZE))
+  const runTotal = runsQuery.data?.total ?? 0
+  const runOffset = runPage * RUN_PAGE_SIZE
+  const runCount = runsQuery.data?.items.length ?? 0
+  const totalPages = Math.max(1, Math.ceil(runTotal / RUN_PAGE_SIZE))
+  const runListLoading = runsQuery.isLoading && !runsQuery.data
+  const runListRefreshing = runsQuery.isFetching && Boolean(runsQuery.data)
   const [articlePreviewLimit, setArticlePreviewLimit] = useState(8)
   const [inspectedRunId, setInspectedRunId] = useState<string | null>(null)
 
@@ -1935,10 +2105,21 @@ function ActivityTab({
     setArticlePreviewLimit(8)
   }, [selectedRunId])
 
+  useEffect(() => {
+    if (!runsQuery.data || runPage === 0) {
+      return
+    }
+    if (runsQuery.data.total > runOffset) {
+      return
+    }
+    setRunPage(Math.max(0, Math.ceil(runsQuery.data.total / RUN_PAGE_SIZE) - 1))
+  }, [runOffset, runPage, runsQuery.data, setRunPage])
+
   const inspectedRunDetailQuery = useQuery({
     queryKey: ['ai', 'ops', 'inspect-run', inspectedRunId],
     queryFn: ({ signal }) => apiFetch<AITaskRunDetailResponse>(`/ai/ops/runs/${inspectedRunId}`, { signal }),
     enabled: Boolean(inspectedRunId),
+    staleTime: 5000,
   })
 
   const inspectedRun = inspectedRunDetailQuery.data?.run ?? null
@@ -1957,6 +2138,7 @@ function ActivityTab({
     enabled: Boolean(selectedRunId && selectedRun?.task_type === 'reprocess'),
     refetchInterval:
       selectedRun && (selectedRun.status === 'queued' || selectedRun.status === 'running') ? 10000 : false,
+    staleTime: 5000,
   })
 
   return (
@@ -2022,6 +2204,8 @@ function ActivityTab({
             runs={runs}
             live={live}
             isLoading={activeTasksLoading}
+            isRefreshing={activeTasksRefreshing}
+            errorMessage={activeTasksErrorMessage}
             onOpenRun={onOpenRun}
             onCancelRun={onCancelRun}
             cancelingRunId={cancelingRunId}
@@ -2055,6 +2239,7 @@ function ActivityTab({
             onQueueReprocess={onQueueReprocess}
             itemSearchLoading={itemSearchLoading}
             itemSearchError={itemSearchError}
+            itemSearchReady={itemSearchReady}
           />
         </div>
       </OverviewSection>
@@ -2138,7 +2323,10 @@ function ActivityTab({
             </div>
           </div>
 
-          {runsQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading AI runs...</p>}
+          {runListLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading AI run history...</p>}
+          {runListRefreshing && (
+            <p className="mt-3 text-xs font-semibold uppercase text-slate dark:text-white/55">Refreshing run history...</p>
+          )}
           {runsQuery.isError && (
             <p className="mt-3 text-sm text-red-600">
               Failed to load AI runs. {(runsQuery.error as Error | undefined)?.message ?? ''}
@@ -2146,7 +2334,7 @@ function ActivityTab({
           )}
 
           <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full text-sm">
+            <table className="min-w-full text-sm" aria-busy={runListLoading || runListRefreshing}>
               <caption className="sr-only">AI task history. Select a run to inspect its details below.</caption>
               <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                 <tr>
@@ -2237,18 +2425,22 @@ function ActivityTab({
             </table>
           </div>
 
-          {!runsQuery.data?.items.length && <EmptyInline>No AI runs matched the current filters.</EmptyInline>}
+          {!runListLoading && !runsQuery.isError && !runsQuery.data?.items.length && (
+            <EmptyInline>No AI runs matched the current filters.</EmptyInline>
+          )}
 
           <div className="mt-4 flex items-center justify-between gap-3 text-sm">
             <span className="text-slate dark:text-white/60">
-              Showing {runsQuery.data?.items.length ?? 0} of {runsQuery.data?.total ?? 0}
+              {runCount > 0
+                ? `Showing ${runOffset + 1}-${runOffset + runCount} of ${runTotal}`
+                : `Showing 0 of ${runTotal}`}
             </span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 className="rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
                 onClick={() => setRunPage((current) => Math.max(0, current - 1))}
-                disabled={runPage === 0}
+                disabled={runPage === 0 || runListLoading}
               >
                 Previous
               </button>
@@ -2259,7 +2451,7 @@ function ActivityTab({
                 type="button"
                 className="rounded border border-slate/30 px-3 py-2 disabled:opacity-50 dark:border-cyan-900/40"
                 onClick={() => setRunPage((current) => Math.min(totalPages - 1, current + 1))}
-                disabled={runPage >= totalPages - 1}
+                disabled={runListLoading || runPage >= totalPages - 1}
               >
                 Next
               </button>
@@ -3291,7 +3483,10 @@ function truncate(value: string, max: number) {
 
 function findLatestProviderExchangeEvent(events: AITaskEventResponse[]) {
   const exchanges = events.filter(
-    (event) => event.event_type === 'provider_exchange' || event.event_type === 'provider_exchange_failed',
+    (event) =>
+      event.event_type === 'provider_exchange' ||
+      event.event_type === 'provider_exchange_failed' ||
+      event.event_type === 'provider_exchange_retry',
   )
   return exchanges.length ? exchanges[exchanges.length - 1] : null
 }

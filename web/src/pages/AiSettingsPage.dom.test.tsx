@@ -192,6 +192,9 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     limit: 20,
     offset: 0,
   },
+  activeRunsLoading: false,
+  historyRunsDataByPage: {} as Record<number, { items: unknown[]; total: number; limit: number; offset: number }>,
+  runDetailById: {} as Record<string, unknown>,
   emptyItemsData: {
     items: [],
     total: 0,
@@ -226,6 +229,7 @@ vi.mock('@tanstack/react-query', () => ({
     const key = queryKey.join(':')
     const baseResult = {
       isLoading: false,
+      isFetching: false,
       isError: false,
       error: null,
       data: undefined,
@@ -260,6 +264,12 @@ vi.mock('@tanstack/react-query', () => ({
     }
 
     if (key === 'ai:ops:runs:queued-top') {
+      if (aiSettingsPageDomMocks.activeRunsLoading) {
+        return {
+          ...baseResult,
+          isLoading: true,
+        }
+      }
       return {
         ...baseResult,
         data: aiSettingsPageDomMocks.queuedRunsData,
@@ -267,6 +277,12 @@ vi.mock('@tanstack/react-query', () => ({
     }
 
     if (key === 'ai:ops:runs:running-top') {
+      if (aiSettingsPageDomMocks.activeRunsLoading) {
+        return {
+          ...baseResult,
+          isLoading: true,
+        }
+      }
       return {
         ...baseResult,
         data: aiSettingsPageDomMocks.emptyRunsData,
@@ -294,10 +310,27 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
-    if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'runs' && key.includes(':30:')) {
+    if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'run') {
+      const runId = typeof queryKey[3] === 'string' ? queryKey[3] : ''
       return {
         ...baseResult,
-        data: aiSettingsPageDomMocks.emptyRunsData,
+        data: aiSettingsPageDomMocks.runDetailById[runId],
+      }
+    }
+
+    if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'inspect-run') {
+      const runId = typeof queryKey[3] === 'string' ? queryKey[3] : ''
+      return {
+        ...baseResult,
+        data: aiSettingsPageDomMocks.runDetailById[runId],
+      }
+    }
+
+    if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'runs' && key.includes(':30:')) {
+      const page = typeof queryKey[5] === 'number' ? queryKey[5] : 0
+      return {
+        ...baseResult,
+        data: aiSettingsPageDomMocks.historyRunsDataByPage[page] ?? aiSettingsPageDomMocks.emptyRunsData,
       }
     }
 
@@ -365,6 +398,52 @@ vi.mock('react-router-dom', async () => {
 
 import { AiSettingsPage } from './AiSettingsPage'
 
+function createAiRun(id: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    task_type: 'item_enrichment',
+    status: 'ready',
+    reason: null,
+    trigger_source: 'manual',
+    queued_at: '2026-04-21T10:00:00Z',
+    started_at: '2026-04-21T10:00:01Z',
+    finished_at: '2026-04-21T10:00:03Z',
+    created_at: '2026-04-21T10:00:00Z',
+    updated_at: '2026-04-21T10:00:03Z',
+    worker_name: 'worker@host',
+    model: 'gpt-threat',
+    parent_run_id: null,
+    target_count: null,
+    processed_count: 0,
+    success_count: 0,
+    error_count: 0,
+    skipped_count: 0,
+    skipped_unchanged_count: 0,
+    skipped_ineligible_count: 0,
+    daily_brief_id: null,
+    metadata: {},
+    celery_task_id: null,
+    actor_user_id: 'admin-1',
+    actor_email: 'admin@example.com',
+    item_id: null,
+    item_title: null,
+    item_url: null,
+    feed_name: null,
+    item_first_seen_at: null,
+    item_published_at: null,
+    prompt_tokens: 12,
+    completion_tokens: 8,
+    total_tokens: 20,
+    latency_ms: 250,
+    duration_ms: 2000,
+    prompt_char_count: 1200,
+    response_char_count: 320,
+    input_text_chars: 800,
+    error: null,
+    ...overrides,
+  }
+}
+
 let root: Root | null = null
 let container: HTMLDivElement | null = null
 
@@ -413,6 +492,9 @@ afterEach(() => {
   aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
   aiSettingsPageDomMocks.settingsError = false
+  aiSettingsPageDomMocks.activeRunsLoading = false
+  aiSettingsPageDomMocks.historyRunsDataByPage = {}
+  aiSettingsPageDomMocks.runDetailById = {}
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -668,6 +750,129 @@ describe('AiSettingsPage DOM workflows', () => {
     })
 
     expect(lookbackInput?.value).toBe('7')
+  })
+
+  it('keeps active-task loading distinct from a genuinely empty queue', () => {
+    aiSettingsPageDomMocks.activeRunsLoading = true
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Checking queued and running AI tasks...')
+    expect(pageText()).not.toContain('No queued or running top-level AI tasks right now.')
+  })
+
+  it('pages through AI run history instead of repeating the first page', () => {
+    aiSettingsPageDomMocks.historyRunsDataByPage = {
+      0: {
+        items: Array.from({ length: 20 }, (_entry, index) =>
+          createAiRun(`run-${index + 1}`, {
+            item_title: `History run ${index + 1}`,
+          }),
+        ),
+        total: 25,
+        limit: 20,
+        offset: 0,
+      },
+      1: {
+        items: Array.from({ length: 5 }, (_entry, index) =>
+          createAiRun(`run-${index + 21}`, {
+            item_title: `History run ${index + 21}`,
+          }),
+        ),
+        total: 25,
+        limit: 20,
+        offset: 20,
+      },
+    }
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('History run 1')
+    expect(pageText()).toContain('Showing 1-20 of 25')
+
+    act(() => {
+      getButton('Next')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('History run 21')
+    expect(pageText()).not.toContain('History run 1')
+    expect(pageText()).toContain('Showing 21-25 of 25')
+  })
+
+  it('shows sanitized request and response summaries in the provider exchange view', () => {
+    const run = createAiRun('run-provider-debug', {
+      item_title: 'Provider debug article',
+    })
+    aiSettingsPageDomMocks.historyRunsDataByPage = {
+      0: {
+        items: [run],
+        total: 1,
+        limit: 20,
+        offset: 0,
+      },
+    }
+    aiSettingsPageDomMocks.runDetailById = {
+      'run-provider-debug': {
+        run,
+        events: [
+          {
+            id: 'event-provider-debug',
+            task_run_id: 'run-provider-debug',
+            event_type: 'provider_exchange',
+            message: null,
+            created_at: '2026-04-21T10:00:02Z',
+            payload: {
+              request_url: 'https://api.example.com/v1/chat/completions',
+              request_host: 'api.example.com',
+              request_path: '/v1/chat/completions',
+              request_model: 'gpt-threat',
+              request_message_count: 2,
+              request_message_roles: ['system', 'user'],
+              request_prompt_chars: 1234,
+              request_max_tokens: 4000,
+              status_code: 200,
+              response_body_chars: 2048,
+              response_body_sha256: 'abc123',
+              response_json_summary: {
+                top_level_keys: ['choices', 'usage'],
+                choices_count: 1,
+                usage: {
+                  prompt_tokens: 12,
+                  completion_tokens: 8,
+                  total_tokens: 20,
+                },
+              },
+              attempt: 1,
+              max_attempts: 3,
+            },
+          },
+        ],
+      },
+    }
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    act(() => {
+      getButton('Request / Response')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Provider Exchange')
+    expect(pageText()).toContain('Raw prompt payload is redacted')
+    expect(pageText()).toContain('gpt-threat')
+    expect(pageText()).toContain('system, user')
+    expect(pageText()).toContain('Raw provider response is redacted')
+    expect(pageText()).toContain('2048')
+    expect(pageText()).toContain('"top_level_keys"')
+    expect(pageText()).toContain('"total_tokens": 20')
   })
 
   it('labels connection testing as a saved-config action and blocks it while the draft is dirty', () => {
