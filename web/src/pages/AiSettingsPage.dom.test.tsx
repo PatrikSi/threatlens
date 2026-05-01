@@ -193,6 +193,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     offset: 0,
   },
   activeRunsLoading: false,
+  activeRunsRefreshing: false,
   historyRunsDataByPage: {} as Record<number, { items: unknown[]; total: number; limit: number; offset: number }>,
   runDetailById: {} as Record<string, unknown>,
   emptyItemsData: {
@@ -260,6 +261,7 @@ vi.mock('@tanstack/react-query', () => ({
     if (key === 'ai:ops:live') {
       return {
         ...baseResult,
+        isFetching: aiSettingsPageDomMocks.activeRunsRefreshing,
         data: aiSettingsPageDomMocks.liveData,
       }
     }
@@ -273,6 +275,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
       return {
         ...baseResult,
+        isFetching: aiSettingsPageDomMocks.activeRunsRefreshing,
         data: aiSettingsPageDomMocks.queuedRunsData,
       }
     }
@@ -286,6 +289,7 @@ vi.mock('@tanstack/react-query', () => ({
       }
       return {
         ...baseResult,
+        isFetching: aiSettingsPageDomMocks.activeRunsRefreshing,
         data: aiSettingsPageDomMocks.emptyRunsData,
       }
     }
@@ -494,6 +498,7 @@ afterEach(() => {
   aiSettingsPageDomMocks.settingsData.ai_configured = true
   aiSettingsPageDomMocks.settingsError = false
   aiSettingsPageDomMocks.activeRunsLoading = false
+  aiSettingsPageDomMocks.activeRunsRefreshing = false
   aiSettingsPageDomMocks.historyRunsDataByPage = {}
   aiSettingsPageDomMocks.runDetailById = {}
   routerMocks.useBlocker.mockReset()
@@ -763,6 +768,18 @@ describe('AiSettingsPage DOM workflows', () => {
 
     expect(pageText()).toContain('Checking queued and running AI tasks...')
     expect(pageText()).not.toContain('No queued or running top-level AI tasks right now.')
+  })
+
+  it('keeps active-task refreshes from adding layout-changing status text', () => {
+    aiSettingsPageDomMocks.activeRunsRefreshing = true
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).not.toContain('Refreshing active task state')
+    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull()
   })
 
   it('pages through AI run history instead of repeating the first page', () => {

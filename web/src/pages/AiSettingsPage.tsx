@@ -1331,84 +1331,83 @@ function ActiveTasksPanel({
 }) {
   return (
     <Panel title="Active Tasks" subtitle="Queued and running top-level AI work plus the current Celery queue snapshot.">
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        <MiniStat label="Workers" value={live?.worker_count ?? 0} />
-        <MiniStat label="Active" value={live?.active_count ?? 0} />
-        <MiniStat label="Reserved" value={live?.reserved_count ?? 0} />
-        <MiniStat label="Scheduled" value={live?.scheduled_count ?? 0} />
-        <MiniStat
-          label="Oldest Queued"
-          value={live?.oldest_queued_age_seconds != null ? formatAgeSeconds(live.oldest_queued_age_seconds) : 'n/a'}
-        />
-      </div>
+      <div aria-busy={isLoading || isRefreshing}>
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <MiniStat label="Workers" value={live?.worker_count ?? 0} />
+          <MiniStat label="Active" value={live?.active_count ?? 0} />
+          <MiniStat label="Reserved" value={live?.reserved_count ?? 0} />
+          <MiniStat label="Scheduled" value={live?.scheduled_count ?? 0} />
+          <MiniStat
+            label="Oldest Queued"
+            value={live?.oldest_queued_age_seconds != null ? formatAgeSeconds(live.oldest_queued_age_seconds) : 'n/a'}
+          />
+        </div>
 
-      <div className="mt-4 space-y-3">
-        {isRefreshing && (
-          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Refreshing active task state...</p>
-        )}
-        {errorMessage && (
-          <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
-            {errorMessage}
-          </p>
-        )}
-        {isLoading && !runs.length && (
-          <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
-            Checking queued and running AI tasks...
-          </div>
-        )}
-        {runs.map((run) => (
-          <div
-            key={run.id}
-            className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">{formatTaskTypeLabel(run.task_type)}</p>
-                  <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
+        <div className="mt-4 space-y-3">
+          {errorMessage && (
+            <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300">
+              {errorMessage}
+            </p>
+          )}
+          {isLoading && !runs.length && (
+            <div className="rounded-xl border border-slate/20 bg-white/70 p-4 text-sm text-slate dark:border-cyan-900/40 dark:bg-[#072019]/80 dark:text-white/70">
+              Checking queued and running AI tasks...
+            </div>
+          )}
+          {runs.map((run) => (
+            <div
+              key={run.id}
+              className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-semibold">{formatTaskTypeLabel(run.task_type)}</p>
+                    <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
+                  </div>
+                  <p className="mt-1 text-xs text-slate dark:text-white/65">
+                    {formatTriggerLabel(run.trigger_source)} · queued {formatTimestamp(run.queued_at)}
+                    {run.worker_name ? ` · ${run.worker_name}` : ''}
+                    {run.model ? ` · ${run.model}` : ''}
+                  </p>
+                  <p className="mt-2 text-sm text-slate dark:text-white/70">{describeRunScope(run)}</p>
                 </div>
-                <p className="mt-1 text-xs text-slate dark:text-white/65">
-                  {formatTriggerLabel(run.trigger_source)} · queued {formatTimestamp(run.queued_at)}
-                  {run.worker_name ? ` · ${run.worker_name}` : ''}
-                  {run.model ? ` · ${run.model}` : ''}
-                </p>
-                <p className="mt-2 text-sm text-slate dark:text-white/70">{describeRunScope(run)}</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
-                  onClick={() => onOpenRun(run.id)}
-                >
-                  Open Run
-                </button>
-                {canCancelRun(run) && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
-                    onClick={() => onCancelRun(run)}
-                    disabled={cancelingRunId === run.id}
+                    className="rounded border border-slate/30 px-3 py-2 text-xs font-semibold dark:border-cyan-900/40"
+                    onClick={() => onOpenRun(run.id)}
                   >
-                    {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
+                    Open Run
                   </button>
-                )}
+                  {canCancelRun(run) && (
+                    <button
+                      type="button"
+                      className="rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50 dark:text-red-300"
+                      onClick={() => onCancelRun(run)}
+                      disabled={cancelingRunId === run.id}
+                    >
+                      {cancelingRunId === run.id ? 'Working...' : cancelActionLabel(run)}
+                    </button>
+                  )}
+                </div>
               </div>
+              {run.task_type === 'reprocess' && (
+                <div className="mt-3">
+                  <ProgressBar
+                    value={run.processed_count}
+                    max={run.target_count || Math.max(run.processed_count, 1)}
+                  />
+                  <p className="mt-2 text-xs text-slate dark:text-white/60">
+                    Processed {run.processed_count}/{run.target_count ?? '?'} · Success {run.success_count} · Errors{' '}
+                    {run.error_count} · Skipped {run.skipped_count} · Remaining {remainingCount(run)}
+                  </p>
+                </div>
+              )}
             </div>
-            {run.task_type === 'reprocess' && (
-              <div className="mt-3">
-                <ProgressBar
-                  value={run.processed_count}
-                  max={run.target_count || Math.max(run.processed_count, 1)}
-                />
-                <p className="mt-2 text-xs text-slate dark:text-white/60">
-                  Processed {run.processed_count}/{run.target_count ?? '?'} · Success {run.success_count} · Errors{' '}
-                  {run.error_count} · Skipped {run.skipped_count} · Remaining {remainingCount(run)}
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
-        {!isLoading && !errorMessage && !runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
+          ))}
+          {!isLoading && !errorMessage && !runs.length && <EmptyInline>No queued or running top-level AI tasks right now.</EmptyInline>}
+        </div>
       </div>
     </Panel>
   )
