@@ -21,6 +21,7 @@ from app.services.ai_ops import (
     _load_live_task_snapshot,
     cancel_ai_task_run,
     finish_ai_task_run,
+    get_ai_ops_overview,
     get_ai_task_run_detail,
     list_ai_task_runs,
     queue_ai_task_run,
@@ -158,6 +159,37 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_se
     assert refreshed.status == AI_STATUS_RUNNING
     assert refreshed.finished_at is None
     assert response.items[0].status == AI_STATUS_RUNNING
+
+
+def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db_session, monkeypatch):
+    queued_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"days": 7, "limit": 10},
+    )
+    running_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    start_ai_task_run(db_session, run_id=running_run.id, worker_name="worker@test", celery_task_id="running-task-id")
+    db_session.commit()
+
+    def fail_live_snapshot():
+        raise AssertionError("status overview should not inspect live workers")
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+
+    overview = get_ai_ops_overview(db_session, days=30)
+
+    assert overview.live.queued_count == 1
+    assert overview.live.active_count == 1
+    assert overview.live.worker_count == 1
+    assert overview.live.workers == ["worker@test"]
+    assert overview.live.active_tasks[0].run_id == running_run.id
+    assert overview.live.active_tasks[0].celery_task_id == "running-task-id"
+    assert overview.failures == []
 
 
 def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_session, monkeypatch):

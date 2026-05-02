@@ -813,18 +813,6 @@ export function AiSettingsPage() {
                 isLoading={overviewQuery.isLoading}
                 isError={overviewQuery.isError}
                 errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
-                onShowFailure={(failure) => {
-                  setActiveTab('activity')
-                  setRunPage(0)
-                  setSelectedRunId(null)
-                  setSelectedModel(failure.model || 'all')
-                  setRunFilters((current) => ({
-                    ...current,
-                    taskType: failure.task_type || '',
-                    status: 'error',
-                    onlyFailures: true,
-                  }))
-                }}
                 days={days}
                 setDays={setDays}
                 onRefresh={() => invalidateAiQueries(queryClient)}
@@ -1019,7 +1007,6 @@ function OverviewTab({
   isLoading,
   isError,
   errorMessage,
-  onShowFailure,
   days,
   setDays,
   onRefresh,
@@ -1030,7 +1017,6 @@ function OverviewTab({
   isLoading: boolean
   isError: boolean
   errorMessage: string
-  onShowFailure: (failure: AIOpsOverviewResponse['failures'][number]) => void
   days: number
   setDays: Dispatch<SetStateAction<number>>
   onRefresh: () => void
@@ -1088,7 +1074,7 @@ function OverviewTab({
         title="Health"
         description="Use this section to confirm the endpoint is configured, the queue is moving, and problems are visible quickly."
       >
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-4 xl:grid-cols-2">
           <Panel title="AI Status" subtitle={readiness ?? 'Loading runtime state...'}>
             <dl className="space-y-2 text-sm">
               <Metric label="Configured" value={settings?.ai_configured ? 'Yes' : 'No'} />
@@ -1114,12 +1100,10 @@ function OverviewTab({
             </div>
           </Panel>
 
-          <Panel title="Queue Snapshot" subtitle="Current worker activity and the live Celery view of queued work.">
+          <Panel title="Queue Snapshot" subtitle="Database-backed snapshot of AI task runs.">
             <dl className="space-y-2 text-sm">
-              <Metric label="Workers" value={overview.live.worker_count} />
-              <Metric label="Active" value={overview.live.active_count} />
-              <Metric label="Reserved" value={overview.live.reserved_count} />
-              <Metric label="Scheduled" value={overview.live.scheduled_count} />
+              <Metric label="Known workers" value={overview.live.worker_count} />
+              <Metric label="Running" value={overview.live.active_count} />
               <Metric label="Queued" value={overview.live.queued_count} />
               <Metric
                 label="Oldest queued age"
@@ -1130,46 +1114,8 @@ function OverviewTab({
               {overview.live.active_tasks.slice(0, 4).map((task) => (
                 <LiveTaskCard key={`${task.worker_name}:${task.celery_task_id}`} task={task} />
               ))}
-              {!overview.live.active_tasks.length && <EmptyInline>No active AI tasks right now.</EmptyInline>}
+              {!overview.live.active_tasks.length && <EmptyInline>No running AI tasks right now.</EmptyInline>}
             </div>
-          </Panel>
-
-          <Panel title="Recent Problems" subtitle="The most common failures across requests and task runs.">
-            <div className="space-y-2">
-              {overview.failures.slice(0, 4).map((failure) => (
-                <button
-                  key={`${failure.task_type || 'usage'}:${failure.error}:${failure.model || 'unknown'}`}
-                  type="button"
-                  className="w-full rounded-xl border border-slate/20 bg-white/70 px-3 py-3 text-left dark:border-cyan-900/40 dark:bg-[#072019]/80"
-                  onClick={() => onShowFailure(failure)}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {formatTaskTypeLabel(failure.task_type || failure.feature_type || 'request')}
-                        {failure.model ? ` · ${failure.model}` : ''}
-                      </p>
-                      <p className="mt-1 text-sm text-slate dark:text-white/70">{failure.error}</p>
-                    </div>
-                    <div className="text-right text-xs text-slate dark:text-white/60">
-                      <p>{failure.count} hits</p>
-                      <p>{failure.last_seen_at ? formatTimestamp(failure.last_seen_at) : 'unknown'}</p>
-                    </div>
-                  </div>
-                </button>
-              ))}
-              {!overview.failures.length && <EmptyInline>No recent AI failures.</EmptyInline>}
-            </div>
-            {overview.endpoint_health.last_auth_error && (
-              <p className="mt-3 rounded border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
-                Last auth/provider issue: {overview.endpoint_health.last_auth_error}
-              </p>
-            )}
-            {overview.endpoint_health.last_provider_error && !overview.endpoint_health.last_auth_error && (
-              <p className="mt-3 rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
-                Last provider error: {overview.endpoint_health.last_provider_error}
-              </p>
-            )}
           </Panel>
         </div>
       </OverviewSection>

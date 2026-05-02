@@ -491,11 +491,65 @@ def get_ai_live_status(db: Session) -> AILiveStatusResponse:
     )
 
 
+def get_ai_db_live_status(db: Session, *, active_task_limit: int = 4) -> AILiveStatusResponse:
+    status_counts = {
+        status: int(count)
+        for status, count in db.execute(
+            select(AITaskRun.status, func.count(AITaskRun.id))
+            .where(AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]))
+            .group_by(AITaskRun.status)
+        ).all()
+    }
+    oldest_queued = db.scalar(
+        select(AITaskRun.queued_at).where(AITaskRun.status == AI_STATUS_QUEUED).order_by(AITaskRun.queued_at.asc())
+    )
+    oldest_age = None
+    if oldest_queued is not None:
+        oldest_age = max(0, int((datetime.now(timezone.utc) - _coerce_utc(oldest_queued)).total_seconds()))
+
+    active_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(AITaskRun.status == AI_STATUS_RUNNING)
+            .order_by(AITaskRun.started_at.desc().nullslast(), AITaskRun.updated_at.desc())
+            .limit(active_task_limit)
+        )
+    )
+    workers = sorted({run.worker_name for run in active_runs if run.worker_name})
+    active_tasks = [
+        AILiveTaskResponse(
+            worker_name=run.worker_name or "database",
+            celery_task_id=run.celery_task_id,
+            task_name=run.task_type,
+            state="active",
+            run_id=run.id,
+            item_id=run.item_id,
+            parent_run_id=run.parent_run_id,
+            received_at=run.started_at.isoformat() if run.started_at else None,
+            raw_name=None,
+        )
+        for run in active_runs
+    ]
+
+    return AILiveStatusResponse(
+        worker_count=len(workers),
+        workers=workers,
+        active_tasks=active_tasks,
+        reserved_tasks=[],
+        scheduled_tasks=[],
+        active_count=status_counts.get(AI_STATUS_RUNNING, 0),
+        reserved_count=0,
+        scheduled_count=0,
+        queued_count=status_counts.get(AI_STATUS_QUEUED, 0),
+        oldest_queued_age_seconds=oldest_age,
+    )
+
+
 def get_ai_ops_overview(db: Session, *, days: int = 30) -> AIOpsOverviewResponse:
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=max(1, days))
     usage_events = list(db.scalars(select(AIUsageEvent).where(AIUsageEvent.created_at >= since)))
-    live = get_ai_live_status(db)
+    live = get_ai_db_live_status(db)
 
     successful_events = [event for event in usage_events if event.success]
     failed_events = [event for event in usage_events if not event.success]
@@ -525,7 +579,6 @@ def get_ai_ops_overview(db: Session, *, days: int = 30) -> AIOpsOverviewResponse
     token_efficiency = _build_token_efficiency(usage_events)
     relevance_distribution = _build_relevance_distribution(db)
     coverage = _build_coverage_stats(db)
-    failures = list_ai_failures(db, days=days, limit=10)
     endpoint_health = _build_endpoint_health(usage_events)
     feature_health = _build_feature_health(db)
     storage = _build_storage_stats(db)
@@ -539,7 +592,7 @@ def get_ai_ops_overview(db: Session, *, days: int = 30) -> AIOpsOverviewResponse
         token_efficiency=token_efficiency,
         relevance_distribution=relevance_distribution,
         coverage=coverage,
-        failures=failures,
+        failures=[],
         endpoint_health=endpoint_health,
         feature_health=feature_health,
         storage=storage,

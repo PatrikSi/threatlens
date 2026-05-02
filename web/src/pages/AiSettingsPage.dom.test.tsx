@@ -597,6 +597,9 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(view.querySelector<HTMLSelectElement>('#ai-overview-window-days')?.getAttribute('aria-label')).toBe(
       'Overview time window',
     )
+    expect(pageText()).not.toContain('Recent Problems')
+    expect(pageText()).not.toContain('The most common failures across requests and task runs.')
+    expect(pageText()).toContain('Database-backed snapshot of AI task runs.')
 
     const jobsTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Jobs'))
     expect(jobsTab).not.toBeNull()
