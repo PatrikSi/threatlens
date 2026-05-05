@@ -768,6 +768,22 @@ export function DashboardPage() {
     },
   })
 
+  const markItemReadIfNeeded = (itemId: string, isRead: boolean) => {
+    if (isRead || !canManage || (updateRead.isPending && updateRead.variables?.itemId === itemId)) {
+      return
+    }
+
+    updateRead.mutate({
+      itemId,
+      isRead: true,
+    })
+  }
+
+  const handleOpenArticlePreview = (preview: ArticlePreviewState, isRead: boolean) => {
+    openArticlePreview(preview)
+    markItemReadIfNeeded(preview.itemId, isRead)
+  }
+
   const updateStar = useMutation({
     mutationKey: ['items', 'star'],
     mutationFn: (payload: { itemId: string; isStarred: boolean }) =>
@@ -1263,11 +1279,8 @@ export function DashboardPage() {
         [windowId]: itemId,
       }
     })
-    if (isOpening && !isRead && canManage && !(updateRead.isPending && updateRead.variables?.itemId === itemId)) {
-      updateRead.mutate({
-        itemId,
-        isRead: true,
-      })
+    if (isOpening) {
+      markItemReadIfNeeded(itemId, isRead)
     }
   }
 
@@ -2698,12 +2711,15 @@ export function DashboardPage() {
                                       type="button"
                                       className="absolute right-0 top-5 whitespace-nowrap rounded border border-slate/20 bg-white px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#041612]"
                                       onClick={() =>
-                                        openArticlePreview({
-                                          itemId: item.id,
-                                          url: itemHref,
-                                          title: item.title,
-                                          sourceLabel: item.feed_name,
-                                        })
+                                        handleOpenArticlePreview(
+                                          {
+                                            itemId: item.id,
+                                            url: itemHref,
+                                            title: item.title,
+                                            sourceLabel: item.feed_name,
+                                          },
+                                          item.is_read,
+                                        )
                                       }
                                     >
                                       Preview Original

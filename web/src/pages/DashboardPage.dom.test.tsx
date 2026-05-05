@@ -964,6 +964,11 @@ describe('DashboardPage DOM workflows', () => {
       previewButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
+    expect(dashboardPageDomMocks.readMutate).toHaveBeenCalledWith({
+      itemId: 'item-1',
+      isRead: true,
+    })
+
     const previewDialog = document.querySelector<HTMLElement>('[aria-labelledby="article-preview-title"]')
     expect(previewDialog).not.toBeNull()
     expect(previewDialog?.textContent).toContain('Vendor Advisories')
