@@ -1,24 +1,30 @@
 # ThreatLens
 
-ThreatLens is a self-hosted threat intelligence workspace for collecting RSS feeds, reading the full articles behind them, and triaging what matters.
+ThreatLens is a self-hosted app for tracking security (or any other) RSS feeds and articles.
 
-It gives security teams a simple dashboard for feeds, alerts, tags, notes, read/starred state, and optional AI-assisted summaries and daily briefs.
+It stores feeds, extracts article text, and gives a single pane of glass to review articles, alerting matches, optional AI summaries/recommendations. 
 
-## What It Does
+## Screenshots
 
-- Pulls and stores RSS feeds
-- Fetches and extracts readable article text
-- Lets analysts mark items as read, starred, tagged, and noted
-- Supports saved dashboard layouts with RSS, alert, notes, and brief panels
-- Finds alert matches from keyword interests before and after saving them
-- Provides role-based users: `admin`, `analyst`, and `viewer`
-- Supports API tokens, audit logs, and feed import/export
-- Sends optional webhook notifications with admin-controlled destinations
-- Includes optional AI features for summaries, relevance scoring, task history, and daily briefs
+![ThreatLens dashboard showing RSS triage and a daily brief panel](image.png)
+
+| Original article preview | RSS-only triage view |
+|---|---|
+| ![ThreatLens original article preview drawer opened from an RSS item](image-1.png) | ![ThreatLens RSS-only dashboard layout with filters and item triage controls](image-2.png) |
+
+## Features
+
+- RSS feed collection and article extraction
+- Read/starred state, notes, tags, and saved dashboard views
+- Keyword alert interests with preview before saving
+- Feed import/export and webhook notifications
+- Role-based users: `admin`, `analyst`, and `viewer`
+- API tokens and audit logs
+- Optional AI summaries, relevance scoring, task history, and daily briefs
 
 ## Quick Start
 
-Copy the example environment file:
+Create a local environment file:
 
 ```bash
 cp .env.example .env
@@ -37,20 +43,20 @@ ADMIN_EMAIL=
 ADMIN_PASSWORD=
 ```
 
-For a local HTTP-only test, also set:
+For local HTTP testing, also set:
 
 ```bash
 APP_ENV=development
 AUTH_COOKIE_SECURE=false
 ```
 
-For the first startup, either set:
+For the first startup, either enable admin seeding:
 
 ```bash
 SEED_ADMIN_ON_STARTUP=true
 ```
 
-or create the admin user after the stack is running:
+or create the admin user after startup:
 
 ```bash
 docker compose exec api python -m app.scripts.seed_admin
@@ -62,27 +68,27 @@ Start everything:
 docker compose up -d --build
 ```
 
-Open:
+Open the app:
 
 ```text
 http://localhost:3000
 ```
 
-Log in with the `ADMIN_EMAIL` and `ADMIN_PASSWORD` from your `.env`.
+Log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 After the first admin account exists, set `SEED_ADMIN_ON_STARTUP=false` for normal use.
 
-## Optional AI Features
+## AI
 
 AI is disabled by default.
 
-To enable the AI workspace, set:
+To enable it, set:
 
 ```bash
 AI_ENABLED=true
 ```
 
-Then open **Settings -> AI** in the app and configure an OpenAI-compatible endpoint, model, and API key if your provider needs one.
+Then open **Settings -> AI** and configure an OpenAI-compatible endpoint, model, and API key if needed.
 
 If your AI provider is on a private network, also set:
 
@@ -90,7 +96,7 @@ If your AI provider is on a private network, also set:
 ALLOW_PRIVATE_NETWORK_AI=true
 ```
 
-The AI features are optional. ThreatLens still works as a feed reader, alerting, tagging, and triage tool without them.
+ThreatLens works without AI.
 
 ## Useful Commands
 
@@ -180,7 +186,7 @@ npm run build
 - Feed/article fetching, AI calls, and webhook delivery can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env`.
 - Keep `APP_DATA_ENCRYPTION_KEY` safe. Some stored feed and webhook data depends on it.
-- For detailed configuration, use `.env.example` as the reference.
+- Use `.env.example` as the configuration reference.
 
 ## License
 
