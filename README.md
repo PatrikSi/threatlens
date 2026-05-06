@@ -62,7 +62,14 @@ or create the admin user after startup:
 docker compose exec api python -m app.scripts.seed_admin
 ```
 
-Start everything:
+Pull the published images and start everything:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Or build the images locally from source:
 
 ```bash
 docker compose up -d --build
@@ -99,6 +106,13 @@ ALLOW_PRIVATE_NETWORK_AI=true
 ThreatLens works without AI.
 
 ## Useful Commands
+
+Update to the latest published images:
+
+```bash
+docker compose pull
+docker compose up -d
+```
 
 Check services:
 

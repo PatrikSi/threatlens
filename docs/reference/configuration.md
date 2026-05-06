@@ -7,8 +7,7 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
-- `worker`: Celery worker for ingestion, processing, notification, and maintenance queues
-- `ai-worker`: dedicated Celery worker for AI enrichment and daily brief queues
+- `worker`: Celery worker for ingestion, processing, notification, maintenance, and AI queues
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
 
@@ -130,16 +129,20 @@ Outside production:
 ## Compose Notes
 
 - `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
+- The default ThreatLens application images point at GitHub Container Registry:
+  - `ghcr.io/patriksi/threatlens-backend:latest` for `api`, `worker`, and `beat`
+  - `ghcr.io/patriksi/threatlens-web:latest` for `web`
+- Pin `THREATLENS_BACKEND_IMAGE` and `THREATLENS_WEB_IMAGE` to an immutable release tag such as `:v0.1.0` for stable deployments, or keep `:latest` for tracking the current `main` image.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
-- `worker`, `ai-worker`, and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- `worker` and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes the `ingest`, `processing`, `notifications`, and `maintenance` queues, while `ai-worker` consumes the `ai` queue so feed polling is not starved by long-running enrichment jobs.
+- `worker` consumes the `default`, `ingest`, `processing`, `notifications`, `maintenance`, and `ai` queues.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It also reserves `172.31.240.0/24` for the `web` frontend network and trusts only that exact subnet by default so browser auth throttling can preserve client IPs through the shipped proxy. For other reverse proxies, add only the exact proxy hops you control.
-- `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image as OCI label args. Export them before `docker compose build` or `docker compose up --build` if you want local image metadata to capture the checked-out revision and build time; otherwise those labels fall back to `unknown`.
+- `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every locally built ThreatLens image as OCI label args. Export them before `docker compose build` or `docker compose up --build` if you want local image metadata to capture the checked-out revision and build time; otherwise those labels fall back to `unknown`.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
