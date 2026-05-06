@@ -18,6 +18,23 @@ Before publishing a public tag, image, or source release:
 - Only the latest published tag is considered a supported release line once tags exist.
 - If no public tag exists yet, pin the deployed commit SHA, image digests, and checked-in OpenAPI contract anchor together as the current release reference.
 
+## Container Image Publishing
+
+`.github/workflows/publish-images.yml` publishes multi-architecture Linux images to GitHub Container Registry on pushes to `main`, tags matching `v*.*.*`, and manual workflow runs.
+
+Published images:
+
+- `ghcr.io/patriksi/threatlens-backend`
+- `ghcr.io/patriksi/threatlens-web`
+
+Tag behavior:
+
+- `main` branch builds publish `:main`, `:latest`, and `:sha-<commit>`.
+- Version tags such as `v0.1.0` publish `:v0.1.0`, `:0.1.0`, `:0.1`, and `:sha-<commit>`.
+- Both images are built for `linux/amd64` and `linux/arm64`.
+
+After the first package publish, verify in GitHub Packages that both container packages are public if the release is intended for unauthenticated installs.
+
 ## Contract Artifact Workflow
 
 When a change affects the published API contract:
