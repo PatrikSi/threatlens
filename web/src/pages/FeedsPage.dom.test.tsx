@@ -364,6 +364,12 @@ describe('FeedsPage DOM workflows', () => {
     expect(
       Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Import JSON'),
     ).not.toBeNull()
+    expect(
+      Array.from(view.querySelectorAll('button')).filter((button) => button.textContent?.trim().includes('Export')),
+    ).toHaveLength(1)
+    expect(pageText()).toContain('Export JSON')
+    expect(pageText()).not.toContain('Export sanitized')
+    expect(pageText()).not.toContain('Backup export')
 
     const searchInput = view.querySelector<HTMLInputElement>('#feed-search')
     expect(searchInput).not.toBeNull()

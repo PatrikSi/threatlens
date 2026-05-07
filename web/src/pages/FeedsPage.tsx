@@ -324,14 +324,6 @@ export function FeedsPage() {
   })
 
   const exportFeeds = useMutation({
-    mutationFn: () => apiFetch<FeedExportResponse>('/feeds/export'),
-    onSuccess: (payload) => {
-      downloadFeedExport(payload)
-      setExportNotice(formatFeedExportNotice(payload))
-    },
-  })
-
-  const exportFeedBackup = useMutation({
     mutationFn: () => apiFetch<FeedExportResponse>('/feeds/export/backup'),
     onSuccess: (payload) => {
       downloadFeedExport(payload)
@@ -881,21 +873,12 @@ export function FeedsPage() {
           <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <button
               type="button"
-              className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
-              onClick={() => exportFeeds.mutate()}
-              disabled={exportFeeds.isPending}
-              title="Export redacted feed URLs for sharing or review"
-            >
-              Export sanitized
-            </button>
-            <button
-              type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-xs disabled:opacity-50 dark:border-cyan-900/40"
-              onClick={() => exportFeedBackup.mutate()}
-              disabled={!canBackup || exportFeedBackup.isPending}
+              onClick={() => exportFeeds.mutate()}
+              disabled={!canBackup || exportFeeds.isPending}
               title="Export full feed URLs for backup and restore"
             >
-              Backup export
+              Export JSON
             </button>
             <button
               type="button"
@@ -1172,9 +1155,9 @@ export function FeedsPage() {
             {exportNotice}
           </p>
         )}
-        {(exportFeeds.isError || exportFeedBackup.isError) && (
+        {exportFeeds.isError && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
-            Export failed: {resolveMutationError(exportFeeds.error ?? exportFeedBackup.error)}
+            Export failed: {resolveMutationError(exportFeeds.error)}
           </p>
         )}
         {canDelete && encryptedDataHealthQuery.isError && (
@@ -1715,7 +1698,7 @@ function downloadFeedExport(payload: FeedExportResponse) {
   const anchor = document.createElement('a')
   const dateSuffix = new Date().toISOString().slice(0, 10)
   anchor.href = objectUrl
-  anchor.download = `threatlens-feeds-${payload.export_type}-${dateSuffix}.json`
+  anchor.download = `threatlens-feeds-${dateSuffix}.json`
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
@@ -1723,13 +1706,12 @@ function downloadFeedExport(payload: FeedExportResponse) {
 }
 
 function formatFeedExportNotice(payload: FeedExportResponse) {
-  const label = payload.export_type === 'backup' ? 'Backup export' : 'Sanitized export'
   const feedCount = `${payload.feeds.length} feed${payload.feeds.length === 1 ? '' : 's'}`
   if (!payload.warnings.length) {
-    return `${label} downloaded with ${feedCount}.`
+    return `Feed export downloaded with ${feedCount}.`
   }
   const warningCount = `${payload.warnings.length} warning${payload.warnings.length === 1 ? '' : 's'}`
-  return `${label} downloaded with ${feedCount} and ${warningCount}: ${payload.warnings[0]}`
+  return `Feed export downloaded with ${feedCount} and ${warningCount}: ${payload.warnings[0]}`
 }
 
 function resolveMutationError(error: unknown): string {
