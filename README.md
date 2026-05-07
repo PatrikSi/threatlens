@@ -24,43 +24,19 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 
 ## Quick Start
 
-Create a local environment file:
+Create a local environment file with fresh random secrets:
 
 ```bash
-cp .env.example .env
+./scripts/create-env.sh
 ```
 
-Edit `.env` and set real values for at least:
+The script prints the generated admin login. To choose your own admin identity, run:
 
 ```bash
-POSTGRES_PASSWORD=
-REDIS_PASSWORD=
-DATABASE_URL=
-REDIS_URL=
-JWT_SECRET=
-APP_DATA_ENCRYPTION_KEY=
-ADMIN_EMAIL=
-ADMIN_PASSWORD=
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./scripts/create-env.sh
 ```
 
-For local HTTP testing, also set:
-
-```bash
-APP_ENV=development
-AUTH_COOKIE_SECURE=false
-```
-
-For the first startup, either enable admin seeding:
-
-```bash
-SEED_ADMIN_ON_STARTUP=true
-```
-
-or create the admin user after startup:
-
-```bash
-docker compose exec api python -m app.scripts.seed_admin
-```
+For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 
 Pull the published images and start everything:
 
