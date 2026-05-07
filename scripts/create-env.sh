@@ -76,6 +76,11 @@ jwt_secret="$(random_value 64)"
 app_data_encryption_key="$(random_value 64)"
 admin_email="${ADMIN_EMAIL:-admin@example.com}"
 admin_password="${ADMIN_PASSWORD:-$(random_value 24)}"
+compose_project_name="${COMPOSE_PROJECT_NAME:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')}"
+if [ -z "$compose_project_name" ]; then
+  compose_project_name="threatlens"
+fi
+postgres_volume_name="${compose_project_name}_postgres_data"
 
 umask 077
 cat > "$output_file" <<EOF
@@ -140,3 +145,14 @@ Start ThreatLens with:
 
 After the first admin account exists, you can set SEED_ADMIN_ON_STARTUP=false in $output_file.
 EOF
+
+if command -v docker >/dev/null 2>&1 && docker volume inspect "$postgres_volume_name" >/dev/null 2>&1; then
+  cat <<EOF
+
+Warning: Docker volume $postgres_volume_name already exists.
+If this is from a failed first startup and the API logs say the PostgreSQL role
+"threatlens" does not exist, reset the local database volume with:
+  docker compose down -v
+  docker compose up -d
+EOF
+fi
