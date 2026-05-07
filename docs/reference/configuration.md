@@ -132,7 +132,7 @@ Outside production:
 - The default ThreatLens application images point at GitHub Container Registry:
   - `ghcr.io/patriksi/threatlens-backend:latest` for `api`, `worker`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:latest` for `web`
-- Pin `THREATLENS_BACKEND_IMAGE` and `THREATLENS_WEB_IMAGE` to an immutable release tag such as `:v0.1.0` for stable deployments, or keep `:latest` for tracking the current `main` image.
+- Pin the image tags in `docker-compose.yml` to an immutable release tag such as `:v0.1.0` for stable deployments, or keep `:latest` for tracking the current `main` image.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
