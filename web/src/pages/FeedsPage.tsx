@@ -67,6 +67,11 @@ type DetectedFeedMetadata = {
 }
 
 const MAX_FEED_IMPORT_FILE_BYTES = 2_000_000
+const FEED_STATUS_BOOTSTRAP_POLL_MS = 60_000
+const FEED_REFRESH_STATUS_POLL_MS = 45_000
+const FEED_STATUS_POLL_INTERVAL_MS = 3_000
+const FEED_REFRESH_FOLLOW_UP_DELAYS_MS = [2_000, 6_000, 12_000, 24_000] as const
+
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -103,14 +108,50 @@ export function FeedsPage() {
   const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
   const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
   const [feedDraftHydratedStorageKey, setFeedDraftHydratedStorageKey] = useState<string | null>(null)
+  const [feedStatusPollUntil, setFeedStatusPollUntil] = useState(() => Date.now() + FEED_STATUS_BOOTSTRAP_POLL_MS)
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
   const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
+  const feedRefreshFollowUpTimeoutsRef = useRef<number[]>([])
+
+  const clearFeedRefreshFollowUps = () => {
+    for (const timeoutId of feedRefreshFollowUpTimeoutsRef.current) {
+      window.clearTimeout(timeoutId)
+    }
+    feedRefreshFollowUpTimeoutsRef.current = []
+  }
+
+  const invalidateFeedDependentQueries = () => {
+    void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+    void queryClient.invalidateQueries({ queryKey: ['items'] })
+  }
+
+  const scheduleFeedRefreshFollowUps = () => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    clearFeedRefreshFollowUps()
+    setFeedStatusPollUntil(Date.now() + FEED_REFRESH_STATUS_POLL_MS)
+    for (const delayMs of FEED_REFRESH_FOLLOW_UP_DELAYS_MS) {
+      const timeoutId = window.setTimeout(invalidateFeedDependentQueries, delayMs)
+      feedRefreshFollowUpTimeoutsRef.current.push(timeoutId)
+    }
+  }
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
+    refetchInterval: (query) => {
+      const feeds = query.state.data as Feed[] | undefined
+      const hasRefreshableUnhealthyFeeds =
+        feeds?.some((feed) => {
+          const status = resolveFeedHealth(feed).status
+          return status === 'stale' || status === 'failing'
+        }) ?? false
+      return hasRefreshableUnhealthyFeeds && Date.now() < feedStatusPollUntil ? FEED_STATUS_POLL_INTERVAL_MS : false
+    },
   })
 
   const encryptedDataHealthQuery = useQuery({
@@ -200,7 +241,11 @@ export function FeedsPage() {
 
   const refreshFeed = useMutation({
     mutationFn: (id: string) => apiFetch(`/feeds/${id}/refresh`, { method: 'POST' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['feeds'] }),
+    onSuccess: () => {
+      setManagementNotice('Refresh queued. Feed health will update automatically as the worker finishes.')
+      invalidateFeedDependentQueries()
+      scheduleFeedRefreshFollowUps()
+    },
   })
 
   const deleteFeed = useMutation({
@@ -220,8 +265,12 @@ export function FeedsPage() {
       return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
-      setManagementNotice(formatBulkResultNotice('Refresh queued for', result))
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
+      const followUpHint = result.succeeded > 0 ? ' Feed health will update automatically as workers finish.' : ''
+      setManagementNotice(`${formatBulkResultNotice('Refresh queued for', result)}${followUpHint}`)
+      invalidateFeedDependentQueries()
+      if (result.succeeded > 0) {
+        scheduleFeedRefreshFollowUps()
+      }
     },
   })
 
@@ -289,6 +338,15 @@ export function FeedsPage() {
       setExportNotice(formatFeedExportNotice(payload))
     },
   })
+
+  useEffect(() => {
+    return () => {
+      for (const timeoutId of feedRefreshFollowUpTimeoutsRef.current) {
+        window.clearTimeout(timeoutId)
+      }
+      feedRefreshFollowUpTimeoutsRef.current = []
+    }
+  }, [])
 
   const filteredFeeds = useMemo(() => {
     const term = search.trim().toLowerCase()

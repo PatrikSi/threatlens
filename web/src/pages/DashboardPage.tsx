@@ -94,6 +94,8 @@ const ARTICLE_PREVIEW_MIN_WIDTH = 420
 const ARTICLE_PREVIEW_MAX_WIDTH = 1120
 const SAVED_VIEW_THUMBNAIL_WIDTH = 148
 const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
+const FEED_BOOTSTRAP_REFETCH_INTERVAL_MS = 5_000
+const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
 const ROLLING_WINDOW_FIELD_CLASS =
   'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
 
@@ -628,7 +630,28 @@ export function DashboardPage() {
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
     staleTime: 300_000,
+    refetchInterval: (query) => {
+      const feeds = query.state.data as Feed[] | undefined
+      const hasPendingFirstFetch = feeds?.some((feed) => feed.enabled && !feed.last_success_at && !feed.has_unreadable_url) ?? false
+      return hasPendingFirstFetch ? FEED_BOOTSTRAP_REFETCH_INTERVAL_MS : false
+    },
   })
+
+  const feedStatusSignature = useMemo(() => {
+    if (!feedsQuery.data) {
+      return null
+    }
+    return feedsQuery.data
+      .map((feed) => `${feed.id}:${feed.last_success_at ?? ''}:${feed.error_count}:${feed.last_error ?? ''}`)
+      .join('|')
+  }, [feedsQuery.data])
+
+  useEffect(() => {
+    if (feedStatusSignature === null) {
+      return
+    }
+    void queryClient.invalidateQueries({ queryKey: ['items'] })
+  }, [feedStatusSignature, queryClient])
 
   const viewsQuery = useQuery({
     queryKey: ['views'],
@@ -970,7 +993,7 @@ export function DashboardPage() {
         }),
         retry: 1,
         staleTime: 60_000,
-        refetchInterval: rssFilters.page === 1 ? 60_000 : false,
+        refetchInterval: rssFilters.page === 1 ? RSS_WINDOW_REFETCH_INTERVAL_MS : false,
         placeholderData: (previousData: ItemListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
