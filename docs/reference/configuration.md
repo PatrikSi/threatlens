@@ -129,6 +129,7 @@ Outside production:
 ## Compose Notes
 
 - `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
+- For a local first run, `./scripts/create-env.sh` generates `.env` with fresh random secrets, HTTP-friendly local settings, and one-time admin seeding enabled.
 - The default ThreatLens application images point at GitHub Container Registry:
   - `ghcr.io/patriksi/threatlens-backend:latest` for `api`, `worker`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:latest` for `web`
