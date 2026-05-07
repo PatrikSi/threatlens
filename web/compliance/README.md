@@ -9,7 +9,6 @@ Keep this bundle in sync with:
 
 - repository `LICENSE`
 - `docs/licenses/*.txt`
-- `python scripts/sync_compliance_bundle.py`
 
 The web image copies these files into `/usr/share/doc/threatlens/` and also
 generates runtime-specific compliance artifacts there during the Docker build,
