@@ -25,7 +25,7 @@
 | Variable | Default | Purpose |
 |---|---:|---|
 | `APP_ENV` (`app_env`) | `development` | Environment mode, drives production validation rules. |
-| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. |
+| `DATABASE_URL` (`database_url`) | `postgresql+psycopg://postgres:postgres@db:5432/threatlens` | SQLAlchemy database URL. This code default is development-only; production rejects the default `postgres:postgres` credential pair. The bundled compose stack and generated env use the `threatlens` database role instead. |
 | `REDIS_URL` (`redis_url`) | `redis://redis:6379/0` | Celery broker/result backend and worker coordination. This code default is development-only; production requires a password-bearing Redis URL. |
 | `POSTGRES_PASSWORD` (`postgres_password`) | _(empty)_ | Postgres service password used by the bundled compose stack. Production requires an explicit non-default value. |
 | `REDIS_PASSWORD` (`redis_password`) | _(empty)_ | Redis service password used by the bundled compose stack. Production requires an explicit non-default value. |
@@ -130,6 +130,7 @@ Outside production:
 
 - `docker-compose.yml` expects a real `.env` file and is the production-oriented reference deployment.
 - For a local first run, `./scripts/create-env.sh` generates `.env` with fresh random secrets, HTTP-friendly local settings, and one-time admin seeding enabled.
+- If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
 - The default ThreatLens application images point at GitHub Container Registry:
   - `ghcr.io/patriksi/threatlens-backend:latest` for `api`, `worker`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:latest` for `web`

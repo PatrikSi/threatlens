@@ -104,6 +104,13 @@ docker compose logs -f worker
 docker compose logs -f web
 ```
 
+If the first startup fails with `Role "threatlens" does not exist`, an old PostgreSQL volume was likely initialized before the generated `.env` was in place. For a new install with no data to keep, reset the local volumes:
+
+```bash
+docker compose down -v
+docker compose up -d
+```
+
 Run migrations:
 
 ```bash
