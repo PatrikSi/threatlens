@@ -6,7 +6,7 @@ usage() {
 Usage: scripts/create-env.sh [--force] [output-file]
 
 Generate a local .env file with fresh random secrets for the default
-Docker Compose stack. The default output file is .env in the repository root.
+Docker Compose stack. The default output file is .env in the current directory.
 
 Environment overrides:
   ADMIN_EMAIL      Admin email to write into the generated file.
@@ -39,10 +39,8 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/.." && pwd)"
 if [ -z "$output_file" ]; then
-  output_file="$repo_root/.env"
+  output_file=".env"
 fi
 
 if [ -e "$output_file" ] && [ "$force" != "true" ]; then
