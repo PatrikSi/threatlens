@@ -48,7 +48,7 @@ docker compose up -d
 Or build the images locally from source:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Open the app:

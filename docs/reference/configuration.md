@@ -133,6 +133,7 @@ Outside production:
 - The default ThreatLens application images point at GitHub Container Registry:
   - `ghcr.io/patriksi/threatlens-backend:latest` for `api`, `worker`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:latest` for `web`
+- The default compose file is pull-only for ThreatLens application images. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - Pin the image tags in `docker-compose.yml` to an immutable release tag such as `:v0.1.0` for stable deployments, or keep `:latest` for tracking the current `main` image.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
@@ -143,7 +144,7 @@ Outside production:
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It also reserves `172.31.240.0/24` for the `web` frontend network and trusts only that exact subnet by default so browser auth throttling can preserve client IPs through the shipped proxy. For other reverse proxies, add only the exact proxy hops you control.
-- `docker-compose.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every locally built ThreatLens image as OCI label args. Export them before `docker compose build` or `docker compose up --build` if you want local image metadata to capture the checked-out revision and build time; otherwise those labels fall back to `unknown`.
+- `docker-compose.build.yml` forwards exported `BUILD_DATE` and `VCS_REF` values into every locally built ThreatLens image as OCI label args. Export them before running the source-build override if you want local image metadata to capture the checked-out revision and build time; otherwise those labels fall back to `unknown`.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)

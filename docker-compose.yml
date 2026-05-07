@@ -43,11 +43,6 @@ services:
 
   api:
     image: ghcr.io/patriksi/threatlens-backend:latest
-    build:
-      context: ./backend
-      args:
-        BUILD_DATE: ${BUILD_DATE:-unknown}
-        VCS_REF: ${VCS_REF:-unknown}
     restart: unless-stopped
     env_file:
       - .env
@@ -174,12 +169,6 @@ services:
 
   web:
     image: ghcr.io/patriksi/threatlens-web:latest
-    build:
-      context: ./web
-      args:
-        BUILD_DATE: ${BUILD_DATE:-unknown}
-        VCS_REF: ${VCS_REF:-unknown}
-        VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}
     restart: unless-stopped
     depends_on:
       api:
