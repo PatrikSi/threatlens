@@ -1,0 +1,15 @@
+services:
+  api:
+    build:
+      context: ./backend
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        VCS_REF: ${VCS_REF:-unknown}
+
+  web:
+    build:
+      context: ./web
+      args:
+        BUILD_DATE: ${BUILD_DATE:-unknown}
+        VCS_REF: ${VCS_REF:-unknown}
+        VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}
