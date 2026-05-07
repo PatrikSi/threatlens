@@ -27,13 +27,13 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 Create a local environment file with fresh random secrets:
 
 ```bash
-./scripts/create-env.sh
+./bootstrap.sh
 ```
 
 The script prints the generated admin login. To choose your own admin identity, run:
 
 ```bash
-ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./scripts/create-env.sh
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 ```
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
