@@ -61,6 +61,36 @@ Log in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
 
 After the first admin account exists, set `SEED_ADMIN_ON_STARTUP=false` for normal use.
 
+## Portainer
+
+You can paste `docker-compose.yml` into a Portainer stack without uploading a `.env` file.
+
+Generate a complete stack environment block:
+
+```bash
+./bootstrap.sh --print-portainer-env
+```
+
+Paste the full output into the Portainer stack environment before the first deploy. To choose your own admin identity, run:
+
+```bash
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-portainer-env
+```
+
+Keep `APP_DATA_ENCRYPTION_KEY` stable across upgrades.
+
+The generated block is for HTTP-only local or LAN testing:
+
+```text
+APP_ENV=development
+AUTH_COOKIE_SECURE=false
+```
+
+For HTTPS or internet-facing deployments, review `.env.example` before first startup.
+
+The compose file derives the internal `DATABASE_URL` and `REDIS_URL` from the Postgres and Redis settings unless you set those URLs yourself.
+Set `THREATLENS_WEB_PORT` if port `3000` is already in use.
+
 ## AI
 
 AI is disabled by default.
@@ -181,7 +211,7 @@ npm run build
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
 - The browser talks to the API through `/api/v1`.
 - Feed/article fetching, AI calls, and webhook delivery can make outbound network requests.
-- Private-network outbound access is off by default. Enable only what you trust in `.env`.
+- Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
 - Keep `APP_DATA_ENCRYPTION_KEY` safe. Some stored feed and webhook data depends on it.
 - Use `.env.example` as the configuration reference.
 
