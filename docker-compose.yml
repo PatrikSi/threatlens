@@ -42,7 +42,7 @@ services:
       - backplane
 
   api:
-    image: ${THREATLENS_BACKEND_IMAGE:-ghcr.io/patriksi/threatlens-backend:latest}
+    image: ghcr.io/patriksi/threatlens-backend:latest
     build:
       context: ./backend
       args:
@@ -86,7 +86,7 @@ services:
       - backplane
 
   worker:
-    image: ${THREATLENS_BACKEND_IMAGE:-ghcr.io/patriksi/threatlens-backend:latest}
+    image: ghcr.io/patriksi/threatlens-backend:latest
     restart: unless-stopped
     env_file:
       - .env
@@ -135,7 +135,7 @@ services:
       - backplane
 
   beat:
-    image: ${THREATLENS_BACKEND_IMAGE:-ghcr.io/patriksi/threatlens-backend:latest}
+    image: ghcr.io/patriksi/threatlens-backend:latest
     restart: unless-stopped
     env_file:
       - .env
@@ -173,7 +173,7 @@ services:
       - backplane
 
   web:
-    image: ${THREATLENS_WEB_IMAGE:-ghcr.io/patriksi/threatlens-web:latest}
+    image: ghcr.io/patriksi/threatlens-web:latest
     build:
       context: ./web
       args:
