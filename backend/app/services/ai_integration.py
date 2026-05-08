@@ -8,6 +8,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 from sqlalchemy import case, delete, func, select, update
@@ -1195,6 +1196,12 @@ def _build_chat_completion_url(base_url: str) -> str:
     cleaned = base_url.rstrip("/")
     if cleaned.endswith("/chat/completions"):
         return cleaned
+    try:
+        parsed = urlsplit(cleaned)
+    except ValueError:
+        return f"{cleaned}/chat/completions"
+    if parsed.scheme and parsed.netloc and parsed.path in {"", "/"}:
+        return urlunsplit((parsed.scheme, parsed.netloc, "/v1/chat/completions", "", ""))
     return f"{cleaned}/chat/completions"
 
 

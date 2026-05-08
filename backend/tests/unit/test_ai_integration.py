@@ -30,6 +30,7 @@ from app.services.ai_integration import (
     AIIntegrationError,
     FEATURE_DAILY_BRIEF,
     _call_ai_json,
+    _build_chat_completion_url,
     _next_retry_max_completion_tokens,
     generate_daily_brief,
     generate_item_ai_enrichment,
@@ -138,6 +139,19 @@ def _ai_chat_response(content: str, *, model: str = "local-threat-model") -> dic
             "total_tokens": 12,
         },
     }
+
+
+def test_build_chat_completion_url_accepts_bare_openai_compatible_origins():
+    assert (
+        _build_chat_completion_url("http://192.168.0.113:11434")
+        == "http://192.168.0.113:11434/v1/chat/completions"
+    )
+    assert _build_chat_completion_url("http://localhost:11434/") == "http://localhost:11434/v1/chat/completions"
+    assert _build_chat_completion_url("http://localhost:11434/v1") == "http://localhost:11434/v1/chat/completions"
+    assert (
+        _build_chat_completion_url("http://localhost:11434/v1/chat/completions")
+        == "http://localhost:11434/v1/chat/completions"
+    )
 
 
 def test_call_ai_json_omits_authorization_for_local_unauthenticated_endpoint(
