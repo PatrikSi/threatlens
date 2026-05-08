@@ -1,9 +1,14 @@
-x-backend-environment: &backend-environment
-  APP_ENV: "${APP_ENV:-production}"
+x-db-environment: &db-environment
   POSTGRES_DB: "${POSTGRES_DB:-threatlens}"
   POSTGRES_USER: "${POSTGRES_USER:-threatlens}"
   POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}"
+
+x-redis-environment: &redis-environment
   REDIS_PASSWORD: "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"
+
+x-backend-environment: &backend-environment
+  <<: [*db-environment, *redis-environment]
+  APP_ENV: "${APP_ENV:-production}"
   DATABASE_URL: "${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-threatlens}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@db:5432/${POSTGRES_DB:-threatlens}}"
   REDIS_URL: "${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379/0}"
   JWT_SECRET: "${JWT_SECRET:?JWT_SECRET must be set}"
@@ -32,7 +37,7 @@ x-backend-environment: &backend-environment
   AUTH_LOGIN_LOCKOUT_SECONDS: "${AUTH_LOGIN_LOCKOUT_SECONDS:-900}"
   API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS: "${API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS:-300}"
   CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
-  TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,172.31.240.0/24}"
+  TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
   ALLOWED_HOSTS: "${ALLOWED_HOSTS:-api,localhost,127.0.0.1,::1}"
   AUTH_COOKIE_NAME: "${AUTH_COOKIE_NAME:-threatlens_session}"
   AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-true}"
@@ -40,6 +45,8 @@ x-backend-environment: &backend-environment
   AUTH_CSRF_COOKIE_NAME: "${AUTH_CSRF_COOKIE_NAME:-threatlens_csrf}"
   AUTH_CSRF_HEADER_NAME: "${AUTH_CSRF_HEADER_NAME:-x-csrf-token}"
   AUTH_REQUIRE_CSRF: "${AUTH_REQUIRE_CSRF:-true}"
+  RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
+  SEED_ADMIN_ON_STARTUP: "${SEED_ADMIN_ON_STARTUP:-false}"
   PROBE_FEED_METADATA_ON_CREATE: "${PROBE_FEED_METADATA_ON_CREATE:-false}"
   PROBE_FEED_METADATA_ON_IMPORT: "${PROBE_FEED_METADATA_ON_IMPORT:-false}"
   MAX_METADATA_BACKFILL_TASKS_PER_REQUEST: "${MAX_METADATA_BACKFILL_TASKS_PER_REQUEST:-100}"
@@ -70,9 +77,7 @@ services:
     image: postgres:16@sha256:23af655ba1ddf74eaa002e3deaf5fce022ab8791672336a7c1fb0ef2d57efb7f
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-threatlens}
-      POSTGRES_USER: ${POSTGRES_USER:-threatlens}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+      <<: *db-environment
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -87,7 +92,7 @@ services:
     image: redis:7-alpine@sha256:8b81dd37ff027bec4e516d41acfbe9fe2460070dc6d4a4570a2ac5b9d59df065
     restart: unless-stopped
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
+      <<: *redis-environment
     command:
       [
         "sh",
@@ -113,8 +118,6 @@ services:
     restart: unless-stopped
     environment:
       <<: *backend-environment
-      RUN_MIGRATIONS_ON_STARTUP: "${RUN_MIGRATIONS_ON_STARTUP:-true}"
-      SEED_ADMIN_ON_STARTUP: "${SEED_ADMIN_ON_STARTUP:-false}"
     depends_on:
       db:
         condition: service_healthy
@@ -221,8 +224,5 @@ volumes:
   redis_data:
 
 networks:
-  frontend:
-    ipam:
-      config:
-        - subnet: 172.31.240.0/24
+  frontend: {}
   backplane: {}
