@@ -4,13 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage: ./bootstrap.sh [--force] [output-file]
-       ./bootstrap.sh --print-portainer-env
+       ./bootstrap.sh --print-compose-env
 
 Generate a local .env file with fresh random secrets for the default
 Docker Compose stack. The default output file is .env in the current directory.
 
-Use --print-portainer-env to print a complete Portainer stack environment
-block instead of writing a file.
+Use --print-compose-env to print pasteable YAML environment mappings for
+docker-compose.yml instead of writing a file. The legacy --print-portainer-env
+flag is still accepted as an alias.
 
 Environment overrides:
   ADMIN_EMAIL      Admin email to write into the generated output.
@@ -20,7 +21,7 @@ USAGE
 
 force=false
 output_file=""
-print_portainer_env=false
+print_compose_env=false
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -28,8 +29,8 @@ while [ "$#" -gt 0 ]; do
       force=true
       shift
       ;;
-    --print-portainer-env)
-      print_portainer_env=true
+    --print-compose-env|--print-portainer-env)
+      print_compose_env=true
       shift
       ;;
     -h|--help)
@@ -48,19 +49,19 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if [ "$print_portainer_env" = "true" ] && [ -n "$output_file" ]; then
-  echo "--print-portainer-env does not take an output file." >&2
+if [ "$print_compose_env" = "true" ] && [ -n "$output_file" ]; then
+  echo "--print-compose-env does not take an output file." >&2
   usage >&2
   exit 2
 fi
 
-if [ "$print_portainer_env" = "true" ] && [ "$force" = "true" ]; then
+if [ "$print_compose_env" = "true" ] && [ "$force" = "true" ]; then
   echo "--force is only used when writing a local .env file." >&2
   usage >&2
   exit 2
 fi
 
-if [ -z "$output_file" ] && [ "$print_portainer_env" != "true" ]; then
+if [ -z "$output_file" ] && [ "$print_compose_env" != "true" ]; then
   output_file=".env"
 fi
 
@@ -91,22 +92,26 @@ PY
   exit 1
 }
 
+postgres_db="${POSTGRES_DB:-threatlens}"
+postgres_user="${POSTGRES_USER:-threatlens}"
 postgres_password="$(random_value 40)"
 redis_password="$(random_value 40)"
 jwt_secret="$(random_value 64)"
 app_data_encryption_key="$(random_value 64)"
 admin_email="${ADMIN_EMAIL:-admin@example.com}"
 admin_password="${ADMIN_PASSWORD:-$(random_value 24)}"
+database_url="postgresql+psycopg://${postgres_user}:${postgres_password}@db:5432/${postgres_db}"
+redis_url="redis://:${redis_password}@redis:6379/0"
 compose_project_name="${COMPOSE_PROJECT_NAME:-$(basename "$PWD" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')}"
 if [ -z "$compose_project_name" ]; then
   compose_project_name="threatlens"
 fi
 postgres_volume_name="${compose_project_name}_postgres_data"
 
-render_env_block() {
+render_env_file_block() {
   cat <<EOF
-POSTGRES_DB=threatlens
-POSTGRES_USER=threatlens
+POSTGRES_DB=$postgres_db
+POSTGRES_USER=$postgres_user
 POSTGRES_PASSWORD=$postgres_password
 REDIS_PASSWORD=$redis_password
 DATABASE_URL=
@@ -147,8 +152,104 @@ LOG_LEVEL=INFO
 EOF
 }
 
-if [ "$print_portainer_env" = "true" ]; then
-  render_env_block
+yaml_quote() {
+  printf "'"
+  printf "%s" "$1" | sed "s/'/''/g"
+  printf "'"
+}
+
+render_yaml_entry() {
+  local key="$1"
+  local value="$2"
+  printf "  %s: " "$key"
+  yaml_quote "$value"
+  printf "\n"
+}
+
+render_compose_env_mapping() {
+  cat <<EOF
+x-db-environment: &db-environment
+EOF
+  render_yaml_entry "POSTGRES_DB" "$postgres_db"
+  render_yaml_entry "POSTGRES_USER" "$postgres_user"
+  render_yaml_entry "POSTGRES_PASSWORD" "$postgres_password"
+  cat <<EOF
+
+x-redis-environment: &redis-environment
+EOF
+  render_yaml_entry "REDIS_PASSWORD" "$redis_password"
+  cat <<EOF
+
+x-backend-environment: &backend-environment
+  <<: [*db-environment, *redis-environment]
+EOF
+  render_yaml_entry "APP_ENV" "development"
+  render_yaml_entry "DATABASE_URL" "$database_url"
+  render_yaml_entry "REDIS_URL" "$redis_url"
+  render_yaml_entry "JWT_SECRET" "$jwt_secret"
+  render_yaml_entry "APP_DATA_ENCRYPTION_KEY" "$app_data_encryption_key"
+  render_yaml_entry "APP_DATA_ENCRYPTION_PREVIOUS_KEYS" ""
+  render_yaml_entry "REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY" "true"
+  render_yaml_entry "JWT_EXPIRES_MINUTES" "1440"
+  render_yaml_entry "ADMIN_EMAIL" "$admin_email"
+  render_yaml_entry "ADMIN_PASSWORD" "$admin_password"
+  render_yaml_entry "ALLOW_SELF_REGISTRATION" "false"
+  render_yaml_entry "ALLOW_LEGACY_UNSCOPED_TOKENS" "false"
+  render_yaml_entry "DEFAULT_API_TOKEN_EXPIRY_DAYS" "90"
+  render_yaml_entry "AI_ENABLED" "false"
+  render_yaml_entry "AI_API_KEY" ""
+  render_yaml_entry "EXPOSE_API_DOCS_IN_PRODUCTION" "false"
+  render_yaml_entry "EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION" "true"
+  render_yaml_entry "FEED_MAX_BYTES" "2000000"
+  render_yaml_entry "ALLOW_PRIVATE_NETWORK_FETCH" "false"
+  render_yaml_entry "ALLOW_PRIVATE_NETWORK_AI" "false"
+  render_yaml_entry "ALLOW_PRIVATE_NETWORK_WEBHOOKS" "false"
+  render_yaml_entry "NOTIFICATION_WEBHOOK_ALLOWED_HOSTS" ""
+  render_yaml_entry "NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED" "false"
+  render_yaml_entry "OUTBOUND_MAX_REDIRECTS" "5"
+  render_yaml_entry "AUTH_LOGIN_MAX_ATTEMPTS" "8"
+  render_yaml_entry "AUTH_LOGIN_WINDOW_SECONDS" "300"
+  render_yaml_entry "AUTH_LOGIN_LOCKOUT_SECONDS" "900"
+  render_yaml_entry "API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS" "300"
+  render_yaml_entry "CORS_ORIGINS" "http://localhost:3000,http://127.0.0.1:3000"
+  render_yaml_entry "TRUSTED_PROXY_CIDRS" ""
+  render_yaml_entry "ALLOWED_HOSTS" "api,localhost,127.0.0.1,::1"
+  render_yaml_entry "AUTH_COOKIE_NAME" "threatlens_session"
+  render_yaml_entry "AUTH_COOKIE_SECURE" "false"
+  render_yaml_entry "AUTH_COOKIE_SAMESITE" "lax"
+  render_yaml_entry "AUTH_CSRF_COOKIE_NAME" "threatlens_csrf"
+  render_yaml_entry "AUTH_CSRF_HEADER_NAME" "x-csrf-token"
+  render_yaml_entry "AUTH_REQUIRE_CSRF" "true"
+  render_yaml_entry "RUN_MIGRATIONS_ON_STARTUP" "true"
+  render_yaml_entry "SEED_ADMIN_ON_STARTUP" "true"
+  render_yaml_entry "PROBE_FEED_METADATA_ON_CREATE" "false"
+  render_yaml_entry "PROBE_FEED_METADATA_ON_IMPORT" "false"
+  render_yaml_entry "MAX_METADATA_BACKFILL_TASKS_PER_REQUEST" "100"
+  render_yaml_entry "DISPATCH_DUE_FEEDS_BATCH_SIZE" "500"
+  render_yaml_entry "DISPATCH_UNCLASSIFIED_ITEMS_BATCH_SIZE" "200"
+  render_yaml_entry "DISPATCH_ITEMS_MISSING_IOCS_BATCH_SIZE" "200"
+  render_yaml_entry "DISPATCH_ITEMS_MISSING_AI_ENRICHMENT_BATCH_SIZE" "200"
+  render_yaml_entry "DISPATCH_ITEMS_FAILED_AI_ENRICHMENT_AFTER_SECONDS" "3600"
+  render_yaml_entry "AI_AUTO_ENRICH_NEW_ITEM_MAX_AGE_HOURS" "24"
+  render_yaml_entry "AI_DAILY_BRIEF_SOURCE_AUDIT_LIMIT" "500"
+  render_yaml_entry "DISPATCH_FEED_METADATA_SCAN_LIMIT" "250"
+  render_yaml_entry "DISPATCH_FEED_METADATA_QUEUE_LIMIT" "50"
+  render_yaml_entry "DISPATCH_AI_REPROCESS_BATCH_SIZE" "100"
+  render_yaml_entry "ALERT_MATCHES_KEYWORD_CAP" "512"
+  render_yaml_entry "STATS_TOP_DOMAINS_LIMIT" "10"
+  render_yaml_entry "SEED_ADMIN_FORCE_ROLE" "false"
+  render_yaml_entry "SEED_ADMIN_REACTIVATE_EXISTING" "false"
+  render_yaml_entry "SEED_ADMIN_RESET_PASSWORD_ON_STARTUP" "false"
+  render_yaml_entry "LOG_LEVEL" "INFO"
+  render_yaml_entry "HEALTH_WORKER_PING_TIMEOUT_SECONDS" "1.0"
+  render_yaml_entry "BEAT_HEARTBEAT_KEY" "threatlens:beat:heartbeat"
+  render_yaml_entry "BEAT_HEARTBEAT_TTL_SECONDS" "180"
+  render_yaml_entry "BEAT_HEARTBEAT_STALE_AFTER_SECONDS" "180"
+  render_yaml_entry "BEAT_HEARTBEAT_INTERVAL_SECONDS" "60"
+}
+
+if [ "$print_compose_env" = "true" ]; then
+  render_compose_env_mapping
   exit 0
 fi
 
@@ -157,7 +258,7 @@ cat > "$output_file" <<EOF
 # Generated by bootstrap.sh.
 # These values are intended for a local HTTP deployment at http://localhost:3000.
 # Review .env.example before using this file for an internet-facing deployment.
-$(render_env_block)
+$(render_env_file_block)
 EOF
 chmod 600 "$output_file"
 
