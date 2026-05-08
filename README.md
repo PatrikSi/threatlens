@@ -65,31 +65,31 @@ After the first admin account exists, set `SEED_ADMIN_ON_STARTUP=false` for norm
 
 You can paste `docker-compose.yml` into a Portainer stack without uploading a `.env` file.
 
-Generate a complete stack environment block:
+Generate pasteable Compose environment mappings:
 
 ```bash
-./bootstrap.sh --print-portainer-env
+./bootstrap.sh --print-compose-env
 ```
 
-Paste the full output into the Portainer stack environment before the first deploy. To choose your own admin identity, run:
+Replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of `docker-compose.yml` with the full output before deploying the stack. To choose your own admin identity, run:
 
 ```bash
-ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-portainer-env
+ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh --print-compose-env
 ```
 
 Keep `APP_DATA_ENCRYPTION_KEY` stable across upgrades.
 
-The generated block is for HTTP-only local or LAN testing:
+The generated mapping is for HTTP-only local or LAN testing:
 
 ```text
-APP_ENV=development
-AUTH_COOKIE_SECURE=false
+APP_ENV: 'development'
+AUTH_COOKIE_SECURE: 'false'
 ```
 
 For HTTPS or internet-facing deployments, review `.env.example` before first startup.
 
-The compose file derives the internal `DATABASE_URL` and `REDIS_URL` from the Postgres and Redis settings unless you set those URLs yourself.
-Set `THREATLENS_WEB_PORT` if port `3000` is already in use.
+The generated mapping includes explicit internal `DATABASE_URL` and `REDIS_URL` values so Portainer does not need separate stack variables.
+For `.env`-based deployments, set `THREATLENS_WEB_PORT` if port `3000` is already in use; for paste-only Portainer deployments, edit the `web.ports` entry in the compose file.
 
 ## AI
 
