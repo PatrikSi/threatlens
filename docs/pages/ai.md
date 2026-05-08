@@ -43,6 +43,7 @@ All API paths on this page are relative to the published `/api/v1` base.
 ### Configuration
 
 - OpenAI-compatible endpoint base URL and model
+  - Ollama origins such as `http://192.168.0.113:11434` are treated as `http://192.168.0.113:11434/v1` for chat completions.
 - Timeout, completion-token, and retry settings
 - Feature toggles:
   - AI summaries

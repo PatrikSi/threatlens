@@ -102,6 +102,7 @@ AI_ENABLED=true
 ```
 
 Then open **Settings -> AI** and configure an OpenAI-compatible endpoint, model, and API key if needed.
+For Ollama, use either the server origin such as `http://192.168.0.113:11434` or the explicit OpenAI-compatible base `http://192.168.0.113:11434/v1`.
 
 If your AI provider is on a private network, also set:
 
