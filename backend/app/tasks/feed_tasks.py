@@ -426,6 +426,11 @@ def _resolve_feed_runtime_url(feed: Feed) -> tuple[str | None, str | None]:
     return feed_url, None
 
 
+def _feed_url_digest_still_current(db: Session, *, feed_id: uuid.UUID, expected_url_digest: str | None) -> bool:
+    current_url_digest = db.scalar(select(Feed.url_digest).where(Feed.id == feed_id))
+    return current_url_digest == expected_url_digest
+
+
 def _article_freshness_token_value(
     article_id: uuid.UUID | None,
     retrieved_at: datetime | None,
@@ -1653,6 +1658,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 if feed_url_error is not None:
                     _mark_feed_failure_and_enqueue_notifications(db, feed, feed_url_error)
                     return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
+                feed_url_digest_at_start = feed.url_digest
 
                 if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
                     _mark_feed_failure_and_enqueue_notifications(db, feed, "unsafe_feed_url")
@@ -1683,6 +1689,13 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                             final_url = str(response.url)
 
                             if status_code == 304:
+                                if not _feed_url_digest_still_current(
+                                    db,
+                                    feed_id=parsed_feed_id,
+                                    expected_url_digest=feed_url_digest_at_start,
+                                ):
+                                    db.rollback()
+                                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                                 now = datetime.now(timezone.utc)
                                 feed.last_fetch_at = now
                                 feed.last_success_at = now
@@ -1695,6 +1708,13 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                                 return {"status": "not_modified", "feed_id": feed_id}
 
                             if status_code != 200:
+                                if not _feed_url_digest_still_current(
+                                    db,
+                                    feed_id=parsed_feed_id,
+                                    expected_url_digest=feed_url_digest_at_start,
+                                ):
+                                    db.rollback()
+                                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                                 _mark_feed_failure_and_enqueue_notifications(db, feed, f"http_status:{status_code}")
                                 return {"status": "error", "feed_id": feed_id}
 
@@ -1711,6 +1731,13 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         finally:
                             response.close()
                 except CoordinationUnavailableError as exc:
+                    if not _feed_url_digest_still_current(
+                        db,
+                        feed_id=parsed_feed_id,
+                        expected_url_digest=feed_url_digest_at_start,
+                    ):
+                        db.rollback()
+                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                     try:
                         logger.warning(
                             "feed_fetch_retrying feed_id=%s retries=%s error_code=coordination_unavailable error_type=%s",
@@ -1728,6 +1755,13 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         _reschedule_feed_after_coordination_failure(db, feed)
                         return {"status": "error", "feed_id": feed_id, "reason": "coordination_unavailable"}
                 except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
+                    if not _feed_url_digest_still_current(
+                        db,
+                        feed_id=parsed_feed_id,
+                        expected_url_digest=feed_url_digest_at_start,
+                    ):
+                        db.rollback()
+                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                     error_code = _safe_feed_fetch_error_code(exc)
                     try:
                         logger.warning(
@@ -1748,17 +1782,46 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         _mark_feed_failure_and_enqueue_notifications(db, feed, error_code)
                         return {"status": "error", "feed_id": feed_id}
                 except FeedResponseTooLargeError as exc:
+                    if not _feed_url_digest_still_current(
+                        db,
+                        feed_id=parsed_feed_id,
+                        expected_url_digest=feed_url_digest_at_start,
+                    ):
+                        db.rollback()
+                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                     logger.error("feed_fetch_too_large feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
                     _mark_feed_failure_and_enqueue_notifications(db, feed, "feed_response_too_large")
                     return {"status": "error", "feed_id": feed_id}
+
+                if not _feed_url_digest_still_current(
+                    db,
+                    feed_id=parsed_feed_id,
+                    expected_url_digest=feed_url_digest_at_start,
+                ):
+                    db.rollback()
+                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
                 connector = RSSConnector()
                 try:
                     parsed_items, _ = connector.poll({"body": body_bytes}, None)
                 except RSSFeedParseError as exc:
+                    if not _feed_url_digest_still_current(
+                        db,
+                        feed_id=parsed_feed_id,
+                        expected_url_digest=feed_url_digest_at_start,
+                    ):
+                        db.rollback()
+                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                     logger.warning("feed_fetch_invalid_content feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
                     _mark_feed_failure_and_enqueue_notifications(db, feed, "invalid_feed_content")
                     return {"status": "error", "feed_id": feed_id}
+                if not _feed_url_digest_still_current(
+                    db,
+                    feed_id=parsed_feed_id,
+                    expected_url_digest=feed_url_digest_at_start,
+                ):
+                    db.rollback()
+                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
                 _backfill_feed_metadata_from_body(feed, body_bytes)
 
                 changed_item_ids: list[uuid.UUID] = []
@@ -1769,6 +1832,14 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                         changed_item_ids.append(item.id)
                     if is_new:
                         new_items.append(item)
+
+                if not _feed_url_digest_still_current(
+                    db,
+                    feed_id=parsed_feed_id,
+                    expected_url_digest=feed_url_digest_at_start,
+                ):
+                    db.rollback()
+                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
                 if new_items:
                     feed_notification_webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
@@ -1782,6 +1853,14 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                             user_cache=webhook_user_cache,
                         )
                         reserved_notification_delivery_ids.extend(reservation.delivery_ids)
+
+                if not _feed_url_digest_still_current(
+                    db,
+                    feed_id=parsed_feed_id,
+                    expected_url_digest=feed_url_digest_at_start,
+                ):
+                    db.rollback()
+                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
                 now = datetime.now(timezone.utc)
                 feed.etag = response_etag or feed.etag

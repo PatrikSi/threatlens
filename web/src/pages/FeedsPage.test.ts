@@ -11,6 +11,12 @@ import {
   readPersistedFeedScheduleDrafts,
   validateFeedScheduleDraft,
 } from './feedScheduleDraft'
+import {
+  buildFeedUpdatePayload,
+  feedToEditDraft,
+  isFeedEditDraftDirty,
+  validateFeedEditDraft,
+} from './feedEditDraft'
 
 function createFeed(overrides: Partial<Feed> = {}): Feed {
   return {
@@ -204,5 +210,68 @@ describe('feed schedule draft storage', () => {
     }
 
     expect(() => migrateLegacyFeedScheduleDraftStorage(storage, 'alice')).not.toThrow()
+  })
+})
+
+describe('feed edit drafts', () => {
+  it('does not send an unchanged redacted URL when editing other fields', () => {
+    const feed = createFeed({
+      url: 'https://example.com/feed.xml?token=REDACTED',
+      description: 'Old description',
+    })
+    const draft = {
+      ...feedToEditDraft(feed),
+      description: 'New description',
+    }
+
+    expect(buildFeedUpdatePayload(feed, draft)).toEqual({
+      description: 'New description',
+    })
+  })
+
+  it('sends a replacement URL only when the operator changes the URL field', () => {
+    const feed = createFeed({
+      url: 'https://example.com/old.xml?token=REDACTED',
+    })
+    const draft = {
+      ...feedToEditDraft(feed),
+      url: 'https://alice:secret@example.com/new.xml?token=alpha',
+    }
+
+    expect(buildFeedUpdatePayload(feed, draft)).toMatchObject({
+      url: 'https://alice:secret@example.com/new.xml?token=alpha',
+    })
+  })
+
+  it('rejects edits that would save a still-redacted RSS URL value', () => {
+    const feed = createFeed({
+      url: 'https://example.com/old.xml?token=REDACTED',
+    })
+    const draft = {
+      ...feedToEditDraft(feed),
+      url: 'https://example.com/new.xml?token=REDACTED',
+    }
+
+    expect(validateFeedEditDraft(feed, draft)).toBe(
+      'Enter the full replacement RSS URL; redacted URL values cannot be saved.',
+    )
+  })
+
+  it('allows metadata-only repair edits when a feed URL is unreadable', () => {
+    const feed = createFeed({
+      url: '',
+      has_unreadable_url: true,
+      last_error: 'Stored feed URL cannot be decrypted.',
+    })
+    const draft = {
+      ...feedToEditDraft(feed),
+      name: 'Recovered Name',
+    }
+
+    expect(validateFeedEditDraft(feed, draft)).toBeNull()
+    expect(isFeedEditDraftDirty(feed, draft)).toBe(true)
+    expect(buildFeedUpdatePayload(feed, draft)).toEqual({
+      name: 'Recovered Name',
+    })
   })
 })

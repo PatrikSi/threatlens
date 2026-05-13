@@ -36,6 +36,7 @@ class FeedCreate(BaseModel):
 
 class FeedUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
+    url: str | None = Field(default=None, min_length=5, max_length=4000)
     description: str | None = None
     site_url: str | None = None
     language: str | None = Field(default=None, max_length=64)

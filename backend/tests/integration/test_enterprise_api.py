@@ -1864,6 +1864,73 @@ def test_feed_patch_to_interval_reuses_existing_interval_when_not_supplied(clien
     assert payload["schedule_cron"] is None
 
 
+def test_feed_update_allows_url_change_without_digest_collisions(client: TestClient, auth_headers, db_session):
+    first_feed = Feed(
+        id=uuid.uuid4(),
+        name="Mutable Feed",
+        url="https://example.com/old.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        etag="old-etag",
+        last_modified="old-modified",
+        last_fetch_at=datetime.now(timezone.utc),
+        last_success_at=datetime.now(timezone.utc),
+        next_fetch_at=datetime.now(timezone.utc),
+        error_count=2,
+        last_error="feed_response_too_large",
+    )
+    second_feed = Feed(
+        id=uuid.uuid4(),
+        name="Existing Feed",
+        url="https://example.com/existing.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add_all([first_feed, second_feed])
+    db_session.commit()
+
+    duplicate_response = client.patch(
+        f"/feeds/{first_feed.id}",
+        json={"url": "https://example.com/existing.xml/"},
+        headers=auth_headers["admin"],
+    )
+    assert duplicate_response.status_code == 400
+    assert duplicate_response.json()["detail"] == "Feed URL already exists"
+
+    update_response = client.patch(
+        f"/feeds/{first_feed.id}",
+        json={
+            "url": "https://alice:secret@example.com/new.xml?token=alpha",
+            "name": "Updated Mutable Feed",
+        },
+        headers=auth_headers["admin"],
+    )
+    assert update_response.status_code == 200
+    update_payload = update_response.json()
+    assert update_payload["id"] == str(first_feed.id)
+    assert update_payload["name"] == "Updated Mutable Feed"
+    assert update_payload["url"] == "https://example.com/new.xml?token=REDACTED"
+    assert update_payload["last_fetch_at"] is None
+    assert update_payload["last_success_at"] is None
+    assert update_payload["error_count"] == 0
+    assert update_payload["last_error"] is None
+
+    stored_feed = db_session.get(Feed, first_feed.id)
+    assert stored_feed is not None
+    assert stored_feed.url == "https://alice:secret@example.com/new.xml?token=alpha"
+    assert stored_feed.url_digest == feed_url_digest("https://alice:secret@example.com/new.xml?token=alpha")
+    assert stored_feed.etag is None
+    assert stored_feed.last_modified is None
+    assert stored_feed.next_fetch_at is None
+    assert stored_feed.dispatch_claimed_at is None
+    assert stored_feed.dispatch_backoff_until is None
+
+    audit_response = client.get("/audit-logs?action=feeds.update&page_size=10", headers=auth_headers["admin"])
+    assert audit_response.status_code == 200
+    matching_log = next(log for log in audit_response.json()["logs"] if log["resource_id"] == str(first_feed.id))
+    assert matching_log["metadata_json"]["url"] == "https://example.com/new.xml?token=REDACTED"
+
+
 def test_feed_create_still_succeeds_when_backfill_enqueue_fails(client: TestClient, auth_headers, db_session, monkeypatch):
     def _raise_send_task(*_args, **_kwargs):
         raise RuntimeError("broker unavailable")

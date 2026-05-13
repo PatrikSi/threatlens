@@ -28,6 +28,32 @@ const feedsPageDomMocks = vi.hoisted(() => ({
   bulkSetEnabledResult: null as
     | { enabled: boolean; attempted: number; succeeded: number; failed: number; failedFeedNames: string[] }
     | null,
+  recentItems: {
+    items: [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        url: 'https://example.com/advisory-1',
+        canonical_url: null,
+        title: 'Latest exploited vulnerability',
+        summary: 'A short advisory summary.',
+        published_at: '2026-05-01T10:00:00Z',
+        first_seen_at: '2026-05-01T10:05:00Z',
+        status: 'content_fetched',
+        classification: 'vulnerability',
+        is_read: false,
+        is_starred: false,
+        tags: ['vulnerability'],
+        ai_relevance_score: null,
+        ai_relevance_label: null,
+        ai_status: null,
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 10,
+  },
 }))
 
 const routerMocks = vi.hoisted(() => {
@@ -159,6 +185,13 @@ vi.mock('@tanstack/react-query', () => ({
             unreadable_fields: 1,
           },
         },
+      }
+    }
+
+    if (scope === 'items' && key === 'feed-detail') {
+      return {
+        ...baseResult,
+        data: feedsPageDomMocks.recentItems,
       }
     }
 
@@ -311,6 +344,32 @@ afterEach(() => {
   feedsPageDomMocks.bulkRefreshResult = null
   feedsPageDomMocks.bulkDeleteResult = null
   feedsPageDomMocks.bulkSetEnabledResult = null
+  feedsPageDomMocks.recentItems = {
+    items: [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        url: 'https://example.com/advisory-1',
+        canonical_url: null,
+        title: 'Latest exploited vulnerability',
+        summary: 'A short advisory summary.',
+        published_at: '2026-05-01T10:00:00Z',
+        first_seen_at: '2026-05-01T10:05:00Z',
+        status: 'content_fetched',
+        classification: 'vulnerability',
+        is_read: false,
+        is_starred: false,
+        tags: ['vulnerability'],
+        ai_relevance_score: null,
+        ai_relevance_label: null,
+        ai_status: null,
+      },
+    ],
+    total: 1,
+    page: 1,
+    page_size: 10,
+  }
   feedsPageDomMocks.currentUser = {
     id: 'admin-user',
     role: 'admin',
@@ -413,6 +472,59 @@ describe('FeedsPage DOM workflows', () => {
     )
     expect(pageText()).toContain('Schedule must be a valid five-field cron expression.')
     expect(saveButton?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('opens a feed detail dialog with editable metadata and recent articles', () => {
+    const view = renderPage()
+
+    const feedRow = Array.from(view.querySelectorAll('div')).find((node) =>
+      node.textContent?.includes('Vendor Advisories') && node.textContent?.includes('Refresh') && node.textContent?.includes('Edit'),
+    )
+    expect(feedRow).not.toBeNull()
+
+    const editButton = Array.from(feedRow!.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Edit')
+    expect(editButton).not.toBeNull()
+
+    act(() => {
+      editButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Update feed settings and review the latest ingested articles from this source.')
+    expect(document.querySelector('label[for="feed-edit-url"]')).not.toBeNull()
+    expect(document.querySelector('label[for="feed-edit-name"]')).not.toBeNull()
+    expect(document.querySelector('label[for="feed-edit-description"]')).not.toBeNull()
+    expect(document.querySelector('label[for="feed-edit-site-url"]')).not.toBeNull()
+    expect(document.querySelector('label[for="feed-edit-language"]')).not.toBeNull()
+    expect(document.querySelector('label[for="feed-edit-fetch-mode"]')).not.toBeNull()
+    expect(pageText()).toContain('Recent Articles')
+    expect(pageText()).toContain('Latest exploited vulnerability')
+    expect(pageText()).toContain('A short advisory summary.')
+  })
+
+  it('keeps focus in feed detail inputs while typing', () => {
+    const view = renderPage()
+    const feedRow = Array.from(view.querySelectorAll('div')).find((node) =>
+      node.textContent?.includes('Vendor Advisories') && node.textContent?.includes('Refresh') && node.textContent?.includes('Edit'),
+    )
+    expect(feedRow).not.toBeNull()
+
+    const editButton = Array.from(feedRow!.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Edit')
+    expect(editButton).not.toBeNull()
+
+    act(() => {
+      editButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const nameInput = document.querySelector<HTMLInputElement>('#feed-edit-name')
+    expect(nameInput).not.toBeNull()
+
+    act(() => {
+      nameInput!.focus()
+      setInputValue(nameInput!, 'Vendor Advisories X')
+    })
+
+    expect(document.activeElement).toBe(nameInput)
+    expect(document.activeElement?.textContent).not.toBe('Close')
   })
 
   it('protects unsaved feed schedule edits before opening the delete confirmation', () => {
