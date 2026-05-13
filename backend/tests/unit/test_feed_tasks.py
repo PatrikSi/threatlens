@@ -29,6 +29,7 @@ from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
 from app.tasks.feed_tasks import (
+    _feed_url_digest_still_current,
     _process_reserved_notification_deliveries,
     _rss_summary_fallback_text,
     _scheduled_daily_ai_brief_due,
@@ -78,6 +79,27 @@ def test_core_pipeline_tasks_ack_late_and_reject_on_worker_loss():
     assert generate_item_ai_enrichment_task.reject_on_worker_lost is True
     assert reprocess_recent_ai_items.acks_late is True
     assert reprocess_recent_ai_items.reject_on_worker_lost is True
+
+
+def test_feed_url_digest_still_current_detects_url_edits(db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Mutable feed",
+        url="https://example.com/old.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    expected_digest = feed.url_digest
+
+    assert _feed_url_digest_still_current(db_session, feed_id=feed.id, expected_url_digest=expected_digest)
+
+    feed.url = "https://example.com/new.xml"
+    db_session.add(feed)
+    db_session.commit()
+
+    assert not _feed_url_digest_still_current(db_session, feed_id=feed.id, expected_url_digest=expected_digest)
 
 
 class _HeartbeatRedis:
@@ -831,6 +853,69 @@ def test_fetch_feed_uses_decrypted_url_for_authenticated_feeds(db_session, monke
 
     assert result == {"status": "not_modified", "feed_id": str(feed.id)}
     assert captured["url"] == plaintext_url
+
+
+def test_fetch_feed_skips_stale_response_when_feed_url_changes_mid_fetch(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Mutable Feed",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _feed_lock_override(_feed_id: str, ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    class _Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+        url = "https://example.com/feed.xml"
+
+        def iter_bytes(self):
+            yield b"<rss><channel><item><title>Stale</title></item></channel></rss>"
+
+        def close(self):
+            pass
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            return False
+
+    def _stale_digest_check(_db, *, feed_id, expected_url_digest):
+        _ = (feed_id, expected_url_digest)
+        return False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.feed_lock", _feed_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.build_safe_http_client", lambda *args, **kwargs: _Client())
+    monkeypatch.setattr("app.tasks.feed_tasks.safe_stream_with_redirects", lambda *_args, **_kwargs: _Response())
+    monkeypatch.setattr("app.tasks.feed_tasks._feed_url_digest_still_current", _stale_digest_check)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.RSSConnector.poll",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale feed response should not be parsed")),
+    )
+
+    result = fetch_feed.run(str(feed.id), force=True)
+
+    db_session.refresh(feed)
+    assert result == {"status": "skipped", "reason": "feed_url_changed", "feed_id": str(feed.id)}
+    assert feed.last_fetch_at is None
+    assert feed.last_success_at is None
+    assert feed.error_count == 0
+    assert feed.last_error is None
 
 
 def test_dispatch_due_feeds_claims_due_feed_until_worker_clears_it(db_session, monkeypatch):

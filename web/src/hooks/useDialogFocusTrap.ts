@@ -156,10 +156,15 @@ export function useDialogFocusTrap({
 }: UseDialogFocusTrapArgs) {
   const previousFocusRef = useRef<HTMLElement | null>(null)
   const dismissDisabledRef = useRef(dismissDisabled)
+  const onCloseRef = useRef(onClose)
 
   useEffect(() => {
     dismissDisabledRef.current = dismissDisabled
   }, [dismissDisabled])
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) {
@@ -188,7 +193,7 @@ export function useDialogFocusTrap({
         dialog: dialogRef.current,
         activeElement: document.activeElement instanceof HTMLElement ? document.activeElement : null,
         dismissDisabled: dismissDisabledRef.current,
-        onClose,
+        onClose: onCloseRef.current,
       })
     }
 
@@ -201,5 +206,5 @@ export function useDialogFocusTrap({
       }
       previousFocusRef.current = null
     }
-  }, [closeButtonRef, dialogRef, initialFocusRef, onClose, open])
+  }, [closeButtonRef, dialogRef, initialFocusRef, open])
 }

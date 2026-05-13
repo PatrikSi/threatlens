@@ -286,6 +286,32 @@ def update_feed(
     if "name" in updates and not updates["name"]:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed name cannot be empty")
 
+    settings = get_settings()
+    audit_updates = dict(updates)
+    if "url" in updates:
+        feed_url = normalize_feed_url(updates.pop("url"))
+        if not feed_url:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL cannot be empty")
+        if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
+
+        existing = _get_feed_by_url(db, feed_url)
+        if existing is not None and existing.id != feed.id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
+
+        if feed_url_digest(feed_url) != feed.url_digest:
+            feed.url = feed_url
+            feed.etag = None
+            feed.last_modified = None
+            feed.last_fetch_at = None
+            feed.last_success_at = None
+            feed.next_fetch_at = None
+            feed.dispatch_claimed_at = None
+            feed.dispatch_backoff_until = None
+            feed.error_count = 0
+            feed.last_error = None
+        audit_updates["url"] = redact_feed_url(feed_url)
+
     target_mode = updates.get("fetch_mode", feed.fetch_mode)
     if target_mode == "interval":
         if updates.get("fetch_interval_seconds") is None:
@@ -307,9 +333,13 @@ def update_feed(
         action="feeds.update",
         resource_type="feed",
         resource_id=str(feed.id),
-        metadata=updates,
+        metadata=audit_updates,
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists") from exc
     db.refresh(feed)
     return _serialize_feed(feed)
 
