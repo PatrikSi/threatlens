@@ -449,8 +449,9 @@ def run_daily_brief_generation(
 
     window_end = now
     window_start = now - timedelta(hours=active.daily_brief_window_hours)
+    item_window_at = func.coalesce(Item.published_at, Item.first_seen_at)
     total_items = db.scalar(
-        select(func.count(Item.id)).where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
+        select(func.count(Item.id)).where(item_window_at >= window_start, item_window_at <= window_end)
     ) or 0
     if total_items <= 0:
         return AIDailyBriefGenerationResult(
@@ -480,8 +481,8 @@ def run_daily_brief_generation(
         .join(Feed, Feed.id == Item.feed_id)
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
-        .where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
-        .order_by(ItemAIEnrichment.relevance_score.desc().nullslast(), Item.first_seen_at.desc())
+        .where(item_window_at >= window_start, item_window_at <= window_end)
+        .order_by(ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc())
         .limit(source_audit_limit)
     ).all()
     item_rows = item_rows_all[: active.daily_brief_max_items]
