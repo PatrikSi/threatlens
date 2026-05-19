@@ -1,4 +1,4 @@
-FROM node:22.20.0-alpine@sha256:dbcedd8aeab47fbc0f4dd4bffa55b7c3c729a707875968d467aaaea42d6225af AS build
+FROM node:22.20.0-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
@@ -38,7 +38,7 @@ RUN mkdir -p /tmp/frontend-docs \
       --legal-output-dir /tmp/frontend-docs/frontend-runtime-package-legal
 RUN npm run build
 
-FROM nginx:1.27-alpine@sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+FROM nginx:1.27-alpine
 ARG BUILD_DATE=unknown
 ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
