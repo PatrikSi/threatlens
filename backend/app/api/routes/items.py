@@ -100,6 +100,7 @@ def list_items(
     tag: str | None = None,
     tags: str | None = Query(default=None),
     tags_mode: str = Query(default="any", pattern="^(any|all)$"),
+    ai_relevance: str = Query(default="all", pattern="^(all|low|medium|high)$"),
     is_starred: bool | None = None,
     is_read: bool | None = None,
     since: datetime | None = None,
@@ -177,6 +178,8 @@ def list_items(
         filters.append(func.coalesce(state_subq.c.is_read, False) == is_read)
     if is_starred is not None:
         filters.append(func.coalesce(state_subq.c.is_starred, False) == is_starred)
+    if ai_relevance != "all":
+        filters.append(ItemAIEnrichment.relevance_label == ai_relevance)
     if selected_tags:
         if tags_mode == "all":
             for selected_tag in selected_tags:
