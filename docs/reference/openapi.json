@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "26759d5046bd3a223c8983bfd36aadcb6fa12392a107dfea37d5937c2e6f2351"
+    "x-threatlens-contract-sha256": "b3298d8973238f16b425b2e8ea018ea9bdc78102d1eb1e52c65bf2a0ab4b5ca9"
   },
   "servers": [
     {
@@ -749,6 +749,17 @@
               "pattern": "^(any|all)$",
               "default": "any",
               "title": "Tags Mode"
+            }
+          },
+          {
+            "name": "ai_relevance",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(all|low|medium|high)$",
+              "default": "all",
+              "title": "Ai Relevance"
             }
           },
           {
@@ -12145,6 +12156,17 @@
             "title": "Star Status",
             "default": "all"
           },
+          "ai_relevance": {
+            "type": "string",
+            "enum": [
+              "all",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Ai Relevance",
+            "default": "all"
+          },
           "view_mode": {
             "type": "string",
             "enum": [
@@ -12456,6 +12478,17 @@
               "unstarred"
             ],
             "title": "Star Status",
+            "default": "all"
+          },
+          "ai_relevance": {
+            "type": "string",
+            "enum": [
+              "all",
+              "low",
+              "medium",
+              "high"
+            ],
+            "title": "Ai Relevance",
             "default": "all"
           },
           "view_mode": {

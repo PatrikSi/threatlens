@@ -92,6 +92,7 @@ export interface AuditLogExportResponse {
 export type SavedViewTimeRange = 'all' | '24h' | '7d' | '30d' | 'days' | 'custom'
 export type SavedViewReadStatus = 'all' | 'read' | 'unread'
 export type SavedViewStarStatus = 'all' | 'starred' | 'unstarred'
+export type SavedViewAIRelevanceFilter = 'all' | 'low' | 'medium' | 'high'
 export type SavedViewSort = 'published_at_desc' | 'published_at_asc' | 'first_seen_desc' | 'first_seen_asc'
 export type SavedViewMode = 'expanded' | 'compact'
 export type SavedViewWindowType = 'rss' | 'alerts' | 'notes' | 'daily_brief'
@@ -118,6 +119,7 @@ export interface SavedViewRssFilters {
   q: string
   read_status: SavedViewReadStatus
   star_status: SavedViewStarStatus
+  ai_relevance: SavedViewAIRelevanceFilter
   view_mode: SavedViewMode
   page_size: 10 | 25 | 50 | 100
   time_range: SavedViewTimeRange
@@ -146,6 +148,7 @@ export interface SavedViewWindowRssFilters {
   q: string
   read_status: SavedViewReadStatus
   star_status: SavedViewStarStatus
+  ai_relevance: SavedViewAIRelevanceFilter
   view_mode: SavedViewMode
   page: number
   page_size: 10 | 25 | 50 | 100

@@ -13,6 +13,7 @@ from app.models.article import Article
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
+from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -79,6 +80,7 @@ def _saved_view_query_payload(*, query: str = "exchange") -> dict:
             "q": query,
             "read_status": "unread",
             "star_status": "all",
+            "ai_relevance": "all",
             "view_mode": "compact",
             "page_size": 25,
             "time_range": "7d",
@@ -115,6 +117,7 @@ def _saved_view_query_payload(*, query: str = "exchange") -> dict:
                     "q": query,
                     "read_status": "unread",
                     "star_status": "all",
+                    "ai_relevance": "all",
                     "view_mode": "compact",
                     "page": 1,
                     "page_size": 25,
@@ -992,6 +995,86 @@ def test_items_list_uses_stable_tie_breakers_for_pagination(client: TestClient, 
         page_titles.append(payload["items"][0]["title"])
 
     assert page_titles == ["Newest seen tie", "Higher id tie", "Lower id tie"]
+
+
+def test_items_list_supports_ai_relevance_filter(client: TestClient, auth_headers, db_session):
+    feed = Feed(name="AI Relevance Feed", url="https://example.com/ai-relevance.xml", enabled=True, fetch_interval_seconds=1800)
+    db_session.add(feed)
+    db_session.flush()
+
+    high_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-relevance-high",
+        url="https://example.com/ai-relevance-high",
+        title="High relevance item",
+        summary="High relevance summary.",
+        published_at=datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc),
+        dedupe_key="ai-relevance-high",
+        content_hash="a" * 64,
+        status="new",
+    )
+    low_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-relevance-low",
+        url="https://example.com/ai-relevance-low",
+        title="Low relevance item",
+        summary="Low relevance summary.",
+        published_at=datetime(2026, 5, 1, 11, 0, tzinfo=timezone.utc),
+        dedupe_key="ai-relevance-low",
+        content_hash="b" * 64,
+        status="new",
+    )
+    unlabeled_item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="ai-relevance-unlabeled",
+        url="https://example.com/ai-relevance-unlabeled",
+        title="Unlabeled relevance item",
+        summary="No AI relevance label.",
+        published_at=datetime(2026, 5, 1, 10, 0, tzinfo=timezone.utc),
+        dedupe_key="ai-relevance-unlabeled",
+        content_hash="c" * 64,
+        status="new",
+    )
+    db_session.add_all([high_item, low_item, unlabeled_item])
+    db_session.flush()
+    db_session.add_all(
+        [
+            ItemAIEnrichment(
+                item_id=high_item.id,
+                status="ready",
+                source_hash="high",
+                relevance_score=0.92,
+                relevance_label="high",
+                relevance_reasons_json=[],
+            ),
+            ItemAIEnrichment(
+                item_id=low_item.id,
+                status="ready",
+                source_hash="low",
+                relevance_score=0.25,
+                relevance_label="low",
+                relevance_reasons_json=[],
+            ),
+        ]
+    )
+    db_session.commit()
+
+    high_response = client.get(f"/items?page=1&page_size=50&feed_id={feed.id}&ai_relevance=high", headers=auth_headers["viewer"])
+    assert high_response.status_code == 200
+    high_payload = high_response.json()
+    assert high_payload["total"] == 1
+    assert high_payload["items"][0]["title"] == "High relevance item"
+    assert high_payload["items"][0]["ai_relevance_label"] == "high"
+
+    all_response = client.get(f"/items?page=1&page_size=50&feed_id={feed.id}&ai_relevance=all", headers=auth_headers["viewer"])
+    assert all_response.status_code == 200
+    assert all_response.json()["total"] == 3
+
+    invalid_response = client.get("/items?ai_relevance=urgent", headers=auth_headers["viewer"])
+    assert invalid_response.status_code == 422
 
 
 def test_admin_unapproval_invalidates_existing_jwt_session(client: TestClient, auth_headers, db_session):

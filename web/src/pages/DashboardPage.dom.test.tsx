@@ -569,6 +569,54 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Delete saved view Imported Notes"]')).not.toBeNull()
   })
 
+  it('shows an AI relevance filter only when AI relevance is enabled', () => {
+    renderPage()
+
+    act(() => {
+      getButton('More Filters')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(getSelect('RSS Panel 1 AI relevance filter')).toBeNull()
+
+    act(() => {
+      root?.unmount()
+    })
+    root = null
+    container?.remove()
+    container = null
+    document.body.innerHTML = ''
+
+    dashboardPageDomMocks.currentUser.data.features.ai_relevance_enabled = true
+    renderPage()
+
+    act(() => {
+      getButton('More Filters')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const aiRelevanceSelect = getSelect('RSS Panel 1 AI relevance filter')
+    expect(aiRelevanceSelect).not.toBeNull()
+
+    act(() => {
+      setSelectValue(aiRelevanceSelect!, 'high')
+    })
+
+    expect(getSelect('RSS Panel 1 AI relevance filter')?.value).toBe('high')
+  })
+
+  it('renders feed and tag filters as single-line horizontal scrollers', () => {
+    renderPage()
+
+    const feedFilters = document.querySelector('[aria-label="RSS Panel 1 feed filters"]')
+    const tagFilters = document.querySelector('[aria-label="RSS Panel 1 tag filters"]')
+
+    expect(feedFilters?.className).toContain('flex-nowrap')
+    expect(feedFilters?.className).toContain('overflow-x-auto')
+    expect(feedFilters?.className).not.toContain('overflow-y-auto')
+    expect(tagFilters?.className).toContain('flex-nowrap')
+    expect(tagFilters?.className).toContain('overflow-x-auto')
+    expect(tagFilters?.className).not.toContain('overflow-y-auto')
+  })
+
   it('reports both completed imports and the exact saved view that failed during a partial import', async () => {
     renderPage()
 

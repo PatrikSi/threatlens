@@ -32,6 +32,7 @@ import {
   DEFAULT_ROLLING_DAYS,
   getSnapRect,
   HIDDEN_TAGS,
+  type AIRelevanceFilter,
   isTimeRangeFilter,
   loadDashboardWindows,
   normalizeDashboardWindows,
@@ -98,6 +99,8 @@ const FEED_BOOTSTRAP_REFETCH_INTERVAL_MS = 5_000
 const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
 const ROLLING_WINDOW_FIELD_CLASS =
   'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
+const FILTER_SCROLLER_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1'
+const FILTER_CHIP_CLASS = 'inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold'
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
   { value: 'free', label: 'Floating' },
@@ -969,6 +972,7 @@ export function DashboardPage() {
         .slice()
         .sort()
         .join(',')
+      const effectiveAiRelevance = aiRelevanceEnabled ? rssFilters.ai_relevance : 'all'
       const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
       const timeWindow = deriveTimeWindow(
         effectiveWindowTimeFilter.time_range,
@@ -985,6 +989,7 @@ export function DashboardPage() {
           q: deferredSearchQuery,
           read_status: rssFilters.read_status,
           star_status: rssFilters.star_status,
+          ai_relevance: effectiveAiRelevance,
           since: timeWindow.sinceIso,
           until: timeWindow.untilIso,
           sort: rssFilters.sort,
@@ -1011,6 +1016,7 @@ export function DashboardPage() {
           if (rssFilters.read_status === 'unread') params.set('is_read', 'false')
           if (rssFilters.star_status === 'starred') params.set('is_starred', 'true')
           if (rssFilters.star_status === 'unstarred') params.set('is_starred', 'false')
+          if (effectiveAiRelevance !== 'all') params.set('ai_relevance', effectiveAiRelevance)
 
           return apiFetch<ItemListResponse>(`/items?${params.toString()}`)
         },
@@ -2318,7 +2324,7 @@ export function DashboardPage() {
               : 1
           const windowMeta = WINDOW_TYPE_META[windowLayout.type]
           const windowTimeSummary = formatWindowTimeSummary(windowLayout, dashboardTimeFilter)
-          const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters)
+          const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters, aiRelevanceEnabled)
           const isPanelRefreshing =
             windowLayout.type === 'rss'
               ? Boolean(rssQuery?.isFetching && !rssQuery.isLoading)
@@ -2463,91 +2469,81 @@ export function DashboardPage() {
                 <>
                   {!windowLayout.controls_collapsed && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
-                      <div className="flex max-h-24 min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto pb-0.5" role="group" aria-label={`${windowLayout.title} feed filters`}>
-                      <button
-                        type="button"
-                        aria-pressed={rssFilters.selected_feed_ids.length === 0}
-                        aria-label={`${windowLayout.title} all feeds`}
-                        className={`rounded border px-3 py-1 text-xs font-semibold ${
-                          rssFilters.selected_feed_ids.length === 0
-                            ? 'tl-chip-filter-active'
-                            : 'tl-chip-neutral'
-                        }`}
-                        onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_feed_ids: [] }))}
-                      >
-                        All
-                      </button>
-                      {feedsQuery.data?.map((feed) => {
-                        const active = rssFilters.selected_feed_ids.includes(feed.id)
-                        const health = resolveFeedHealth(feed)
-                        return (
-                          <button
-                            key={feed.id}
-                            type="button"
-                            aria-pressed={active}
-                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
-                              active ? 'tl-chip-filter-active' : 'tl-chip-neutral'
-                            }`}
-                            aria-label={`${windowLayout.title} ${feed.name} feed, ${health.label}`}
-                            onClick={() =>
-                              updateWindowRssFilters(windowLayout.id, (current) => ({
-                                ...current,
-                                selected_feed_ids: current.selected_feed_ids.includes(feed.id)
-                                  ? current.selected_feed_ids.filter((id) => id !== feed.id)
-                                  : [...current.selected_feed_ids, feed.id],
-                              }))
-                            }
-                          >
-                            {feed.name}
-                            {health.status !== 'healthy' && (
-                              <span className={`tl-chip ml-1.5 ${feedHealthBadgeClass(health.status)}`}>{health.label}</span>
-                            )}
-                          </button>
-                        )
-                      })}
-                      </div>
-
-                      <div className="mt-1 flex max-h-24 min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto pb-0.5" role="group" aria-label={`${windowLayout.title} tag filters`}>
-                      <button
-                        type="button"
-                        aria-pressed={rssFilters.selected_tags.length === 0}
-                        aria-label={`${windowLayout.title} all tags`}
-                        className={`rounded border px-3 py-1 text-xs font-semibold ${
-                          rssFilters.selected_tags.length === 0
-                            ? 'tl-chip-filter-active'
-                            : 'tl-chip-neutral'
-                        }`}
-                        onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_tags: [] }))}
-                      >
-                        All
-                      </button>
-                      {tagsQuery.data
-                        ?.filter((tag) => !HIDDEN_TAGS.has(tag.name))
-                        .map((tag) => {
-                          const active = rssFilters.selected_tags.includes(tag.name)
+                      <div className={FILTER_SCROLLER_CLASS} role="group" aria-label={`${windowLayout.title} feed filters`}>
+                        <button
+                          type="button"
+                          aria-pressed={rssFilters.selected_feed_ids.length === 0}
+                          aria-label={`${windowLayout.title} all feeds`}
+                          className={`${FILTER_CHIP_CLASS} ${
+                            rssFilters.selected_feed_ids.length === 0 ? 'tl-chip-filter-active' : 'tl-chip-neutral'
+                          }`}
+                          onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_feed_ids: [] }))}
+                        >
+                          All
+                        </button>
+                        {feedsQuery.data?.map((feed) => {
+                          const active = rssFilters.selected_feed_ids.includes(feed.id)
+                          const health = resolveFeedHealth(feed)
                           return (
-                          <button
-                            key={tag.id}
-                            type="button"
-                            aria-pressed={active}
-                            className={`whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold ${
-                              active
-                                ? 'tl-chip-filter-active'
-                                : 'tl-chip-neutral'
-                              }`}
+                            <button
+                              key={feed.id}
+                              type="button"
+                              aria-pressed={active}
+                              className={`${FILTER_CHIP_CLASS} ${active ? 'tl-chip-filter-active' : 'tl-chip-neutral'}`}
+                              aria-label={`${windowLayout.title} ${feed.name} feed, ${health.label}`}
                               onClick={() =>
                                 updateWindowRssFilters(windowLayout.id, (current) => ({
                                   ...current,
-                                  selected_tags: current.selected_tags.includes(tag.name)
-                                    ? current.selected_tags.filter((entry) => entry !== tag.name)
-                                    : [...current.selected_tags, tag.name],
+                                  selected_feed_ids: current.selected_feed_ids.includes(feed.id)
+                                    ? current.selected_feed_ids.filter((id) => id !== feed.id)
+                                    : [...current.selected_feed_ids, feed.id],
                                 }))
                               }
                             >
-                              #{tag.name}
+                              {feed.name}
+                              {health.status !== 'healthy' && (
+                                <span className={`tl-chip ml-1.5 ${feedHealthBadgeClass(health.status)}`}>{health.label}</span>
+                              )}
                             </button>
                           )
                         })}
+                      </div>
+
+                      <div className={`mt-1 ${FILTER_SCROLLER_CLASS}`} role="group" aria-label={`${windowLayout.title} tag filters`}>
+                        <button
+                          type="button"
+                          aria-pressed={rssFilters.selected_tags.length === 0}
+                          aria-label={`${windowLayout.title} all tags`}
+                          className={`${FILTER_CHIP_CLASS} ${
+                            rssFilters.selected_tags.length === 0 ? 'tl-chip-filter-active' : 'tl-chip-neutral'
+                          }`}
+                          onClick={() => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, selected_tags: [] }))}
+                        >
+                          All
+                        </button>
+                        {tagsQuery.data
+                          ?.filter((tag) => !HIDDEN_TAGS.has(tag.name))
+                          .map((tag) => {
+                            const active = rssFilters.selected_tags.includes(tag.name)
+                            return (
+                              <button
+                                key={tag.id}
+                                type="button"
+                                aria-pressed={active}
+                                className={`${FILTER_CHIP_CLASS} ${active ? 'tl-chip-filter-active' : 'tl-chip-neutral'}`}
+                                onClick={() =>
+                                  updateWindowRssFilters(windowLayout.id, (current) => ({
+                                    ...current,
+                                    selected_tags: current.selected_tags.includes(tag.name)
+                                      ? current.selected_tags.filter((entry) => entry !== tag.name)
+                                      : [...current.selected_tags, tag.name],
+                                  }))
+                                }
+                              >
+                                #{tag.name}
+                              </button>
+                            )
+                          })}
                       </div>
                       {tagsQuery.isError && <p className="mt-0.5 text-xs text-red-600">Failed to load tags.</p>}
 
@@ -2670,6 +2666,24 @@ export function DashboardPage() {
                           <option value="starred">Stars: Starred</option>
                           <option value="unstarred">Stars: Unstarred</option>
                         </select>
+                        {aiRelevanceEnabled && (
+                          <select
+                            className="rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                            value={rssFilters.ai_relevance}
+                            onChange={(event) =>
+                              updateWindowRssFilters(windowLayout.id, (current) => ({
+                                ...current,
+                                ai_relevance: event.target.value as AIRelevanceFilter,
+                              }))
+                            }
+                            aria-label={`${windowLayout.title} AI relevance filter`}
+                          >
+                            <option value="all">AI Relevance: All</option>
+                            <option value="high">AI Relevance: High</option>
+                            <option value="medium">AI Relevance: Medium</option>
+                            <option value="low">AI Relevance: Low</option>
+                          </select>
+                        )}
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <input
                             type="date"
@@ -3911,6 +3925,7 @@ type DashboardItemsQueryKeyParams = {
   q: string
   read_status: ReadStatusFilter
   star_status: StarStatusFilter
+  ai_relevance: AIRelevanceFilter
   since: string | null
   until: string | null
   sort: TimeSort
@@ -4028,6 +4043,10 @@ function isDashboardItemsQueryKeyParams(value: unknown): value is DashboardItems
     typeof params.q === 'string' &&
     isDashboardReadStatus &&
     isDashboardStarStatus &&
+    (params.ai_relevance === 'all' ||
+      params.ai_relevance === 'low' ||
+      params.ai_relevance === 'medium' ||
+      params.ai_relevance === 'high') &&
     (params.since === null || typeof params.since === 'string') &&
     (params.until === null || typeof params.until === 'string') &&
     typeof params.sort === 'string' &&
@@ -4195,6 +4214,7 @@ function countActiveWindowFilters(
   windowLayout: DashboardWindow,
   rssFilters: DashboardRssWindowFilters,
   alertFilters: DashboardAlertWindowFilters,
+  aiRelevanceEnabled: boolean,
 ) {
   if (windowLayout.type === 'rss') {
     return (
@@ -4202,7 +4222,8 @@ function countActiveWindowFilters(
       rssFilters.selected_tags.length +
       (rssFilters.q.trim() ? 1 : 0) +
       (rssFilters.read_status !== 'all' ? 1 : 0) +
-      (rssFilters.star_status !== 'all' ? 1 : 0)
+      (rssFilters.star_status !== 'all' ? 1 : 0) +
+      (aiRelevanceEnabled && rssFilters.ai_relevance !== 'all' ? 1 : 0)
     )
   }
 
