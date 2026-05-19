@@ -18,6 +18,7 @@ ALLOWED_TIME_SORTS = {
     "first_seen_desc",
     "first_seen_asc",
 }
+ALLOWED_AI_RELEVANCE_FILTERS = {"all", "low", "medium", "high"}
 ALLOWED_WINDOW_TYPES = {"rss", "alerts", "notes", "daily_brief"}
 ALLOWED_WINDOW_SNAPS = {
     "free",
@@ -43,6 +44,7 @@ SAVED_VIEW_RSS_FILTER_KEYS = {
     "q",
     "read_status",
     "star_status",
+    "ai_relevance",
     "view_mode",
     "page_size",
     "time_range",
@@ -85,6 +87,7 @@ SAVED_VIEW_WINDOW_RSS_FILTER_KEYS = {
     "q",
     "read_status",
     "star_status",
+    "ai_relevance",
     "view_mode",
     "page",
     "page_size",
@@ -146,6 +149,12 @@ def _normalize_time_sort(value: Any) -> str:
     if isinstance(value, str) and value in ALLOWED_TIME_SORTS:
         return value
     return "published_at_desc"
+
+
+def _normalize_ai_relevance_filter(value: Any, *, default: str = "all") -> str:
+    if isinstance(value, str) and value in ALLOWED_AI_RELEVANCE_FILTERS:
+        return value
+    return default if default in ALLOWED_AI_RELEVANCE_FILTERS else "all"
 
 
 def _normalize_string(value: Any, *, default: str = "") -> str:
@@ -218,6 +227,7 @@ def _normalize_saved_view_rss_filters(value: Any) -> dict[str, Any]:
         "star_status": (
             source.get("star_status") if source.get("star_status") in {"all", "starred", "unstarred"} else "all"
         ),
+        "ai_relevance": _normalize_ai_relevance_filter(source.get("ai_relevance")),
         "view_mode": "expanded" if source.get("view_mode") == "expanded" else "compact",
         "page_size": _normalize_page_size(source.get("page_size")),
         "time_range": _normalize_time_range(source.get("time_range")),
@@ -275,6 +285,10 @@ def _normalize_window_rss_filters(
             source.get("star_status")
             if source.get("star_status") in {"all", "starred", "unstarred"}
             else base.get("star_status", "all")
+        ),
+        "ai_relevance": _normalize_ai_relevance_filter(
+            source.get("ai_relevance"),
+            default=_normalize_ai_relevance_filter(base.get("ai_relevance")),
         ),
         "view_mode": (
             source.get("view_mode")
@@ -530,6 +544,7 @@ class SavedViewRssFilters(BaseModel):
     q: str = ""
     read_status: Literal["all", "read", "unread"] = "all"
     star_status: Literal["all", "starred", "unstarred"] = "all"
+    ai_relevance: Literal["all", "low", "medium", "high"] = "all"
     view_mode: Literal["compact", "expanded"] = "compact"
     page_size: Literal[10, 25, 50, 100] = DEFAULT_PAGE_SIZE
     time_range: Literal["all", "24h", "7d", "30d", "days", "custom"] = "all"
@@ -562,6 +577,7 @@ class SavedViewWindowRssFilters(BaseModel):
     q: str = ""
     read_status: Literal["all", "read", "unread"] = "all"
     star_status: Literal["all", "starred", "unstarred"] = "all"
+    ai_relevance: Literal["all", "low", "medium", "high"] = "all"
     view_mode: Literal["compact", "expanded"] = "compact"
     page: int = Field(default=1, ge=1)
     page_size: Literal[10, 25, 50, 100] = DEFAULT_PAGE_SIZE

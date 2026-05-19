@@ -1,4 +1,5 @@
 import type {
+  SavedViewAIRelevanceFilter,
   SavedViewAlertFilters,
   SavedViewMode,
   SavedViewPanelRect,
@@ -21,6 +22,7 @@ import type {
 export type TimeRangeFilter = SavedViewTimeRange
 export type ReadStatusFilter = SavedViewReadStatus
 export type StarStatusFilter = SavedViewStarStatus
+export type AIRelevanceFilter = SavedViewAIRelevanceFilter
 export type TimeSort = SavedViewSort
 export type DashboardViewMode = SavedViewMode
 export type AlertViewMode = SavedViewMode
@@ -81,6 +83,10 @@ export function isTimeSort(value: unknown): value is TimeSort {
   )
 }
 
+export function isAIRelevanceFilter(value: unknown): value is AIRelevanceFilter {
+  return value === 'all' || value === 'low' || value === 'medium' || value === 'high'
+}
+
 export function normalizeRollingDaysInput(value: string) {
   const numeric = value.replace(/[^\d]/g, '')
   if (!numeric) {
@@ -96,6 +102,7 @@ export function createDefaultRssWindowFilters(showAdvancedFilters = false): Dash
     q: '',
     read_status: 'all',
     star_status: 'all',
+    ai_relevance: 'all',
     view_mode: 'compact',
     page: 1,
     page_size: 25,
@@ -140,6 +147,10 @@ export function parseRssWindowFiltersCandidate(
       source.star_status === 'starred' || source.star_status === 'unstarred'
         ? source.star_status
         : fallback?.star_status ?? 'all',
+    ai_relevance:
+      typeof source.ai_relevance === 'string' && isAIRelevanceFilter(source.ai_relevance)
+        ? source.ai_relevance
+        : fallback?.ai_relevance ?? 'all',
     view_mode: source.view_mode === 'expanded' ? 'expanded' : fallback?.view_mode ?? 'compact',
     page:
       typeof source.page === 'number' && Number.isFinite(source.page) && source.page >= 1
@@ -627,6 +638,7 @@ function cloneDashboardWindowRssFilters(value: DashboardRssWindowFilters | null)
     q: filters.q,
     read_status: filters.read_status,
     star_status: filters.star_status,
+    ai_relevance: filters.ai_relevance,
     view_mode: filters.view_mode,
     page: filters.page,
     page_size: filters.page_size,
@@ -736,6 +748,7 @@ function buildSavedViewWindowRssFilters(value: DashboardRssWindowFilters | null)
     q: filters.q,
     read_status: filters.read_status,
     star_status: filters.star_status,
+    ai_relevance: filters.ai_relevance,
     view_mode: filters.view_mode,
     page: 1,
     page_size: filters.page_size,
@@ -930,6 +943,7 @@ function parseSavedViewRssFilters(raw: Record<string, unknown>): DashboardSavedV
     q: typeof raw.q === 'string' ? raw.q : '',
     read_status: raw.read_status === 'read' || raw.read_status === 'unread' ? raw.read_status : 'all',
     star_status: raw.star_status === 'starred' || raw.star_status === 'unstarred' ? raw.star_status : 'all',
+    ai_relevance: typeof raw.ai_relevance === 'string' && isAIRelevanceFilter(raw.ai_relevance) ? raw.ai_relevance : 'all',
     view_mode: raw.view_mode === 'expanded' ? 'expanded' : 'compact',
     page_size:
       typeof raw.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(raw.page_size as (typeof PAGE_SIZE_OPTIONS)[number])
@@ -975,6 +989,7 @@ function buildSavedViewRssFilters(rssFilters: DashboardRssWindowFilters, dashboa
     q: rssFilters.q,
     read_status: rssFilters.read_status,
     star_status: rssFilters.star_status,
+    ai_relevance: rssFilters.ai_relevance,
     view_mode: rssFilters.view_mode,
     page_size: rssFilters.page_size,
     time_range: dashboardTimeFilter.time_range,

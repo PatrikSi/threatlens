@@ -150,6 +150,7 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - on the configured daily schedule
 - Daily brief generation:
   - selects items from the configured coverage window
+  - uses item `published_at` for the coverage window when available, falling back to `first_seen_at` only for undated feed entries
   - orders by AI relevance when available
   - keeps only the configured maximum item count in the prompt
   - stores retained recent briefs and per-brief source-item logs
