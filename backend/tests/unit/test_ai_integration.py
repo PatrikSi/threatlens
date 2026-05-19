@@ -435,6 +435,124 @@ def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_sessio
     assert captured["prompt_item_mentions"] == 5
 
 
+def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_session, ai_enabled_env, monkeypatch):
+    reference_time = datetime(2026, 4, 15, 12, 0, tzinfo=timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="CISA",
+        url="https://example.com/cisa-window.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    def add_item(title: str, *, published_at: datetime | None, first_seen_at: datetime, suffix: str) -> None:
+        item = Item(
+            id=uuid.uuid4(),
+            feed_id=feed.id,
+            source_guid=f"brief-window-{suffix}",
+            url=f"https://example.com/articles/brief-window-{suffix}",
+            canonical_url=f"https://example.com/articles/brief-window-{suffix}",
+            title=title,
+            summary="Summary",
+            published_at=published_at,
+            first_seen_at=first_seen_at,
+            dedupe_key=f"brief-window-{suffix}",
+            content_hash=suffix[-1] * 64,
+            status="content_fetched",
+        )
+        db_session.add(item)
+        db_session.flush()
+
+    add_item(
+        "Old published backfill",
+        published_at=reference_time - timedelta(days=3),
+        first_seen_at=reference_time - timedelta(minutes=30),
+        suffix="old-backfill-1",
+    )
+    add_item(
+        "Current publication seen earlier",
+        published_at=reference_time - timedelta(hours=2),
+        first_seen_at=reference_time - timedelta(days=2),
+        suffix="current-old-seen-2",
+    )
+    add_item(
+        "Current publication seen now",
+        published_at=reference_time - timedelta(hours=1),
+        first_seen_at=reference_time - timedelta(minutes=30),
+        suffix="current-new-seen-3",
+    )
+    add_item(
+        "Undated recent arrival",
+        published_at=None,
+        first_seen_at=reference_time - timedelta(hours=3),
+        suffix="undated-recent-4",
+    )
+    add_item(
+        "Undated stale arrival",
+        published_at=None,
+        first_seen_at=reference_time - timedelta(days=3),
+        suffix="undated-stale-5",
+    )
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_window_hours=24,
+            daily_brief_max_items=10,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    captured_titles: list[str] = []
+
+    def _fake_call(active, *, messages):
+        _ = active
+        request_payload = json.loads(messages[1]["content"])
+        captured_titles[:] = [item["title"] for item in request_payload["items"]]
+        return AICompletionResult(
+            payload={
+                "title": "Daily Brief",
+                "brief_text": "Brief text",
+                "key_points": ["Point"],
+                "recommended_actions": ["Action"],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=10,
+            prompt_tokens=10,
+            completion_tokens=10,
+            total_tokens=20,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _fake_call)
+
+    result = run_daily_brief_generation(db_session, force=True, reference_time=reference_time)
+    db_session.commit()
+
+    assert result.status == "ready"
+    assert result.items_considered == 3
+    assert result.items_selected == 3
+    assert result.brief.item_count == 3
+    assert captured_titles == [
+        "Current publication seen now",
+        "Current publication seen earlier",
+        "Undated recent arrival",
+    ]
+
+    source_rows = db_session.scalars(
+        select(AIDailyBriefSourceItem).where(AIDailyBriefSourceItem.daily_brief_id == result.brief.id)
+    ).all()
+    assert {row.title_snapshot for row in source_rows} == set(captured_titles)
+
+
 def test_daily_brief_retry_budget_never_shrinks_after_truncation():
     error = AIIntegrationError("truncated", retry_hint="expand_completion_budget")
 
