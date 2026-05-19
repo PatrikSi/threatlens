@@ -16,7 +16,7 @@ Before publishing a public tag, image, or source release:
 - Public releases should use immutable tags in `vX.Y.Z` format.
 - Once the repository is public, `main` is the active public development line and receives best-effort community support.
 - Only the latest published tag is considered a supported release line once tags exist.
-- If no public tag exists yet, pin the deployed commit SHA, image digests, and checked-in OpenAPI contract anchor together as the current release reference.
+- If no public tag exists yet, record the deployed commit SHA, published image tags, and checked-in OpenAPI contract anchor together as the current release reference.
 
 ## Container Image Publishing
 
@@ -78,7 +78,7 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
 
 That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards those same exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI provenance labels.
 
-The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned by digest, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those pinned base images and lockfile-resolved application packages.
+The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned to explicit version tags, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those base image tags and lockfile-resolved application packages.
 
 ## Files to Review Before Release
 
