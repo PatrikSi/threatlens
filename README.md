@@ -38,14 +38,14 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 
-Pull the latest stable published images and start everything:
+Pull the latest published images and start everything:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-To pin a specific release, set `THREATLENS_IMAGE_TAG` to an immutable image tag:
+The default `latest` tag follows the newest published default image, and the bundled compose file asks Docker to refresh ThreatLens application images during `up`. To pin a specific release, set `THREATLENS_IMAGE_TAG` to an immutable image tag:
 
 ```bash
 THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
@@ -121,7 +121,7 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
-Update to the latest stable published images:
+Update to the latest published images:
 
 ```bash
 docker compose pull
@@ -224,7 +224,7 @@ npm run build
 ## Notes
 
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
-- Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the latest tagged release, while `main` and `sha-*` tags are development references.
+- Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the newest default published image, while release tags and `sha-*` tags are immutable references.
 - The browser talks to the API through `/api/v1`.
 - Feed/article fetching, AI calls, and webhook delivery can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.

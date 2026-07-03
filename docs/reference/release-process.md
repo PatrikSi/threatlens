@@ -52,7 +52,7 @@ Published images:
 
 Tag behavior:
 
-- `main` branch builds publish `:main` and `:sha-<commit>`.
+- `main` branch builds publish `:latest`, `:main`, and `:sha-<commit>`.
 - Version tags such as `v1.0.0` publish `:v1.0.0`, `:1.0.0`, `:1.0`, `:latest`, and `:sha-<commit>`.
 - Both images are built for `linux/amd64` and `linux/arm64`.
 - Built images receive `org.opencontainers.image.version`, `org.opencontainers.image.created`, and `org.opencontainers.image.revision` labels.
