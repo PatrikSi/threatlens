@@ -228,6 +228,10 @@ class AITestConnectionResponse(BaseModel):
     provider: AIProviderType
     model: str | None
     error: str | None
+    skipped: bool = False
+    skip_reason: str | None = None
+    running_task_count: int = 0
+    queued_task_count: int = 0
 
 
 class AIUsageFeatureSummary(BaseModel):

@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
@@ -68,6 +69,11 @@ AI_TASK_NAMES = {
     "app.tasks.feed_tasks.reprocess_recent_ai_items": AI_TASK_TYPE_REPROCESS,
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": AI_TASK_TYPE_DAILY_BRIEF,
 }
+AI_CONNECTION_TEST_BLOCKING_TASK_TYPES = {
+    AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_DAILY_BRIEF,
+    AI_TASK_TYPE_REPROCESS,
+}
 
 STALE_AI_RUN_GRACE_PERIOD = timedelta(minutes=10)
 STALE_AI_RUN_FALLBACK_GRACE_PERIOD = timedelta(hours=1)
@@ -84,6 +90,16 @@ INELIGIBLE_REASONS = {
     "auto_enrich_disabled",
     "invalid_item_id",
 }
+
+
+@dataclass(frozen=True)
+class AIConnectionTestWorkload:
+    running_task_count: int
+    queued_task_count: int
+
+    @property
+    def has_active_work(self) -> bool:
+        return self.running_task_count > 0 or self.queued_task_count > 0
 
 
 def queue_ai_task_run(
@@ -488,6 +504,26 @@ def get_ai_live_status(db: Session) -> AILiveStatusResponse:
         scheduled_count=len(scheduled_tasks),
         queued_count=queued_count,
         oldest_queued_age_seconds=oldest_age,
+    )
+
+
+def get_ai_connection_test_workload(db: Session) -> AIConnectionTestWorkload:
+    _reconcile_stale_ai_runs(db)
+    status_counts = {
+        status: int(count)
+        for status, count in db.execute(
+            select(AITaskRun.status, func.count(AITaskRun.id))
+            .where(
+                AITaskRun.task_type.in_(AI_CONNECTION_TEST_BLOCKING_TASK_TYPES),
+                AITaskRun.finished_at.is_(None),
+                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
+            )
+            .group_by(AITaskRun.status)
+        ).all()
+    }
+    return AIConnectionTestWorkload(
+        running_task_count=status_counts.get(AI_STATUS_RUNNING, 0),
+        queued_task_count=status_counts.get(AI_STATUS_QUEUED, 0),
     )
 
 

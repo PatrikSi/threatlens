@@ -918,6 +918,10 @@ export interface AITestConnectionResponse {
   provider: 'openai_compatible'
   model: string | null
   error: string | null
+  skipped?: boolean
+  skip_reason?: string | null
+  running_task_count?: number
+  queued_task_count?: number
 }
 
 export interface AIUsageFeatureSummary {

@@ -17,11 +17,14 @@ from app.models.user import User
 from app.schemas.ai import AILiveTaskResponse
 from app.services.ai_integration import AICompletionResult
 from app.services.ai_ops import (
+    AI_TASK_TYPE_CONNECTION_TEST,
+    AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _reconcile_stale_ai_runs,
     queue_ai_task_run,
+    start_ai_task_run,
 )
 
 
@@ -315,6 +318,78 @@ def test_admin_can_test_connection_and_queue_ai_reprocess(
     assert len(captured["item_ids"]) == 1
     assert captured["task_run_id"] == response_payload["run_id"]
     assert captured["actor_user_id"]
+
+
+def test_ai_connection_test_skips_when_generation_work_is_active(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings_response = client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+            "company_regions": [],
+            "company_stack": [],
+            "company_priority_topics": [],
+            "company_keywords": [],
+            "company_exclusions": [],
+        },
+        headers=auth_headers["admin"],
+    )
+    assert settings_response.status_code == 200
+
+    running_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        model="local-threat-model",
+    )
+    start_ai_task_run(db_session, run_id=running_run.id, worker_name="celery@test", celery_task_id="running-task")
+    queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+        model="local-threat-model",
+    )
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    def fail_ai_call(active, *, messages):
+        _ = active
+        _ = messages
+        raise AssertionError("busy connection tests should not call the AI provider")
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", fail_ai_call)
+
+    response = client.post("/ai/test-connection", headers=auth_headers["admin"])
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is False
+    assert payload["skipped"] is True
+    assert payload["skip_reason"] == "active_ai_work"
+    assert payload["running_task_count"] == 1
+    assert payload["queued_task_count"] == 1
+    assert "already running or queued" in payload["error"]
+
+    connection_runs = list(
+        db_session.scalars(select(AITaskRun).where(AITaskRun.task_type == AI_TASK_TYPE_CONNECTION_TEST))
+    )
+    assert connection_runs == []
 
 
 def test_reprocess_queue_marks_run_error_when_broker_publish_fails(

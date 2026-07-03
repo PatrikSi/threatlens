@@ -54,6 +54,7 @@ from app.services.ai_ops import (
     AI_TRIGGER_MANUAL,
     cancel_ai_task_run,
     finish_ai_task_run,
+    get_ai_connection_test_workload,
     get_ai_live_status,
     get_ai_ops_overview,
     get_ai_task_run_detail,
@@ -215,6 +216,20 @@ def test_ai_connection_route(
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
     settings = get_or_create_ai_settings(db)
+    workload = get_ai_connection_test_workload(db)
+    if workload.has_active_work:
+        return AITestConnectionResponse(
+            success=False,
+            latency_ms=None,
+            provider=settings.provider_type,
+            model=settings.model,
+            error="AI work is already running or queued. Wait for current AI tasks to finish before testing the connection.",
+            skipped=True,
+            skip_reason="active_ai_work",
+            running_task_count=workload.running_task_count,
+            queued_task_count=workload.queued_task_count,
+        )
+
     run = queue_ai_task_run(
         db,
         task_type=AI_TASK_TYPE_CONNECTION_TEST,
