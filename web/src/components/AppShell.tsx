@@ -14,6 +14,7 @@ const NAV_LINKS = [
   { to: '/stats', label: 'Stats' },
   { to: '/settings', label: 'Settings' },
 ]
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.1.0'
 
 export function AppShell() {
   const { markLoggedOut } = useAuth()
@@ -69,7 +70,7 @@ export function AppShell() {
   }, [location.pathname])
 
   return (
-    <div className="min-h-screen text-ink dark:text-slate-100">
+    <div className="flex min-h-screen flex-col text-ink dark:text-slate-100">
       <header className="tl-app-header">
         <div className="px-3 py-3 sm:px-4 lg:hidden">
           <div className="flex items-center justify-between gap-3">
@@ -194,9 +195,12 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`w-full ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
+      <main className={`w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
         <Outlet />
       </main>
+      <footer className="px-3 py-3 text-right text-[11px] text-slate/55 dark:text-slate-400/60 sm:px-4 lg:px-6">
+        <span aria-label={`ThreatLens version ${APP_VERSION}`}>v{APP_VERSION}</span>
+      </footer>
     </div>
   )
 }
