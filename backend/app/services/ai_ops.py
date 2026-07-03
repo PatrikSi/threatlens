@@ -67,6 +67,7 @@ AI_TERMINAL_STATUSES = {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}
 AI_TASK_NAMES = {
     "app.tasks.feed_tasks.generate_item_ai_enrichment": AI_TASK_TYPE_ITEM_ENRICHMENT,
     "app.tasks.feed_tasks.reprocess_recent_ai_items": AI_TASK_TYPE_REPROCESS,
+    "app.tasks.feed_tasks.backfill_daily_ai_briefs": AI_TASK_TYPE_REPROCESS,
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": AI_TASK_TYPE_DAILY_BRIEF,
 }
 AI_CONNECTION_TEST_BLOCKING_TASK_TYPES = {
@@ -691,6 +692,7 @@ def list_ai_manual_actions(db: Session, *, limit: int = 50) -> list[AIAuditEntry
                         "ai.connection.test",
                         "ai.daily_brief.generate",
                         "ai.daily_brief.queue",
+                        "ai.daily_brief.backfill.queue",
                         "ai.reprocess.queue",
                     ]
                 )
@@ -1200,6 +1202,8 @@ def _extract_positional_task_run_id(task_name: str, args: list[Any]) -> Any:
         return args[2]
     if task_name == "app.tasks.feed_tasks.reprocess_recent_ai_items" and len(args) > 6:
         return args[6]
+    if task_name == "app.tasks.feed_tasks.backfill_daily_ai_briefs" and len(args) > 1:
+        return args[1]
     return None
 
 

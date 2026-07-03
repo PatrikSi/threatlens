@@ -733,6 +733,100 @@ def test_daily_brief_queue_uses_run_id_when_broker_returns_no_task_id(
     assert run.celery_task_id is None
 
 
+def test_admin_can_queue_daily_brief_backfill(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "daily_brief_history_limit": 7,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    captured: dict[str, object] = {}
+
+    class _FakeTask:
+        id = "ai-brief-backfill-123"
+
+    def _fake_backfill_delay(days: int, task_run_id: str | None = None, actor_user_id: str | None = None):
+        captured["days"] = days
+        captured["task_run_id"] = task_run_id
+        captured["actor_user_id"] = actor_user_id
+        return _FakeTask()
+
+    monkeypatch.setattr("app.api.routes.ai.backfill_daily_ai_briefs.delay", _fake_backfill_delay)
+
+    response = client.post("/ai/daily-brief/backfill", json={"days": 3}, headers=auth_headers["admin"])
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["queued"] is True
+    assert payload["task_id"] == "ai-brief-backfill-123"
+    assert payload["celery_task_id"] == "ai-brief-backfill-123"
+    assert payload["days"] == 3
+    assert captured["days"] == 3
+    assert captured["task_run_id"] == payload["run_id"]
+    assert captured["actor_user_id"]
+
+    run = db_session.get(AITaskRun, uuid.UUID(payload["run_id"]))
+    assert run is not None
+    assert run.task_type == AI_TASK_TYPE_REPROCESS
+    assert run.target_count == 3
+    assert run.metadata_json["scope"] == "daily_brief_backfill"
+    assert run.metadata_json["days"] == 3
+    assert run.celery_task_id == "ai-brief-backfill-123"
+
+    manual_actions_response = client.get("/ai/ops/manual-actions", headers=auth_headers["admin"])
+    assert manual_actions_response.status_code == 200
+    assert "ai.daily_brief.backfill.queue" in {entry["action"] for entry in manual_actions_response.json()}
+
+
+def test_daily_brief_backfill_requires_retention_covering_requested_days(
+    client: TestClient,
+    auth_headers,
+    ai_enabled_env,
+):
+    client.put(
+        "/ai/settings",
+        json={
+            "provider_type": "openai_compatible",
+            "base_url": "http://localhost:11434/v1",
+            "model": "local-threat-model",
+            "summary_enabled": True,
+            "relevance_enabled": True,
+            "daily_brief_enabled": True,
+            "auto_enrich_new_items": True,
+            "daily_brief_window_hours": 24,
+            "daily_brief_max_items": 10,
+            "daily_brief_history_limit": 2,
+            "relevance_medium_threshold": 0.55,
+            "relevance_high_threshold": 0.8,
+        },
+        headers=auth_headers["admin"],
+    )
+
+    response = client.post("/ai/daily-brief/backfill", json={"days": 3}, headers=auth_headers["admin"])
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Increase retained daily briefings before backfilling more than 2 days"
+
+
 def test_admin_can_list_reprocess_child_runs_with_article_context(
     client: TestClient,
     auth_headers,

@@ -196,6 +196,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
   activeRunsRefreshing: false,
   historyRunsDataByPage: {} as Record<number, { items: unknown[]; total: number; limit: number; offset: number }>,
   runDetailById: {} as Record<string, unknown>,
+  childRunsDataByParent: {} as Record<string, { items: unknown[]; total: number; limit: number; offset: number }>,
   promptHistoryData: [] as unknown[],
   emptyItemsData: {
     items: [],
@@ -204,6 +205,7 @@ const aiSettingsPageDomMocks = vi.hoisted(() => ({
     page_size: 12,
   },
   cancelMutate: vi.fn(),
+  backfillMutate: vi.fn(),
   completeReprocessMutation: true,
   reprocessMutate: vi.fn(),
 }))
@@ -332,6 +334,14 @@ vi.mock('@tanstack/react-query', () => ({
       }
     }
 
+    if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'child-runs') {
+      const parentRunId = typeof queryKey[3] === 'string' ? queryKey[3] : ''
+      return {
+        ...baseResult,
+        data: aiSettingsPageDomMocks.childRunsDataByParent[parentRunId] ?? aiSettingsPageDomMocks.emptyRunsData,
+      }
+    }
+
     if (String(queryKey[0]) === 'ai' && String(queryKey[1]) === 'ops' && String(queryKey[2]) === 'runs' && key.includes(':30:')) {
       const page = typeof queryKey[5] === 'number' ? queryKey[5] : 0
       return {
@@ -383,6 +393,23 @@ vi.mock('@tanstack/react-query', () => ({
               payload,
             )
           }
+        }),
+      )
+    }
+    if (mutationKey === 'ai:daily-brief:backfill') {
+      return aiMutationResult(
+        vi.fn((days: number) => {
+          aiSettingsPageDomMocks.backfillMutate(days)
+          options.onSuccess?.(
+            {
+              task_id: 'task-backfill-1',
+              queued: true,
+              days,
+              run_id: 'run-backfill-1',
+              celery_task_id: 'task-backfill-1',
+            },
+            days,
+          )
         }),
       )
     }
@@ -509,6 +536,7 @@ afterEach(() => {
   container = null
   document.body.innerHTML = ''
   aiSettingsPageDomMocks.cancelMutate.mockReset()
+  aiSettingsPageDomMocks.backfillMutate.mockReset()
   aiSettingsPageDomMocks.reprocessMutate.mockReset()
   aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
@@ -553,6 +581,7 @@ afterEach(() => {
   aiSettingsPageDomMocks.activeRunsRefreshing = false
   aiSettingsPageDomMocks.historyRunsDataByPage = {}
   aiSettingsPageDomMocks.runDetailById = {}
+  aiSettingsPageDomMocks.childRunsDataByParent = {}
   aiSettingsPageDomMocks.promptHistoryData = []
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
@@ -1008,6 +1037,117 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain(
       '1 AI task is running or queued. Local providers such as Ollama usually process one generation at a time',
     )
+  })
+
+  it('blocks daily brief backfill beyond the retained brief limit', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const backfillDaysInput = getLabeledInput('Backfill Days') as HTMLInputElement | null
+    expect(backfillDaysInput).not.toBeNull()
+
+    act(() => {
+      setInputValue(backfillDaysInput!, '11')
+    })
+
+    const queueBackfillButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Queue Backfill',
+    ) as HTMLButtonElement | undefined
+    expect(queueBackfillButton).not.toBeUndefined()
+    expect(queueBackfillButton?.disabled).toBe(true)
+    expect(pageText()).toContain('Increase retained daily briefings before backfilling more than 10 days.')
+  })
+
+  it('queues daily brief backfill with the requested day count', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const backfillDaysInput = getLabeledInput('Backfill Days') as HTMLInputElement | null
+    const queueBackfillButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Queue Backfill',
+    ) as HTMLButtonElement | undefined
+
+    expect(backfillDaysInput).not.toBeNull()
+    expect(queueBackfillButton).not.toBeUndefined()
+
+    act(() => {
+      setInputValue(backfillDaysInput!, '3')
+    })
+
+    act(() => {
+      queueBackfillButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(aiSettingsPageDomMocks.backfillMutate).toHaveBeenCalledWith(3)
+    const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
+    expect(notice).not.toBeNull()
+    expect(notice?.textContent).toContain('Queued daily brief backfill for 3 days (run-backfill-1).')
+  })
+
+  it('labels daily brief backfill parent and child runs by day', () => {
+    const parentRun = createAiRun('run-backfill-parent', {
+      task_type: 'reprocess',
+      status: 'running',
+      metadata: { scope: 'daily_brief_backfill', days: 3 },
+      target_count: 3,
+      processed_count: 1,
+      success_count: 1,
+      item_title: null,
+      feed_name: null,
+    })
+    const childRun = createAiRun('run-backfill-child', {
+      task_type: 'daily_brief',
+      status: 'ready',
+      parent_run_id: 'run-backfill-parent',
+      daily_brief_id: 'brief-1',
+      metadata: {
+        scope: 'daily_brief_backfill',
+        brief_date: '2026-04-20',
+        reference_time: '2026-04-20T23:59:59Z',
+      },
+      item_title: null,
+      feed_name: null,
+    })
+    aiSettingsPageDomMocks.historyRunsDataByPage = {
+      0: {
+        items: [parentRun],
+        total: 1,
+        limit: 20,
+        offset: 0,
+      },
+    }
+    aiSettingsPageDomMocks.runDetailById = {
+      'run-backfill-parent': {
+        run: parentRun,
+        events: [],
+      },
+    }
+    aiSettingsPageDomMocks.childRunsDataByParent = {
+      'run-backfill-parent': {
+        items: [childRun],
+        total: 1,
+        limit: 8,
+        offset: 0,
+      },
+    }
+
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Daily Brief Backfill')
+    expect(pageText()).toContain('Creating one daily brief per day for 3 days, ending today.')
+    expect(pageText()).toContain('Daily Brief Runs')
+    expect(pageText()).toContain('Daily brief for 20/04/2026')
+    expect(pageText()).not.toContain('Unknown article')
   })
 
   it('labels connection testing as a saved-config action and blocks it while the draft is dirty', () => {

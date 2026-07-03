@@ -1485,6 +1485,295 @@ def dispatch_daily_ai_brief_generation(
             return {"status": "error", "reason": "coordination_unavailable"}
 
 
+def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = None) -> list[datetime]:
+    reference_now = now or datetime.now(timezone.utc)
+    if reference_now.tzinfo is None:
+        reference_now = reference_now.replace(tzinfo=timezone.utc)
+
+    references: list[datetime] = []
+    for offset in range(max(0, int(days))):
+        target_date = reference_now.date() - timedelta(days=offset)
+        if offset == 0:
+            references.append(reference_now)
+        else:
+            references.append(
+                datetime(
+                    target_date.year,
+                    target_date.month,
+                    target_date.day,
+                    23,
+                    59,
+                    59,
+                    tzinfo=timezone.utc,
+                )
+            )
+    return references
+
+
+@celery_app.task(
+    bind=True,
+    name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def backfill_daily_ai_briefs(
+    self,
+    days: int,
+    task_run_id: str | None = None,
+    actor_user_id: str | None = None,
+):
+    worker_name = getattr(self.request, "hostname", None)
+    celery_task_id = getattr(self.request, "id", None)
+    try:
+        effective_days = int(days)
+    except (TypeError, ValueError):
+        effective_days = 0
+
+    with db_session() as db:
+        parsed_run_id = None
+        parsed_actor_user_id = None
+        if task_run_id:
+            try:
+                parsed_run_id = uuid.UUID(task_run_id)
+            except ValueError:
+                parsed_run_id = None
+        if actor_user_id:
+            try:
+                parsed_actor_user_id = uuid.UUID(actor_user_id)
+            except ValueError:
+                parsed_actor_user_id = None
+
+        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
+        if run is None:
+            run = queue_ai_task_run(
+                db,
+                task_type=AI_TASK_TYPE_REPROCESS,
+                trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                actor_user_id=parsed_actor_user_id,
+                metadata={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+                target_count=max(0, effective_days),
+            )
+
+        parent_run_id = run.id
+        run.target_count = max(0, effective_days)
+        run.metadata_json = {
+            **dict(run.metadata_json or {}),
+            "scope": "daily_brief_backfill",
+            "days": max(0, effective_days),
+            "force": True,
+            "includes_today": True,
+        }
+        db.add(run)
+        started_run = start_ai_task_run(
+            db,
+            run_id=parent_run_id,
+            worker_name=worker_name,
+            celery_task_id=celery_task_id,
+            metadata_updates={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+        )
+        db.commit()
+
+        if not _task_run_claimed_by_current_worker(started_run, celery_task_id=celery_task_id):
+            return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
+
+        if effective_days < 1:
+            finish_ai_task_run(
+                db,
+                run_id=parent_run_id,
+                status=AI_STATUS_SKIPPED,
+                reason="invalid_days",
+                worker_name=worker_name,
+            )
+            db.commit()
+            return {"status": "skipped", "reason": "invalid_days", "run_id": str(parent_run_id)}
+
+        stop_reason = ai_task_run_stop_reason(started_run)
+        if stop_reason is not None:
+            if stop_reason == "canceled":
+                finish_ai_task_run(
+                    db,
+                    run_id=parent_run_id,
+                    status=AI_STATUS_SKIPPED,
+                    reason="canceled",
+                    worker_name=worker_name,
+                    metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+                )
+                db.commit()
+            return {"status": "skipped", "reason": stop_reason, "run_id": str(parent_run_id)}
+
+        active_ai_settings = load_active_ai_settings(db)
+        if not active_ai_settings.ai_enabled:
+            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_disabled", worker_name=worker_name)
+            db.commit()
+            return {"status": "skipped", "reason": "ai_disabled", "run_id": str(parent_run_id)}
+        if not active_ai_settings.ai_configured:
+            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_not_configured", worker_name=worker_name)
+            db.commit()
+            return {"status": "skipped", "reason": "ai_not_configured", "run_id": str(parent_run_id)}
+        if not active_ai_settings.daily_brief_enabled:
+            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="daily_brief_disabled", worker_name=worker_name)
+            db.commit()
+            return {"status": "skipped", "reason": "daily_brief_disabled", "run_id": str(parent_run_id)}
+        if effective_days > int(active_ai_settings.daily_brief_history_limit or 0):
+            finish_ai_task_run(
+                db,
+                run_id=parent_run_id,
+                status=AI_STATUS_ERROR,
+                reason="history_limit_too_low",
+                error=f"Retained daily briefings is {active_ai_settings.daily_brief_history_limit}, below requested backfill days {effective_days}",
+                worker_name=worker_name,
+            )
+            db.commit()
+            return {"status": "error", "reason": "history_limit_too_low", "run_id": str(parent_run_id)}
+
+        active_model = active_ai_settings.model
+        run.model = active_model
+        db.add(run)
+        record_ai_task_event(
+            db,
+            run_id=parent_run_id,
+            event_type="backfill_started",
+            payload={"days": effective_days, "includes_today": True},
+        )
+        db.commit()
+
+        try:
+            with daily_ai_brief_lock() as acquired:
+                if not acquired:
+                    finish_ai_task_run(
+                        db,
+                        run_id=parent_run_id,
+                        status=AI_STATUS_SKIPPED,
+                        reason="already_running",
+                        worker_name=worker_name,
+                        metadata_updates={"lock_observed_at": datetime.now(timezone.utc).isoformat()},
+                    )
+                    db.commit()
+                    return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
+
+                processed_dates: list[str] = []
+                for reference_time in _daily_brief_backfill_reference_times(effective_days):
+                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                    if parent_run is None:
+                        return {
+                            "status": "error",
+                            "reason": "parent_run_missing",
+                            "run_id": str(parent_run_id),
+                            "processed_dates": processed_dates,
+                        }
+
+                    parent_stop_reason = ai_task_run_stop_reason(parent_run)
+                    if parent_stop_reason is not None:
+                        if parent_stop_reason == "canceled" and parent_run.finished_at is None:
+                            finish_ai_task_run(
+                                db,
+                                run_id=parent_run_id,
+                                status=AI_STATUS_SKIPPED,
+                                reason="canceled",
+                                worker_name=worker_name,
+                                metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+                            )
+                            db.commit()
+                        return {
+                            "status": "skipped",
+                            "reason": parent_stop_reason,
+                            "run_id": str(parent_run_id),
+                            "processed_dates": processed_dates,
+                        }
+
+                    child_run = queue_ai_task_run(
+                        db,
+                        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+                        trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
+                        actor_user_id=parsed_actor_user_id,
+                        parent_run_id=parent_run_id,
+                        model=active_model,
+                        metadata={
+                            "scope": "daily_brief_backfill",
+                            "force": True,
+                            "brief_date": reference_time.date().isoformat(),
+                            "reference_time": reference_time.isoformat(),
+                        },
+                    )
+                    start_ai_task_run(
+                        db,
+                        run_id=child_run.id,
+                        worker_name=worker_name,
+                        celery_task_id=celery_task_id,
+                        metadata_updates={"scope": "daily_brief_backfill", "force": True},
+                    )
+                    db.commit()
+                    child_run_id = child_run.id
+
+                    try:
+                        result = run_daily_brief_generation(
+                            db,
+                            force=True,
+                            reference_time=reference_time,
+                            task_run_id=child_run_id,
+                        )
+                    except Exception as exc:
+                        db.rollback()
+                        logger.exception("daily_brief_backfill_day_failed brief_date=%s", reference_time.date().isoformat())
+                        finish_ai_task_run(
+                            db,
+                            run_id=child_run_id,
+                            status=AI_STATUS_ERROR,
+                            reason="unexpected_error",
+                            error=str(exc) or _exception_type_name(exc),
+                            worker_name=worker_name,
+                            model=active_model,
+                            metadata_updates={"brief_date": reference_time.date().isoformat()},
+                        )
+                        db.commit()
+                        processed_dates.append(reference_time.date().isoformat())
+                        continue
+
+                    finish_ai_task_run(
+                        db,
+                        run_id=child_run_id,
+                        status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
+                        reason=result.reason,
+                        error=result.brief.error if result.brief is not None and result.status == "error" else None,
+                        worker_name=worker_name,
+                        model=result.brief.model if result.brief is not None else active_model,
+                        prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
+                        completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
+                        total_tokens=result.brief.total_tokens if result.brief is not None else None,
+                        latency_ms=result.brief.latency_ms if result.brief is not None else None,
+                        prompt_char_count=result.prompt_char_count,
+                        response_char_count=result.response_char_count,
+                        metadata_updates={
+                            "items_considered": result.items_considered,
+                            "items_selected": result.items_selected,
+                            "brief_date": reference_time.date().isoformat(),
+                        },
+                        daily_brief_id=result.brief.id if result.brief is not None else None,
+                    )
+                    db.commit()
+                    processed_dates.append(reference_time.date().isoformat())
+
+                refreshed_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                return {
+                    "status": refreshed_run.status if refreshed_run is not None else "unknown",
+                    "reason": refreshed_run.reason if refreshed_run is not None else None,
+                    "run_id": str(parent_run_id),
+                    "processed_dates": processed_dates,
+                }
+        except CoordinationUnavailableError as exc:
+            logger.warning("daily_brief_backfill_coordination_unavailable error_type=%s", _exception_type_name(exc))
+            finish_ai_task_run(
+                db,
+                run_id=parent_run_id,
+                status=AI_STATUS_ERROR,
+                reason="coordination_unavailable",
+                error="coordination_unavailable",
+                worker_name=worker_name,
+            )
+            db.commit()
+            return {"status": "error", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}
+
+
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
 def record_beat_heartbeat():
     now = datetime.now(timezone.utc).isoformat()

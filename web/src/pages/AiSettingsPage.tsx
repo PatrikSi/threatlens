@@ -35,6 +35,7 @@ import {
 import { resolveVisibleRunSelection } from './aiRunSelection'
 import {
   AIAuditEntryResponse,
+  AIDailyBriefBackfillResponse,
   AIDailyBriefSourceItemResponse,
   AIQueuedTaskResponse,
   AILiveTaskResponse,
@@ -80,6 +81,7 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
 }
 const DEFAULT_REPROCESS_DAYS = '7'
 const DEFAULT_REPROCESS_LIMIT = '100'
+const DEFAULT_DAILY_BRIEF_BACKFILL_DAYS = '7'
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
   { value: 'overview', label: 'Status' },
@@ -147,6 +149,7 @@ export function AiSettingsPage() {
   const [draftDirty, setDraftDirty] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
+  const [dailyBriefBackfillDays, setDailyBriefBackfillDays] = useState(DEFAULT_DAILY_BRIEF_BACKFILL_DAYS)
   const [reprocessDays, setReprocessDays] = useState(DEFAULT_REPROCESS_DAYS)
   const [reprocessLimit, setReprocessLimit] = useState(DEFAULT_REPROCESS_LIMIT)
   const [reprocessStartTime, setReprocessStartTime] = useState('')
@@ -531,6 +534,26 @@ export function AiSettingsPage() {
     },
   })
 
+  const backfillDailyBriefMutation = useMutation({
+    mutationKey: ['ai', 'daily-brief', 'backfill'],
+    mutationFn: (daysToBackfill: number) =>
+      apiFetch<AIDailyBriefBackfillResponse>('/ai/daily-brief/backfill', {
+        method: 'POST',
+        body: JSON.stringify({ days: daysToBackfill }),
+      }),
+    onSuccess: (result) => {
+      setNotice({
+        tone: 'success',
+        message: `Queued daily brief backfill for ${result.days} day${result.days === 1 ? '' : 's'} (${result.run_id ?? result.task_id}).`,
+      })
+      markAiQueriesStale(queryClient)
+      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
+    },
+    onError: (error) => {
+      showActionError(error, 'Failed to queue daily brief backfill.')
+    },
+  })
+
   const reprocessMutation = useMutation({
     mutationKey: ['ai', 'reprocess'],
     mutationFn: (payload: AIReprocessQueueRequest) =>
@@ -561,7 +584,7 @@ export function AiSettingsPage() {
     onSuccess: (run) => {
       setNotice({
         tone: 'success',
-        message: `${formatTaskTypeLabel(run.task_type)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`,
+        message: `${formatRunTaskLabel(run)} ${formatStatusLabel(run.status, run.reason).toLowerCase()}.`,
       })
       setPendingCancelRun(null)
       invalidateAiQueries(queryClient)
@@ -664,6 +687,21 @@ export function AiSettingsPage() {
       selectedReprocessItems,
     ],
   )
+  const dailyBriefBackfillValidation = useMemo(() => {
+    const trimmed = dailyBriefBackfillDays.trim()
+    const retainedLimit = settingsQuery.data?.daily_brief_history_limit
+    if (!/^\d+$/.test(trimmed)) {
+      return 'Backfill days must be a whole number.'
+    }
+    const value = Number(trimmed)
+    if (!Number.isInteger(value) || value < 1 || value > 90) {
+      return 'Backfill days must be between 1 and 90.'
+    }
+    if (typeof retainedLimit === 'number' && value > retainedLimit) {
+      return `Increase retained daily briefings before backfilling more than ${retainedLimit} days.`
+    }
+    return null
+  }, [dailyBriefBackfillDays, settingsQuery.data?.daily_brief_history_limit])
 
   const activeTasksLoading =
     workloadQueriesEnabled &&
@@ -890,6 +928,23 @@ export function AiSettingsPage() {
                   setNotice(null)
                   generateBriefMutation.mutate()
                 }}
+                backfillDays={dailyBriefBackfillDays}
+                setBackfillDays={setDailyBriefBackfillDays}
+                backfillPending={backfillDailyBriefMutation.isPending}
+                backfillValidation={dailyBriefBackfillValidation}
+                retainedDailyBriefLimit={settingsQuery.data?.daily_brief_history_limit ?? null}
+                onBackfillDailyBriefs={() => {
+                  if (queueWorkBlockedReason) {
+                    setNotice({ tone: 'error', message: queueWorkBlockedReason })
+                    return
+                  }
+                  if (dailyBriefBackfillValidation) {
+                    setNotice({ tone: 'error', message: dailyBriefBackfillValidation })
+                    return
+                  }
+                  setNotice(null)
+                  backfillDailyBriefMutation.mutate(Number(dailyBriefBackfillDays.trim()))
+                }}
                 reprocessDays={reprocessDays}
                 setReprocessDays={setReprocessDays}
                 reprocessLimit={reprocessLimit}
@@ -1031,7 +1086,7 @@ export function AiSettingsPage() {
       >
         {pendingCancelRun && (
           <div className="space-y-2">
-            <p className="font-semibold text-ink dark:text-white">{formatTaskTypeLabel(pendingCancelRun.task_type)}</p>
+            <p className="font-semibold text-ink dark:text-white">{formatRunTaskLabel(pendingCancelRun)}</p>
             <p className="text-xs text-slate dark:text-white/70">
               {formatTriggerLabel(pendingCancelRun.trigger_source)} · {describeRunScope(pendingCancelRun)}
             </p>
@@ -1366,7 +1421,7 @@ function ActiveTasksPanel({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-semibold">{formatTaskTypeLabel(run.task_type)}</p>
+                    <p className="text-sm font-semibold">{formatRunTaskLabel(run)}</p>
                     <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
                   </div>
                   <p className="mt-1 text-xs text-slate dark:text-white/65">
@@ -1421,6 +1476,12 @@ function QueueWorkPanel({
   dailyBriefEnabled,
   generatePending,
   onGenerateDailyBrief,
+  backfillDays,
+  setBackfillDays,
+  backfillPending,
+  backfillValidation,
+  retainedDailyBriefLimit,
+  onBackfillDailyBriefs,
   reprocessDays,
   setReprocessDays,
   reprocessLimit,
@@ -1451,6 +1512,12 @@ function QueueWorkPanel({
   dailyBriefEnabled: boolean
   generatePending: boolean
   onGenerateDailyBrief: () => void
+  backfillDays: string
+  setBackfillDays: Dispatch<SetStateAction<string>>
+  backfillPending: boolean
+  backfillValidation: string | null
+  retainedDailyBriefLimit: number | null
+  onBackfillDailyBriefs: () => void
   reprocessDays: string
   setReprocessDays: Dispatch<SetStateAction<string>>
   reprocessLimit: string
@@ -1515,6 +1582,42 @@ function QueueWorkPanel({
             >
               {generatePending ? 'Queueing...' : 'Queue Daily Brief'}
             </button>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold">Daily Brief Backfill</p>
+              <p className="mt-1 text-sm text-slate dark:text-white/70">
+                Queue one brief per calendar day, ending today. The batch runs sequentially so local models are not flooded.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
+              onClick={onBackfillDailyBriefs}
+              disabled={backfillPending || !dailyBriefEnabled || Boolean(backfillValidation) || Boolean(queueWorkBlockedReason)}
+            >
+              {backfillPending ? 'Queueing...' : 'Queue Backfill'}
+            </button>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
+            <Field label="Backfill Days">
+              <input
+                className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
+                value={backfillDays}
+                onChange={(event) => setBackfillDays(event.target.value)}
+                inputMode="numeric"
+                aria-invalid={Boolean(backfillValidation)}
+              />
+              {backfillValidation && <p className="mt-1 text-xs text-red-600">{backfillValidation}</p>}
+            </Field>
+            <div className="rounded-lg border border-slate/15 bg-slate/5 px-3 py-2 text-xs text-slate dark:border-cyan-900/30 dark:bg-white/[0.03] dark:text-white/60">
+              {retainedDailyBriefLimit == null
+                ? 'Retention limit is still loading. Increase retained daily briefings in Configuration before queueing a larger backfill.'
+                : `Retention allows ${retainedDailyBriefLimit} brief${retainedDailyBriefLimit === 1 ? '' : 's'}. Increase retained daily briefings in Configuration before queueing a larger backfill.`}
+            </div>
           </div>
         </div>
 
@@ -1728,18 +1831,23 @@ function RunArticlesSection({
   const totalChildRuns = childRunsQuery.data?.total ?? 0
   const canShowMore = totalChildRuns > childRuns.length
   const canShowLess = visibleCount > 8 && childRuns.length > 8
+  const isBackfill = isDailyBriefBackfillRun(parentRun)
+  const sectionTitle = isBackfill ? 'Daily Brief Runs' : 'Article Runs'
+  const childRunNounPlural = isBackfill ? 'daily brief runs' : 'article runs'
+  const targetNoun = isBackfill ? 'day' : 'article'
+  const targetNounPlural = isBackfill ? 'days' : 'articles'
 
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Article Runs</p>
+          <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">{sectionTitle}</p>
           <p className="mt-1 text-xs text-slate dark:text-white/60">
             {totalChildRuns
-              ? `Showing ${childRuns.length} of ${totalChildRuns} queued article runs${parentRun.target_count ? ` out of ${parentRun.target_count} target articles` : ''}.`
+              ? `Showing ${childRuns.length} of ${totalChildRuns} queued ${childRunNounPlural}${parentRun.target_count ? ` out of ${parentRun.target_count} target ${targetNounPlural}` : ''}.`
               : parentRun.target_count
-                ? `No child article runs are visible yet. Target size: ${parentRun.target_count} article${parentRun.target_count === 1 ? '' : 's'}.`
-                : 'No child article runs are visible yet.'}
+                ? `No child ${childRunNounPlural} are visible yet. Target size: ${parentRun.target_count} ${targetNoun}${parentRun.target_count === 1 ? '' : 's'}.`
+                : `No child ${childRunNounPlural} are visible yet.`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
@@ -1751,16 +1859,16 @@ function RunArticlesSection({
       </div>
 
       {childRunsQuery.isLoading && !childRuns.length && (
-        <p className="mt-3 text-sm text-slate dark:text-white/70">Loading article runs...</p>
+        <p className="mt-3 text-sm text-slate dark:text-white/70">Loading {childRunNounPlural}...</p>
       )}
       {childRunsQuery.isError && (
         <p className="mt-3 text-sm text-red-600">
-          Failed to load article runs. {(childRunsQuery.error as Error | undefined)?.message ?? ''}
+          Failed to load {childRunNounPlural}. {(childRunsQuery.error as Error | undefined)?.message ?? ''}
         </p>
       )}
 
       {!childRunsQuery.isLoading && !childRuns.length && !childRunsQuery.isError && (
-        <EmptyInline>Child article runs have not been queued yet.</EmptyInline>
+        <EmptyInline>Child {childRunNounPlural} have not been queued yet.</EmptyInline>
       )}
 
       {!!childRuns.length && (
@@ -1772,11 +1880,19 @@ function RunArticlesSection({
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-semibold">{run.item_title || run.item_id || 'Unknown article'}</p>
+                  <p className="font-semibold">
+                    {isBackfill ? formatDailyBriefChildRunTitle(run) : run.item_title || run.item_id || 'Unknown article'}
+                  </p>
                   <p className="mt-1 text-xs text-slate dark:text-white/60">
-                    {run.feed_name || 'Unknown feed'}
-                    {run.item_published_at ? ` · published ${formatTimestamp(run.item_published_at)}` : ''}
-                    {run.item_first_seen_at ? ` · first seen ${formatTimestamp(run.item_first_seen_at)}` : ''}
+                    {isBackfill ? (
+                      formatDailyBriefChildRunMeta(run)
+                    ) : (
+                      <>
+                        {run.feed_name || 'Unknown feed'}
+                        {run.item_published_at ? ` · published ${formatTimestamp(run.item_published_at)}` : ''}
+                        {run.item_first_seen_at ? ` · first seen ${formatTimestamp(run.item_first_seen_at)}` : ''}
+                      </>
+                    )}
                   </p>
                 </div>
                 <StatusPill tone={statusTone(run.status)} label={formatStatusLabel(run.status, run.reason)} />
@@ -1864,7 +1980,7 @@ function ProviderExchangeModal({
     <DialogSurface
       open
       title="Provider Exchange"
-      description={run ? `${formatTaskTypeLabel(run.task_type)}${run.item_title ? ` · ${run.item_title}` : ''}` : 'Loading run detail'}
+      description={run ? `${formatRunTaskLabel(run)}${run.item_title ? ` · ${run.item_title}` : ''}` : 'Loading run detail'}
       onClose={onClose}
       panelClassName="max-h-[85vh] max-w-5xl overflow-y-auto"
       bodyClassName="mt-4 space-y-4 text-sm text-slate dark:text-white/75"
@@ -2043,6 +2159,12 @@ function ActivityTab({
   dailyBriefEnabled,
   generatePending,
   onGenerateDailyBrief,
+  backfillDays,
+  setBackfillDays,
+  backfillPending,
+  backfillValidation,
+  retainedDailyBriefLimit,
+  onBackfillDailyBriefs,
   reprocessDays,
   setReprocessDays,
   reprocessLimit,
@@ -2099,6 +2221,12 @@ function ActivityTab({
   dailyBriefEnabled: boolean
   generatePending: boolean
   onGenerateDailyBrief: () => void
+  backfillDays: string
+  setBackfillDays: Dispatch<SetStateAction<string>>
+  backfillPending: boolean
+  backfillValidation: string | null
+  retainedDailyBriefLimit: number | null
+  onBackfillDailyBriefs: () => void
   reprocessDays: string
   setReprocessDays: Dispatch<SetStateAction<string>>
   reprocessLimit: string
@@ -2272,6 +2400,12 @@ function ActivityTab({
             dailyBriefEnabled={dailyBriefEnabled}
             generatePending={generatePending}
             onGenerateDailyBrief={onGenerateDailyBrief}
+            backfillDays={backfillDays}
+            setBackfillDays={setBackfillDays}
+            backfillPending={backfillPending}
+            backfillValidation={backfillValidation}
+            retainedDailyBriefLimit={retainedDailyBriefLimit}
+            onBackfillDailyBriefs={onBackfillDailyBriefs}
             reprocessDays={reprocessDays}
             setReprocessDays={setReprocessDays}
             reprocessLimit={reprocessLimit}
@@ -2435,7 +2569,7 @@ function ActivityTab({
                       />
                     </td>
                     <td className="py-2">
-                      <div className="font-semibold">{formatTaskTypeLabel(run.task_type)}</div>
+                      <div className="font-semibold">{formatRunTaskLabel(run)}</div>
                       {run.feed_name && <div className="text-xs text-slate dark:text-white/55">{run.feed_name}</div>}
                     </td>
                     <td className="py-2">
@@ -2541,10 +2675,13 @@ function ActivityTab({
               <div className="rounded-xl border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/80">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-sm font-semibold">{formatTaskTypeLabel(selectedRun.task_type)}</p>
+                    <p className="text-sm font-semibold">{formatRunTaskLabel(selectedRun)}</p>
                     <p className="text-xs text-slate dark:text-white/60">
                       {formatTriggerLabel(selectedRun.trigger_source)} · {selectedRun.actor_email || selectedRun.worker_name || 'system'}
                     </p>
+                    {selectedRun.task_type === 'reprocess' && (
+                      <p className="mt-1 text-xs text-slate dark:text-white/60">{describeRunScope(selectedRun)}</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {canInspectProviderExchange(selectedRun) && (
@@ -3423,6 +3560,14 @@ function formatTaskTypeLabel(value: string) {
   return value
 }
 
+function isDailyBriefBackfillRun(run: AITaskRunResponse) {
+  return run.task_type === 'reprocess' && run.metadata.scope === 'daily_brief_backfill'
+}
+
+function formatRunTaskLabel(run: AITaskRunResponse) {
+  return isDailyBriefBackfillRun(run) ? 'Daily Brief Backfill' : formatTaskTypeLabel(run.task_type)
+}
+
 function formatTriggerLabel(value: string) {
   if (value === 'auto') return 'Auto'
   if (value === 'manual') return 'Manual'
@@ -3499,7 +3644,7 @@ function canInspectProviderExchange(run: AITaskRunResponse) {
 
 function formatRunSelectionLabel(run: AITaskRunResponse) {
   const scope = run.item_title?.trim() || run.feed_name?.trim() || run.model?.trim() || formatTimestamp(run.queued_at)
-  return `Select ${formatTaskTypeLabel(run.task_type)} run ${scope}`
+  return `Select ${formatRunTaskLabel(run)} run ${scope}`
 }
 
 function describeRunScope(run: AITaskRunResponse) {
@@ -3510,6 +3655,13 @@ function describeRunScope(run: AITaskRunResponse) {
   }
   if (run.task_type !== 'reprocess') {
     return run.reason || 'AI task in progress.'
+  }
+
+  if (isDailyBriefBackfillRun(run)) {
+    const days = asNumber(run.metadata.days) ?? run.target_count
+    return days
+      ? `Creating one daily brief per day for ${days} day${days === 1 ? '' : 's'}, ending today.`
+      : 'Creating daily briefs for recent days.'
   }
 
   const days = asNumber(run.metadata.days)
@@ -3538,6 +3690,27 @@ function describeRunScope(run: AITaskRunResponse) {
   }
 
   return parts.length ? `Reprocessing ${parts.join(' · ')}.` : 'Reprocessing recent eligible articles.'
+}
+
+function metadataString(value: unknown) {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+function formatDailyBriefChildRunTitle(run: AITaskRunResponse) {
+  const briefDate = metadataString(run.metadata.brief_date)
+  return briefDate ? `Daily brief for ${formatDateOnly(briefDate)}` : 'Daily brief run'
+}
+
+function formatDailyBriefChildRunMeta(run: AITaskRunResponse) {
+  const referenceTime = metadataString(run.metadata.reference_time)
+  const parts: string[] = []
+  if (referenceTime) {
+    parts.push(`reference ${formatTimestamp(referenceTime)}`)
+  }
+  if (run.model) {
+    parts.push(run.model)
+  }
+  return parts.join(' · ') || 'Queued daily brief generation'
 }
 
 function asNumber(value: unknown) {

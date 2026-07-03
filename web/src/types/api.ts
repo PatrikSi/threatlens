@@ -989,6 +989,10 @@ export interface AIQueuedTaskResponse {
   celery_task_id: string | null
 }
 
+export interface AIDailyBriefBackfillResponse extends AIQueuedTaskResponse {
+  days: number
+}
+
 export interface AITaskRunResponse {
   id: string
   task_type: 'item_enrichment' | 'daily_brief' | 'connection_test' | 'reprocess'
