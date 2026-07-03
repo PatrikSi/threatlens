@@ -3,6 +3,7 @@ services:
     build:
       context: ./backend
       args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VCS_REF: ${VCS_REF:-unknown}
 
@@ -10,6 +11,7 @@ services:
     build:
       context: ./web
       args:
+        APP_VERSION: ${APP_VERSION:-0.1.0}
         BUILD_DATE: ${BUILD_DATE:-unknown}
         VCS_REF: ${VCS_REF:-unknown}
         VITE_API_BASE_URL: ${WEB_VITE_API_BASE_URL:-/api/v1}

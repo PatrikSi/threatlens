@@ -1,10 +1,12 @@
 FROM python:3.12.11-slim-bookworm
 
 ARG BUILD_DATE=unknown
+ARG APP_VERSION=0.1.0
 ARG VCS_REF=unknown
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    APP_VERSION=${APP_VERSION}
 
 WORKDIR /app
 
@@ -36,6 +38,7 @@ LABEL org.opencontainers.image.title="ThreatLens Backend" \
       org.opencontainers.image.description="ThreatLens FastAPI and Celery backend image" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="ThreatLens contributors" \
+      org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}"
 
