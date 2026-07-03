@@ -135,6 +135,12 @@ afterEach(async () => {
 })
 
 describe('AppShell logout', () => {
+  it('shows a subtle app version in the footer', () => {
+    const view = renderShell()
+
+    expect(view.textContent).toContain('v0.1.0')
+  })
+
   it('does not mark the browser logged out when the logout request fails over the network', async () => {
     appShellDomMocks.apiFetch.mockRejectedValue(new Error('Failed to fetch'))
 
