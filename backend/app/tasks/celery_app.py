@@ -34,6 +34,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.generate_item_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
+    "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.record_beat_heartbeat": {"queue": QUEUE_MAINTENANCE},

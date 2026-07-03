@@ -11,6 +11,8 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.ai import (
     AIAuditEntryResponse,
+    AIDailyBriefBackfillRequest,
+    AIDailyBriefBackfillResponse,
     AIDailyBriefResponse,
     AIDailyBriefSourceItemResponse,
     AILiveStatusResponse,
@@ -68,7 +70,7 @@ from app.services.ai_ops import (
 )
 from app.services.audit import record_audit
 from app.tasks.feed_tasks import CoordinationUnavailableError, daily_ai_brief_lock
-from app.tasks.feed_tasks import dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
+from app.tasks.feed_tasks import backfill_daily_ai_briefs, dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -449,6 +451,70 @@ def queue_daily_brief_route(
     )
     db.commit()
     return AIQueuedTaskResponse(task_id=task_id, queued=True, run_id=run.id, celery_task_id=celery_task_id)
+
+
+@router.post("/daily-brief/backfill", response_model=AIDailyBriefBackfillResponse, dependencies=[Depends(require_ai_enabled)])
+def queue_daily_brief_backfill_route(
+    payload: AIDailyBriefBackfillRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
+):
+    settings = get_or_create_ai_settings(db)
+    if payload.days > settings.daily_brief_history_limit:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Increase retained daily briefings before backfilling more than {settings.daily_brief_history_limit} days",
+        )
+
+    run = queue_ai_task_run(
+        db,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        actor_user_id=admin.id,
+        model=settings.model,
+        metadata={
+            "scope": "daily_brief_backfill",
+            "days": payload.days,
+            "force": True,
+            "queued_by": "api",
+            "includes_today": True,
+        },
+        target_count=payload.days,
+    )
+    db.commit()
+    task = _enqueue_task_run_or_fail(
+        db,
+        run_id=run.id,
+        task_factory=lambda: backfill_daily_ai_briefs.delay(payload.days, str(run.id), str(admin.id)),
+        on_enqueue_failure=lambda error: record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="ai.daily_brief.backfill.queue",
+            resource_type="ai_daily_brief",
+            success=False,
+            metadata={"run_id": str(run.id), "days": payload.days, "error": error},
+        ),
+    )
+    celery_task_id = _celery_task_id(task)
+    task_id = _queue_response_task_id(task, run.id)
+    update_ai_task_run_celery(db, run_id=run.id, celery_task_id=celery_task_id)
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="ai.daily_brief.backfill.queue",
+        resource_type="ai_daily_brief",
+        success=True,
+        metadata={"task_id": task_id, "celery_task_id": celery_task_id, "run_id": str(run.id), "days": payload.days},
+    )
+    db.commit()
+    return AIDailyBriefBackfillResponse(
+        task_id=task_id,
+        queued=True,
+        run_id=run.id,
+        celery_task_id=celery_task_id,
+        days=payload.days,
+    )
 
 
 @router.post("/reprocess", response_model=AIReprocessResponse, dependencies=[Depends(require_ai_enabled)])

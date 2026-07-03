@@ -320,6 +320,14 @@ class AIQueuedTaskResponse(BaseModel):
     celery_task_id: str | None = None
 
 
+class AIDailyBriefBackfillRequest(BaseModel):
+    days: int = Field(default=7, ge=1, le=90)
+
+
+class AIDailyBriefBackfillResponse(AIQueuedTaskResponse):
+    days: int
+
+
 class AIReprocessResponse(AIQueuedTaskResponse):
     pass
 

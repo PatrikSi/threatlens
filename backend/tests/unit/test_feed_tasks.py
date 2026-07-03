@@ -35,6 +35,7 @@ from app.tasks.feed_tasks import (
     _scheduled_daily_ai_brief_due,
     _queue_item_ai_enrichment_run,
     backfill_feed_metadata,
+    backfill_daily_ai_briefs,
     classify_item,
     dispatch_daily_ai_brief_generation,
     dispatch_due_feeds,
@@ -79,6 +80,8 @@ def test_core_pipeline_tasks_ack_late_and_reject_on_worker_loss():
     assert generate_item_ai_enrichment_task.reject_on_worker_lost is True
     assert reprocess_recent_ai_items.acks_late is True
     assert reprocess_recent_ai_items.reject_on_worker_lost is True
+    assert backfill_daily_ai_briefs.acks_late is True
+    assert backfill_daily_ai_briefs.reject_on_worker_lost is True
 
 
 def test_feed_url_digest_still_current_detects_url_edits(db_session):
@@ -3528,6 +3531,237 @@ def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatc
     assert refreshed_parent.success_count == 2
     assert refreshed_parent.error_count == 0
     assert refreshed_parent.status == "ready"
+    get_settings.cache_clear()
+
+
+def test_backfill_daily_ai_briefs_tracks_parent_progress_and_reference_dates(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+            daily_brief_history_limit=7,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    references: list[datetime] = []
+
+    def _run_daily_brief_generation(
+        db,
+        *,
+        force: bool = False,
+        reference_time: datetime | None = None,
+        task_run_id: uuid.UUID | None = None,
+    ):
+        assert force is True
+        assert reference_time is not None
+        references.append(reference_time)
+        brief = AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=reference_time.date(),
+            status="ready",
+            window_start=reference_time - timedelta(hours=24),
+            window_end=reference_time,
+            title=f"Brief {reference_time.date().isoformat()}",
+            brief_text="Backfilled brief.",
+            item_count=1,
+            model="local-threat-model",
+            generated_at=reference_time,
+        )
+        db.add(brief)
+        db.flush()
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="ready",
+            reason=None,
+            items_considered=1,
+            items_selected=1,
+            prompt_char_count=100,
+            response_char_count=50,
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._daily_brief_backfill_reference_times",
+        lambda days: [
+            datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
+            datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
+            datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
+        ][:days],
+    )
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"scope": "daily_brief_backfill", "days": 3},
+        target_count=3,
+    )
+    db_session.commit()
+
+    result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+
+    child_runs = db_session.scalars(
+        select(AITaskRun)
+        .where(AITaskRun.parent_run_id == parent_run.id, AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF)
+        .order_by(AITaskRun.created_at.asc())
+    ).all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert result["status"] == "ready"
+    assert result["processed_dates"] == ["2026-07-03", "2026-07-02", "2026-07-01"]
+    assert [value.date().isoformat() for value in references] == ["2026-07-03", "2026-07-02", "2026-07-01"]
+    assert len(child_runs) == 3
+    assert {run.status for run in child_runs} == {"ready"}
+    assert refreshed_parent is not None
+    assert refreshed_parent.target_count == 3
+    assert refreshed_parent.processed_count == 3
+    assert refreshed_parent.success_count == 3
+    assert refreshed_parent.status == "ready"
+    get_settings.cache_clear()
+
+
+def test_backfill_daily_ai_briefs_continues_after_unexpected_day_failure(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            summary_enabled=True,
+            relevance_enabled=True,
+            daily_brief_enabled=True,
+            auto_enrich_new_items=True,
+            daily_brief_history_limit=7,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    def _run_daily_brief_generation(
+        db,
+        *,
+        force: bool = False,
+        reference_time: datetime | None = None,
+        task_run_id: uuid.UUID | None = None,
+    ):
+        assert force is True
+        assert reference_time is not None
+        if reference_time.date().isoformat() == "2026-07-02":
+            db.add(
+                AIDailyBrief(
+                    id=uuid.uuid4(),
+                    brief_date=reference_time.date(),
+                    status="pending",
+                    window_start=reference_time - timedelta(hours=24),
+                    window_end=reference_time,
+                    title="Partial brief",
+                    item_count=1,
+                    model="local-threat-model",
+                )
+            )
+            db.flush()
+            raise RuntimeError("local model stopped")
+
+        brief = AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=reference_time.date(),
+            status="ready",
+            window_start=reference_time - timedelta(hours=24),
+            window_end=reference_time,
+            title=f"Brief {reference_time.date().isoformat()}",
+            brief_text="Backfilled brief.",
+            item_count=1,
+            model="local-threat-model",
+            generated_at=reference_time,
+        )
+        db.add(brief)
+        db.flush()
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="ready",
+            reason=None,
+            items_considered=1,
+            items_selected=1,
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks._daily_brief_backfill_reference_times",
+        lambda days: [
+            datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
+            datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
+            datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
+        ][:days],
+    )
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"scope": "daily_brief_backfill", "days": 3},
+        target_count=3,
+    )
+    db_session.commit()
+
+    result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+
+    child_runs = db_session.scalars(
+        select(AITaskRun)
+        .where(AITaskRun.parent_run_id == parent_run.id, AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF)
+        .order_by(AITaskRun.created_at.asc())
+    ).all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert result["status"] == "error"
+    assert result["reason"] == "partial_failures"
+    assert result["processed_dates"] == ["2026-07-03", "2026-07-02", "2026-07-01"]
+    assert [run.status for run in child_runs] == ["ready", "error", "ready"]
+    assert child_runs[1].reason == "unexpected_error"
+    assert child_runs[1].error == "local model stopped"
+    assert refreshed_parent is not None
+    assert refreshed_parent.processed_count == 3
+    assert refreshed_parent.success_count == 2
+    assert refreshed_parent.error_count == 1
+    assert refreshed_parent.status == "error"
+    assert refreshed_parent.reason == "partial_failures"
     get_settings.cache_clear()
 
 
