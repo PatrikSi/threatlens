@@ -183,6 +183,9 @@ Outside production:
 - `/api/openapi.json` proxies the live OpenAPI schema from the backend service root.
 - Other `/api/*` paths return `404` in the bundled web image.
 - All other paths fall back to `/index.html` for SPA routing.
+- `/`, `/index.html`, and SPA fallback responses use `Cache-Control: no-store` so browser sessions pick up newly deployed bundles after container updates.
+- `/theme-init.js` uses `Cache-Control: no-cache, max-age=0, must-revalidate` because it is a stable URL outside the hashed asset pipeline.
+- `/assets/*` uses `Cache-Control: public, max-age=31536000, immutable`; Vite emits hashed filenames, so changed assets receive new URLs.
 - The web app CSP and `X-Frame-Options: DENY` header are applied only to SPA/static responses, not proxied API responses.
 - `THREATLENS_CSP_CONNECT_SRC` defaults to `'self'` in the web container image.
 - `THREATLENS_CSP_FRAME_SRC` defaults to `'self'` so dashboard original-article previews can embed the backend-fetched preview endpoint.
