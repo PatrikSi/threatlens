@@ -6,10 +6,33 @@ ThreatLens treats the checked-in API and dependency artifacts as part of the shi
 
 Before publishing a public tag, image, or source release:
 
-1. Regenerate the API and dependency artifacts described below.
-2. Copy the current OpenAPI contract anchor from `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) into the release notes for the published tag.
-3. Verify that bundled license texts and package legal inventories still match the shipped runtime stack and assets.
-4. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+1. Update the checked-in app version with `./scripts/set-version.sh X.Y.Z`.
+2. Regenerate the API and dependency artifacts described below.
+3. Verify that the OpenAPI contract anchor in `docs/reference/openapi.json` (`info.x-threatlens-contract-sha256`) is the one expected for the release. The tag workflow copies it into the generated GitHub release notes.
+4. Verify that bundled license texts and package legal inventories still match the shipped runtime stack and assets.
+5. Refresh the image build-context mirrors under `backend/compliance/` and `web/compliance/`.
+
+## Version Metadata
+
+The repository root `VERSION` file is the release version source for automation.
+
+Run this before opening the release commit:
+
+```bash
+./scripts/set-version.sh 1.0.0
+```
+
+The helper keeps these derived files aligned:
+
+- `VERSION`
+- `backend/app/version.py`
+- `backend/Dockerfile`
+- `web/Dockerfile`
+- `docker-compose.build.yml`
+- `web/package.json`
+- `web/package-lock.json`
+
+Public release tags must use `vX.Y.Z` and must match the checked-in `VERSION` value. For example, `VERSION=1.0.0` must be released with tag `v1.0.0`.
 
 ## Supported Code Lines
 
@@ -29,11 +52,30 @@ Published images:
 
 Tag behavior:
 
-- `main` branch builds publish `:main`, `:latest`, and `:sha-<commit>`.
-- Version tags such as `v0.1.0` publish `:v0.1.0`, `:0.1.0`, `:0.1`, and `:sha-<commit>`.
+- `main` branch builds publish `:main` and `:sha-<commit>`.
+- Version tags such as `v1.0.0` publish `:v1.0.0`, `:1.0.0`, `:1.0`, `:latest`, and `:sha-<commit>`.
 - Both images are built for `linux/amd64` and `linux/arm64`.
+- Built images receive `org.opencontainers.image.version`, `org.opencontainers.image.created`, and `org.opencontainers.image.revision` labels.
+- Tag builds publish or update a GitHub Release with the image tags, image digests, and OpenAPI contract anchor.
 
 After the first package publish, verify in GitHub Packages that both container packages are public if the release is intended for unauthenticated installs.
+
+## Release Flow
+
+```bash
+./scripts/set-version.sh 1.0.0
+./backend/.venv/bin/python backend/scripts/generate_api_reference.py
+./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
+cd backend && ./.venv/bin/python -m pytest
+cd ../web && npm test && npm run lint && npm run build
+cd ..
+git add .
+git commit -m "Release version 1.0.0"
+git tag -a v1.0.0 -m "ThreatLens v1.0.0"
+git push origin main v1.0.0
+```
+
+Only push the tag after the release commit is on the intended commit. The image workflow rejects a release tag whose `vX.Y.Z` value does not match `VERSION`.
 
 ## Contract Artifact Workflow
 
@@ -50,8 +92,10 @@ When a change affects shipped runtime dependencies, bundled assets, or redistrib
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
 export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export APP_VERSION="$(cat VERSION)"
 export VCS_REF="$(git rev-parse HEAD)"
 BACKEND_IMAGE=$(docker build \
+  --build-arg APP_VERSION="$APP_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
   -q -f backend/Dockerfile backend)
@@ -63,6 +107,7 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   cp /usr/share/doc/threatlens/backend-os-packages.txt /src/docs/reference/backend-os-packages.txt &&
   cp -R /usr/share/doc/threatlens/backend-os-package-legal /src/docs/reference/backend-os-package-legal'
 WEB_IMAGE=$(docker build \
+  --build-arg APP_VERSION="$APP_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
   -q -f web/Dockerfile web)
@@ -76,7 +121,7 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   cp -R /usr/share/doc/threatlens/frontend-os-package-legal /src/docs/reference/frontend-os-package-legal'
 ```
 
-That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards those same exported `BUILD_DATE` and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI provenance labels.
+That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards exported `APP_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI version and provenance labels when those values are set.
 
 The backend image installs its Python application dependency layer from the checked-in `backend/requirements-lock.txt` file, and the frontend image resolves its application dependency layer from `web/package-lock.json`. The Dockerfiles and compose base images are pinned to explicit version tags, and the repository Dockerfiles do not install additional live apt packages during backend or frontend builds. ThreatLens still does not claim full byte-for-byte rebuild reproducibility, because rebuilds continue to depend on external registries serving those base image tags and lockfile-resolved application packages.
 

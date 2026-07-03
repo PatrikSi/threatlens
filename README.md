@@ -38,17 +38,24 @@ ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='use-a-long-password' ./bootstrap.sh
 
 For a production or internet-facing deployment, review `.env.example` and replace any local-only settings before first startup.
 
-Pull the published images and start everything:
+Pull the latest stable published images and start everything:
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
+To pin a specific release, set `THREATLENS_IMAGE_TAG` to an immutable image tag:
+
+```bash
+THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
+```
+
 Or build the images locally from source:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+APP_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Open the app:
@@ -89,7 +96,7 @@ AUTH_COOKIE_SECURE: 'false'
 For HTTPS or internet-facing deployments, review `.env.example` before first startup.
 
 The generated mapping includes explicit internal `DATABASE_URL` and `REDIS_URL` values so Portainer does not need separate stack variables.
-For `.env`-based deployments, set `THREATLENS_WEB_PORT` if port `3000` is already in use; for paste-only Portainer deployments, edit the `web.ports` entry in the compose file.
+For `.env`-based deployments, set `THREATLENS_WEB_PORT` if port `3000` is already in use and `THREATLENS_IMAGE_TAG` if you want a pinned release; for paste-only Portainer deployments, edit the `web.ports` entry or image tags in the compose file.
 
 ## AI
 
@@ -114,11 +121,18 @@ ThreatLens works without AI.
 
 ## Useful Commands
 
-Update to the latest published images:
+Update to the latest stable published images:
 
 ```bash
 docker compose pull
 docker compose up -d
+```
+
+Update to a pinned release:
+
+```bash
+THREATLENS_IMAGE_TAG=1.0.0 docker compose pull
+THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 ```
 
 Check services:
@@ -210,6 +224,7 @@ npm run build
 ## Notes
 
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
+- Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the latest tagged release, while `main` and `sha-*` tags are development references.
 - The browser talks to the API through `/api/v1`.
 - Feed/article fetching, AI calls, and webhook delivery can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
