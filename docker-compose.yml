@@ -115,6 +115,7 @@ services:
 
   api:
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       <<: *backend-environment
@@ -140,6 +141,7 @@ services:
 
   worker:
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       <<: *backend-environment
@@ -179,6 +181,7 @@ services:
 
   beat:
     image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       <<: *backend-environment
@@ -207,6 +210,7 @@ services:
 
   web:
     image: ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     depends_on:
       api:
