@@ -93,7 +93,11 @@ jobs:
             VCS_REF=${{ env.VCS_REF }}
             VITE_API_BASE_URL=/api/v1
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: |
+            ${{ steps.meta.outputs.labels }}
+            org.opencontainers.image.version=${{ env.APP_VERSION }}
+            org.opencontainers.image.created=${{ env.BUILD_DATE }}
+            org.opencontainers.image.revision=${{ env.VCS_REF }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
