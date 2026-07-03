@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, Uuid, func
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, JSON, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -46,7 +46,7 @@ class AITaskRun(Base):
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     prompt_char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     response_char_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_text_chars: Mapped[int | None] = mapped_column(Integer, nullable=True)
