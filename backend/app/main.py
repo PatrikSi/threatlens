@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.db import session as db_session
 from app.api.routes import ai, alerts, audit, auth, feeds, health, items, notifications, stats, tagging, tags, tokens, users, views
 from app.services.encrypted_data_inventory import record_startup_encrypted_data_inventory_error, refresh_startup_encrypted_data_inventory
+from app.version import get_app_version
 
 settings = get_settings()
 logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
@@ -82,7 +83,7 @@ async def app_lifespan(_application: FastAPI):
 
 app = FastAPI(
     title="ThreatLens API",
-    version="0.1.0",
+    version=get_app_version(),
     summary="ThreatLens API contract.",
     description=(
         "The published API contract is versioned under `/v1` on the backend service and `/api/v1` through the bundled "
