@@ -14,6 +14,8 @@ from app.services.ai_ops import (
     AI_STATUS_READY,
     AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
+    AI_TASK_TYPE_CONNECTION_TEST,
+    AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
@@ -21,6 +23,7 @@ from app.services.ai_ops import (
     _load_live_task_snapshot,
     cancel_ai_task_run,
     finish_ai_task_run,
+    get_ai_connection_test_workload,
     get_ai_ops_overview,
     get_ai_task_run_detail,
     list_ai_task_runs,
@@ -226,6 +229,34 @@ def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db
     assert overview.live.active_tasks[0].run_id == running_run.id
     assert overview.live.active_tasks[0].celery_task_id == "running-task-id"
     assert overview.failures == []
+
+
+def test_ai_connection_workload_counts_generation_tasks(db_session, monkeypatch):
+    running_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_DAILY_BRIEF,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_CONNECTION_TEST,
+        trigger_source=AI_TRIGGER_MANUAL,
+    )
+    start_ai_task_run(db_session, run_id=running_run.id, worker_name="celery@test", celery_task_id="running-task")
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    workload = get_ai_connection_test_workload(db_session)
+
+    assert workload.running_task_count == 1
+    assert workload.queued_task_count == 1
+    assert workload.has_active_work is True
 
 
 def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_session, monkeypatch):

@@ -70,6 +70,8 @@ type NoticeState = {
 const RUN_PAGE_SIZE = 20
 const AI_QUERY_STALE_MS = 15_000
 const AI_REFERENCE_STALE_MS = 60_000
+const AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS = 15_000
+const CONNECTION_TEST_BLOCKING_TASK_TYPES = new Set(['item_enrichment', 'daily_brief', 'reprocess'])
 const DEFAULT_RUN_FILTERS: RunFilters = {
   taskType: '',
   status: '',
@@ -117,6 +119,15 @@ function buildRunsPath({ days, selectedModel, runPage, runFilters }: RunsQueryAr
 
 function buildRunsQueryKey({ days, selectedModel, runPage, runFilters }: RunsQueryArgs) {
   return ['ai', 'ops', 'runs', days, selectedModel, runPage, runFilters] as const
+}
+
+function isConnectionTestBlockingRun(run: AITaskRunResponse) {
+  return CONNECTION_TEST_BLOCKING_TASK_TYPES.has(run.task_type)
+}
+
+function connectionTestWorkloadMessage(count: number) {
+  const taskLabel = count === 1 ? '1 AI task is' : `${count} AI tasks are`
+  return `${taskLabel} running or queued. Local providers such as Ollama usually process one generation at a time, so connection tests are paused until current work clears.`
 }
 
 function getAiTabButtonId(tab: AiTab) {
@@ -202,6 +213,12 @@ export function AiSettingsPage() {
   const overviewQueriesEnabled = aiEnabled && settledActiveTab === 'overview'
   const activityQueriesEnabled = aiEnabled && settledActiveTab === 'activity'
   const configurationQueriesEnabled = aiEnabled && settledActiveTab === 'configuration'
+  const workloadQueriesEnabled =
+    aiEnabled &&
+    (activeTab === 'activity' ||
+      activeTab === 'configuration' ||
+      settledActiveTab === 'activity' ||
+      settledActiveTab === 'configuration')
   const deferredItemSearch = useDeferredValue(reprocessItemSearch.trim())
 
   useEffect(() => {
@@ -283,7 +300,7 @@ export function AiSettingsPage() {
   const liveStatusQuery = useQuery({
     queryKey: ['ai', 'ops', 'live'],
     queryFn: ({ signal }) => apiFetch<AILiveStatusResponse>('/ai/ops/live', { signal }),
-    enabled: activityQueriesEnabled,
+    enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
     staleTime: 2500,
   })
@@ -291,7 +308,7 @@ export function AiSettingsPage() {
   const queuedRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'queued-top'],
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=queued&limit=10&days=30', { signal }),
-    enabled: activityQueriesEnabled,
+    enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
     staleTime: 2500,
   })
@@ -299,7 +316,7 @@ export function AiSettingsPage() {
   const runningRunsQuery = useQuery({
     queryKey: ['ai', 'ops', 'runs', 'running-top'],
     queryFn: ({ signal }) => apiFetch<AITaskRunListResponse>('/ai/ops/runs?status=running&limit=10&days=30', { signal }),
-    enabled: activityQueriesEnabled,
+    enabled: workloadQueriesEnabled,
     refetchInterval: 5000,
     staleTime: 2500,
   })
@@ -470,15 +487,25 @@ export function AiSettingsPage() {
 
   const testConnectionMutation = useMutation({
     mutationKey: ['ai', 'settings', 'test-connection'],
-    mutationFn: () =>
-      apiFetch<AITestConnectionResponse>('/ai/test-connection', {
+    mutationFn: () => {
+      const timeoutMs =
+        typeof settingsQuery.data?.request_timeout_seconds === 'number'
+          ? settingsQuery.data.request_timeout_seconds * 1000 + AI_CONNECTION_TEST_TIMEOUT_BUFFER_MS
+          : undefined
+      return apiFetch<AITestConnectionResponse>('/ai/test-connection', {
         method: 'POST',
-      }),
+        timeoutMs,
+      })
+    },
     onSuccess: (result) => {
       setTestResult(result)
       setNotice({
         tone: result.success ? 'success' : 'error',
-        message: result.success ? 'Saved AI connection test succeeded.' : 'Saved AI connection test failed.',
+        message: result.success
+          ? 'Saved AI connection test succeeded.'
+          : result.skipped
+            ? result.error ?? 'Saved AI connection test was paused because AI work is running or queued.'
+            : 'Saved AI connection test failed.',
       })
       invalidateAiQueries(queryClient)
     },
@@ -606,6 +633,11 @@ export function AiSettingsPage() {
     })
   }, [queuedRunsQuery.data?.items, runningRunsQuery.data?.items])
 
+  const connectionTestBlockingRuns = useMemo(
+    () => activeTopLevelRuns.filter(isConnectionTestBlockingRun),
+    [activeTopLevelRuns],
+  )
+
   const candidateItems = useMemo(() => {
     const selectedIds = new Set(selectedReprocessItems.map((item) => item.id))
     return (candidateItemsQuery.data?.items ?? []).filter((item) => !selectedIds.has(item.id))
@@ -634,12 +666,12 @@ export function AiSettingsPage() {
   )
 
   const activeTasksLoading =
-    activityQueriesEnabled &&
+    workloadQueriesEnabled &&
     ((liveStatusQuery.isLoading && !liveStatusQuery.data) ||
       (queuedRunsQuery.isLoading && !queuedRunsQuery.data) ||
       (runningRunsQuery.isLoading && !runningRunsQuery.data))
   const activeTasksRefreshing =
-    activityQueriesEnabled &&
+    workloadQueriesEnabled &&
     !activeTasksLoading &&
     (liveStatusQuery.isFetching || queuedRunsQuery.isFetching || runningRunsQuery.isFetching)
   const activeTasksErrorMessage = [
@@ -656,6 +688,12 @@ export function AiSettingsPage() {
       : !draftDirty
         ? 'No AI settings changes to save.'
         : null)
+  const connectionTestBlockedReason =
+    configurationQueriesEnabled && activeTasksLoading
+      ? 'Checking queued and running AI tasks before testing the saved provider.'
+      : configurationQueriesEnabled && connectionTestBlockingRuns.length > 0
+        ? connectionTestWorkloadMessage(connectionTestBlockingRuns.length)
+        : null
 
   function clearReprocessScope() {
     setQueuedReprocessScopeFingerprint(null)
@@ -951,10 +989,18 @@ export function AiSettingsPage() {
                   saveMutation.mutate(createRequestFromDraft(draft))
                 }}
                 onTestConnection={() => {
+                  if (connectionTestBlockedReason) {
+                    setNotice({
+                      tone: 'error',
+                      message: connectionTestBlockedReason,
+                    })
+                    return
+                  }
                   setNotice(null)
                   testConnectionMutation.mutate()
                 }}
                 testPending={testConnectionMutation.isPending}
+                testDisabledReason={connectionTestBlockedReason}
                 testResult={testResult}
                 promptHistory={promptHistoryQuery.data ?? []}
                 manualActions={manualActionsQuery.data ?? []}
@@ -2672,6 +2718,7 @@ function ConfigurationTab({
   onSave,
   onTestConnection,
   testPending,
+  testDisabledReason,
   testResult,
   promptHistory,
   manualActions,
@@ -2691,16 +2738,19 @@ function ConfigurationTab({
   onSave: () => void
   onTestConnection: () => void
   testPending: boolean
+  testDisabledReason: string | null
   testResult: AITestConnectionResponse | null
   promptHistory: AIAuditEntryResponse[]
   manualActions: AIAuditEntryResponse[]
 }) {
-  const testSavedConnectionDisabled = testPending || draftDirty || !settings?.ai_configured
+  const testSavedConnectionDisabled = testPending || draftDirty || !settings?.ai_configured || Boolean(testDisabledReason)
   const providerTestMessage = draftDirty
     ? 'Save your draft changes first. Test Saved Connection only checks the last saved provider settings.'
-    : settings?.ai_configured
-      ? 'Test the saved provider configuration. Unsaved draft changes are not included.'
-      : 'Save the provider settings before testing the saved connection.'
+    : testDisabledReason
+      ? testDisabledReason
+      : settings?.ai_configured
+        ? 'Test the saved provider configuration. Unsaved draft changes are not included.'
+        : 'Save the provider settings before testing the saved connection.'
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(320px,1fr)]">
@@ -2795,11 +2845,18 @@ function ConfigurationTab({
           </div>
           {testResult && (
             <div className="mt-4 rounded-xl border border-slate/20 bg-white/70 p-3 text-sm dark:border-cyan-900/40 dark:bg-[#072019]/80">
-              <p className="font-semibold">{testResult.success ? 'Connection succeeded' : 'Connection failed'}</p>
+              <p className="font-semibold">
+                {testResult.skipped ? 'Connection test paused' : testResult.success ? 'Connection succeeded' : 'Connection failed'}
+              </p>
               <p className="mt-1 text-slate dark:text-white/70">
                 Model: {testResult.model || 'unknown'}
                 {typeof testResult.latency_ms === 'number' ? `, ${testResult.latency_ms} ms` : ''}
               </p>
+              {testResult.skipped && (
+                <p className="mt-1 text-slate dark:text-white/70">
+                  Running: {testResult.running_task_count ?? 0}, queued: {testResult.queued_task_count ?? 0}
+                </p>
+              )}
               {testResult.error && <p className="mt-1 text-red-600">{testResult.error}</p>}
             </div>
           )}

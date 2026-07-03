@@ -9,6 +9,10 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_cs
 const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
+type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number
+}
+
 export class ApiError extends Error {
   status: number
   path: string
@@ -28,12 +32,13 @@ export function buildApiUrl(path: string): string {
   return `${API_BASE_URL}${normalizedPath}`
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}, auth = true): Promise<T> {
-  const headers = new Headers(options.headers)
-  const hasBody = options.body !== undefined && options.body !== null
-  const method = (options.method ?? 'GET').toUpperCase()
-  const bodyIsFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
-  const bodyIsBlob = typeof Blob !== 'undefined' && options.body instanceof Blob
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, auth = true): Promise<T> {
+  const { timeoutMs, ...requestOptions } = options
+  const headers = new Headers(requestOptions.headers)
+  const hasBody = requestOptions.body !== undefined && requestOptions.body !== null
+  const method = (requestOptions.method ?? 'GET').toUpperCase()
+  const bodyIsFormData = typeof FormData !== 'undefined' && requestOptions.body instanceof FormData
+  const bodyIsBlob = typeof Blob !== 'undefined' && requestOptions.body instanceof Blob
   if (hasBody && !headers.has('Content-Type') && !bodyIsFormData && !bodyIsBlob) {
     headers.set('Content-Type', 'application/json')
   }
@@ -48,20 +53,21 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}, auth 
   }
 
   const timeoutController = new AbortController()
-  const { signal, cleanup } = composeAbortSignals(options.signal, timeoutController.signal)
-  const timeout = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
+  const { signal, cleanup } = composeAbortSignals(requestOptions.signal, timeoutController.signal)
+  const requestTimeoutMs = timeoutMs ?? REQUEST_TIMEOUT_MS
+  const timeout = setTimeout(() => timeoutController.abort(), requestTimeoutMs)
 
   let response: Response
   try {
     response = await fetch(buildApiUrl(path), {
-      ...options,
+      ...requestOptions,
       headers,
       credentials: 'include',
       signal,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError' && !options.signal?.aborted) {
-      throw new Error(`Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s (${path})`)
+    if (error instanceof DOMException && error.name === 'AbortError' && !requestOptions.signal?.aborted) {
+      throw new Error(`Request timed out after ${requestTimeoutMs / 1000}s (${path})`)
     }
     throw error
   } finally {

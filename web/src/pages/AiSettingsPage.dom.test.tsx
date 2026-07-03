@@ -485,6 +485,21 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function clearActiveAiWork() {
+  aiSettingsPageDomMocks.liveData = {
+    ...aiSettingsPageDomMocks.liveData,
+    active_count: 0,
+    queued_count: 0,
+    oldest_queued_age_seconds: null,
+  }
+  aiSettingsPageDomMocks.queuedRunsData = {
+    items: [],
+    total: 0,
+    limit: 10,
+    offset: 0,
+  }
+}
+
 afterEach(() => {
   act(() => {
     root?.unmount()
@@ -498,6 +513,42 @@ afterEach(() => {
   aiSettingsPageDomMocks.completeReprocessMutation = true
   aiSettingsPageDomMocks.settingsData.ai_configured = true
   aiSettingsPageDomMocks.settingsError = false
+  aiSettingsPageDomMocks.liveData = {
+    worker_count: 1,
+    active_count: 0,
+    reserved_count: 0,
+    scheduled_count: 0,
+    queued_count: 1,
+    oldest_queued_age_seconds: null,
+  }
+  aiSettingsPageDomMocks.queuedRunsData = {
+    items: [
+      {
+        id: 'run-queued-1',
+        task_type: 'daily_brief',
+        status: 'queued',
+        reason: null,
+        trigger_source: 'manual',
+        queued_at: '2026-04-21T10:00:00Z',
+        started_at: null,
+        finished_at: null,
+        updated_at: '2026-04-21T10:01:00Z',
+        worker_name: null,
+        model: 'gpt-threat',
+        parent_run_id: null,
+        target_count: null,
+        processed_count: 0,
+        success_count: 0,
+        error_count: 0,
+        skipped_count: 0,
+        daily_brief_id: null,
+        metadata: {},
+      },
+    ],
+    total: 1,
+    limit: 10,
+    offset: 0,
+  }
   aiSettingsPageDomMocks.activeRunsLoading = false
   aiSettingsPageDomMocks.activeRunsRefreshing = false
   aiSettingsPageDomMocks.historyRunsDataByPage = {}
@@ -939,7 +990,28 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain('"total_tokens": 20')
   })
 
+  it('pauses connection testing while AI generation work is queued', () => {
+    const view = renderPage()
+
+    const configurationTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Configuration')
+    expect(configurationTab).not.toBeNull()
+
+    act(() => {
+      configurationTab!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const testSavedConnectionButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Test Saved Connection',
+    ) as HTMLButtonElement | undefined
+    expect(testSavedConnectionButton).not.toBeUndefined()
+    expect(testSavedConnectionButton?.disabled).toBe(true)
+    expect(pageText()).toContain(
+      '1 AI task is running or queued. Local providers such as Ollama usually process one generation at a time',
+    )
+  })
+
   it('labels connection testing as a saved-config action and blocks it while the draft is dirty', () => {
+    clearActiveAiWork()
     const view = renderPage()
 
     const configurationTab = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Configuration')
