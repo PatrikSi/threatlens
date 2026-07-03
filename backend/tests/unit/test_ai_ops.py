@@ -161,6 +161,42 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_se
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
+def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="very-old-stale-run")
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="very-old-task")
+
+    stale_time = datetime.now(timezone.utc) - timedelta(days=60)
+    run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert run is not None
+    run.status = AI_STATUS_RUNNING
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_ERROR
+    assert refreshed.reason == "stale_task_lost"
+    assert refreshed.duration_ms is not None
+    assert refreshed.duration_ms > 2_147_483_647
+    assert response.items[0].duration_ms == refreshed.duration_ms
+
+
 def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db_session, monkeypatch):
     queued_run = queue_ai_task_run(
         db_session,

@@ -253,7 +253,7 @@ def finish_ai_task_run(
     if daily_brief_id is not None:
         run.daily_brief_id = daily_brief_id
     if run.started_at is not None:
-        run.duration_ms = max(0, int((now - _coerce_utc(run.started_at)).total_seconds() * 1000))
+        run.duration_ms = _duration_ms_between(run.started_at, now)
     if metadata_updates:
         run.metadata_json = _merge_metadata(run.metadata_json, metadata_updates)
     _settle_pending_item_enrichment(
@@ -738,7 +738,7 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
     target_count = int(parent.target_count or 0)
     if target_count > 0 and parent.processed_count >= target_count and parent.finished_at is None:
         parent.finished_at = datetime.now(timezone.utc)
-        parent.duration_ms = max(0, int((parent.finished_at - _coerce_utc(parent.started_at)).total_seconds() * 1000))
+        parent.duration_ms = _duration_ms_between(parent.started_at, parent.finished_at)
         parent.status, parent.reason = _resolve_parent_terminal_state(parent)
         record_ai_task_event(
             db,
@@ -1192,6 +1192,10 @@ def _is_stale_unfinished_run(
 def _is_unfinished_run_past_stale_grace(run: AITaskRun, stale_before: datetime) -> bool:
     reference = run.updated_at or run.started_at or run.queued_at or run.created_at
     return _coerce_utc(reference) < stale_before
+
+
+def _duration_ms_between(started_at: datetime, finished_at: datetime) -> int:
+    return max(0, int((_coerce_utc(finished_at) - _coerce_utc(started_at)).total_seconds() * 1000))
 
 
 def is_ai_task_run_cancel_requested(db: Session, *, run_id: uuid.UUID | None) -> bool:
