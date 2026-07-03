@@ -1039,58 +1039,61 @@ describe('AiSettingsPage DOM workflows', () => {
     )
   })
 
-  it('blocks daily brief backfill beyond the retained brief limit', () => {
+  it('blocks daily brief reprocessing beyond the retained brief limit', () => {
     const view = renderPage()
 
     act(() => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const backfillDaysInput = getLabeledInput('Backfill Days') as HTMLInputElement | null
-    expect(backfillDaysInput).not.toBeNull()
+    const dailyBriefDaysInput = getLabeledInput('Last X Days') as HTMLInputElement | null
+    expect(dailyBriefDaysInput).not.toBeNull()
 
     act(() => {
-      setInputValue(backfillDaysInput!, '11')
+      setInputValue(dailyBriefDaysInput!, '11')
     })
 
-    const queueBackfillButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Queue Backfill',
+    const queueDailyBriefButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Queue Daily Brief',
     ) as HTMLButtonElement | undefined
-    expect(queueBackfillButton).not.toBeUndefined()
-    expect(queueBackfillButton?.disabled).toBe(true)
-    expect(pageText()).toContain('Increase retained daily briefings before backfilling more than 10 days.')
+    expect(queueDailyBriefButton).not.toBeUndefined()
+    expect(queueDailyBriefButton?.disabled).toBe(true)
+    expect(pageText()).toContain('Increase retained daily briefings before reprocessing more than 10 days.')
   })
 
-  it('queues daily brief backfill with the requested day count', () => {
+  it('queues daily brief reprocessing with the requested day count', () => {
     const view = renderPage()
 
     act(() => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    const backfillDaysInput = getLabeledInput('Backfill Days') as HTMLInputElement | null
-    const queueBackfillButton = Array.from(view.querySelectorAll('button')).find(
-      (button) => button.textContent?.trim() === 'Queue Backfill',
+    const dailyBriefDaysInput = getLabeledInput('Last X Days') as HTMLInputElement | null
+    const queueDailyBriefButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Queue Daily Brief',
     ) as HTMLButtonElement | undefined
 
-    expect(backfillDaysInput).not.toBeNull()
-    expect(queueBackfillButton).not.toBeUndefined()
+    expect(dailyBriefDaysInput).not.toBeNull()
+    expect(dailyBriefDaysInput?.value).toBe('1')
+    expect(pageText()).not.toContain('Daily Brief Backfill')
+    expect(pageText()).not.toContain('Queue Backfill')
+    expect(queueDailyBriefButton).not.toBeUndefined()
 
     act(() => {
-      setInputValue(backfillDaysInput!, '3')
+      setInputValue(dailyBriefDaysInput!, '3')
     })
 
     act(() => {
-      queueBackfillButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      queueDailyBriefButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
     expect(aiSettingsPageDomMocks.backfillMutate).toHaveBeenCalledWith(3)
     const notice = view.querySelector('[role="status"][aria-live="polite"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('Queued daily brief backfill for 3 days (run-backfill-1).')
+    expect(notice?.textContent).toContain('Queued daily brief reprocessing for the last 3 days (run-backfill-1).')
   })
 
-  it('labels daily brief backfill parent and child runs by day', () => {
+  it('labels daily brief parent and child reprocess runs by day', () => {
     const parentRun = createAiRun('run-backfill-parent', {
       task_type: 'reprocess',
       status: 'running',
@@ -1143,8 +1146,9 @@ describe('AiSettingsPage DOM workflows', () => {
       getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(pageText()).toContain('Daily Brief Backfill')
-    expect(pageText()).toContain('Creating one daily brief per day for 3 days, ending today.')
+    expect(pageText()).not.toContain('Daily Brief Backfill')
+    expect(pageText()).toContain('Daily Brief')
+    expect(pageText()).toContain('Reprocessing daily briefs for the last 3 days, ending today.')
     expect(pageText()).toContain('Daily Brief Runs')
     expect(pageText()).toContain('Daily brief for 20/04/2026')
     expect(pageText()).not.toContain('Unknown article')
