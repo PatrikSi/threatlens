@@ -37,7 +37,6 @@ import {
   AIAuditEntryResponse,
   AIDailyBriefBackfillResponse,
   AIDailyBriefSourceItemResponse,
-  AIQueuedTaskResponse,
   AILiveTaskResponse,
   AILiveStatusResponse,
   AIOpsOverviewResponse,
@@ -81,7 +80,7 @@ const DEFAULT_RUN_FILTERS: RunFilters = {
 }
 const DEFAULT_REPROCESS_DAYS = '7'
 const DEFAULT_REPROCESS_LIMIT = '100'
-const DEFAULT_DAILY_BRIEF_BACKFILL_DAYS = '7'
+const DEFAULT_DAILY_BRIEF_REPROCESS_DAYS = '1'
 
 const AI_TABS: Array<{ value: AiTab; label: string }> = [
   { value: 'overview', label: 'Status' },
@@ -149,7 +148,7 @@ export function AiSettingsPage() {
   const [draftDirty, setDraftDirty] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
   const [testResult, setTestResult] = useState<AITestConnectionResponse | null>(null)
-  const [dailyBriefBackfillDays, setDailyBriefBackfillDays] = useState(DEFAULT_DAILY_BRIEF_BACKFILL_DAYS)
+  const [dailyBriefReprocessDays, setDailyBriefReprocessDays] = useState(DEFAULT_DAILY_BRIEF_REPROCESS_DAYS)
   const [reprocessDays, setReprocessDays] = useState(DEFAULT_REPROCESS_DAYS)
   const [reprocessLimit, setReprocessLimit] = useState(DEFAULT_REPROCESS_LIMIT)
   const [reprocessStartTime, setReprocessStartTime] = useState('')
@@ -518,39 +517,24 @@ export function AiSettingsPage() {
     },
   })
 
-  const generateBriefMutation = useMutation({
-    mutationKey: ['ai', 'daily-brief', 'queue'],
-    mutationFn: () =>
-      apiFetch<AIQueuedTaskResponse>('/ai/daily-brief/queue', {
-        method: 'POST',
-      }),
-    onSuccess: (result) => {
-      setNotice({ tone: 'success', message: `Queued daily brief run ${result.run_id ?? result.task_id}.` })
-      markAiQueriesStale(queryClient)
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
-    },
-    onError: (error) => {
-      showActionError(error, 'Failed to queue a daily brief.')
-    },
-  })
-
-  const backfillDailyBriefMutation = useMutation({
+  const reprocessDailyBriefMutation = useMutation({
     mutationKey: ['ai', 'daily-brief', 'backfill'],
-    mutationFn: (daysToBackfill: number) =>
+    mutationFn: (daysToReprocess: number) =>
       apiFetch<AIDailyBriefBackfillResponse>('/ai/daily-brief/backfill', {
         method: 'POST',
-        body: JSON.stringify({ days: daysToBackfill }),
+        body: JSON.stringify({ days: daysToReprocess }),
       }),
     onSuccess: (result) => {
+      const rangeLabel = result.days === 1 ? 'today' : `the last ${result.days} days`
       setNotice({
         tone: 'success',
-        message: `Queued daily brief backfill for ${result.days} day${result.days === 1 ? '' : 's'} (${result.run_id ?? result.task_id}).`,
+        message: `Queued daily brief reprocessing for ${rangeLabel} (${result.run_id ?? result.task_id}).`,
       })
       markAiQueriesStale(queryClient)
       void queryClient.invalidateQueries({ queryKey: ['auth', 'me'] })
     },
     onError: (error) => {
-      showActionError(error, 'Failed to queue daily brief backfill.')
+      showActionError(error, 'Failed to queue daily brief reprocessing.')
     },
   })
 
@@ -687,21 +671,21 @@ export function AiSettingsPage() {
       selectedReprocessItems,
     ],
   )
-  const dailyBriefBackfillValidation = useMemo(() => {
-    const trimmed = dailyBriefBackfillDays.trim()
+  const dailyBriefReprocessValidation = useMemo(() => {
+    const trimmed = dailyBriefReprocessDays.trim()
     const retainedLimit = settingsQuery.data?.daily_brief_history_limit
     if (!/^\d+$/.test(trimmed)) {
-      return 'Backfill days must be a whole number.'
+      return 'Daily brief days must be a whole number.'
     }
     const value = Number(trimmed)
     if (!Number.isInteger(value) || value < 1 || value > 90) {
-      return 'Backfill days must be between 1 and 90.'
+      return 'Daily brief days must be between 1 and 90.'
     }
     if (typeof retainedLimit === 'number' && value > retainedLimit) {
-      return `Increase retained daily briefings before backfilling more than ${retainedLimit} days.`
+      return `Increase retained daily briefings before reprocessing more than ${retainedLimit} days.`
     }
     return null
-  }, [dailyBriefBackfillDays, settingsQuery.data?.daily_brief_history_limit])
+  }, [dailyBriefReprocessDays, settingsQuery.data?.daily_brief_history_limit])
 
   const activeTasksLoading =
     workloadQueriesEnabled &&
@@ -919,31 +903,22 @@ export function AiSettingsPage() {
                 onCancelRun={requestRunCancellation}
                 cancelingRunId={cancelingRunId}
                 dailyBriefEnabled={draft.daily_brief_enabled}
-                generatePending={generateBriefMutation.isPending}
-                onGenerateDailyBrief={() => {
-                  if (queueWorkBlockedReason) {
-                    setNotice({ tone: 'error', message: queueWorkBlockedReason })
-                    return
-                  }
-                  setNotice(null)
-                  generateBriefMutation.mutate()
-                }}
-                backfillDays={dailyBriefBackfillDays}
-                setBackfillDays={setDailyBriefBackfillDays}
-                backfillPending={backfillDailyBriefMutation.isPending}
-                backfillValidation={dailyBriefBackfillValidation}
+                dailyBriefDays={dailyBriefReprocessDays}
+                setDailyBriefDays={setDailyBriefReprocessDays}
+                dailyBriefPending={reprocessDailyBriefMutation.isPending}
+                dailyBriefValidation={dailyBriefReprocessValidation}
                 retainedDailyBriefLimit={settingsQuery.data?.daily_brief_history_limit ?? null}
-                onBackfillDailyBriefs={() => {
+                onQueueDailyBrief={() => {
                   if (queueWorkBlockedReason) {
                     setNotice({ tone: 'error', message: queueWorkBlockedReason })
                     return
                   }
-                  if (dailyBriefBackfillValidation) {
-                    setNotice({ tone: 'error', message: dailyBriefBackfillValidation })
+                  if (dailyBriefReprocessValidation) {
+                    setNotice({ tone: 'error', message: dailyBriefReprocessValidation })
                     return
                   }
                   setNotice(null)
-                  backfillDailyBriefMutation.mutate(Number(dailyBriefBackfillDays.trim()))
+                  reprocessDailyBriefMutation.mutate(Number(dailyBriefReprocessDays.trim()))
                 }}
                 reprocessDays={reprocessDays}
                 setReprocessDays={setReprocessDays}
@@ -1474,14 +1449,12 @@ function ActiveTasksPanel({
 
 function QueueWorkPanel({
   dailyBriefEnabled,
-  generatePending,
-  onGenerateDailyBrief,
-  backfillDays,
-  setBackfillDays,
-  backfillPending,
-  backfillValidation,
+  dailyBriefDays,
+  setDailyBriefDays,
+  dailyBriefPending,
+  dailyBriefValidation,
   retainedDailyBriefLimit,
-  onBackfillDailyBriefs,
+  onQueueDailyBrief,
   reprocessDays,
   setReprocessDays,
   reprocessLimit,
@@ -1510,14 +1483,12 @@ function QueueWorkPanel({
   itemSearchReady,
 }: {
   dailyBriefEnabled: boolean
-  generatePending: boolean
-  onGenerateDailyBrief: () => void
-  backfillDays: string
-  setBackfillDays: Dispatch<SetStateAction<string>>
-  backfillPending: boolean
-  backfillValidation: string | null
+  dailyBriefDays: string
+  setDailyBriefDays: Dispatch<SetStateAction<string>>
+  dailyBriefPending: boolean
+  dailyBriefValidation: string | null
   retainedDailyBriefLimit: number | null
-  onBackfillDailyBriefs: () => void
+  onQueueDailyBrief: () => void
   reprocessDays: string
   setReprocessDays: Dispatch<SetStateAction<string>>
   reprocessLimit: string
@@ -1571,52 +1542,33 @@ function QueueWorkPanel({
             <div>
               <p className="text-sm font-semibold">Daily Brief</p>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
-                Queue a manual daily brief run. It will appear in Active Tasks immediately and in the run history once started.
+                Reprocess daily briefs for the last X days, ending today. The batch runs sequentially so local models are not flooded.
               </p>
             </div>
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-              onClick={onGenerateDailyBrief}
-              disabled={generatePending || !dailyBriefEnabled || Boolean(queueWorkBlockedReason)}
+              onClick={onQueueDailyBrief}
+              disabled={dailyBriefPending || !dailyBriefEnabled || Boolean(dailyBriefValidation) || Boolean(queueWorkBlockedReason)}
             >
-              {generatePending ? 'Queueing...' : 'Queue Daily Brief'}
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-[#072019]/80">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-sm font-semibold">Daily Brief Backfill</p>
-              <p className="mt-1 text-sm text-slate dark:text-white/70">
-                Queue one brief per calendar day, ending today. The batch runs sequentially so local models are not flooded.
-              </p>
-            </div>
-            <button
-              type="button"
-              className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40"
-              onClick={onBackfillDailyBriefs}
-              disabled={backfillPending || !dailyBriefEnabled || Boolean(backfillValidation) || Boolean(queueWorkBlockedReason)}
-            >
-              {backfillPending ? 'Queueing...' : 'Queue Backfill'}
+              {dailyBriefPending ? 'Queueing...' : 'Queue Daily Brief'}
             </button>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,220px)_minmax(0,1fr)]">
-            <Field label="Backfill Days">
+            <Field label="Last X Days">
               <input
                 className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90"
-                value={backfillDays}
-                onChange={(event) => setBackfillDays(event.target.value)}
+                value={dailyBriefDays}
+                onChange={(event) => setDailyBriefDays(event.target.value)}
                 inputMode="numeric"
-                aria-invalid={Boolean(backfillValidation)}
+                aria-invalid={Boolean(dailyBriefValidation)}
               />
-              {backfillValidation && <p className="mt-1 text-xs text-red-600">{backfillValidation}</p>}
+              {dailyBriefValidation && <p className="mt-1 text-xs text-red-600">{dailyBriefValidation}</p>}
             </Field>
             <div className="rounded-lg border border-slate/15 bg-slate/5 px-3 py-2 text-xs text-slate dark:border-cyan-900/30 dark:bg-white/[0.03] dark:text-white/60">
               {retainedDailyBriefLimit == null
-                ? 'Retention limit is still loading. Increase retained daily briefings in Configuration before queueing a larger backfill.'
-                : `Retention allows ${retainedDailyBriefLimit} brief${retainedDailyBriefLimit === 1 ? '' : 's'}. Increase retained daily briefings in Configuration before queueing a larger backfill.`}
+                ? 'Retention limit is still loading. Increase retained daily briefings in Configuration before queueing a larger daily brief range.'
+                : `Retention allows ${retainedDailyBriefLimit} brief${retainedDailyBriefLimit === 1 ? '' : 's'}. Increase retained daily briefings in Configuration before queueing a larger daily brief range.`}
             </div>
           </div>
         </div>
@@ -2157,14 +2109,12 @@ function ActivityTab({
   activeTasksErrorMessage,
   onOpenRun,
   dailyBriefEnabled,
-  generatePending,
-  onGenerateDailyBrief,
-  backfillDays,
-  setBackfillDays,
-  backfillPending,
-  backfillValidation,
+  dailyBriefDays,
+  setDailyBriefDays,
+  dailyBriefPending,
+  dailyBriefValidation,
   retainedDailyBriefLimit,
-  onBackfillDailyBriefs,
+  onQueueDailyBrief,
   reprocessDays,
   setReprocessDays,
   reprocessLimit,
@@ -2219,14 +2169,12 @@ function ActivityTab({
   activeTasksErrorMessage: string
   onOpenRun: (runId: string) => void
   dailyBriefEnabled: boolean
-  generatePending: boolean
-  onGenerateDailyBrief: () => void
-  backfillDays: string
-  setBackfillDays: Dispatch<SetStateAction<string>>
-  backfillPending: boolean
-  backfillValidation: string | null
+  dailyBriefDays: string
+  setDailyBriefDays: Dispatch<SetStateAction<string>>
+  dailyBriefPending: boolean
+  dailyBriefValidation: string | null
   retainedDailyBriefLimit: number | null
-  onBackfillDailyBriefs: () => void
+  onQueueDailyBrief: () => void
   reprocessDays: string
   setReprocessDays: Dispatch<SetStateAction<string>>
   reprocessLimit: string
@@ -2398,14 +2346,12 @@ function ActivityTab({
           />
           <QueueWorkPanel
             dailyBriefEnabled={dailyBriefEnabled}
-            generatePending={generatePending}
-            onGenerateDailyBrief={onGenerateDailyBrief}
-            backfillDays={backfillDays}
-            setBackfillDays={setBackfillDays}
-            backfillPending={backfillPending}
-            backfillValidation={backfillValidation}
+            dailyBriefDays={dailyBriefDays}
+            setDailyBriefDays={setDailyBriefDays}
+            dailyBriefPending={dailyBriefPending}
+            dailyBriefValidation={dailyBriefValidation}
             retainedDailyBriefLimit={retainedDailyBriefLimit}
-            onBackfillDailyBriefs={onBackfillDailyBriefs}
+            onQueueDailyBrief={onQueueDailyBrief}
             reprocessDays={reprocessDays}
             setReprocessDays={setReprocessDays}
             reprocessLimit={reprocessLimit}
@@ -3565,7 +3511,7 @@ function isDailyBriefBackfillRun(run: AITaskRunResponse) {
 }
 
 function formatRunTaskLabel(run: AITaskRunResponse) {
-  return isDailyBriefBackfillRun(run) ? 'Daily Brief Backfill' : formatTaskTypeLabel(run.task_type)
+  return isDailyBriefBackfillRun(run) ? 'Daily Brief' : formatTaskTypeLabel(run.task_type)
 }
 
 function formatTriggerLabel(value: string) {
@@ -3659,9 +3605,12 @@ function describeRunScope(run: AITaskRunResponse) {
 
   if (isDailyBriefBackfillRun(run)) {
     const days = asNumber(run.metadata.days) ?? run.target_count
+    if (days === 1) {
+      return 'Reprocessing today\'s daily brief.'
+    }
     return days
-      ? `Creating one daily brief per day for ${days} day${days === 1 ? '' : 's'}, ending today.`
-      : 'Creating daily briefs for recent days.'
+      ? `Reprocessing daily briefs for the last ${days} days, ending today.`
+      : 'Reprocessing daily briefs for recent days.'
   }
 
   const days = asNumber(run.metadata.days)
