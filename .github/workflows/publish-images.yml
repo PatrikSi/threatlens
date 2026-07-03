@@ -40,6 +40,16 @@ jobs:
 
       - name: Set image metadata
         run: |
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must use X.Y.Z format, got: $app_version" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME}" != "v${app_version}" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match VERSION ${app_version}" >&2
+            exit 1
+          fi
+          echo "APP_VERSION=${app_version}" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
           echo "VCS_REF=${GITHUB_SHA}" >> "$GITHUB_ENV"
 
@@ -67,7 +77,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=sha,prefix=sha-
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and push image
         id: build
@@ -78,6 +88,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            APP_VERSION=${{ env.APP_VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
             VCS_REF=${{ env.VCS_REF }}
             VITE_API_BASE_URL=/api/v1
@@ -92,3 +103,85 @@ jobs:
           subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
+
+      - name: Write image digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir -p image-digest
+          echo "${{ steps.build.outputs.digest }}" > "image-digest/${{ matrix.image }}.txt"
+
+      - name: Upload image digest
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.name }}
+          path: image-digest/*.txt
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download image digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          merge-multiple: true
+          path: image-digests
+
+      - name: Write release notes
+        run: |
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          contract_sha="$(
+            python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          schema = json.loads(Path("docs/reference/openapi.json").read_text(encoding="utf-8"))
+          print(schema.get("info", {}).get("x-threatlens-contract-sha256", "unknown"))
+          PY
+          )"
+          backend_digest="$(cat image-digests/threatlens-backend.txt)"
+          web_digest="$(cat image-digests/threatlens-web.txt)"
+
+          cat > release-notes.md <<EOF
+          ## ThreatLens ${GITHUB_REF_NAME}
+
+          Container images:
+
+          - ghcr.io/patriksi/threatlens-backend:${app_version}
+          - ghcr.io/patriksi/threatlens-backend:${GITHUB_REF_NAME}
+          - ghcr.io/patriksi/threatlens-web:${app_version}
+          - ghcr.io/patriksi/threatlens-web:${GITHUB_REF_NAME}
+
+          Image digests:
+
+          - backend: ${backend_digest}
+          - web: ${web_digest}
+
+          OpenAPI contract:
+
+          - ${contract_sha}
+
+          Pinned Compose install:
+
+              THREATLENS_IMAGE_TAG=${app_version} docker compose pull
+              THREATLENS_IMAGE_TAG=${app_version} docker compose up -d
+          EOF
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            gh release edit "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest
+          else
+            gh release create "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest --verify-tag
+          fi

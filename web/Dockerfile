@@ -5,8 +5,10 @@ COPY package.json package-lock.json ./
 RUN test -f package-lock.json && npm ci
 
 COPY . .
+ARG APP_VERSION=0.1.0
 ARG VITE_API_BASE_URL=/api/v1
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
+    VITE_APP_VERSION=${APP_VERSION}
 RUN node - <<'NODE' > /tmp/frontend-runtime-dependencies.txt
 const fs = require('fs');
 const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
@@ -40,9 +42,11 @@ RUN npm run build
 
 FROM nginx:1.27-alpine
 ARG BUILD_DATE=unknown
+ARG APP_VERSION=0.1.0
 ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
-    THREATLENS_CSP_FRAME_SRC="'self'"
+    THREATLENS_CSP_FRAME_SRC="'self'" \
+    APP_VERSION=${APP_VERSION}
 COPY compliance/generate_frontend_os_package_artifacts.sh /tmp/generate_frontend_os_package_artifacts.sh
 RUN chmod +x /tmp/generate_frontend_os_package_artifacts.sh \
     && mkdir -p /usr/share/doc/threatlens/licenses \
@@ -64,6 +68,7 @@ LABEL org.opencontainers.image.title="ThreatLens Web" \
       org.opencontainers.image.description="ThreatLens React/nginx frontend image" \
       org.opencontainers.image.licenses="Apache-2.0" \
       org.opencontainers.image.vendor="ThreatLens contributors" \
+      org.opencontainers.image.version="${APP_VERSION}" \
       org.opencontainers.image.created="${BUILD_DATE}" \
       org.opencontainers.image.revision="${VCS_REF}"
 EXPOSE 3000
