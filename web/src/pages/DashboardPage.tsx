@@ -229,6 +229,7 @@ export function DashboardPage() {
   const [importViewsError, setImportViewsError] = useState('')
   const [importViewsResult, setImportViewsResult] = useState('')
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
+  const [mobileWindowControlsOpenById, setMobileWindowControlsOpenById] = useState<Record<string, boolean>>({})
   const [isEditMode, setIsEditMode] = useState(false)
   const [viewSaveError, setViewSaveError] = useState('')
 
@@ -1394,6 +1395,13 @@ export function DashboardPage() {
     )
   }
 
+  const toggleMobileWindowControls = (windowId: string) => {
+    setMobileWindowControlsOpenById((current) => ({
+      ...current,
+      [windowId]: !current[windowId],
+    }))
+  }
+
   const updateWindowScratchNote = (windowId: string, scratchNote: string) => {
     setWindows((current) =>
       current.map((window) => (window.id === windowId ? { ...window, scratch_note: scratchNote } : window)),
@@ -1973,8 +1981,67 @@ export function DashboardPage() {
             aria-expanded={mobileDashboardViewsOpen}
             aria-controls="dashboard-view-toolbar"
           >
-            {mobileDashboardViewsOpen ? 'Hide' : 'Show'}
+            {mobileDashboardViewsOpen ? 'Hide tools' : 'Tools'}
           </button>
+        </div>
+        <div className="grid gap-1.5 sm:hidden">
+          <input
+            value={globalSearchState.value}
+            onChange={(event) => applyGlobalSearch(event.target.value)}
+            aria-label="Search across all dashboard panels"
+            placeholder={
+              globalSearchState.isMixed
+                ? 'Panels have different searches. Type here to overwrite all panel searches...'
+                : 'Search across all panels...'
+            }
+            className="h-10 w-full rounded border border-slate/20 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+          />
+          <select
+            className="h-10 w-full rounded border border-slate/20 bg-white px-3 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+            value={dashboardTimeRange}
+            onChange={(event) => updateDashboardTimeRange(event.target.value as TimeRangeFilter)}
+            aria-label="Dashboard time range"
+          >
+            <option value="all">All time</option>
+            <option value="24h">Last 24h</option>
+            <option value="7d">Last 7d</option>
+            <option value="30d">Last 30d</option>
+            <option value="days">Last X days</option>
+            <option value="custom">Custom</option>
+          </select>
+          {dashboardTimeRange === 'days' && (
+            <label className={`${ROLLING_WINDOW_FIELD_CLASS} h-10 text-sm dark:bg-[#041612]`}>
+              <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={dashboardRollingDays}
+                onChange={(event) => updateDashboardRollingDaysValue(event.target.value)}
+                aria-label="Dashboard rolling time window in days"
+                className="w-full bg-transparent text-sm focus-visible:outline-none"
+              />
+              <span className="ml-2 text-xs text-slate dark:text-white/60">days</span>
+            </label>
+          )}
+          {dashboardTimeRange === 'custom' && (
+            <div className="grid grid-cols-2 gap-1.5">
+              <input
+                type="date"
+                className="h-10 w-full rounded border border-slate/20 bg-white px-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={dashboardCustomSinceDate}
+                onChange={(event) => updateDashboardCustomSinceDate(event.target.value)}
+                aria-label="Dashboard custom start date"
+              />
+              <input
+                type="date"
+                className="h-10 w-full rounded border border-slate/20 bg-white px-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
+                value={dashboardCustomUntilDate}
+                onChange={(event) => updateDashboardCustomUntilDate(event.target.value)}
+                aria-label="Dashboard custom end date"
+              />
+            </div>
+          )}
         </div>
         <div
           id="dashboard-view-toolbar"
@@ -1989,9 +2056,9 @@ export function DashboardPage() {
                 ? 'Panels have different searches. Type here to overwrite all panel searches...'
                 : 'Search across all panels...'
             }
-            className="h-8 w-full min-w-[180px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:flex-1 dark:border-cyan-900/40 dark:bg-[#041612]"
+            className="hidden h-8 w-full min-w-[180px] rounded border border-slate/20 bg-white px-2.5 text-xs sm:block sm:flex-1 dark:border-cyan-900/40 dark:bg-[#041612]"
           />
-          <div className="flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="hidden flex-col gap-1.5 sm:flex sm:flex-row sm:flex-wrap sm:items-center">
             <select
               className="h-8 w-full rounded border border-slate/20 bg-white px-2 text-xs sm:w-auto dark:border-cyan-900/40 dark:bg-[#041612]"
               value={dashboardTimeRange}
@@ -2325,6 +2392,9 @@ export function DashboardPage() {
           const windowMeta = WINDOW_TYPE_META[windowLayout.type]
           const windowTimeSummary = formatWindowTimeSummary(windowLayout, dashboardTimeFilter)
           const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters, aiRelevanceEnabled)
+          const windowControlsVisible = isWideLayout
+            ? !windowLayout.controls_collapsed
+            : mobileWindowControlsOpenById[windowLayout.id] === true
           const isPanelRefreshing =
             windowLayout.type === 'rss'
               ? Boolean(rssQuery?.isFetching && !rssQuery.isLoading)
@@ -2356,7 +2426,7 @@ export function DashboardPage() {
               onMouseDown={() => bringWindowToFront(windowLayout.id)}
             >
               <div
-                className={`flex flex-col gap-3 border-b border-slate/20 px-3 py-2.5 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between`}
+                className={`flex flex-col gap-2 border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:py-2.5`}
                 onMouseDown={isEditMode ? (event) => startWindowDrag(event, windowLayout.id) : undefined}
                 style={isEditMode ? { cursor: 'grab' } : undefined}
               >
@@ -2425,9 +2495,21 @@ export function DashboardPage() {
                       <button
                         type="button"
                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                        onClick={() => toggleWindowControls(windowLayout.id)}
+                        onClick={() => {
+                          if (isWideLayout) {
+                            toggleWindowControls(windowLayout.id)
+                            return
+                          }
+                          toggleMobileWindowControls(windowLayout.id)
+                        }}
                       >
-                        {windowLayout.controls_collapsed ? 'Show Filters' : 'Hide Filters'}
+                        {windowControlsVisible
+                          ? isWideLayout
+                            ? 'Hide Filters'
+                            : 'Done'
+                          : activeLocalFilterCount > 0 && !isWideLayout
+                            ? `Filters (${activeLocalFilterCount})`
+                            : 'Show Filters'}
                       </button>
                     )}
                     {isEditMode && (
@@ -2467,7 +2549,7 @@ export function DashboardPage() {
 
               {windowLayout.type === 'rss' ? (
                 <>
-                  {!windowLayout.controls_collapsed && (
+                  {windowControlsVisible && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
                       <div className={FILTER_SCROLLER_CLASS} role="group" aria-label={`${windowLayout.title} feed filters`}>
                         <button
@@ -2716,6 +2798,9 @@ export function DashboardPage() {
                         const compact = rssFilters.view_mode === 'compact'
                         const itemHref = sanitizeHref(item.canonical_url || item.url)
                         const detailHref = sanitizeHref(detail?.article?.final_url || detail?.url || null)
+                        const displayableItemTags = item.tags.filter((tagName) => !HIDDEN_TAGS.has(tagName))
+                        const visibleItemTags = displayableItemTags.slice(0, isWideLayout ? 3 : 2)
+                        const hiddenItemTagCount = Math.max(0, displayableItemTags.length - visibleItemTags.length)
 
                         return (
                           <article
@@ -2725,7 +2810,7 @@ export function DashboardPage() {
                             } ${item.is_read ? 'tl-article-row-read' : ''}`}
                           >
                             <div className="w-full text-left">
-                              <div className="flex items-start justify-between gap-3">
+                              <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
                                 <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-semibold leading-snug`}>
                                   {itemHref ? (
                                     <a
@@ -2741,12 +2826,12 @@ export function DashboardPage() {
                                     <span>{item.title}</span>
                                   )}
                                 </h3>
-                                <div className="relative flex shrink-0 items-center gap-2">
-                                  <span className="tl-source-text text-right text-xs font-semibold dark:text-slate-300">{item.feed_name}</span>
+                                <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:relative sm:w-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
+                                  <span className="tl-source-text text-left text-xs font-semibold dark:text-slate-300 sm:text-right">{item.feed_name}</span>
                                   {itemHref && (
                                     <button
                                       type="button"
-                                      className="absolute right-0 top-5 whitespace-nowrap rounded border border-slate/20 bg-white px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#041612]"
+                                      className="rounded border border-slate/20 bg-white px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#041612] sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap"
                                       onClick={() =>
                                         handleOpenArticlePreview(
                                           {
@@ -2759,7 +2844,8 @@ export function DashboardPage() {
                                         )
                                       }
                                     >
-                                      Preview Original
+                                      <span className="sm:hidden">Preview</span>
+                                      <span className="hidden sm:inline">Preview Original</span>
                                     </button>
                                   )}
                                 </div>
@@ -2783,17 +2869,17 @@ export function DashboardPage() {
                                       AI {formatAiRelevanceLabel(item.ai_relevance_label)}
                                     </span>
                                   )}
-                                  {item.tags
-                                    .filter((tagName) => !HIDDEN_TAGS.has(tagName))
-                                    .slice(0, 3)
-                                    .map((tagName) => (
-                                      <span
-                                        key={`${item.id}-${tagName}`}
-                                        className="tl-chip tl-chip-tag"
-                                      >
-                                        #{tagName}
-                                      </span>
-                                    ))}
+                                  {visibleItemTags.map((tagName) => (
+                                    <span
+                                      key={`${item.id}-${tagName}`}
+                                      className="tl-chip tl-chip-tag"
+                                    >
+                                      #{tagName}
+                                    </span>
+                                  ))}
+                                  {!isWideLayout && hiddenItemTagCount > 0 && (
+                                    <span className="tl-chip tl-chip-neutral">+{hiddenItemTagCount}</span>
+                                  )}
                                 </div>
                                 {!compact && (
                                   <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">
@@ -3084,7 +3170,7 @@ export function DashboardPage() {
                 </>
               ) : windowLayout.type === 'alerts' ? (
                 <>
-                  {!windowLayout.controls_collapsed && (
+                  {windowControlsVisible && (
                     <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
                     <div
                       className="flex max-h-24 min-w-0 flex-wrap items-center gap-2 overflow-y-auto pb-1"
