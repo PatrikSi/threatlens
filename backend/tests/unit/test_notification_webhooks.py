@@ -585,6 +585,59 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
     assert result.response_body_preview == f"Stored body withheld ({len(response_body)} chars)"
 
 
+def test_send_rendered_notification_request_reads_preview_before_client_closes(monkeypatch):
+    client_closed = {"value": False}
+    request = httpx.Request("POST", "https://hooks.example.com/notify")
+
+    class _Client:
+        def __enter__(self):
+            client_closed["value"] = False
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            client_closed["value"] = True
+            return False
+
+    class _Stream(httpx.SyncByteStream):
+        def __iter__(self):
+            if client_closed["value"]:
+                raise httpx.ReadError("client closed before preview read")
+            yield b'{"ok":true}'
+
+    response = httpx.Response(204, request=request, stream=_Stream())
+
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.build_safe_http_client",
+        lambda **_kwargs: _Client(),
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_request_with_redirects",
+        lambda *_args, **_kwargs: response,
+    )
+
+    result = send_rendered_notification_request(
+        SimpleNamespace(
+            timeout_seconds=10,
+            url="https://hooks.example.com/notify",
+            method="POST",
+            headers=[],
+            query_params=[],
+            body=None,
+            headers_dict={},
+            query_param_pairs=[],
+            json_body=None,
+            form_body=None,
+            raw_body=None,
+        )
+    )
+
+    assert result.success is True
+    assert result.status_code == 204
+    assert result.response_body_preview == '{"ok":true}'
+    assert client_closed["value"] is True
+
+
 def test_render_notification_request_defaults_raw_json_to_application_json():
     payload = NotificationWebhookWrite(
         name="Gotify",
