@@ -6,8 +6,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
-from app.core.config import get_settings
-from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -18,7 +16,6 @@ from app.schemas.notification import (
     NotificationAnalyticsResponse,
     NotificationWebhookDeliveryListResponse,
     NotificationWebhookDeliveryResponse,
-    NotificationWebhookPolicyResponse,
     NotificationTemplateVariable,
     NotificationWebhookResponse,
     NotificationWebhookTestRequest,
@@ -28,11 +25,9 @@ from app.schemas.notification import (
 from app.services.audit import record_audit
 from app.services.notification_webhooks import (
     NotificationWebhookRetryInProgressError,
-    admin_notification_webhook_unrestricted_enabled,
     apply_notification_webhook_updates,
     build_notification_webhook,
     get_notification_analytics,
-    get_notification_webhook_allowed_hosts,
     list_template_variables,
     NOTIFICATION_DELIVERY_FAILED,
     NOTIFICATION_DELIVERY_PENDING,
@@ -55,39 +50,6 @@ def get_notification_template_variables(
     _user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
 ):
     return list_template_variables()
-
-
-@router.get("/webhook-policy", response_model=NotificationWebhookPolicyResponse)
-def get_notification_webhook_policy(
-    user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
-):
-    allowed_hosts_configured = bool(get_notification_webhook_allowed_hosts())
-    admin_unrestricted_enabled = admin_notification_webhook_unrestricted_enabled()
-    if user.role == ROLE_ADMIN:
-        can_manage = allowed_hosts_configured or admin_unrestricted_enabled
-        return NotificationWebhookPolicyResponse(
-            role=user.role,
-            can_manage_webhooks=can_manage,
-            reason=None
-            if can_manage
-            else "Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled.",
-            allowed_hosts_configured=allowed_hosts_configured,
-        )
-    if user.role == ROLE_ANALYST:
-        return NotificationWebhookPolicyResponse(
-            role=user.role,
-            can_manage_webhooks=allowed_hosts_configured,
-            reason=None
-            if allowed_hosts_configured
-            else "Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.",
-            allowed_hosts_configured=allowed_hosts_configured,
-        )
-    return NotificationWebhookPolicyResponse(
-        role=user.role,
-        can_manage_webhooks=False,
-        reason="Viewer access is read-only. Webhook settings can only be changed by operators.",
-        allowed_hosts_configured=allowed_hosts_configured,
-    )
 
 
 @router.get("/analytics", response_model=NotificationAnalyticsResponse)
@@ -118,7 +80,6 @@ def create_notification_webhook(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
-    _require_notification_webhook_egress_authority(user)
     _validate_payload(db, payload, actor_user=user)
     webhook = build_notification_webhook(user.id, payload)
     db.add(webhook)
@@ -150,7 +111,6 @@ def update_notification_webhook(
     if webhook is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
 
-    _require_notification_webhook_egress_authority(user)
     _validate_payload(db, payload, actor_user=user)
     apply_notification_webhook_updates(webhook, payload)
     db.add(webhook)
@@ -270,8 +230,6 @@ def retry_notification_webhook_delivery_route(
             detail="Only failed webhook deliveries can be retried",
         )
 
-    _require_notification_webhook_egress_authority(user)
-
     try:
         retried = retry_notification_webhook_delivery(db, webhook=webhook, delivery=delivery)
     except NotificationWebhookRetryInProgressError as exc:
@@ -326,7 +284,6 @@ def test_notification_webhook_route(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_NOTIFICATIONS)),
 ):
-    _require_notification_webhook_egress_authority(user)
     _validate_payload(db, payload.webhook, actor_user=user)
     try:
         result = test_notification_webhook(
@@ -353,31 +310,6 @@ def test_notification_webhook_route(
     )
     db.commit()
     return result
-
-
-def _require_notification_webhook_egress_authority(user: User) -> None:
-    if user.role == ROLE_ADMIN:
-        if get_settings().notification_webhook_allow_admin_unrestricted or get_notification_webhook_allowed_hosts():
-            return
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured "
-                "or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled"
-            ),
-        )
-    if user.role == ROLE_ANALYST and get_notification_webhook_allowed_hosts():
-        return
-    if user.role != ROLE_ANALYST:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only admins and analysts can manage notification webhooks",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
-    )
-
 
 def _validate_payload(db: Session, payload: NotificationWebhookWrite, *, actor_user: User) -> None:
     available_feed_ids = set(db.scalars(select(Feed.id)).all())

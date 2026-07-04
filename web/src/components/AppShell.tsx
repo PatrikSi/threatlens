@@ -14,7 +14,7 @@ const NAV_LINKS = [
   { to: '/stats', label: 'Stats' },
   { to: '/settings', label: 'Settings' },
 ]
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.1.0'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0'
 
 export function AppShell() {
   const { markLoggedOut } = useAuth()

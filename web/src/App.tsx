@@ -25,8 +25,11 @@ const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ d
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ default: module.FeedsPage })))
-const NotificationsPage = lazy(() =>
-  import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })),
+const IntegrationsSettingsPage = lazy(() =>
+  import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.SMTPIntegrationSettingsPage })),
+)
+const NotificationWebhooksSettingsPage = lazy(() =>
+  import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationWebhooksSettings })),
 )
 const SettingsLayout = lazy(() =>
   import('./pages/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
@@ -93,7 +96,19 @@ function createAppRouter() {
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
             <Route index element={<Navigate to="account" replace />} />
             <Route path="account" element={suspenseRoute(<AccountPage />, 'Loading account settings...')} />
-            <Route path="notifications" element={suspenseRoute(<NotificationsPage />, 'Loading notification settings...')} />
+            <Route path="notifications" element={<Navigate to="/settings/integrations/webhooks" replace />} />
+            <Route path="integrations">
+              <Route index element={<Navigate to="webhooks" replace />} />
+              <Route path="webhooks" element={suspenseRoute(<NotificationWebhooksSettingsPage />, 'Loading webhook integration settings...')} />
+              <Route
+                path="smtp"
+                element={
+                  <RoleRoute roles={['admin']}>
+                    {suspenseRoute(<IntegrationsSettingsPage />, 'Loading SMTP integration settings...')}
+                  </RoleRoute>
+                }
+              />
+            </Route>
             <Route
               path="ai"
               element={

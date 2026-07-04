@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "0.1.0",
-    "x-threatlens-contract-sha256": "b3298d8973238f16b425b2e8ea018ea9bdc78102d1eb1e52c65bf2a0ab4b5ca9"
+    "version": "1.0.0",
+    "x-threatlens-contract-sha256": "21661e00468a93e351dd0803de93ba6bcf9cd1376dd5e96ce5cb7f0dc8f58921"
   },
   "servers": [
     {
@@ -3086,6 +3086,212 @@
         ]
       }
     },
+    "/v1/integrations/connectors": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Integration Connectors",
+        "operationId": "get_integration_connectors_v1_integrations_connectors_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IntegrationConnectorResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Integration Connectors V1 Integrations Connectors Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      }
+    },
+    "/v1/integrations": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "List Integrations",
+        "operationId": "list_integrations_v1_integrations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/IntegrationSummaryResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Integrations V1 Integrations Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/settings": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Smtp Settings",
+        "operationId": "get_smtp_settings_v1_integrations_smtp_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPSettingsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      },
+      "put": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Update Smtp Settings",
+        "operationId": "update_smtp_settings_v1_integrations_smtp_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPSettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/test": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Test Smtp Settings",
+        "operationId": "test_smtp_settings_v1_integrations_smtp_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPTestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
     "/v1/notifications/template-variables": {
       "get": {
         "tags": [
@@ -3104,38 +3310,6 @@
                   },
                   "type": "array",
                   "title": "Response Get Notification Template Variables V1 Notifications Template Variables Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
-        "x-threatlens-required-token-scopes": [
-          "read:notifications"
-        ]
-      }
-    },
-    "/v1/notifications/webhook-policy": {
-      "get": {
-        "tags": [
-          "notifications"
-        ],
-        "summary": "Get Notification Webhook Policy",
-        "operationId": "get_notification_webhook_policy_v1_notifications_webhook_policy_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationWebhookPolicyResponse"
                 }
               }
             }
@@ -3859,6 +4033,58 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AIQueuedTaskResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:ai"
+        ]
+      }
+    },
+    "/v1/ai/daily-brief/backfill": {
+      "post": {
+        "tags": [
+          "ai"
+        ],
+        "summary": "Queue Daily Brief Backfill Route",
+        "operationId": "queue_daily_brief_backfill_route_v1_ai_daily_brief_backfill_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AIDailyBriefBackfillRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIDailyBriefBackfillResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -5203,6 +5429,65 @@
           "last_ai_run_at"
         ],
         "title": "AICoverageStatsResponse"
+      },
+      "AIDailyBriefBackfillRequest": {
+        "properties": {
+          "days": {
+            "type": "integer",
+            "maximum": 90.0,
+            "minimum": 1.0,
+            "title": "Days",
+            "default": 7
+          }
+        },
+        "type": "object",
+        "title": "AIDailyBriefBackfillRequest"
+      },
+      "AIDailyBriefBackfillResponse": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "queued": {
+            "type": "boolean",
+            "title": "Queued"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "celery_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Celery Task Id"
+          },
+          "days": {
+            "type": "integer",
+            "title": "Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "queued",
+          "days"
+        ],
+        "title": "AIDailyBriefBackfillResponse"
       },
       "AIDailyBriefItemResponse": {
         "properties": {
@@ -7573,6 +7858,32 @@
               }
             ],
             "title": "Error"
+          },
+          "skipped": {
+            "type": "boolean",
+            "title": "Skipped",
+            "default": false
+          },
+          "skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skip Reason"
+          },
+          "running_task_count": {
+            "type": "integer",
+            "title": "Running Task Count",
+            "default": 0
+          },
+          "queued_task_count": {
+            "type": "integer",
+            "title": "Queued Task Count",
+            "default": 0
           }
         },
         "type": "object",
@@ -9006,6 +9317,9 @@
           "feeds": {
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
+          "integration_secrets": {
+            "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
+          },
           "notification_webhooks": {
             "$ref": "#/components/schemas/EncryptedDataInventoryCategory"
           },
@@ -9025,6 +9339,7 @@
           "using_derived_app_data_encryption_key",
           "startup_scan",
           "feeds",
+          "integration_secrets",
           "notification_webhooks",
           "notification_delivery_snapshots",
           "summary"
@@ -9993,6 +10308,149 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "IntegrationConnectorResponse": {
+        "properties": {
+          "integration_type": {
+            "type": "string",
+            "const": "smtp",
+            "title": "Integration Type"
+          },
+          "direction": {
+            "type": "string",
+            "const": "destination",
+            "title": "Direction"
+          },
+          "display_name": {
+            "type": "string",
+            "title": "Display Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "config_schema_version": {
+            "type": "integer",
+            "title": "Config Schema Version"
+          },
+          "supports_test": {
+            "type": "boolean",
+            "title": "Supports Test"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Capabilities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "integration_type",
+          "direction",
+          "display_name",
+          "description",
+          "config_schema_version",
+          "supports_test"
+        ],
+        "title": "IntegrationConnectorResponse"
+      },
+      "IntegrationSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "integration_type": {
+            "type": "string",
+            "const": "smtp",
+            "title": "Integration Type"
+          },
+          "direction": {
+            "type": "string",
+            "const": "destination",
+            "title": "Direction"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "health_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "healthy",
+              "warning",
+              "error"
+            ],
+            "title": "Health Status"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "integration_type",
+          "direction",
+          "enabled",
+          "configured",
+          "health_status",
+          "last_success_at",
+          "last_error_at",
+          "last_error",
+          "updated_at"
+        ],
+        "title": "IntegrationSummaryResponse"
       },
       "ItemAIInsightResponse": {
         "properties": {
@@ -11319,40 +11777,6 @@
         ],
         "title": "NotificationWebhookField"
       },
-      "NotificationWebhookPolicyResponse": {
-        "properties": {
-          "role": {
-            "type": "string",
-            "title": "Role"
-          },
-          "can_manage_webhooks": {
-            "type": "boolean",
-            "title": "Can Manage Webhooks"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "allowed_hosts_configured": {
-            "type": "boolean",
-            "title": "Allowed Hosts Configured"
-          }
-        },
-        "type": "object",
-        "required": [
-          "role",
-          "can_manage_webhooks",
-          "allowed_hosts_configured"
-        ],
-        "title": "NotificationWebhookPolicyResponse"
-      },
       "NotificationWebhookResponse": {
         "properties": {
           "id": {
@@ -11808,6 +12232,530 @@
           "ai_enabled"
         ],
         "title": "RegistrationSettingsResponse"
+      },
+      "SMTPSettingsResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "integration_type": {
+            "type": "string",
+            "const": "smtp",
+            "title": "Integration Type"
+          },
+          "direction": {
+            "type": "string",
+            "const": "destination",
+            "title": "Direction"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "security": {
+            "type": "string",
+            "enum": [
+              "starttls",
+              "ssl_tls",
+              "none"
+            ],
+            "title": "Security"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password_configured": {
+            "type": "boolean",
+            "title": "Password Configured"
+          },
+          "has_unreadable_secret": {
+            "type": "boolean",
+            "title": "Has Unreadable Secret"
+          },
+          "from_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Email"
+          },
+          "from_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Name"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "title": "Timeout Seconds"
+          },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "feed_scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selected"
+            ],
+            "title": "Feed Scope"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Feed Ids"
+          },
+          "subject_template": {
+            "type": "string",
+            "title": "Subject Template"
+          },
+          "html_template": {
+            "type": "string",
+            "title": "Html Template"
+          },
+          "health_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "healthy",
+              "warning",
+              "error"
+            ],
+            "title": "Health Status"
+          },
+          "last_test_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_test_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Duration Ms"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "integration_type",
+          "direction",
+          "enabled",
+          "configured",
+          "schema_version",
+          "host",
+          "port",
+          "security",
+          "username",
+          "password_configured",
+          "has_unreadable_secret",
+          "from_email",
+          "from_name",
+          "timeout_seconds",
+          "event_types",
+          "feed_scope",
+          "feed_ids",
+          "subject_template",
+          "html_template",
+          "health_status",
+          "last_test_at",
+          "last_success_at",
+          "last_error_at",
+          "last_error",
+          "last_test_duration_ms",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "SMTPSettingsResponse"
+      },
+      "SMTPSettingsUpdate": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "maximum": 65535.0,
+            "minimum": 1.0,
+            "title": "Port",
+            "default": 587
+          },
+          "security": {
+            "type": "string",
+            "enum": [
+              "starttls",
+              "ssl_tls",
+              "none"
+            ],
+            "title": "Security",
+            "default": "starttls"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "clear_password": {
+            "type": "boolean",
+            "title": "Clear Password",
+            "default": false
+          },
+          "from_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Email"
+          },
+          "from_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Name"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "default": 10
+          },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "feed_scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selected"
+            ],
+            "title": "Feed Scope",
+            "default": "all"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Feed Ids"
+          },
+          "subject_template": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Subject Template",
+            "default": "[ThreatLens] {{ event.type }}: {{ item.title }}"
+          },
+          "html_template": {
+            "type": "string",
+            "maxLength": 50000,
+            "title": "Html Template",
+            "default": "<h2>{{ event.type }}</h2>\n<p><strong>{{ item.title }}</strong></p>\n<p>{{ item.summary }}</p>\n<p><a href=\"{{ item.url }}\">Open source item</a></p>\n<p>Feed: {{ feed.name }}</p>"
+          }
+        },
+        "type": "object",
+        "title": "SMTPSettingsUpdate"
+      },
+      "SMTPTestRequest": {
+        "properties": {
+          "send_email": {
+            "type": "boolean",
+            "title": "Send Email",
+            "default": false
+          },
+          "recipient_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Email"
+          },
+          "settings": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SMTPSettingsUpdate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "SMTPTestRequest"
+      },
+      "SMTPTestResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "connection",
+              "send"
+            ],
+            "title": "Action"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "recipient_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Email"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "server_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Server Message"
+          },
+          "tested_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Tested At"
+          },
+          "used_unsaved_settings": {
+            "type": "boolean",
+            "title": "Used Unsaved Settings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "action",
+          "duration_ms",
+          "recipient_email",
+          "error_code",
+          "error",
+          "server_message",
+          "tested_at",
+          "used_unsaved_settings"
+        ],
+        "title": "SMTPTestResponse"
       },
       "SavedViewAlertFilters": {
         "properties": {

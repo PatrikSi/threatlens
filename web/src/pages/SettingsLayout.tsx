@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link, Outlet, useLocation } from 'react-router-dom'
 
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -5,13 +6,17 @@ import { useCurrentUser } from '../hooks/useCurrentUser'
 export function SettingsLayout() {
   const meQuery = useCurrentUser()
   const location = useLocation()
+  const [integrationsExpanded, setIntegrationsExpanded] = useState(false)
   const role = meQuery.data?.role
   const aiEnabled = meQuery.data?.features.ai_enabled ?? false
+  const integrationsActive = isSettingsLinkActive(location.pathname, '/settings/integrations')
+  const showIntegrationsChildren = integrationsActive || integrationsExpanded
+  const webhooksActive = isSettingsLinkActive(location.pathname, '/settings/integrations/webhooks')
+  const smtpActive = isSettingsLinkActive(location.pathname, '/settings/integrations/smtp')
 
   const navItems = [
     { to: '/settings/account', label: 'Account' },
     { to: '/settings/tokens', label: 'API Tokens' },
-    { to: '/settings/notifications', label: 'Notifications' },
     ...(role === 'admin' && aiEnabled ? [{ to: '/settings/ai', label: 'AI' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Tagging' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/users', label: 'Users' }] : []),
@@ -43,6 +48,48 @@ export function SettingsLayout() {
                 </Link>
               )
             })}
+            <div className="min-w-0">
+              <button
+                type="button"
+                aria-expanded={showIntegrationsChildren}
+                className={`block w-full rounded-lg border px-3 py-2 text-center text-sm transition lg:text-left ${
+                  integrationsActive
+                    ? 'tl-nav-link-active font-semibold'
+                    : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                }`}
+                onClick={() => setIntegrationsExpanded((current) => !current)}
+              >
+                Integrations
+              </button>
+              {showIntegrationsChildren && (
+                <div className="mt-1 grid gap-1 pl-2">
+                  <Link
+                    to="/settings/integrations/webhooks"
+                    aria-current={webhooksActive ? 'page' : undefined}
+                    className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
+                      webhooksActive
+                        ? 'tl-nav-link-active font-semibold'
+                        : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    Webhooks
+                  </Link>
+                  {role === 'admin' && (
+                    <Link
+                      to="/settings/integrations/smtp"
+                      aria-current={smtpActive ? 'page' : undefined}
+                      className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
+                        smtpActive
+                          ? 'tl-nav-link-active font-semibold'
+                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      SMTP
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </nav>
 

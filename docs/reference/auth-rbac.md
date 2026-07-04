@@ -134,7 +134,7 @@ Paths below are relative to the published `/api/v1` base.
 | `/alerts/preview` | authenticated user | `read:alerts` and `read:items` |
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
 | `/notifications/template-variables`, `/notifications/analytics`, `/notifications/webhooks`, `/notifications/webhooks/{id}/deliveries` | authenticated user | `read:notifications` |
-| `/notifications/webhooks` mutate/test/retry | `admin` when `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` approves the destination or `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true`; `analyst` only when the destination is allowlisted | `write:notifications` |
+| `/notifications/webhooks` mutate/test/retry | `admin` or `analyst` | `write:notifications` |
 | `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
@@ -153,4 +153,4 @@ Paths below are relative to the published `/api/v1` base.
 - Cookie sessions are the primary browser contract. Token scopes only apply when the caller is authenticated via a personal API token.
 - `write:<resource>` implies `read:<resource>` during scope checks.
 - `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.
-- Notification webhook egress is secure-by-default for shared deployments: webhook create, update, test, and retry actions are blocked until an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS` or explicitly enables unrestricted admin-managed destinations with `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true`; approved origins are rechecked at delivery time, plain host entries only approve the default `https` origin, and wildcard entries do not include the apex domain.
+- Notification webhook targets are validated on create, update, test, retry, and delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.

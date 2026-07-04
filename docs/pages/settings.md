@@ -10,11 +10,14 @@ Always visible:
 
 - Account
 - API Tokens
-- Notifications
+- Integrations
+  - Webhooks
 
 Admin-only:
 
 - AI (`/settings/ai`) when enabled
+- Integrations
+  - SMTP
 - Tagging
 - Users
 - Audit Logs
@@ -23,6 +26,8 @@ Legacy route behavior:
 
 - `/ai` redirects to `/settings/ai`
 - `/settings` redirects to `/settings/account`
+- `/settings/notifications` redirects to `/settings/integrations/webhooks`
+- `/settings/integrations` redirects to `/settings/integrations/webhooks`
 
 ## Account Page
 
@@ -32,7 +37,7 @@ Legacy route behavior:
   - `GET /auth/me`
   - `POST /auth/change-password`
 
-## Notifications Page
+## Integrations: Webhooks
 
 - Personal outbound webhook notifications for:
   - `rss_item_new`
@@ -41,10 +46,10 @@ Legacy route behavior:
   - `webhook_failed`
   - `daily_digest`
 - Saved webhook list with create/edit/delete
-- Create, update, test, and retry actions are allowed for `admin` users when the target matches `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, or when `NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED=true` is explicitly enabled.
-- Analysts can only create, update, test, or retry when an admin configures `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`, and the target matches that allowlist's scheme, host, port, and any optional path prefix. Plain host entries default to `https`, exact `host:port` or full URL prefix entries can allow non-default ports or tenant-scoped paths, and `*.suffix` does not include the apex `suffix`.
-- Delete remains available to webhook owners with operator access so analysts can remove stale webhooks even when outbound egress is locked down.
+- Create, update, test, retry, and delete actions are available to `admin` and `analyst` users with write notification access.
 - Viewers can still see their own notification analytics and delivery history when scopes permit.
+- Webhook targets are validated before create/update/test/retry and again before delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
+- Cross-origin redirects are blocked during delivery, and redirect depth is capped by `OUTBOUND_MAX_REDIRECTS`.
 - Webhook configuration fields:
   - name
   - enabled flag
@@ -74,6 +79,17 @@ Legacy route behavior:
   - `POST /notifications/webhooks/test`
   - `GET /notifications/webhooks/{id}/deliveries`
   - `POST /notifications/webhooks/{id}/deliveries/{delivery_id}/retry`
+
+## Integrations: SMTP (Admin)
+
+- Configurable outbound SMTP destination for notification email.
+- Supports enabling/disabling, host, port, security mode, credentials, sender identity, timeout, event types, feed scope, subject template, and HTML template.
+- Test tooling can run a connection/authentication check or send a rendered test email to a chosen recipient.
+- API calls:
+  - `GET /integrations/connectors`
+  - `GET /integrations/smtp/settings`
+  - `PUT /integrations/smtp/settings`
+  - `POST /integrations/smtp/test`
 
 ## Tagging Page (Admin)
 
@@ -138,8 +154,7 @@ Legacy route behavior:
 ## Access Rules
 
 - Protected by authenticated route guard.
-- Notifications analytics/list/history are available to authenticated users for their own webhooks.
-- Notifications delete additionally requires operator access.
-- Notifications create/update/test/retry require `admin` plus an allowlisted target or explicit unrestricted-admin webhook mode; analysts always require a target approved by `NOTIFICATION_WEBHOOK_ALLOWED_HOSTS`.
+- Webhook analytics/list/history are available to authenticated users for their own webhooks.
+- Webhook create/update/test/retry/delete additionally require operator access (`admin` or `analyst`) and write notification access.
 - Admin-only pages additionally protected with `RoleRoute` (`roles=['admin']`).
 - AI is a nested admin-only settings page at `/settings/ai`, with `/ai` redirecting there for backward compatibility.
