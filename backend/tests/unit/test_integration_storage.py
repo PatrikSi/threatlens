@@ -35,6 +35,7 @@ def test_smtp_settings_store_password_as_write_only_encrypted_secret():
         username="relay-user",
         password="relay-password",
         from_email="threatlens@example.com",
+        to_emails=["analyst@example.com", "soc@example.com"],
         timeout_seconds=10,
     )
 
@@ -45,7 +46,9 @@ def test_smtp_settings_store_password_as_write_only_encrypted_secret():
     assert is_encrypted_json(instance.secret_json)
     assert response.password_configured is True
     assert response.has_unreadable_secret is False
+    assert response.to_emails == ["analyst@example.com", "soc@example.com"]
     assert active.password == "relay-password"
+    assert active.to_emails == ["analyst@example.com", "soc@example.com"]
 
 
 def test_smtp_secret_can_be_replaced_or_cleared_without_leaking_previous_value():
@@ -57,6 +60,7 @@ def test_smtp_secret_can_be_replaced_or_cleared_without_leaking_previous_value()
             username="relay-user",
             password="old-password",
             from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
         ),
     )
 
@@ -67,6 +71,7 @@ def test_smtp_secret_can_be_replaced_or_cleared_without_leaking_previous_value()
             username="relay-user",
             password="new-password",
             from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
         ),
     )
     secrets, error = read_smtp_secret_config(instance)
@@ -80,6 +85,7 @@ def test_smtp_secret_can_be_replaced_or_cleared_without_leaking_previous_value()
             username="relay-user",
             clear_password=True,
             from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
         ),
     )
     secrets, error = read_smtp_secret_config(instance)

@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from typing import get_args
 
+from pydantic import EmailStr, TypeAdapter
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -29,6 +30,7 @@ INTEGRATION_HEALTH_UNKNOWN = "unknown"
 INTEGRATION_HEALTH_HEALTHY = "healthy"
 INTEGRATION_HEALTH_ERROR = "error"
 VALID_SMTP_EVENT_TYPES = frozenset(get_args(NotificationEventType))
+EMAIL_ADAPTER = TypeAdapter(EmailStr)
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,7 @@ class ActiveSMTPSettings:
     password: str | None
     from_email: str | None
     from_name: str | None
+    to_emails: list[str]
     timeout_seconds: int
     event_types: list[str]
     feed_scope: str
@@ -51,7 +54,7 @@ class ActiveSMTPSettings:
 
     @property
     def configured(self) -> bool:
-        return bool(self.host and self.from_email)
+        return bool(self.host and self.from_email and self.to_emails)
 
 
 class SMTPSecretError(ValueError):
@@ -156,6 +159,7 @@ def smtp_settings_response_from_model(instance: IntegrationInstance) -> SMTPSett
         has_unreadable_secret=bool(secret_error),
         from_email=config["from_email"],
         from_name=config["from_name"],
+        to_emails=config["to_emails"],
         timeout_seconds=config["timeout_seconds"],
         event_types=config["event_types"],
         feed_scope=config["feed_scope"],
@@ -191,6 +195,7 @@ def build_active_smtp_settings(
             password=password,
             from_email=config["from_email"],
             from_name=config["from_name"],
+            to_emails=config["to_emails"],
             timeout_seconds=config["timeout_seconds"],
             event_types=config["event_types"],
             feed_scope=config["feed_scope"],
@@ -213,6 +218,7 @@ def build_active_smtp_settings(
         password=secrets.get("password"),
         from_email=config["from_email"],
         from_name=config["from_name"],
+        to_emails=config["to_emails"],
         timeout_seconds=config["timeout_seconds"],
         event_types=config["event_types"],
         feed_scope=config["feed_scope"],
@@ -299,6 +305,7 @@ def _smtp_config_from_payload(payload: SMTPSettingsUpdate) -> dict:
         "username": _normalize_optional_text(payload.username),
         "from_email": str(payload.from_email) if payload.from_email is not None else None,
         "from_name": _normalize_optional_text(payload.from_name),
+        "to_emails": [str(email) for email in payload.to_emails],
         "timeout_seconds": int(payload.timeout_seconds),
         "event_types": list(payload.event_types),
         "feed_scope": payload.feed_scope,
@@ -318,6 +325,7 @@ def _normalize_smtp_config(value) -> dict:
         "username": _normalize_optional_text(config.get("username")),
         "from_email": _normalize_optional_text(config.get("from_email")),
         "from_name": _normalize_optional_text(config.get("from_name")),
+        "to_emails": _normalize_email_list(config.get("to_emails")),
         "timeout_seconds": _coerce_int(
             config.get("timeout_seconds"),
             default=defaults["timeout_seconds"],
@@ -346,6 +354,7 @@ def _default_smtp_config() -> dict:
         "username": None,
         "from_email": None,
         "from_name": None,
+        "to_emails": [],
         "timeout_seconds": 10,
         "event_types": list(DEFAULT_SMTP_EVENT_TYPES),
         "feed_scope": "all",
@@ -356,7 +365,7 @@ def _default_smtp_config() -> dict:
 
 
 def _smtp_configured(config: dict) -> bool:
-    return bool(config.get("host") and config.get("from_email"))
+    return bool(config.get("host") and config.get("from_email") and config.get("to_emails"))
 
 
 def _normalize_optional_text(value) -> str | None:
@@ -407,6 +416,26 @@ def _normalize_feed_ids(value) -> list[uuid.UUID]:
             continue
         seen.add(feed_id)
         normalized.append(feed_id)
+    return normalized
+
+
+def _normalize_email_list(value) -> list[str]:
+    candidates = value if isinstance(value, list) else []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        email = _normalize_optional_text(candidate)
+        if email is None:
+            continue
+        try:
+            email = str(EMAIL_ADAPTER.validate_python(email))
+        except ValueError:
+            continue
+        dedupe_key = email.lower()
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+        normalized.append(email)
     return normalized
 
 
