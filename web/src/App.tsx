@@ -25,6 +25,9 @@ const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ d
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
 const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ default: module.FeedsPage })))
+const IntegrationsSettingsPage = lazy(() =>
+  import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.IntegrationsSettingsPage })),
+)
 const NotificationsPage = lazy(() =>
   import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })),
 )
@@ -94,6 +97,14 @@ function createAppRouter() {
             <Route index element={<Navigate to="account" replace />} />
             <Route path="account" element={suspenseRoute(<AccountPage />, 'Loading account settings...')} />
             <Route path="notifications" element={suspenseRoute(<NotificationsPage />, 'Loading notification settings...')} />
+            <Route
+              path="integrations"
+              element={
+                <RoleRoute roles={['admin']}>
+                  {suspenseRoute(<IntegrationsSettingsPage />, 'Loading integration settings...')}
+                </RoleRoute>
+              }
+            />
             <Route
               path="ai"
               element={

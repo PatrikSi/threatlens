@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.models.feed import Feed
+from app.models.integration import IntegrationInstance
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.schemas.health import (
@@ -31,9 +32,10 @@ def scan_encrypted_data_inventory(
 ) -> EncryptedDataInventoryResponse:
     active_settings = settings or get_settings()
     feeds = _scan_feeds(db)
+    integration_secrets = _scan_integration_secrets(db)
     notification_webhooks = _scan_notification_webhooks(db)
     notification_delivery_snapshots = _scan_notification_delivery_snapshots(db)
-    summary = _build_summary(feeds, notification_webhooks, notification_delivery_snapshots)
+    summary = _build_summary(feeds, integration_secrets, notification_webhooks, notification_delivery_snapshots)
 
     warnings: list[str] = []
     if active_settings.app_data_encryption_key_was_derived:
@@ -54,6 +56,7 @@ def scan_encrypted_data_inventory(
         using_derived_app_data_encryption_key=active_settings.app_data_encryption_key_was_derived,
         startup_scan=get_startup_encrypted_data_inventory(),
         feeds=feeds,
+        integration_secrets=integration_secrets,
         notification_webhooks=notification_webhooks,
         notification_delivery_snapshots=notification_delivery_snapshots,
         summary=summary,
@@ -106,6 +109,17 @@ def _scan_feeds(db: Session) -> EncryptedDataInventoryCategory:
         if error:
             category.unreadable_records += 1
             category.unreadable_fields += 1
+    return category
+
+
+def _scan_integration_secrets(db: Session) -> EncryptedDataInventoryCategory:
+    category = EncryptedDataInventoryCategory()
+    rows = db.execute(select(IntegrationInstance.secret_json))
+    for (secret_json,) in rows:
+        category.total_records += 1
+        encrypted_fields = _count_json_field(secret_json)
+        unreadable_fields = _count_unreadable_json_field(secret_json)
+        _apply_record_counts(category, encrypted_fields=encrypted_fields, unreadable_fields=unreadable_fields)
     return category
 
 
@@ -211,10 +225,11 @@ def _count_unreadable_json_field(value) -> int:
 
 def _build_summary(
     feeds: EncryptedDataInventoryCategory,
+    integration_secrets: EncryptedDataInventoryCategory,
     notification_webhooks: EncryptedDataInventoryCategory,
     notification_delivery_snapshots: EncryptedDataInventoryCategory,
 ) -> EncryptedDataInventorySummary:
-    categories = (feeds, notification_webhooks, notification_delivery_snapshots)
+    categories = (feeds, integration_secrets, notification_webhooks, notification_delivery_snapshots)
     return EncryptedDataInventorySummary(
         total_records=sum(category.total_records for category in categories),
         encrypted_records=sum(category.encrypted_records for category in categories),

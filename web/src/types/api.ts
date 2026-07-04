@@ -757,6 +757,92 @@ export interface NotificationAnalyticsResponse {
   queue: NotificationQueueSnapshot
 }
 
+export type IntegrationType = 'smtp'
+export type IntegrationDirection = 'destination'
+export type IntegrationHealthStatus = 'unknown' | 'healthy' | 'warning' | 'error'
+export type SMTPSecurityMode = 'starttls' | 'ssl_tls' | 'none'
+
+export interface IntegrationConnector {
+  integration_type: IntegrationType
+  direction: IntegrationDirection
+  display_name: string
+  description: string
+  config_schema_version: number
+  supports_test: boolean
+  capabilities: string[]
+}
+
+export interface IntegrationSummary {
+  id: string
+  name: string
+  integration_type: IntegrationType
+  direction: IntegrationDirection
+  enabled: boolean
+  configured: boolean
+  health_status: IntegrationHealthStatus
+  last_success_at: string | null
+  last_error_at: string | null
+  last_error: string | null
+  updated_at: string
+}
+
+export interface SMTPSettings {
+  id: string
+  name: string
+  integration_type: 'smtp'
+  direction: 'destination'
+  enabled: boolean
+  configured: boolean
+  schema_version: number
+  host: string | null
+  port: number
+  security: SMTPSecurityMode
+  username: string | null
+  password_configured: boolean
+  has_unreadable_secret: boolean
+  from_email: string | null
+  from_name: string | null
+  timeout_seconds: number
+  health_status: IntegrationHealthStatus
+  last_test_at: string | null
+  last_success_at: string | null
+  last_error_at: string | null
+  last_error: string | null
+  last_test_duration_ms: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SMTPSettingsUpdateRequest {
+  enabled: boolean
+  host: string | null
+  port: number
+  security: SMTPSecurityMode
+  username: string | null
+  password?: string | null
+  clear_password?: boolean
+  from_email: string | null
+  from_name: string | null
+  timeout_seconds: number
+}
+
+export interface SMTPTestRequest {
+  recipient_email?: string | null
+  settings?: SMTPSettingsUpdateRequest | null
+}
+
+export interface SMTPTestResponse {
+  success: boolean
+  action: 'connection' | 'send'
+  duration_ms: number | null
+  recipient_email: string | null
+  error_code: string | null
+  error: string | null
+  server_message: string | null
+  tested_at: string
+  used_unsaved_settings: boolean
+}
+
 export interface TaggingSettings {
   id: string
   enabled_categories: string[]
