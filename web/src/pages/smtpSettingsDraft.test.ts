@@ -26,6 +26,11 @@ describe('smtpSettingsDraft', () => {
       from_email: 'threatlens@example.com',
       from_name: 'ThreatLens',
       timeout_seconds: 10,
+      event_types: ['rss_item_new'],
+      feed_scope: 'all',
+      feed_ids: [],
+      subject_template: '[ThreatLens] {{ event.type }}: {{ item.title }}',
+      html_template: '<h2>{{ event.type }}</h2><p>{{ item.title }}</p>',
       health_status: 'healthy',
       last_test_at: null,
       last_success_at: null,
@@ -50,6 +55,22 @@ describe('smtpSettingsDraft', () => {
     expect(errors.host).toContain('Host is required')
     expect(errors.from_email).toContain('Sender email is required')
     expect(errors.username).toContain('Username is required')
+  })
+
+  it('validates notification selection and email templates', () => {
+    const errors = validateSMTPSettingsDraft({
+      ...DEFAULT_SMTP_DRAFT,
+      event_types: [],
+      feed_scope: 'selected',
+      feed_ids: [],
+      subject_template: '',
+      html_template: '',
+    })
+
+    expect(errors.event_types).toContain('Select at least one')
+    expect(errors.feed_ids).toContain('Select at least one feed')
+    expect(errors.subject_template).toContain('Subject template is required')
+    expect(errors.html_template).toContain('HTML template is required')
   })
 
   it('serializes password replacement and clear actions explicitly', () => {

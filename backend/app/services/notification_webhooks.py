@@ -4,6 +4,7 @@ import json
 import hashlib
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -256,6 +257,44 @@ def get_notification_webhook_allowed_hosts() -> tuple[str, ...]:
 
 def list_template_variables() -> list[NotificationTemplateVariable]:
     return list(TEMPLATE_VARIABLES)
+
+
+def find_unknown_template_variables_in_texts(fragments: Iterable[str | None]) -> set[str]:
+    unknown: set[str] = set()
+    for fragment in fragments:
+        if not fragment:
+            continue
+        for match in TEMPLATE_PATTERN.findall(fragment):
+            if match not in TEMPLATE_VARIABLE_KEYS:
+                unknown.add(match)
+    return unknown
+
+
+def render_notification_template_text(
+    template: str,
+    *,
+    user: User | SimpleNamespace,
+    feed: Feed | SimpleNamespace | None,
+    item: Item | SimpleNamespace | None,
+    event_type: NotificationEventType,
+    triggered_at: datetime | None = None,
+    delivery_id: uuid.UUID | None = None,
+    alert_context: AlertMatchContext | None = None,
+    failed_webhook_context: FailedWebhookContext | None = None,
+    digest_context: DailyDigestContext | None = None,
+) -> str:
+    context = _build_template_context(
+        user=user,
+        feed=feed,
+        item=item,
+        event_type=event_type,
+        triggered_at=triggered_at or datetime.now(timezone.utc),
+        delivery_id=delivery_id or uuid.uuid4(),
+        alert_context=alert_context,
+        failed_webhook_context=failed_webhook_context,
+        digest_context=digest_context,
+    )
+    return _render_template(template, context)
 
 
 def validate_notification_webhook_payload(payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]) -> None:
@@ -1758,12 +1797,7 @@ def _find_unknown_template_variables(payload: NotificationWebhookWrite) -> set[s
     if payload.body_template:
         template_fragments.append(payload.body_template)
 
-    unknown: set[str] = set()
-    for fragment in template_fragments:
-        for match in TEMPLATE_PATTERN.findall(fragment):
-            if match not in TEMPLATE_VARIABLE_KEYS:
-                unknown.add(match)
-    return unknown
+    return find_unknown_template_variables_in_texts(template_fragments)
 
 
 def _render_field(field: NotificationWebhookField, context: dict[str, str]) -> NotificationWebhookField:

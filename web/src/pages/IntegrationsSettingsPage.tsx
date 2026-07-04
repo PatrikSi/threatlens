@@ -2,10 +2,14 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
+  Feed,
   IntegrationConnector,
+  NotificationEventType,
+  NotificationTemplateVariable,
   SMTPSettings,
   SMTPSettingsUpdateRequest,
   SMTPTestRequest,
@@ -21,28 +25,52 @@ import {
   SMTPSettingsDraft,
   validateSMTPSettingsDraft,
 } from './smtpSettingsDraft'
+import { NotificationWebhooksSettings } from './NotificationsPage'
 
 type NoticeState = {
   tone: 'success' | 'error'
   message: string
 }
 
+const SMTP_EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string }> = [
+  { value: 'rss_item_new', label: 'New RSS Item' },
+  { value: 'alert_match', label: 'Alert Match' },
+  { value: 'feed_failing', label: 'Feed Failing' },
+  { value: 'webhook_failed', label: 'Webhook Failed' },
+  { value: 'daily_digest', label: 'Daily Digest' },
+]
+
 export function IntegrationsSettingsPage() {
   const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
+  const isAdmin = currentUserQuery.data?.role === 'admin'
   const [smtpExpanded, setSmtpExpanded] = useState(true)
   const [draft, setDraftState] = useState<SMTPSettingsDraft>(DEFAULT_SMTP_DRAFT)
   const [hasUserEdited, setHasUserEdited] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
+  const [sendTestEmail, setSendTestEmail] = useState(false)
   const [testRecipient, setTestRecipient] = useState('')
   const [testResult, setTestResult] = useState<SMTPTestResponse | null>(null)
 
   const connectorsQuery = useQuery({
     queryKey: ['integrations', 'connectors'],
     queryFn: () => apiFetch<IntegrationConnector[]>('/integrations/connectors'),
+    enabled: isAdmin,
   })
   const smtpSettingsQuery = useQuery({
     queryKey: ['integrations', 'smtp', 'settings'],
     queryFn: () => apiFetch<SMTPSettings>('/integrations/smtp/settings'),
+    enabled: isAdmin,
+  })
+  const feedsQuery = useQuery({
+    queryKey: ['feeds'],
+    queryFn: () => apiFetch<Feed[]>('/feeds'),
+    enabled: isAdmin,
+  })
+  const variablesQuery = useQuery({
+    queryKey: ['notifications', 'template-variables'],
+    queryFn: () => apiFetch<NotificationTemplateVariable[]>('/notifications/template-variables'),
+    enabled: isAdmin,
   })
 
   const smtpSettings = smtpSettingsQuery.data
@@ -58,6 +86,8 @@ export function IntegrationsSettingsPage() {
     'You have unsaved integration changes. Leave without saving?',
   )
   const smtpConnector = connectorsQuery.data?.find((connector) => connector.integration_type === 'smtp') ?? null
+  const feeds = feedsQuery.data ?? []
+  const variables = variablesQuery.data ?? []
 
   const setDraft: Dispatch<SetStateAction<SMTPSettingsDraft>> = (value) => {
     setHasUserEdited(true)
@@ -66,11 +96,11 @@ export function IntegrationsSettingsPage() {
   }
 
   useEffect(() => {
-    if (!smtpSettings || hasUserEdited) {
+    if (!isAdmin || !smtpSettings || hasUserEdited) {
       return
     }
     setDraftState(createSMTPDraftFromSettings(smtpSettings))
-  }, [hasUserEdited, smtpSettings])
+  }, [hasUserEdited, isAdmin, smtpSettings])
 
   const saveSmtp = useMutation({
     mutationKey: ['integrations', 'smtp', 'save'],
@@ -104,6 +134,9 @@ export function IntegrationsSettingsPage() {
   })
 
   const onSave = () => {
+    if (!isAdmin) {
+      return
+    }
     if (firstValidationError) {
       setNotice({ tone: 'error', message: firstValidationError })
       return
@@ -113,19 +146,26 @@ export function IntegrationsSettingsPage() {
   }
 
   const onTest = () => {
-    const testError = resolveTestValidationError(draft, testRecipient, firstValidationError)
+    if (!isAdmin) {
+      return
+    }
+    const testError = resolveTestValidationError(draft, sendTestEmail, testRecipient, firstValidationError)
     if (testError) {
       setNotice({ tone: 'error', message: testError })
       return
     }
     setNotice(null)
     testSmtp.mutate({
-      recipient_email: testRecipient.trim() || null,
+      send_email: sendTestEmail,
+      recipient_email: sendTestEmail ? testRecipient.trim() : null,
       settings: draftDirty ? createSMTPRequestFromDraft(draft) : null,
     })
   }
 
-  if (smtpSettingsQuery.isLoading || connectorsQuery.isLoading) {
+  if (
+    currentUserQuery.isLoading ||
+    (isAdmin && (smtpSettingsQuery.isLoading || connectorsQuery.isLoading || feedsQuery.isLoading || variablesQuery.isLoading))
+  ) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
         Loading integration settings...
@@ -141,14 +181,20 @@ export function IntegrationsSettingsPage() {
         <p className="mt-1 text-sm text-slate dark:text-white/75">
           Configure reusable external systems for delivery, enrichment, and ingestion workflows.
         </p>
-        {(smtpSettingsQuery.isError || connectorsQuery.isError) && (
+        {isAdmin && (smtpSettingsQuery.isError || connectorsQuery.isError || feedsQuery.isError || variablesQuery.isError) && (
           <p role="alert" className="mt-3 text-sm text-red-600">
-            {resolveApiMessage(smtpSettingsQuery.error ?? connectorsQuery.error, 'Failed to load integrations.')}
+            {resolveApiMessage(
+              smtpSettingsQuery.error ?? connectorsQuery.error ?? feedsQuery.error ?? variablesQuery.error,
+              'Failed to load integrations.',
+            )}
           </p>
         )}
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <NotificationWebhooksSettings />
+
+      {isAdmin && (
+      <section id="smtp" className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <button
           type="button"
           aria-expanded={smtpExpanded}
@@ -298,6 +344,108 @@ export function IntegrationsSettingsPage() {
                     </label>
                   )}
 
+                  <div className="mt-5 rounded-lg border border-slate/20 p-4 dark:border-cyan-900/40">
+                    <h3 className="font-semibold">Notification Content</h3>
+                    <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                      <div>
+                        <p className="text-sm font-semibold">Send For</p>
+                        <div className="mt-2 grid gap-2">
+                          {SMTP_EVENT_OPTIONS.map((option) => (
+                            <label key={option.value} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={draft.event_types.includes(option.value)}
+                                onChange={(event) =>
+                                  setDraft((current) => ({
+                                    ...current,
+                                    event_types: event.target.checked
+                                      ? Array.from(new Set([...current.event_types, option.value]))
+                                      : current.event_types.filter((eventType) => eventType !== option.value),
+                                  }))
+                                }
+                              />
+                              {option.label}
+                            </label>
+                          ))}
+                        </div>
+                        {validation.event_types && <p className="mt-1 text-xs text-red-600">{validation.event_types}</p>}
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-semibold">Feed Scope</p>
+                        <div className="mt-2 inline-flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+                          <button
+                            type="button"
+                            aria-pressed={draft.feed_scope === 'all'}
+                            className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                              draft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'
+                            }`}
+                            onClick={() => setDraft((current) => ({ ...current, feed_scope: 'all', feed_ids: [] }))}
+                          >
+                            All Feeds
+                          </button>
+                          <button
+                            type="button"
+                            aria-pressed={draft.feed_scope === 'selected'}
+                            className={`rounded px-3 py-1.5 text-sm font-semibold ${
+                              draft.feed_scope === 'selected'
+                                ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
+                                : 'text-slate dark:text-white/75'
+                            }`}
+                            onClick={() => setDraft((current) => ({ ...current, feed_scope: 'selected' }))}
+                          >
+                            Selected Feeds
+                          </button>
+                        </div>
+
+                        {draft.feed_scope === 'selected' && (
+                          <div className="mt-3 max-h-44 overflow-auto rounded border border-slate/20 p-2 dark:border-cyan-900/40">
+                            {feeds.length ? (
+                              feeds.map((feed) => (
+                                <label key={feed.id} className="flex items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-slate/5 dark:hover:bg-white/[0.04]">
+                                  <input
+                                    type="checkbox"
+                                    checked={draft.feed_ids.includes(feed.id)}
+                                    onChange={(event) =>
+                                      setDraft((current) => ({
+                                        ...current,
+                                        feed_ids: event.target.checked
+                                          ? Array.from(new Set([...current.feed_ids, feed.id]))
+                                          : current.feed_ids.filter((feedId) => feedId !== feed.id),
+                                      }))
+                                    }
+                                  />
+                                  <span className="min-w-0 truncate">{feed.name}</span>
+                                </label>
+                              ))
+                            ) : (
+                              <p className="px-2 py-1.5 text-sm text-slate dark:text-white/70">No feeds are available.</p>
+                            )}
+                          </div>
+                        )}
+                        {validation.feed_ids && <p className="mt-1 text-xs text-red-600">{validation.feed_ids}</p>}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4">
+                      <TextInput
+                        id="smtp-subject-template"
+                        label="Email Subject Template"
+                        value={draft.subject_template}
+                        error={validation.subject_template}
+                        onChange={(value) => setDraft((current) => ({ ...current, subject_template: value }))}
+                      />
+                      <TextArea
+                        id="smtp-html-template"
+                        label="Email HTML Template"
+                        value={draft.html_template}
+                        error={validation.html_template}
+                        rows={9}
+                        onChange={(value) => setDraft((current) => ({ ...current, html_template: value }))}
+                      />
+                    </div>
+                  </div>
+
                   <div className="mt-5 flex flex-wrap items-center gap-2">
                     <button
                       type="button"
@@ -322,16 +470,33 @@ export function IntegrationsSettingsPage() {
               <aside className="space-y-4">
                 <div className="border-t border-slate/20 pt-4 dark:border-cyan-900/40 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                   <h3 className="font-semibold">Test Delivery</h3>
-                  <TextInput
-                    id="smtp-test-recipient"
-                    label="Recipient Email"
-                    type="email"
-                    value={testRecipient}
-                    placeholder="analyst@example.com"
-                    onChange={setTestRecipient}
-                  />
+                  <label className="mt-3 flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={sendTestEmail}
+                      onChange={(event) => {
+                        setSendTestEmail(event.target.checked)
+                        setTestResult(null)
+                      }}
+                    />
+                    Send a test email
+                  </label>
+                  {sendTestEmail && (
+                    <div className="mt-3">
+                      <TextInput
+                        id="smtp-test-recipient"
+                        label="Recipient Email"
+                        type="email"
+                        value={testRecipient}
+                        placeholder="analyst@example.com"
+                        onChange={setTestRecipient}
+                      />
+                    </div>
+                  )}
                   <p className="mt-2 text-xs text-slate dark:text-white/60">
-                    Leave blank to test connection and authentication only.
+                    {sendTestEmail
+                      ? 'Sends a rendered HTML email with the current template and form values.'
+                      : 'Runs connection and authentication only.'}
                   </p>
                 </div>
 
@@ -356,6 +521,22 @@ export function IntegrationsSettingsPage() {
                     <p className="mt-2 text-sm text-slate dark:text-white/70">No SMTP test has run in this session.</p>
                   )}
                 </div>
+
+                <div className="border-t border-slate/20 pt-4 dark:border-cyan-900/40">
+                  <h3 className="font-semibold">Template Variables</h3>
+                  <div className="mt-3 max-h-56 overflow-auto rounded border border-slate/20 p-2 dark:border-cyan-900/40">
+                    {variables.length ? (
+                      variables.map((variable) => (
+                        <div key={variable.key} className="rounded px-2 py-1.5 text-xs">
+                          <code className="font-semibold">{`{{ ${variable.key} }}`}</code>
+                          <p className="mt-0.5 text-slate dark:text-white/60">{variable.description}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="px-2 py-1.5 text-sm text-slate dark:text-white/70">No template variables loaded.</p>
+                    )}
+                  </div>
+                </div>
               </aside>
             </div>
 
@@ -378,6 +559,7 @@ export function IntegrationsSettingsPage() {
           </div>
         )}
       </section>
+      )}
 
       {confirmDiscardUnsavedIntegrationChanges.discardDialog}
     </div>
@@ -435,6 +617,45 @@ function TextInput({
   )
 }
 
+function TextArea({
+  id,
+  label,
+  value,
+  onChange,
+  error,
+  rows = 6,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  error?: string
+  rows?: number
+}) {
+  const errorId = `${id}-error`
+  return (
+    <div>
+      <label htmlFor={id} className="text-sm font-semibold">
+        {label}
+      </label>
+      <textarea
+        id={id}
+        rows={rows}
+        className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+        value={value}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {error && (
+        <p id={errorId} className="mt-1 text-xs text-red-600">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="border-l border-slate/20 py-1 pl-3 dark:border-cyan-900/40">
@@ -446,6 +667,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function resolveTestValidationError(
   draft: SMTPSettingsDraft,
+  sendTestEmail: boolean,
   testRecipient: string,
   firstValidationError: string | null,
 ) {
@@ -456,10 +678,16 @@ function resolveTestValidationError(
     return 'SMTP host is required before testing.'
   }
   const recipient = testRecipient.trim()
-  if (recipient && !looksLikeEmail(recipient)) {
+  if (!sendTestEmail) {
+    return null
+  }
+  if (!recipient) {
+    return 'Recipient email is required before sending a test email.'
+  }
+  if (!looksLikeEmail(recipient)) {
     return 'Enter a valid test recipient email address.'
   }
-  if (recipient && !draft.from_email.trim()) {
+  if (!draft.from_email.trim()) {
     return 'Sender email is required before sending a test email.'
   }
   return null

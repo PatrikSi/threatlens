@@ -69,7 +69,7 @@ const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebho
   ],
 }
 
-export function NotificationsPage() {
+export function NotificationWebhooksSettings() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null)
@@ -1186,6 +1186,10 @@ export function NotificationsPage() {
       {confirmDiscardUnsavedWebhookChanges.discardDialog}
     </div>
   )
+}
+
+export function NotificationsPage() {
+  return <NotificationWebhooksSettings />
 }
 
 function KeyValueEditor({

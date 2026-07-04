@@ -6,11 +6,21 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
+from app.schemas.notification import NotificationEventType, NotificationFeedScope
+
 IntegrationType = Literal["smtp"]
 IntegrationDirection = Literal["destination"]
 IntegrationHealthStatus = Literal["unknown", "healthy", "warning", "error"]
 IntegrationRunStatus = Literal["succeeded", "failed"]
 SMTPSecurityMode = Literal["starttls", "ssl_tls", "none"]
+
+DEFAULT_SMTP_EVENT_TYPES: tuple[NotificationEventType, ...] = ("rss_item_new",)
+DEFAULT_SMTP_SUBJECT_TEMPLATE = "[ThreatLens] {{ event.type }}: {{ item.title }}"
+DEFAULT_SMTP_HTML_TEMPLATE = """<h2>{{ event.type }}</h2>
+<p><strong>{{ item.title }}</strong></p>
+<p>{{ item.summary }}</p>
+<p><a href="{{ item.url }}">Open source item</a></p>
+<p>Feed: {{ feed.name }}</p>"""
 
 
 class IntegrationConnectorResponse(BaseModel):
@@ -48,6 +58,11 @@ class SMTPSettingsUpdate(BaseModel):
     from_email: EmailStr | None = None
     from_name: str | None = Field(default=None, max_length=255)
     timeout_seconds: int = Field(default=10, ge=1, le=60)
+    event_types: list[NotificationEventType] = Field(default_factory=lambda: list(DEFAULT_SMTP_EVENT_TYPES))
+    feed_scope: NotificationFeedScope = "all"
+    feed_ids: list[uuid.UUID] = Field(default_factory=list)
+    subject_template: str = Field(default=DEFAULT_SMTP_SUBJECT_TEMPLATE, max_length=500)
+    html_template: str = Field(default=DEFAULT_SMTP_HTML_TEMPLATE, max_length=50000)
 
     @field_validator("host", "username", "password", "from_name", mode="before")
     @classmethod
@@ -68,8 +83,46 @@ class SMTPSettingsUpdate(BaseModel):
             raise ValueError("host must not contain whitespace")
         return value
 
+    @field_validator("subject_template", "html_template", mode="before")
+    @classmethod
+    def normalize_required_template(cls, value):
+        if value is None:
+            return ""
+        if not isinstance(value, str):
+            return value
+        return value.strip()
+
     @model_validator(mode="after")
     def validate_configuration(self):
+        deduped_event_types: list[NotificationEventType] = []
+        seen_event_types: set[NotificationEventType] = set()
+        for event_type in self.event_types:
+            if event_type in seen_event_types:
+                continue
+            seen_event_types.add(event_type)
+            deduped_event_types.append(event_type)
+        self.event_types = deduped_event_types
+
+        deduped_feed_ids: list[uuid.UUID] = []
+        seen_feed_ids: set[uuid.UUID] = set()
+        for feed_id in self.feed_ids:
+            if feed_id in seen_feed_ids:
+                continue
+            seen_feed_ids.add(feed_id)
+            deduped_feed_ids.append(feed_id)
+        self.feed_ids = deduped_feed_ids
+
+        if self.feed_scope == "all":
+            self.feed_ids = []
+        elif not self.feed_ids:
+            raise ValueError("feed_ids is required when feed_scope is selected")
+
+        if not self.event_types:
+            raise ValueError("event_types must contain at least one notification event")
+        if not self.subject_template:
+            raise ValueError("subject_template is required")
+        if not self.html_template:
+            raise ValueError("html_template is required")
         if self.password and not self.username:
             raise ValueError("username is required when password is provided")
         if self.clear_password and self.password:
@@ -101,6 +154,11 @@ class SMTPSettingsResponse(BaseModel):
     from_email: EmailStr | None
     from_name: str | None
     timeout_seconds: int
+    event_types: list[NotificationEventType]
+    feed_scope: NotificationFeedScope
+    feed_ids: list[uuid.UUID]
+    subject_template: str
+    html_template: str
     health_status: IntegrationHealthStatus
     last_test_at: datetime | None
     last_success_at: datetime | None
@@ -112,8 +170,17 @@ class SMTPSettingsResponse(BaseModel):
 
 
 class SMTPTestRequest(BaseModel):
+    send_email: bool = False
     recipient_email: EmailStr | None = None
     settings: SMTPSettingsUpdate | None = None
+
+    @model_validator(mode="after")
+    def validate_send_mode(self):
+        if self.recipient_email is not None:
+            self.send_email = True
+        if self.send_email and self.recipient_email is None:
+            raise ValueError("recipient_email is required when send_email is true")
+        return self
 
 
 class SMTPTestResponse(BaseModel):

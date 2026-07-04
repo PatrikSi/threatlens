@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import get_args
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -9,11 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.models.integration import IntegrationInstance, IntegrationRun
 from app.schemas.integration import (
+    DEFAULT_SMTP_EVENT_TYPES,
+    DEFAULT_SMTP_HTML_TEMPLATE,
+    DEFAULT_SMTP_SUBJECT_TEMPLATE,
     IntegrationSummaryResponse,
     SMTPSettingsResponse,
     SMTPSettingsUpdate,
     SMTPTestResponse,
 )
+from app.schemas.notification import NotificationEventType
 from app.services.integration_registry import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.secret_storage import decrypt_json, encrypt_json
 
@@ -23,6 +28,7 @@ INTEGRATION_DIRECTION_DESTINATION = "destination"
 INTEGRATION_HEALTH_UNKNOWN = "unknown"
 INTEGRATION_HEALTH_HEALTHY = "healthy"
 INTEGRATION_HEALTH_ERROR = "error"
+VALID_SMTP_EVENT_TYPES = frozenset(get_args(NotificationEventType))
 
 
 @dataclass(frozen=True)
@@ -37,6 +43,11 @@ class ActiveSMTPSettings:
     from_email: str | None
     from_name: str | None
     timeout_seconds: int
+    event_types: list[str]
+    feed_scope: str
+    feed_ids: list[uuid.UUID]
+    subject_template: str
+    html_template: str
 
     @property
     def configured(self) -> bool:
@@ -146,6 +157,11 @@ def smtp_settings_response_from_model(instance: IntegrationInstance) -> SMTPSett
         from_email=config["from_email"],
         from_name=config["from_name"],
         timeout_seconds=config["timeout_seconds"],
+        event_types=config["event_types"],
+        feed_scope=config["feed_scope"],
+        feed_ids=config["feed_ids"],
+        subject_template=config["subject_template"],
+        html_template=config["html_template"],
         health_status=health_status,
         last_test_at=instance.last_test_at,
         last_success_at=instance.last_success_at,
@@ -176,6 +192,11 @@ def build_active_smtp_settings(
             from_email=config["from_email"],
             from_name=config["from_name"],
             timeout_seconds=config["timeout_seconds"],
+            event_types=config["event_types"],
+            feed_scope=config["feed_scope"],
+            feed_ids=config["feed_ids"],
+            subject_template=config["subject_template"],
+            html_template=config["html_template"],
         )
 
     config = _normalize_smtp_config(instance.config_json)
@@ -193,6 +214,11 @@ def build_active_smtp_settings(
         from_email=config["from_email"],
         from_name=config["from_name"],
         timeout_seconds=config["timeout_seconds"],
+        event_types=config["event_types"],
+        feed_scope=config["feed_scope"],
+        feed_ids=config["feed_ids"],
+        subject_template=config["subject_template"],
+        html_template=config["html_template"],
     )
 
 
@@ -274,13 +300,18 @@ def _smtp_config_from_payload(payload: SMTPSettingsUpdate) -> dict:
         "from_email": str(payload.from_email) if payload.from_email is not None else None,
         "from_name": _normalize_optional_text(payload.from_name),
         "timeout_seconds": int(payload.timeout_seconds),
+        "event_types": list(payload.event_types),
+        "feed_scope": payload.feed_scope,
+        "feed_ids": [str(feed_id) for feed_id in payload.feed_ids],
+        "subject_template": payload.subject_template.strip(),
+        "html_template": payload.html_template.strip(),
     }
 
 
 def _normalize_smtp_config(value) -> dict:
     config = value if isinstance(value, dict) else {}
     defaults = _default_smtp_config()
-    return {
+    normalized = {
         "host": _normalize_optional_text(config.get("host")),
         "port": _coerce_int(config.get("port"), default=defaults["port"], minimum=1, maximum=65535),
         "security": _normalize_security(config.get("security")),
@@ -293,7 +324,18 @@ def _normalize_smtp_config(value) -> dict:
             minimum=1,
             maximum=60,
         ),
+        "event_types": _normalize_event_types(config.get("event_types"), default=defaults["event_types"]),
+        "feed_scope": _normalize_feed_scope(config.get("feed_scope")),
+        "feed_ids": _normalize_feed_ids(config.get("feed_ids")),
+        "subject_template": _normalize_required_text(
+            config.get("subject_template"),
+            default=defaults["subject_template"],
+        ),
+        "html_template": _normalize_required_text(config.get("html_template"), default=defaults["html_template"]),
     }
+    if normalized["feed_scope"] == "all":
+        normalized["feed_ids"] = []
+    return normalized
 
 
 def _default_smtp_config() -> dict:
@@ -305,6 +347,11 @@ def _default_smtp_config() -> dict:
         "from_email": None,
         "from_name": None,
         "timeout_seconds": 10,
+        "event_types": list(DEFAULT_SMTP_EVENT_TYPES),
+        "feed_scope": "all",
+        "feed_ids": [],
+        "subject_template": DEFAULT_SMTP_SUBJECT_TEMPLATE,
+        "html_template": DEFAULT_SMTP_HTML_TEMPLATE,
     }
 
 
@@ -326,6 +373,46 @@ def _normalize_security(value) -> str:
     if normalized not in {"starttls", "ssl_tls", "none"}:
         return "starttls"
     return normalized
+
+
+def _normalize_event_types(value, *, default: list[str]) -> list[str]:
+    candidates = value if isinstance(value, list) else []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, str) or candidate not in VALID_SMTP_EVENT_TYPES or candidate in seen:
+            continue
+        seen.add(candidate)
+        normalized.append(candidate)
+    return normalized or list(default)
+
+
+def _normalize_feed_scope(value) -> str:
+    normalized = _normalize_optional_text(value) or "all"
+    if normalized not in {"all", "selected"}:
+        return "all"
+    return normalized
+
+
+def _normalize_feed_ids(value) -> list[uuid.UUID]:
+    candidates = value if isinstance(value, list) else []
+    normalized: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for candidate in candidates:
+        try:
+            feed_id = candidate if isinstance(candidate, uuid.UUID) else uuid.UUID(str(candidate))
+        except (TypeError, ValueError):
+            continue
+        if feed_id in seen:
+            continue
+        seen.add(feed_id)
+        normalized.append(feed_id)
+    return normalized
+
+
+def _normalize_required_text(value, *, default: str) -> str:
+    normalized = _normalize_optional_text(value)
+    return normalized if normalized is not None else default
 
 
 def _coerce_int(value, *, default: int, minimum: int, maximum: int) -> int:

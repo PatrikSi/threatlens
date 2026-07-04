@@ -1,6 +1,6 @@
 from app.schemas.integration import IntegrationConnectorResponse
 
-SMTP_CONFIG_SCHEMA_VERSION = 1
+SMTP_CONFIG_SCHEMA_VERSION = 2
 
 
 def list_integration_connectors() -> list[IntegrationConnectorResponse]:
