@@ -14,7 +14,23 @@ from fastapi.routing import APIRoute
 
 from app.core.config import Settings, get_settings
 from app.db import session as db_session
-from app.api.routes import ai, alerts, audit, auth, feeds, health, items, notifications, stats, tagging, tags, tokens, users, views
+from app.api.routes import (
+    ai,
+    alerts,
+    audit,
+    auth,
+    feeds,
+    health,
+    integrations,
+    items,
+    notifications,
+    stats,
+    tagging,
+    tags,
+    tokens,
+    users,
+    views,
+)
 from app.services.encrypted_data_inventory import record_startup_encrypted_data_inventory_error, refresh_startup_encrypted_data_inventory
 from app.version import get_app_version
 
@@ -43,6 +59,7 @@ API_ROUTERS: tuple[APIRouter, ...] = (
     tokens.router,
     users.router,
     audit.router,
+    integrations.router,
     notifications.router,
     ai.router,
     stats.router,

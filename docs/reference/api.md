@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:b3298d8973238f16b425b2e8ea018ea9bdc78102d1eb1e52c65bf2a0ab4b5ca9`
+- OpenAPI contract anchor: `openapi-sha256:ff1100661b2dbcbf2d3d8bcb933fb4f4f4f357492c42a43c5dba7017be6c136d`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -20,6 +20,12 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Ai
 
+### `POST /v1/ai/daily-brief/backfill`
+- Summary: Queue Daily Brief Backfill
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:ai`
+- Request body: `application/json` -> AIDailyBriefBackfillRequest
+- Responses: `200` `application/json` -> AIDailyBriefBackfillResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/ai/daily-brief/generate`
 - Summary: Generate Daily Brief
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -328,6 +334,36 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Summary: Worker
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> unspecified
+
+## Integrations
+
+### `GET /v1/integrations`
+- Summary: List Integrations
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[IntegrationSummaryResponse]
+### `GET /v1/integrations/connectors`
+- Summary: Get Integration Connectors
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[IntegrationConnectorResponse]
+### `GET /v1/integrations/smtp/settings`
+- Summary: Get Smtp Settings
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> SMTPSettingsResponse
+### `PUT /v1/integrations/smtp/settings`
+- Summary: Update Smtp Settings
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPSettingsUpdate
+- Responses: `200` `application/json` -> SMTPSettingsResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/integrations/smtp/test`
+- Summary: Test Smtp Settings
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPTestRequest
+- Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> HTTPValidationError
 
 ## Items
 

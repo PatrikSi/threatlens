@@ -41,6 +41,7 @@ class EncryptedDataInventoryResponse(BaseModel):
     using_derived_app_data_encryption_key: bool
     startup_scan: EncryptedDataStartupScan
     feeds: EncryptedDataInventoryCategory
+    integration_secrets: EncryptedDataInventoryCategory
     notification_webhooks: EncryptedDataInventoryCategory
     notification_delivery_snapshots: EncryptedDataInventoryCategory
     summary: EncryptedDataInventorySummary
