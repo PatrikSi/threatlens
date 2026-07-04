@@ -31,13 +31,6 @@ const notificationsPageDomMocks = vi.hoisted(() => ({
     isError: false,
     error: null,
   },
-  webhookPolicy: {
-    role: 'admin' as string,
-    can_manage_webhooks: true,
-    reason: null as string | null,
-    allowed_hosts_configured: false,
-  },
-  webhookPolicyError: false,
   saveMutate: vi.fn(),
   deleteMutate: vi.fn(),
   testMutate: vi.fn(),
@@ -98,20 +91,6 @@ vi.mock('@tanstack/react-query', () => ({
             updated_at: '2026-04-21T10:00:00Z',
           },
         ],
-      }
-    }
-
-    if (scope === 'notifications' && key === 'webhook-policy') {
-      if (notificationsPageDomMocks.webhookPolicyError) {
-        return {
-          ...baseResult,
-          isError: true,
-          error: new Error('policy unavailable'),
-        }
-      }
-      return {
-        ...baseResult,
-        data: notificationsPageDomMocks.webhookPolicy,
       }
     }
 
@@ -271,19 +250,11 @@ afterEach(() => {
   notificationsPageDomMocks.retryMutate.mockReset()
   notificationsPageDomMocks.retryReset.mockReset()
   notificationsPageDomMocks.currentUser.data.role = 'admin'
-  notificationsPageDomMocks.webhookPolicy.role = 'admin'
-  notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = true
-  notificationsPageDomMocks.webhookPolicy.reason = null
-  notificationsPageDomMocks.webhookPolicy.allowed_hosts_configured = false
-  notificationsPageDomMocks.webhookPolicyError = false
 })
 
 describe('NotificationsPage DOM workflows', () => {
   it('renders viewer access as read-only and hides mutation controls', () => {
     notificationsPageDomMocks.currentUser.data.role = 'viewer'
-    notificationsPageDomMocks.webhookPolicy.role = 'viewer'
-    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
-    notificationsPageDomMocks.webhookPolicy.reason = 'Viewer access is read-only. Webhook settings can only be changed by operators.'
     const view = renderPage()
 
     expect(pageText()).toContain('Viewer access is read-only')
@@ -295,53 +266,23 @@ describe('NotificationsPage DOM workflows', () => {
     expect(view.querySelector<HTMLButtonElement>('button[aria-label="Remove Headers row 1"]')).toBeNull()
   })
 
-  it('disables analyst webhook writes until the allowlist policy is configured', () => {
+  it('allows analysts to manage webhook settings', () => {
     notificationsPageDomMocks.currentUser.data.role = 'analyst'
-    notificationsPageDomMocks.webhookPolicy.role = 'analyst'
-    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
-    notificationsPageDomMocks.webhookPolicy.reason = 'Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.'
     const view = renderPage()
 
-    expect(pageText()).toContain('Analyst webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured.')
-    expect(pageText()).toContain('Webhook writes unavailable')
-    expect(pageText()).toContain('Select a saved webhook to inspect its current configuration in read-only mode.')
+    expect(pageText()).not.toContain('Webhook writes unavailable')
+    expect(pageText()).not.toContain('read-only mode')
 
     const nameInput = view.querySelector<HTMLInputElement>('#notification-webhook-name')
-    expect(nameInput).toBeNull()
+    expect(nameInput).not.toBeNull()
 
     const testButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Test webhook'))
-    expect(testButton).toBeUndefined()
+    expect(testButton).not.toBeUndefined()
 
     const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Create webhook'),
     )
-    expect(saveButton).toBeUndefined()
-  })
-
-  it('disables admin webhook writes when the egress policy is locked down', () => {
-    notificationsPageDomMocks.webhookPolicy.can_manage_webhooks = false
-    notificationsPageDomMocks.webhookPolicy.reason =
-      'Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled.'
-    const view = renderPage()
-
-    expect(pageText()).toContain('Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured')
-    expect(pageText()).toContain('Webhook writes unavailable')
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
-
-    const saveButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Create webhook'),
-    )
-    expect(saveButton).toBeUndefined()
-  })
-
-  it('shows policy load errors instead of presenting them as a role restriction', () => {
-    notificationsPageDomMocks.webhookPolicyError = true
-    const view = renderPage()
-
-    expect(pageText()).toContain('Failed to load webhook policy.')
-    expect(view.querySelector('[role="alert"]')?.textContent).toContain('Failed to load webhook policy.')
-    expect(Array.from(view.querySelectorAll('button')).some((button) => button.textContent?.includes('New webhook'))).toBe(false)
-    expect(view.querySelector<HTMLInputElement>('#notification-webhook-name')).toBeNull()
+    expect(saveButton).not.toBeUndefined()
   })
 
   it('marks the selected webhook and keeps the request-shaping controls accessible', () => {

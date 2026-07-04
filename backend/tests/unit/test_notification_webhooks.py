@@ -7,7 +7,6 @@ import httpx
 import pytest
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
@@ -52,11 +51,6 @@ def _persist_rows(db_session, *rows):
         db_session.flush()
 
 
-@pytest.fixture(autouse=True)
-def allow_admin_unrestricted_webhooks(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
-
-
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
     payload = NotificationWebhookWrite(
         name="Example",
@@ -87,9 +81,7 @@ def test_validate_notification_webhook_payload_rejects_public_http_targets(monke
         validate_notification_webhook_payload(payload, set())
 
 
-def test_validate_notification_webhook_payload_for_actor_blocks_analysts_without_approved_hosts(monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-
+def test_validate_notification_webhook_payload_for_actor_allows_active_operators_by_default():
     payload = NotificationWebhookWrite(
         name="Example",
         url_template="https://hooks.example.com/notify",
@@ -104,119 +96,6 @@ def test_validate_notification_webhook_payload_for_actor_blocks_analysts_without
         is_active=True,
         is_approved=True,
     )
-
-    with pytest.raises(
-        ValueError,
-        match="Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
-    ):
-        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
-
-
-def test_validate_notification_webhook_payload_for_actor_requires_approved_host_for_analysts(monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["*.hooks.example.com"])
-
-    allowed_payload = NotificationWebhookWrite(
-        name="Allowed",
-        url_template="https://ingest.hooks.example.com/notify",
-        method="POST",
-        body_mode="none",
-    )
-    blocked_payload = NotificationWebhookWrite(
-        name="Blocked",
-        url_template="https://evil.example.net/notify",
-        method="POST",
-        body_mode="none",
-    )
-    analyst = User(
-        id=uuid.uuid4(),
-        email="analyst@example.com",
-        password_hash="x",
-        role="analyst",
-        is_active=True,
-        is_approved=True,
-    )
-
-    validate_notification_webhook_payload_for_actor(allowed_payload, set(), actor_user=analyst)
-
-    with pytest.raises(
-        ValueError,
-        match="Webhook destination 'https://evil.example.net/notify' is not approved for analyst-managed webhook deliveries",
-    ):
-        validate_notification_webhook_payload_for_actor(blocked_payload, set(), actor_user=analyst)
-
-
-def test_validate_notification_webhook_payload_for_actor_requires_approved_url_prefix_for_analysts(monkeypatch):
-    monkeypatch.setattr(
-        get_settings(),
-        "notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-
-    allowed_payload = NotificationWebhookWrite(
-        name="Allowed tenant",
-        url_template="https://hooks.example.com/services/tenant-a/notify",
-        method="POST",
-        body_mode="none",
-    )
-    blocked_payload = NotificationWebhookWrite(
-        name="Blocked tenant",
-        url_template="https://hooks.example.com/services/tenant-b/notify",
-        method="POST",
-        body_mode="none",
-    )
-    analyst = User(
-        id=uuid.uuid4(),
-        email="analyst@example.com",
-        password_hash="x",
-        role="analyst",
-        is_active=True,
-        is_approved=True,
-    )
-
-    validate_notification_webhook_payload_for_actor(allowed_payload, set(), actor_user=analyst)
-
-    with pytest.raises(
-        ValueError,
-        match="Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries",
-    ):
-        validate_notification_webhook_payload_for_actor(blocked_payload, set(), actor_user=analyst)
-
-
-def test_validate_notification_webhook_payload_for_actor_rejects_non_default_ports_for_analysts(monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
-    payload = NotificationWebhookWrite(
-        name="Blocked",
-        url_template="https://hooks.example.com:8443/notify",
-        method="POST",
-        body_mode="none",
-    )
-    analyst = User(
-        id=uuid.uuid4(),
-        email="analyst@example.com",
-        password_hash="x",
-        role="analyst",
-        is_active=True,
-        is_approved=True,
-    )
-
-    with pytest.raises(
-        ValueError,
-        match="Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries",
-    ):
-        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
-
-
-def test_validate_notification_webhook_payload_for_actor_blocks_admin_staging_without_allowlist(monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
-
-    payload = NotificationWebhookWrite(
-        name="Admin staged webhook",
-        url_template="https://hooks.example.com/notify",
-        method="POST",
-        body_mode="none",
-    )
     admin = User(
         id=uuid.uuid4(),
         email="admin@example.com",
@@ -226,11 +105,38 @@ def test_validate_notification_webhook_payload_for_actor_blocks_admin_staging_wi
         is_approved=True,
     )
 
-    with pytest.raises(
-        ValueError,
-        match="Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured",
-    ):
-        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=admin)
+    validate_notification_webhook_payload_for_actor(payload, set(), actor_user=analyst)
+    validate_notification_webhook_payload_for_actor(payload, set(), actor_user=admin)
+
+
+def test_validate_notification_webhook_payload_for_actor_rejects_viewers_and_inactive_users():
+    payload = NotificationWebhookWrite(
+        name="Blocked",
+        url_template="https://hooks.example.com/notify",
+        method="POST",
+        body_mode="none",
+    )
+    viewer = User(
+        id=uuid.uuid4(),
+        email="viewer@example.com",
+        password_hash="x",
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    inactive_analyst = User(
+        id=uuid.uuid4(),
+        email="inactive@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=False,
+        is_approved=True,
+    )
+
+    with pytest.raises(ValueError, match="no longer authorized"):
+        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=viewer)
+    with pytest.raises(ValueError, match="no longer active and approved"):
+        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=inactive_analyst)
 
 
 def test_notification_webhook_write_extracts_query_params_from_url_template():
@@ -679,39 +585,57 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
     assert result.response_body_preview == f"Stored body withheld ({len(response_body)} chars)"
 
 
-def test_test_notification_webhook_blocks_admin_targets_without_allowlist_by_default(db_session, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
+def test_send_rendered_notification_request_reads_preview_before_client_closes(monkeypatch):
+    client_closed = {"value": False}
+    request = httpx.Request("POST", "https://hooks.example.com/notify")
 
-    user = User(
-        id=uuid.uuid4(),
-        email="admin@example.com",
-        password_hash="x",
-        role="admin",
-        is_active=True,
-        is_approved=True,
-    )
-    payload = NotificationWebhookWrite(
-        name="Example",
-        url_template="https://hooks.example.com/notify",
-        method="POST",
-        body_mode="none",
-    )
-    db_session.add(user)
-    db_session.commit()
+    class _Client:
+        def __enter__(self):
+            client_closed["value"] = False
+            return object()
+
+        def __exit__(self, exc_type, exc, tb):
+            _ = (exc_type, exc, tb)
+            client_closed["value"] = True
+            return False
+
+    class _Stream(httpx.SyncByteStream):
+        def __iter__(self):
+            if client_closed["value"]:
+                raise httpx.ReadError("client closed before preview read")
+            yield b'{"ok":true}'
+
+    response = httpx.Response(204, request=request, stream=_Stream())
 
     monkeypatch.setattr(
-        "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+        "app.services.notification_webhook_http.build_safe_http_client",
+        lambda **_kwargs: _Client(),
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_request_with_redirects",
+        lambda *_args, **_kwargs: response,
     )
 
-    result = run_test_notification_webhook(db_session, user=user, payload=payload)
-
-    assert result.success is False
-    assert (
-        result.error
-        == "Admin-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled"
+    result = send_rendered_notification_request(
+        SimpleNamespace(
+            timeout_seconds=10,
+            url="https://hooks.example.com/notify",
+            method="POST",
+            headers=[],
+            query_params=[],
+            body=None,
+            headers_dict={},
+            query_param_pairs=[],
+            json_body=None,
+            form_body=None,
+            raw_body=None,
+        )
     )
+
+    assert result.success is True
+    assert result.status_code == 204
+    assert result.response_body_preview == '{"ok":true}'
+    assert client_closed["value"] is True
 
 
 def test_render_notification_request_defaults_raw_json_to_application_json():
@@ -880,30 +804,6 @@ def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_d
     assert response.status_code == 204
 
 
-def test_send_request_with_redirects_blocks_same_origin_redirect_outside_approved_path_prefix(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
-
-    def _handler(request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/tenant-a/start":
-            return httpx.Response(302, headers={"Location": "https://hooks.example.com/tenant-b/final"})
-        return httpx.Response(204, request=request)
-
-    transport = httpx.MockTransport(_handler)
-    with httpx.Client(transport=transport) as client:
-        with pytest.raises(RedirectError, match="Redirect target is not approved"):
-            send_request_with_redirects(
-                client,
-                method="POST",
-                url="https://hooks.example.com/tenant-a/start",
-                headers={"Content-Type": "application/json"},
-                params=[],
-                json_body={"title": "ThreatLens"},
-                form_body=None,
-                raw_body=None,
-                redirect_allowlist_entries=("https://hooks.example.com/tenant-a",),
-            )
-
-
 def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch):
     captured: dict[str, object] = {}
 
@@ -1068,9 +968,7 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (rendered_headers or []))
 
 
-def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets(db_session, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
+def test_process_notification_webhook_delivery_revalidates_runtime_url_safety(db_session, monkeypatch):
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",
@@ -1083,7 +981,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
         id=uuid.uuid4(),
         user_id=user.id,
         name="Restricted webhook",
-        url_template="https://evil.example.net/hook",
+        url_template="http://hooks.example.com/hook",
         method="POST",
         feed_scope="all",
         feed_ids_json=[],
@@ -1103,7 +1001,7 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
         status_code=None,
         duration_ms=None,
         timeout_seconds=10,
-        rendered_url="https://evil.example.net/hook",
+        rendered_url="http://hooks.example.com/hook",
         rendered_method="POST",
         rendered_headers_json=[],
         rendered_query_params_json=[],
@@ -1128,17 +1026,12 @@ def test_process_notification_webhook_delivery_blocks_disallowed_analyst_targets
 
     assert attempt.claimed is True
     assert attempt.result.success is False
-    assert (
-        attempt.result.error
-        == "Webhook destination 'https://evil.example.net/hook' is not approved for analyst-managed webhook deliveries"
-    )
+    assert attempt.result.error == "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None
 
 
 def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner(db_session, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",
@@ -1204,8 +1097,6 @@ def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner
 
 
 def test_process_notification_webhook_delivery_fails_closed_for_downgraded_owner_role(db_session, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",

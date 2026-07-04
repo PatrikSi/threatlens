@@ -4,6 +4,7 @@ import json
 import hashlib
 import logging
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -37,10 +38,6 @@ from app.services.notification_webhook_http import (
     THREATLENS_DELIVERY_ID_HEADER,
     canonicalize_headers,
     default_raw_content_type,
-)
-from app.services.notification_webhook_policy import (
-    admin_notification_webhook_unrestricted_enabled,
-    validate_notification_target_for_actor,
 )
 from app.services.notification_webhook_storage import (
     POLICY_FAILURE_ERROR_PREFIX,
@@ -250,12 +247,46 @@ class NotificationDeliveryReservationBatch:
     skipped: int
 
 
-def get_notification_webhook_allowed_hosts() -> tuple[str, ...]:
-    return tuple(get_settings().notification_webhook_allowed_hosts)
-
-
 def list_template_variables() -> list[NotificationTemplateVariable]:
     return list(TEMPLATE_VARIABLES)
+
+
+def find_unknown_template_variables_in_texts(fragments: Iterable[str | None]) -> set[str]:
+    unknown: set[str] = set()
+    for fragment in fragments:
+        if not fragment:
+            continue
+        for match in TEMPLATE_PATTERN.findall(fragment):
+            if match not in TEMPLATE_VARIABLE_KEYS:
+                unknown.add(match)
+    return unknown
+
+
+def render_notification_template_text(
+    template: str,
+    *,
+    user: User | SimpleNamespace,
+    feed: Feed | SimpleNamespace | None,
+    item: Item | SimpleNamespace | None,
+    event_type: NotificationEventType,
+    triggered_at: datetime | None = None,
+    delivery_id: uuid.UUID | None = None,
+    alert_context: AlertMatchContext | None = None,
+    failed_webhook_context: FailedWebhookContext | None = None,
+    digest_context: DailyDigestContext | None = None,
+) -> str:
+    context = _build_template_context(
+        user=user,
+        feed=feed,
+        item=item,
+        event_type=event_type,
+        triggered_at=triggered_at or datetime.now(timezone.utc),
+        delivery_id=delivery_id or uuid.uuid4(),
+        alert_context=alert_context,
+        failed_webhook_context=failed_webhook_context,
+        digest_context=digest_context,
+    )
+    return _render_template(template, context)
 
 
 def validate_notification_webhook_payload(payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]) -> None:
@@ -302,11 +333,7 @@ def validate_notification_webhook_payload_for_actor(
     actor_user: User | SimpleNamespace | None,
 ) -> None:
     validate_notification_webhook_payload(payload, available_feed_ids)
-    validate_notification_target_for_actor(
-        payload.url_template,
-        actor_user=actor_user,
-        allowed_hosts=get_notification_webhook_allowed_hosts(),
-    )
+    validate_notification_actor_for_delivery(actor_user)
 
 
 def validate_notification_delivery_target_for_actor(
@@ -316,11 +343,17 @@ def validate_notification_delivery_target_for_actor(
 ) -> None:
     _upgrade_notification_webhook_delivery_secret_storage(delivery)
     rendered_url = _decrypt_notification_text(delivery.rendered_url) or ""
-    validate_notification_target_for_actor(
-        rendered_url,
-        actor_user=actor_user,
-        allowed_hosts=get_notification_webhook_allowed_hosts(),
-    )
+    validate_notification_actor_for_delivery(actor_user)
+    _validate_notification_target_url(rendered_url)
+
+
+def validate_notification_actor_for_delivery(actor_user: User | SimpleNamespace | None) -> None:
+    if actor_user is None:
+        raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
+    if not getattr(actor_user, "is_active", True) or not getattr(actor_user, "is_approved", True):
+        raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
+    if getattr(actor_user, "role", None) not in {ROLE_ADMIN, ROLE_ANALYST}:
+        raise ValueError("Webhook owner is no longer authorized to manage outbound deliveries")
 
 
 def render_notification_request(
@@ -467,11 +500,8 @@ def test_notification_webhook(
         digest_context=digest_context,
     )
     try:
-        validate_notification_target_for_actor(
-            rendered.url,
-            actor_user=user,
-            allowed_hosts=get_notification_webhook_allowed_hosts(),
-        )
+        validate_notification_actor_for_delivery(user)
+        _validate_notification_target_url(rendered.url)
     except ValueError as exc:
         return _redact_notification_test_response(NotificationWebhookTestResponse(
             success=False,
@@ -485,14 +515,7 @@ def test_notification_webhook(
             response_body_preview=None,
             error=str(exc),
         ))
-    redirect_allowlist_entries = _redirect_allowlist_entries_for_actor(user)
-    if redirect_allowlist_entries:
-        result = _send_rendered_notification_request(
-            rendered,
-            redirect_allowlist_entries=redirect_allowlist_entries,
-        )
-    else:
-        result = _send_rendered_notification_request(rendered)
+    result = _send_rendered_notification_request(rendered)
     return _redact_notification_test_response(result)
 
 
@@ -1049,14 +1072,7 @@ def process_notification_webhook_delivery(
         finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
         return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
     rendered = _rendered_request_from_delivery(delivery)
-    redirect_allowlist_entries = _redirect_allowlist_entries_for_actor(actor_user)
-    if redirect_allowlist_entries:
-        result = _send_rendered_notification_request(
-            rendered,
-            redirect_allowlist_entries=redirect_allowlist_entries,
-        )
-    else:
-        result = _send_rendered_notification_request(rendered)
+    result = _send_rendered_notification_request(rendered)
     finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
     return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized, claimed=True)
 
@@ -1758,12 +1774,7 @@ def _find_unknown_template_variables(payload: NotificationWebhookWrite) -> set[s
     if payload.body_template:
         template_fragments.append(payload.body_template)
 
-    unknown: set[str] = set()
-    for fragment in template_fragments:
-        for match in TEMPLATE_PATTERN.findall(fragment):
-            if match not in TEMPLATE_VARIABLE_KEYS:
-                unknown.add(match)
-    return unknown
+    return find_unknown_template_variables_in_texts(template_fragments)
 
 
 def _render_field(field: NotificationWebhookField, context: dict[str, str]) -> NotificationWebhookField:
@@ -1813,15 +1824,6 @@ def _send_request_with_redirects(*args, **kwargs):
 
 def _send_rendered_notification_request(*args, **kwargs):
     return notification_webhook_http.send_rendered_notification_request(*args, **kwargs)
-
-
-def _redirect_allowlist_entries_for_actor(actor_user: User | SimpleNamespace | None) -> tuple[str, ...]:
-    actor_role = getattr(actor_user, "role", None)
-    if actor_role == ROLE_ANALYST:
-        return get_notification_webhook_allowed_hosts()
-    if actor_role == ROLE_ADMIN and not admin_notification_webhook_unrestricted_enabled():
-        return get_notification_webhook_allowed_hosts()
-    return ()
 
 
 def _restore_saved_request_target(

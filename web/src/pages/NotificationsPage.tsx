@@ -16,7 +16,6 @@ import {
   NotificationWebhookDeliveryListResponse,
   NotificationWebhook,
   NotificationWebhookField,
-  NotificationWebhookPolicy,
   NotificationWebhookTestResponse,
   NotificationWebhookWriteRequest,
 } from '../types/api'
@@ -69,7 +68,7 @@ const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebho
   ],
 }
 
-export function NotificationsPage() {
+export function NotificationWebhooksSettings() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
   const [selectedWebhookId, setSelectedWebhookId] = useState<string | null>(null)
@@ -81,20 +80,8 @@ export function NotificationsPage() {
   const [pendingDeliveryRetry, setPendingDeliveryRetry] = useState<NotificationWebhookDelivery | null>(null)
   const currentUserRole = currentUserQuery.data?.role
   const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
-
-  const webhookPolicyQuery = useQuery({
-    queryKey: ['notifications', 'webhook-policy'],
-    queryFn: () => apiFetch<NotificationWebhookPolicy>('/notifications/webhook-policy'),
-  })
-
-  const policyErrorNotice = webhookPolicyQuery.isError
-    ? resolveApiMessage(
-        webhookPolicyQuery.error,
-        'Failed to load webhook policy. Webhook writes are disabled until the policy can be checked.',
-      )
-    : null
-  const canManageWebhooks = webhookPolicyQuery.data?.can_manage_webhooks ?? false
-  const accessNotice = policyErrorNotice ?? webhookPolicyQuery.data?.reason ?? null
+  const canManageWebhooks = currentUserRole === 'admin' || currentUserRole === 'analyst'
+  const accessNotice = isReadOnlyViewer ? 'Viewer access is read-only. Webhook settings can only be changed by operators.' : null
 
   const webhooksQuery = useQuery({
     queryKey: ['notifications', 'webhooks'],
@@ -220,8 +207,7 @@ export function NotificationsPage() {
     'Discard unsaved webhook changes?',
   )
   const showWebhookEditor = canManageWebhooks || Boolean(selectedWebhookId)
-  const webhookEditorBlockedNotice =
-    accessNotice ?? 'Webhook writes are unavailable until an operator updates the notification policy.'
+  const webhookEditorBlockedNotice = accessNotice ?? 'Webhook writes are available to admin and analyst accounts.'
 
   useEffect(() => {
     if (!sampleFeedId) {
@@ -305,7 +291,7 @@ export function NotificationsPage() {
     })
   }
 
-  if (currentUserQuery.isLoading || webhookPolicyQuery.isLoading) {
+  if (currentUserQuery.isLoading) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
         Loading notification settings...
@@ -326,16 +312,10 @@ export function NotificationsPage() {
         </p>
         {accessNotice && (
           <div
-            role={policyErrorNotice ? 'alert' : 'status'}
-            aria-live={policyErrorNotice ? 'assertive' : 'polite'}
+            role="status"
+            aria-live="polite"
             aria-atomic="true"
-            className={`mt-3 rounded-lg border px-3 py-2 text-sm ${
-              policyErrorNotice
-                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200'
-                : canManageWebhooks
-                ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/35 dark:text-amber-200'
-                : 'border-slate/20 bg-slate/5 text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70'
-            }`}
+            className="mt-3 rounded-lg border border-slate/20 bg-slate/5 px-3 py-2 text-sm text-slate dark:border-white/10 dark:bg-white/[0.04] dark:text-white/70"
           >
             {accessNotice}
           </div>
@@ -1186,6 +1166,10 @@ export function NotificationsPage() {
       {confirmDiscardUnsavedWebhookChanges.discardDialog}
     </div>
   )
+}
+
+export function NotificationsPage() {
+  return <NotificationWebhooksSettings />
 }
 
 function KeyValueEditor({

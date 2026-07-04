@@ -30,7 +30,10 @@ Route tree:
   - `/settings` -> `SettingsLayout`
     - index -> redirect to `/settings/account`
     - `/settings/account` -> `AccountPage`
-    - `/settings/notifications` -> `NotificationsPage`
+    - `/settings/notifications` -> redirect to `/settings/integrations/webhooks`
+    - `/settings/integrations` -> redirect to `/settings/integrations/webhooks`
+    - `/settings/integrations/webhooks` -> `NotificationWebhooksSettings`
+    - `/settings/integrations/smtp` -> admin-only `SMTPIntegrationSettingsPage`
     - `/settings/ai` -> admin-only `AiSettingsPage` (shown only when `features.ai_enabled`)
     - `/settings/tagging` -> admin-only `TaggingSettingsPage`
     - `/settings/tokens` -> `TokensPage`
@@ -348,14 +351,15 @@ UI elements:
 - Settings nav entries:
   - `Account`
   - `API Tokens`
-  - `Notifications`
+  - `Integrations` with `Webhooks`
+  - admin-only `Integrations` -> `SMTP`
   - admin-only `AI`, `Tagging`, `Users`, `Audit Logs`
 
 API calls:
 
 - `GET /auth/me` (via `useCurrentUser`)
 
-### `NotificationsPage`
+### `NotificationWebhooksSettings`
 
 UI elements:
 
@@ -378,6 +382,25 @@ API calls:
 - `POST /notifications/webhooks/test`
 - `GET /notifications/webhooks/{id}/deliveries?page=1&page_size=10`
 - `POST /notifications/webhooks/{id}/deliveries/{delivery_id}/retry`
+
+### `SMTPIntegrationSettingsPage`
+
+UI elements:
+
+- SMTP connection and authentication form
+- Event type and feed scope selection
+- Email subject and HTML template editor
+- Connection test and rendered test email action
+- Template variable reference list
+
+API calls:
+
+- `GET /integrations/connectors`
+- `GET /integrations/smtp/settings`
+- `PUT /integrations/smtp/settings`
+- `POST /integrations/smtp/test`
+- `GET /feeds`
+- `GET /notifications/template-variables`
 
 ### `TaggingSettingsPage`
 
@@ -513,6 +536,12 @@ API calls:
 | `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks/test` |
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks/{id}/deliveries` |
 | `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks/{id}/deliveries/{delivery_id}/retry` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/connectors` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/settings` |
+| `pages/IntegrationsSettingsPage.tsx` | `PUT` | `/integrations/smtp/settings` |
+| `pages/IntegrationsSettingsPage.tsx` | `POST` | `/integrations/smtp/test` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/feeds` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/notifications/template-variables` |
 | `pages/TaggingSettingsPage.tsx` | `GET` | `/feeds` |
 | `pages/TaggingSettingsPage.tsx` | `GET` | `/tagging/settings` |
 | `pages/TaggingSettingsPage.tsx` | `PUT` | `/tagging/settings` |
