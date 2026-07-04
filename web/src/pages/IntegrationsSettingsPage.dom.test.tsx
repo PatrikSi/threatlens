@@ -30,6 +30,11 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
     from_email: 'threatlens@example.com',
     from_name: 'ThreatLens',
     timeout_seconds: 10,
+    event_types: ['rss_item_new'],
+    feed_scope: 'all',
+    feed_ids: [],
+    subject_template: '[ThreatLens] {{ event.type }}: {{ item.title }}',
+    html_template: '<h2>{{ event.type }}</h2><p>{{ item.title }}</p>',
     health_status: 'healthy',
     last_test_at: '2026-07-04T10:00:00Z',
     last_success_at: '2026-07-04T10:00:00Z',
@@ -89,6 +94,46 @@ vi.mock('@tanstack/react-query', () => ({
         data: integrationsPageDomMocks.smtpSettings,
       }
     }
+    if (key === 'feeds') {
+      return {
+        ...baseResult,
+        data: [
+          {
+            id: 'feed-1',
+            name: 'Example Feed',
+            url: 'https://example.com/rss.xml',
+            description: null,
+            site_url: 'https://example.com',
+            language: null,
+            enabled: true,
+            fetch_mode: 'interval',
+            fetch_interval_seconds: 1800,
+            schedule_cron: null,
+            etag: null,
+            last_modified: null,
+            last_fetch_at: null,
+            last_success_at: null,
+            next_fetch_at: null,
+            error_count: 0,
+            last_error: null,
+            has_unreadable_url: false,
+            created_at: '2026-07-04T09:00:00Z',
+          },
+        ],
+      }
+    }
+    if (key === 'notifications:template-variables') {
+      return {
+        ...baseResult,
+        data: [
+          {
+            key: 'item.title',
+            description: 'Item title',
+            example: 'Example intrusion activity observed',
+          },
+        ],
+      }
+    }
     return { ...baseResult, data: undefined }
   },
   useMutation: (options: { mutationKey?: unknown }) => {
@@ -107,6 +152,30 @@ vi.mock('react-router-dom', async () => {
     useBlocker: routerMocks.useBlocker,
   }
 })
+
+vi.mock('../hooks/useCurrentUser', () => ({
+  useCurrentUser: () => ({
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin',
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-21T10:00:00Z',
+      created_at: '2026-04-20T10:00:00Z',
+      features: {
+        ai_enabled: true,
+        ai_configured: true,
+        ai_summary_enabled: true,
+        ai_relevance_enabled: true,
+        ai_daily_brief_enabled: true,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  }),
+}))
 
 import { IntegrationsSettingsPage } from './IntegrationsSettingsPage'
 
@@ -171,6 +240,11 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
 
     act(() => {
       setInputValue(view.querySelector<HTMLInputElement>('#smtp-host')!, 'draft.example.com')
+    })
+    act(() => {
+      getCheckboxByLabel(view, 'Send a test email')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
       setInputValue(view.querySelector<HTMLInputElement>('#smtp-test-recipient')!, 'analyst@example.com')
     })
 
@@ -180,9 +254,12 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
 
     expect(integrationsPageDomMocks.testMutate).toHaveBeenCalledWith(
       expect.objectContaining({
+        send_email: true,
         recipient_email: 'analyst@example.com',
         settings: expect.objectContaining({
           host: 'draft.example.com',
+          event_types: ['rss_item_new'],
+          subject_template: '[ThreatLens] {{ event.type }}: {{ item.title }}',
         }),
       }),
     )
@@ -202,3 +279,9 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     )
   })
 })
+
+function getCheckboxByLabel(rootNode: HTMLElement, labelText: string) {
+  return Array.from(rootNode.querySelectorAll('label'))
+    .find((label) => label.textContent?.includes(labelText))
+    ?.querySelector<HTMLInputElement>('input[type="checkbox"]') ?? null
+}

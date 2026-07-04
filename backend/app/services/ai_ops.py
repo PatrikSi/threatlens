@@ -117,6 +117,7 @@ def queue_ai_task_run(
     target_count: int | None = None,
     reason: str | None = None,
 ) -> AITaskRun:
+    queued_at = datetime.now(timezone.utc)
     run = AITaskRun(
         task_type=task_type,
         trigger_source=trigger_source,
@@ -129,6 +130,9 @@ def queue_ai_task_run(
         model=model,
         metadata_json=metadata or {},
         target_count=target_count,
+        queued_at=queued_at,
+        created_at=queued_at,
+        updated_at=queued_at,
     )
     db.add(run)
     db.flush()

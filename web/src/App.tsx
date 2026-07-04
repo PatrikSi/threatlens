@@ -28,9 +28,6 @@ const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ def
 const IntegrationsSettingsPage = lazy(() =>
   import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.IntegrationsSettingsPage })),
 )
-const NotificationsPage = lazy(() =>
-  import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationsPage })),
-)
 const SettingsLayout = lazy(() =>
   import('./pages/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
 )
@@ -96,14 +93,10 @@ function createAppRouter() {
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
             <Route index element={<Navigate to="account" replace />} />
             <Route path="account" element={suspenseRoute(<AccountPage />, 'Loading account settings...')} />
-            <Route path="notifications" element={suspenseRoute(<NotificationsPage />, 'Loading notification settings...')} />
+            <Route path="notifications" element={<Navigate to="/settings/integrations" replace />} />
             <Route
               path="integrations"
-              element={
-                <RoleRoute roles={['admin']}>
-                  {suspenseRoute(<IntegrationsSettingsPage />, 'Loading integration settings...')}
-                </RoleRoute>
-              }
+              element={suspenseRoute(<IntegrationsSettingsPage />, 'Loading integration settings...')}
             />
             <Route
               path="ai"

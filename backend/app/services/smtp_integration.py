@@ -4,12 +4,25 @@ import smtplib
 import socket
 import ssl
 import time
+import uuid
+from html import unescape
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
+from re import compile as compile_regex
+from types import SimpleNamespace
 
 from app.schemas.integration import SMTPTestResponse
 from app.services.integration_storage import ActiveSMTPSettings
+from app.services.notification_webhooks import (
+    AlertMatchContext,
+    DailyDigestContext,
+    FailedWebhookContext,
+    TemplateRenderError,
+    render_notification_template_text,
+)
+
+HTML_TAG_PATTERN = compile_regex(r"<[^>]+>")
 
 
 def test_smtp_integration(active: ActiveSMTPSettings, *, recipient_email: str | None) -> SMTPTestResponse:
@@ -163,12 +176,12 @@ def _login_and_test(server: smtplib.SMTP, active: ActiveSMTPSettings, *, recipie
 def _build_test_message(active: ActiveSMTPSettings, recipient_email: str) -> EmailMessage:
     message = EmailMessage()
     assert active.from_email is not None
+    subject, html_body = _render_test_message_content(active)
     message["From"] = formataddr((active.from_name or "ThreatLens", active.from_email))
     message["To"] = recipient_email
-    message["Subject"] = "ThreatLens SMTP test"
-    message.set_content(
-        "This is a ThreatLens SMTP integration test message. If you received it, the configured SMTP server accepted delivery."
-    )
+    message["Subject"] = subject
+    message.set_content(_html_to_plain_text(html_body))
+    message.add_alternative(html_body, subtype="html")
     return message
 
 
@@ -179,7 +192,105 @@ def _validate_test_settings(active: ActiveSMTPSettings, *, recipient_email: str 
         return "SMTP password is required when a username is configured."
     if recipient_email and not active.from_email:
         return "Sender email is required before sending a test email."
+    if recipient_email:
+        try:
+            _render_test_message_content(active)
+        except TemplateRenderError as exc:
+            return str(exc)
     return None
+
+
+def _render_test_message_content(active: ActiveSMTPSettings) -> tuple[str, str]:
+    event_type = active.event_types[0] if active.event_types else "rss_item_new"
+    triggered_at = datetime.now(timezone.utc)
+    delivery_id = uuid.uuid4()
+    user = SimpleNamespace(id=uuid.UUID("00000000-0000-4000-8000-000000000001"), email="analyst@example.com")
+    feed = SimpleNamespace(
+        id=uuid.UUID("00000000-0000-4000-8000-000000000002"),
+        name="Example Threat Feed",
+        url="https://feeds.example.com/rss.xml",
+        site_url="https://feeds.example.com",
+        error_count=3,
+        last_error="HTTP 503 from upstream feed",
+        last_fetch_at=triggered_at,
+        last_success_at=triggered_at,
+    )
+    item = SimpleNamespace(
+        id=uuid.UUID("00000000-0000-4000-8000-000000000003"),
+        title="Example intrusion activity observed",
+        url="https://example.com/threat-report",
+        canonical_url="https://example.com/threat-report",
+        summary="ThreatLens test email using the configured SMTP notification template.",
+        status="new",
+        published_at=triggered_at,
+        first_seen_at=triggered_at,
+    )
+    alert_context = (
+        AlertMatchContext(
+            count=1,
+            primary_name="Threat activity",
+            names=["Threat activity"],
+            categories=["monitoring"],
+            matched_keywords=["intrusion", "malware"],
+        )
+        if event_type == "alert_match"
+        else None
+    )
+    failed_webhook_context = (
+        FailedWebhookContext(
+            id=uuid.UUID("00000000-0000-4000-8000-000000000004"),
+            name="Example webhook",
+            event_type="rss_item_new",
+            status_code=500,
+            error="HTTP 500",
+            attempted_at=triggered_at,
+        )
+        if event_type == "webhook_failed"
+        else None
+    )
+    digest_context = (
+        DailyDigestContext(
+            window_start=triggered_at,
+            window_end=triggered_at,
+            total_items=2,
+            total_feeds=1,
+            feed_names=["Example Threat Feed"],
+            top_titles=["Example intrusion activity observed", "Example vulnerable product advisory"],
+        )
+        if event_type == "daily_digest"
+        else None
+    )
+    subject = render_notification_template_text(
+        active.subject_template,
+        user=user,
+        feed=feed,
+        item=item,
+        event_type=event_type,
+        triggered_at=triggered_at,
+        delivery_id=delivery_id,
+        alert_context=alert_context,
+        failed_webhook_context=failed_webhook_context,
+        digest_context=digest_context,
+    )
+    html_body = render_notification_template_text(
+        active.html_template,
+        user=user,
+        feed=feed,
+        item=item,
+        event_type=event_type,
+        triggered_at=triggered_at,
+        delivery_id=delivery_id,
+        alert_context=alert_context,
+        failed_webhook_context=failed_webhook_context,
+        digest_context=digest_context,
+    )
+    return subject, html_body
+
+
+def _html_to_plain_text(html_body: str) -> str:
+    text = HTML_TAG_PATTERN.sub(" ", html_body)
+    text = unescape(text)
+    return " ".join(text.split()) or "ThreatLens SMTP test email."
 
 
 def _failure_response(

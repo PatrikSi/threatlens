@@ -1,4 +1,11 @@
-import { SMTPSettings, SMTPSettingsUpdateRequest, SMTPSecurityMode } from '../types/api'
+import { NotificationEventType, SMTPSettings, SMTPSettingsUpdateRequest, SMTPSecurityMode } from '../types/api'
+
+export const DEFAULT_SMTP_SUBJECT_TEMPLATE = '[ThreatLens] {{ event.type }}: {{ item.title }}'
+export const DEFAULT_SMTP_HTML_TEMPLATE = `<h2>{{ event.type }}</h2>
+<p><strong>{{ item.title }}</strong></p>
+<p>{{ item.summary }}</p>
+<p><a href="{{ item.url }}">Open source item</a></p>
+<p>Feed: {{ feed.name }}</p>`
 
 export type SMTPSettingsDraft = {
   enabled: boolean
@@ -11,6 +18,11 @@ export type SMTPSettingsDraft = {
   from_email: string
   from_name: string
   timeout_seconds: string
+  event_types: NotificationEventType[]
+  feed_scope: 'all' | 'selected'
+  feed_ids: string[]
+  subject_template: string
+  html_template: string
 }
 
 export type SMTPSettingsDraftValidation = Partial<Record<keyof SMTPSettingsDraft, string>>
@@ -26,6 +38,11 @@ export const DEFAULT_SMTP_DRAFT: SMTPSettingsDraft = {
   from_email: '',
   from_name: '',
   timeout_seconds: '10',
+  event_types: ['rss_item_new'],
+  feed_scope: 'all',
+  feed_ids: [],
+  subject_template: DEFAULT_SMTP_SUBJECT_TEMPLATE,
+  html_template: DEFAULT_SMTP_HTML_TEMPLATE,
 }
 
 export function createSMTPDraftFromSettings(settings: SMTPSettings): SMTPSettingsDraft {
@@ -40,6 +57,11 @@ export function createSMTPDraftFromSettings(settings: SMTPSettings): SMTPSetting
     from_email: settings.from_email ?? '',
     from_name: settings.from_name ?? '',
     timeout_seconds: String(settings.timeout_seconds),
+    event_types: settings.event_types.length ? settings.event_types : ['rss_item_new'],
+    feed_scope: settings.feed_scope,
+    feed_ids: settings.feed_scope === 'selected' ? settings.feed_ids : [],
+    subject_template: settings.subject_template || DEFAULT_SMTP_SUBJECT_TEMPLATE,
+    html_template: settings.html_template || DEFAULT_SMTP_HTML_TEMPLATE,
   }
 }
 
@@ -53,6 +75,11 @@ export function createSMTPRequestFromDraft(draft: SMTPSettingsDraft): SMTPSettin
     from_email: normalizeOptionalText(draft.from_email),
     from_name: normalizeOptionalText(draft.from_name),
     timeout_seconds: parseBoundedInt(draft.timeout_seconds, 10, 1, 60),
+    event_types: dedupeEventTypes(draft.event_types),
+    feed_scope: draft.feed_scope,
+    feed_ids: draft.feed_scope === 'selected' ? Array.from(new Set(draft.feed_ids)) : [],
+    subject_template: draft.subject_template.trim() || DEFAULT_SMTP_SUBJECT_TEMPLATE,
+    html_template: draft.html_template.trim() || DEFAULT_SMTP_HTML_TEMPLATE,
   }
 
   const password = normalizeOptionalText(draft.password)
@@ -73,6 +100,8 @@ export function validateSMTPSettingsDraft(draft: SMTPSettingsDraft): SMTPSetting
   const fromEmail = draft.from_email.trim()
   const username = draft.username.trim()
   const password = draft.password.trim()
+  const subjectTemplate = draft.subject_template.trim()
+  const htmlTemplate = draft.html_template.trim()
 
   if (draft.enabled && !host) {
     errors.host = 'Host is required when SMTP is enabled.'
@@ -100,6 +129,18 @@ export function validateSMTPSettingsDraft(draft: SMTPSettingsDraft): SMTPSetting
   if (password && draft.clear_password) {
     errors.password = 'Remove the password value or turn off clear saved password.'
   }
+  if (!dedupeEventTypes(draft.event_types).length) {
+    errors.event_types = 'Select at least one notification event.'
+  }
+  if (draft.feed_scope === 'selected' && !draft.feed_ids.length) {
+    errors.feed_ids = 'Select at least one feed or use all feeds.'
+  }
+  if (!subjectTemplate) {
+    errors.subject_template = 'Subject template is required.'
+  }
+  if (!htmlTemplate) {
+    errors.html_template = 'HTML template is required.'
+  }
 
   return errors
 }
@@ -112,6 +153,10 @@ export function getFirstSMTPSettingsDraftValidationError(validation: SMTPSetting
     'from_email',
     'username',
     'password',
+    'event_types',
+    'feed_ids',
+    'subject_template',
+    'html_template',
   ]
   for (const field of fields) {
     const message = validation[field]
@@ -132,7 +177,15 @@ export function smtpDraftFingerprint(draft: SMTPSettingsDraft): string {
     from_email: draft.from_email.trim(),
     from_name: draft.from_name.trim(),
     timeout_seconds: String(parseBoundedInt(draft.timeout_seconds, 10, 1, 60)),
+    event_types: dedupeEventTypes(draft.event_types),
+    feed_ids: draft.feed_scope === 'selected' ? Array.from(new Set(draft.feed_ids)).sort() : [],
+    subject_template: draft.subject_template.trim(),
+    html_template: draft.html_template.trim(),
   })
+}
+
+function dedupeEventTypes(eventTypes: NotificationEventType[]) {
+  return Array.from(new Set(eventTypes))
 }
 
 function normalizeOptionalText(value: string): string | null {

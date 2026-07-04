@@ -15,7 +15,6 @@ export function SettingsLayout() {
   const navItems = [
     { to: '/settings/account', label: 'Account' },
     { to: '/settings/tokens', label: 'API Tokens' },
-    { to: '/settings/notifications', label: 'Notifications' },
     ...(role === 'admin' && aiEnabled ? [{ to: '/settings/ai', label: 'AI' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Tagging' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/users', label: 'Users' }] : []),
@@ -47,37 +46,43 @@ export function SettingsLayout() {
                 </Link>
               )
             })}
-            {role === 'admin' && (
-              <div className="min-w-0">
-                <button
-                  type="button"
-                  aria-expanded={showIntegrationsChildren}
-                  className={`block w-full rounded-lg border px-3 py-2 text-center text-sm transition lg:text-left ${
-                    integrationsActive
-                      ? 'tl-nav-link-active font-semibold'
-                      : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
-                  }`}
-                  onClick={() => setIntegrationsExpanded((current) => !current)}
-                >
-                  Integrations
-                </button>
-                {showIntegrationsChildren && (
-                  <div className="mt-1 grid gap-1 pl-2">
+            <div className="min-w-0">
+              <button
+                type="button"
+                aria-expanded={showIntegrationsChildren}
+                className={`block w-full rounded-lg border px-3 py-2 text-center text-sm transition lg:text-left ${
+                  integrationsActive
+                    ? 'tl-nav-link-active font-semibold'
+                    : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                }`}
+                onClick={() => setIntegrationsExpanded((current) => !current)}
+              >
+                Integrations
+              </button>
+              {showIntegrationsChildren && (
+                <div className="mt-1 grid gap-1 pl-2">
+                  <Link
+                    to="/settings/integrations"
+                    aria-current={integrationsActive ? 'page' : undefined}
+                    className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
+                      integrationsActive
+                        ? 'tl-nav-link-active font-semibold'
+                        : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    Webhooks
+                  </Link>
+                  {role === 'admin' && (
                     <Link
-                      to="/settings/integrations"
-                      aria-current={integrationsActive ? 'page' : undefined}
-                      className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
-                        integrationsActive
-                          ? 'tl-nav-link-active font-semibold'
-                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
-                      }`}
+                      to="/settings/integrations#smtp"
+                      className="block rounded-lg border border-transparent px-3 py-1.5 text-center text-sm text-slate transition hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06] lg:text-left"
                     >
                       SMTP
                     </Link>
-                  </div>
-                )}
-              </div>
-            )}
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </nav>
 

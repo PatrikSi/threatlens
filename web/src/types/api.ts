@@ -803,6 +803,11 @@ export interface SMTPSettings {
   from_email: string | null
   from_name: string | null
   timeout_seconds: number
+  event_types: NotificationEventType[]
+  feed_scope: 'all' | 'selected'
+  feed_ids: string[]
+  subject_template: string
+  html_template: string
   health_status: IntegrationHealthStatus
   last_test_at: string | null
   last_success_at: string | null
@@ -824,9 +829,15 @@ export interface SMTPSettingsUpdateRequest {
   from_email: string | null
   from_name: string | null
   timeout_seconds: number
+  event_types: NotificationEventType[]
+  feed_scope: 'all' | 'selected'
+  feed_ids: string[]
+  subject_template: string
+  html_template: string
 }
 
 export interface SMTPTestRequest {
+  send_email?: boolean
   recipient_email?: string | null
   settings?: SMTPSettingsUpdateRequest | null
 }

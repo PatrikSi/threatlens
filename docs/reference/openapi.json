@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "ff1100661b2dbcbf2d3d8bcb933fb4f4f4f357492c42a43c5dba7017be6c136d"
+    "x-threatlens-contract-sha256": "cfadeaf4ce5dd708ec878682c5c09b67823aa40e1e34049289273fa55c79c62d"
   },
   "servers": [
     {
@@ -12402,6 +12402,44 @@
             "type": "integer",
             "title": "Timeout Seconds"
           },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "feed_scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selected"
+            ],
+            "title": "Feed Scope"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Feed Ids"
+          },
+          "subject_template": {
+            "type": "string",
+            "title": "Subject Template"
+          },
+          "html_template": {
+            "type": "string",
+            "title": "Html Template"
+          },
           "health_status": {
             "type": "string",
             "enum": [
@@ -12499,6 +12537,11 @@
           "from_email",
           "from_name",
           "timeout_seconds",
+          "event_types",
+          "feed_scope",
+          "feed_ids",
+          "subject_template",
+          "html_template",
           "health_status",
           "last_test_at",
           "last_success_at",
@@ -12605,6 +12648,49 @@
             "minimum": 1.0,
             "title": "Timeout Seconds",
             "default": 10
+          },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "feed_scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selected"
+            ],
+            "title": "Feed Scope",
+            "default": "all"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Feed Ids"
+          },
+          "subject_template": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Subject Template",
+            "default": "[ThreatLens] {{ event.type }}: {{ item.title }}"
+          },
+          "html_template": {
+            "type": "string",
+            "maxLength": 50000,
+            "title": "Html Template",
+            "default": "<h2>{{ event.type }}</h2>\n<p><strong>{{ item.title }}</strong></p>\n<p>{{ item.summary }}</p>\n<p><a href=\"{{ item.url }}\">Open source item</a></p>\n<p>Feed: {{ feed.name }}</p>"
           }
         },
         "type": "object",
@@ -12612,6 +12698,11 @@
       },
       "SMTPTestRequest": {
         "properties": {
+          "send_email": {
+            "type": "boolean",
+            "title": "Send Email",
+            "default": false
+          },
           "recipient_email": {
             "anyOf": [
               {

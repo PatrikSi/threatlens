@@ -74,6 +74,8 @@ describe('SettingsLayout navigation', () => {
     )
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('false')
+    expect(document.body.textContent ?? '').not.toContain('Notifications')
+    expect(document.body.textContent ?? '').not.toContain('Webhooks')
     expect(document.body.textContent ?? '').not.toContain('SMTP')
 
     act(() => {
@@ -81,6 +83,7 @@ describe('SettingsLayout navigation', () => {
     })
 
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')
+    expect(document.body.textContent ?? '').toContain('Webhooks')
     expect(document.body.textContent ?? '').toContain('SMTP')
   })
 
@@ -92,6 +95,7 @@ describe('SettingsLayout navigation', () => {
     )
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')
+    expect(document.body.textContent ?? '').toContain('Webhooks')
     expect(document.body.textContent ?? '').toContain('SMTP')
     expect(document.body.textContent ?? '').toContain('Integrations body')
   })

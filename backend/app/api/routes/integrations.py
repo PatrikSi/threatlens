@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
 from app.core.token_scopes import SCOPE_READ_INTEGRATIONS, SCOPE_WRITE_INTEGRATIONS
 from app.db.session import get_db
+from app.models.feed import Feed
 from app.models.user import User
 from app.schemas.integration import (
     IntegrationConnectorResponse,
@@ -26,6 +28,7 @@ from app.services.integration_storage import (
     record_smtp_test_result,
     smtp_settings_response_from_model,
 )
+from app.services.notification_webhooks import find_unknown_template_variables_in_texts
 from app.services.smtp_integration import test_smtp_integration
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
@@ -67,6 +70,7 @@ def update_smtp_settings(
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
 ):
     instance = get_or_create_smtp_integration(db)
+    _validate_smtp_notification_settings(db, payload)
     apply_smtp_settings_update(instance, payload)
     db.add(instance)
     record_audit(
@@ -82,6 +86,8 @@ def update_smtp_settings(
             "security": payload.security,
             "username_configured": bool(payload.username),
             "from_email": str(payload.from_email) if payload.from_email else None,
+            "event_types": payload.event_types,
+            "feed_scope": payload.feed_scope,
             "password_action": _password_audit_action(payload),
         },
     )
@@ -99,6 +105,8 @@ def test_smtp_settings(
 ):
     instance = get_or_create_smtp_integration(db)
     used_unsaved_settings = payload.settings is not None
+    if payload.settings is not None:
+        _validate_smtp_notification_settings(db, payload.settings)
     try:
         active_settings = build_active_smtp_settings(instance, override=payload.settings)
     except SMTPSecretError as exc:
@@ -106,7 +114,7 @@ def test_smtp_settings(
 
     result = test_smtp_integration(
         active_settings,
-        recipient_email=str(payload.recipient_email) if payload.recipient_email else None,
+        recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
     ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
     record_smtp_test_result(
         db,
@@ -124,7 +132,7 @@ def test_smtp_settings(
         metadata={
             "action": result.action,
             "error_code": result.error_code,
-            "recipient_provided": bool(payload.recipient_email),
+            "recipient_provided": bool(payload.send_email and payload.recipient_email),
             "used_unsaved_settings": used_unsaved_settings,
         },
     )
@@ -138,3 +146,23 @@ def _password_audit_action(payload: SMTPSettingsUpdate) -> str:
     if payload.clear_password:
         return "cleared"
     return "preserved"
+
+
+def _validate_smtp_notification_settings(db: Session, payload: SMTPSettingsUpdate) -> None:
+    if payload.feed_scope == "selected":
+        known_feed_ids = set(db.scalars(select(Feed.id).where(Feed.id.in_(payload.feed_ids))).all())
+        invalid_feed_ids = sorted(str(feed_id) for feed_id in payload.feed_ids if feed_id not in known_feed_ids)
+        if invalid_feed_ids:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Unknown feed ids: {', '.join(invalid_feed_ids)}",
+            )
+
+    unknown_variables = sorted(
+        find_unknown_template_variables_in_texts([payload.subject_template, payload.html_template])
+    )
+    if unknown_variables:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown template variable(s): {', '.join(unknown_variables)}",
+        )
