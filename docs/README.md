@@ -48,5 +48,5 @@ This documentation covers:
 - [Alerts](./pages/alerts.md)
 - [Feeds](./pages/feeds.md)
 - [Stats](./pages/stats.md)
-- [Settings](./pages/settings.md) including notifications, tagging, tokens, users, and audit logs
+- [Settings](./pages/settings.md) including integrations, tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)

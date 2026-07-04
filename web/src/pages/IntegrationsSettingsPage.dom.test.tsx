@@ -226,8 +226,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
   it('renders SMTP settings without exposing the saved password', () => {
     const view = renderPage()
 
-    expect(view.textContent).toContain('Integrations')
-    expect(view.textContent).toContain('SMTP')
+    expect(view.textContent).toContain('SMTP Integration')
     expect(view.textContent).toContain('Healthy')
     const passwordInput = view.querySelector<HTMLInputElement>('#smtp-password')
     expect(passwordInput).not.toBeNull()

@@ -627,13 +627,6 @@ export interface NotificationTemplateVariable {
   example: string
 }
 
-export interface NotificationWebhookPolicy {
-  role: string
-  can_manage_webhooks: boolean
-  reason: string | null
-  allowed_hosts_configured: boolean
-}
-
 export type NotificationEventType = 'rss_item_new' | 'alert_match' | 'feed_failing' | 'webhook_failed' | 'daily_digest'
 
 export interface NotificationWebhook {

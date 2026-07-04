@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "0.1.0",
-    "x-threatlens-contract-sha256": "cfadeaf4ce5dd708ec878682c5c09b67823aa40e1e34049289273fa55c79c62d"
+    "x-threatlens-contract-sha256": "68d5b28654bb9807f9c72e4a394e8ff7ce9443e2e99c9b1f48348ed732ae30ff"
   },
   "servers": [
     {
@@ -3310,38 +3310,6 @@
                   },
                   "type": "array",
                   "title": "Response Get Notification Template Variables V1 Notifications Template Variables Get"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
-        "x-threatlens-required-token-scopes": [
-          "read:notifications"
-        ]
-      }
-    },
-    "/v1/notifications/webhook-policy": {
-      "get": {
-        "tags": [
-          "notifications"
-        ],
-        "summary": "Get Notification Webhook Policy",
-        "operationId": "get_notification_webhook_policy_v1_notifications_webhook_policy_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/NotificationWebhookPolicyResponse"
                 }
               }
             }
@@ -11808,40 +11776,6 @@
           "key"
         ],
         "title": "NotificationWebhookField"
-      },
-      "NotificationWebhookPolicyResponse": {
-        "properties": {
-          "role": {
-            "type": "string",
-            "title": "Role"
-          },
-          "can_manage_webhooks": {
-            "type": "boolean",
-            "title": "Can Manage Webhooks"
-          },
-          "reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reason"
-          },
-          "allowed_hosts_configured": {
-            "type": "boolean",
-            "title": "Allowed Hosts Configured"
-          }
-        },
-        "type": "object",
-        "required": [
-          "role",
-          "can_manage_webhooks",
-          "allowed_hosts_configured"
-        ],
-        "title": "NotificationWebhookPolicyResponse"
       },
       "NotificationWebhookResponse": {
         "properties": {

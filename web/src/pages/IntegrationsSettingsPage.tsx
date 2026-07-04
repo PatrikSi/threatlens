@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
-import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
@@ -25,7 +24,6 @@ import {
   SMTPSettingsDraft,
   validateSMTPSettingsDraft,
 } from './smtpSettingsDraft'
-import { NotificationWebhooksSettings } from './NotificationsPage'
 
 type NoticeState = {
   tone: 'success' | 'error'
@@ -40,11 +38,8 @@ const SMTP_EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string }>
   { value: 'daily_digest', label: 'Daily Digest' },
 ]
 
-export function IntegrationsSettingsPage() {
+export function SMTPIntegrationSettingsPage() {
   const queryClient = useQueryClient()
-  const currentUserQuery = useCurrentUser()
-  const isAdmin = currentUserQuery.data?.role === 'admin'
-  const [smtpExpanded, setSmtpExpanded] = useState(true)
   const [draft, setDraftState] = useState<SMTPSettingsDraft>(DEFAULT_SMTP_DRAFT)
   const [hasUserEdited, setHasUserEdited] = useState(false)
   const [notice, setNotice] = useState<NoticeState | null>(null)
@@ -55,22 +50,18 @@ export function IntegrationsSettingsPage() {
   const connectorsQuery = useQuery({
     queryKey: ['integrations', 'connectors'],
     queryFn: () => apiFetch<IntegrationConnector[]>('/integrations/connectors'),
-    enabled: isAdmin,
   })
   const smtpSettingsQuery = useQuery({
     queryKey: ['integrations', 'smtp', 'settings'],
     queryFn: () => apiFetch<SMTPSettings>('/integrations/smtp/settings'),
-    enabled: isAdmin,
   })
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
-    enabled: isAdmin,
   })
   const variablesQuery = useQuery({
     queryKey: ['notifications', 'template-variables'],
     queryFn: () => apiFetch<NotificationTemplateVariable[]>('/notifications/template-variables'),
-    enabled: isAdmin,
   })
 
   const smtpSettings = smtpSettingsQuery.data
@@ -96,11 +87,11 @@ export function IntegrationsSettingsPage() {
   }
 
   useEffect(() => {
-    if (!isAdmin || !smtpSettings || hasUserEdited) {
+    if (!smtpSettings || hasUserEdited) {
       return
     }
     setDraftState(createSMTPDraftFromSettings(smtpSettings))
-  }, [hasUserEdited, isAdmin, smtpSettings])
+  }, [hasUserEdited, smtpSettings])
 
   const saveSmtp = useMutation({
     mutationKey: ['integrations', 'smtp', 'save'],
@@ -134,9 +125,6 @@ export function IntegrationsSettingsPage() {
   })
 
   const onSave = () => {
-    if (!isAdmin) {
-      return
-    }
     if (firstValidationError) {
       setNotice({ tone: 'error', message: firstValidationError })
       return
@@ -146,9 +134,6 @@ export function IntegrationsSettingsPage() {
   }
 
   const onTest = () => {
-    if (!isAdmin) {
-      return
-    }
     const testError = resolveTestValidationError(draft, sendTestEmail, testRecipient, firstValidationError)
     if (testError) {
       setNotice({ tone: 'error', message: testError })
@@ -162,10 +147,7 @@ export function IntegrationsSettingsPage() {
     })
   }
 
-  if (
-    currentUserQuery.isLoading ||
-    (isAdmin && (smtpSettingsQuery.isLoading || connectorsQuery.isLoading || feedsQuery.isLoading || variablesQuery.isLoading))
-  ) {
+  if (smtpSettingsQuery.isLoading || connectorsQuery.isLoading || feedsQuery.isLoading || variablesQuery.isLoading) {
     return (
       <div className="rounded-xl border border-slate/20 bg-white/80 p-4 text-sm dark:border-cyan-900/40 dark:bg-[#041612]/90">
         Loading integration settings...
@@ -177,11 +159,11 @@ export function IntegrationsSettingsPage() {
     <div className="space-y-4">
       <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Settings</p>
-        <h2 className="mt-1 font-display text-xl">Integrations</h2>
+        <h2 className="mt-1 font-display text-xl">SMTP Integration</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">
-          Configure reusable external systems for delivery, enrichment, and ingestion workflows.
+          Send notification emails through a reusable SMTP destination.
         </p>
-        {isAdmin && (smtpSettingsQuery.isError || connectorsQuery.isError || feedsQuery.isError || variablesQuery.isError) && (
+        {(smtpSettingsQuery.isError || connectorsQuery.isError || feedsQuery.isError || variablesQuery.isError) && (
           <p role="alert" className="mt-3 text-sm text-red-600">
             {resolveApiMessage(
               smtpSettingsQuery.error ?? connectorsQuery.error ?? feedsQuery.error ?? variablesQuery.error,
@@ -191,32 +173,22 @@ export function IntegrationsSettingsPage() {
         )}
       </section>
 
-      <NotificationWebhooksSettings />
-
-      {isAdmin && (
       <section id="smtp" className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <button
-          type="button"
-          aria-expanded={smtpExpanded}
-          aria-controls="smtp-integration-panel"
-          className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-left"
-          onClick={() => setSmtpExpanded((current) => !current)}
-        >
-          <span className="min-w-0">
-            <span className="block font-display text-lg">SMTP</span>
-            <span className="mt-1 block text-sm text-slate dark:text-white/70">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+          <div className="min-w-0">
+            <h3 className="font-display text-lg">SMTP</h3>
+            <p className="mt-1 text-sm text-slate dark:text-white/70">
               {smtpConnector?.description ?? 'Send operational emails through an SMTP server.'}
-            </span>
-          </span>
+            </p>
+          </div>
           {smtpSettings && (
             <span className={`tl-chip ${healthBadgeClass(smtpSettings.health_status)}`}>
               {describeHealthStatus(smtpSettings)}
             </span>
           )}
-        </button>
+        </div>
 
-        {smtpExpanded && (
-          <div id="smtp-integration-panel" className="mt-4 space-y-5">
+        <div id="smtp-integration-panel" className="mt-4 space-y-5">
             {smtpSettings?.has_unreadable_secret && (
               <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200">
                 The saved SMTP password cannot be decrypted. Enter a new password or clear the saved password.
@@ -556,14 +528,16 @@ export function IntegrationsSettingsPage() {
             {testSmtp.isError && (
               <p role="alert" className="text-sm text-red-600">{resolveApiMessage(testSmtp.error, 'Failed to test SMTP settings.')}</p>
             )}
-          </div>
-        )}
+        </div>
       </section>
-      )}
 
       {confirmDiscardUnsavedIntegrationChanges.discardDialog}
     </div>
   )
+}
+
+export function IntegrationsSettingsPage() {
+  return <SMTPIntegrationSettingsPage />
 }
 
 function TextInput({

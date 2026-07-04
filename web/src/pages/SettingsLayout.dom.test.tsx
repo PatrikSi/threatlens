@@ -46,7 +46,10 @@ function renderLayout(path: string) {
         <Routes>
           <Route path="/settings" element={<SettingsLayout />}>
             <Route path="account" element={<div>Account body</div>} />
-            <Route path="integrations" element={<div>Integrations body</div>} />
+            <Route path="integrations">
+              <Route path="webhooks" element={<div>Webhooks body</div>} />
+              <Route path="smtp" element={<div>SMTP body</div>} />
+            </Route>
           </Route>
         </Routes>
       </MemoryRouter>,
@@ -88,7 +91,7 @@ describe('SettingsLayout navigation', () => {
   })
 
   it('keeps integrations expanded while an integration route is active', () => {
-    renderLayout('/settings/integrations')
+    renderLayout('/settings/integrations/smtp')
 
     const integrationsButton = Array.from(document.querySelectorAll('button')).find((button) =>
       button.textContent?.includes('Integrations'),
@@ -97,6 +100,6 @@ describe('SettingsLayout navigation', () => {
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')
     expect(document.body.textContent ?? '').toContain('Webhooks')
     expect(document.body.textContent ?? '').toContain('SMTP')
-    expect(document.body.textContent ?? '').toContain('Integrations body')
+    expect(document.body.textContent ?? '').toContain('SMTP body')
   })
 })
