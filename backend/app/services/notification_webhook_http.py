@@ -124,6 +124,13 @@ def send_rendered_notification_request(
                 form_body=rendered.form_body,
                 raw_body=rendered.raw_body,
             )
+            try:
+                response_body_preview = read_response_preview(response, max_bytes=MAX_RESPONSE_PREVIEW_CHARS)
+                status_code = response.status_code
+                request_url = str(response.request.url)
+                request_method = response.request.method
+            finally:
+                response.close()
     except (SafeFetchError, httpx.HTTPError, ValueError) as exc:
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         return NotificationWebhookTestResponse(
@@ -140,22 +147,18 @@ def send_rendered_notification_request(
         )
 
     duration_ms = int((time.perf_counter() - started_at) * 1000)
-    try:
-        response_body_preview = read_response_preview(response, max_bytes=MAX_RESPONSE_PREVIEW_CHARS)
-        return NotificationWebhookTestResponse(
-            success=200 <= response.status_code < 400,
-            status_code=response.status_code,
-            duration_ms=duration_ms,
-            rendered_url=str(response.request.url),
-            rendered_method=response.request.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=response_body_preview,
-            error=None if 200 <= response.status_code < 400 else f"HTTP {response.status_code}",
-        )
-    finally:
-        response.close()
+    return NotificationWebhookTestResponse(
+        success=200 <= status_code < 400,
+        status_code=status_code,
+        duration_ms=duration_ms,
+        rendered_url=request_url,
+        rendered_method=request_method,
+        rendered_headers=rendered.headers,
+        rendered_query_params=rendered.query_params,
+        rendered_body=rendered.body,
+        response_body_preview=response_body_preview,
+        error=None if 200 <= status_code < 400 else f"HTTP {status_code}",
+    )
 
 
 def send_request_with_redirects(
