@@ -6,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.models.feed import Feed
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -15,53 +14,11 @@ from app.services.notification_webhooks import NotificationWebhookRetryInProgres
 from app.schemas.notification import NotificationWebhookTestResponse
 
 
-@pytest.fixture(autouse=True)
-def allow_admin_unrestricted_webhooks(monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
-
-
-def test_notification_webhook_policy_reflects_role_and_allowlist(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
-
-    admin_response = client.get("/notifications/webhook-policy", headers=auth_headers["admin"])
-    assert admin_response.status_code == 200
-    assert admin_response.json()["can_manage_webhooks"] is False
-    assert (
-        admin_response.json()["reason"]
-        == "Admin webhook writes are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured or NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED is enabled."
-    )
-
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
-    unrestricted_admin_response = client.get("/notifications/webhook-policy", headers=auth_headers["admin"])
-    assert unrestricted_admin_response.status_code == 200
-    assert unrestricted_admin_response.json()["can_manage_webhooks"] is True
-
-    viewer_response = client.get("/notifications/webhook-policy", headers=auth_headers["viewer"])
-    assert viewer_response.status_code == 200
-    assert viewer_response.json()["can_manage_webhooks"] is False
-    assert viewer_response.json()["reason"] == "Viewer access is read-only. Webhook settings can only be changed by operators."
-
-    analyst_response = client.get("/notifications/webhook-policy", headers=auth_headers["analyst"])
-    assert analyst_response.status_code == 200
-    assert analyst_response.json()["can_manage_webhooks"] is False
-    assert analyst_response.json()["allowed_hosts_configured"] is False
-
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-    allowed_analyst_response = client.get("/notifications/webhook-policy", headers=auth_headers["analyst"])
-    assert allowed_analyst_response.status_code == 200
-    assert allowed_analyst_response.json()["can_manage_webhooks"] is True
-    assert allowed_analyst_response.json()["reason"] is None
-
-
-def test_admin_webhook_create_requires_allowlist_or_unrestricted_flag(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
-
+def test_admin_can_create_notification_webhooks_by_default(client: TestClient, auth_headers):
     response = client.post(
         "/notifications/webhooks",
         json={
-            "name": "Blocked admin webhook",
+            "name": "Admin webhook",
             "enabled": True,
             "event_type": "rss_item_new",
             "url_template": "https://hooks.example.com/notify",
@@ -77,11 +34,11 @@ def test_admin_webhook_create_requires_allowlist_or_unrestricted_flag(client: Te
         headers=auth_headers["admin"],
     )
 
-    assert response.status_code == 403
-    assert "Admin-managed webhook deliveries are disabled" in response.json()["detail"]
+    assert response.status_code == 201
+    assert response.json()["name"] == "Admin webhook"
 
 
-def test_admin_webhook_update_revalidates_allowlist(client: TestClient, auth_headers, db_session, seed_users, monkeypatch):
+def test_admin_webhook_update_revalidates_url_safety(client: TestClient, auth_headers, db_session, seed_users):
     admin = seed_users["admin"]
     webhook = NotificationWebhook(
         id=uuid.uuid4(),
@@ -102,16 +59,13 @@ def test_admin_webhook_update_revalidates_allowlist(client: TestClient, auth_hea
     db_session.add(webhook)
     db_session.commit()
 
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", [])
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", False)
-
     response = client.patch(
         f"/notifications/webhooks/{webhook.id}",
         json={
-            "name": "Blocked update",
+            "name": "Unsafe update",
             "enabled": True,
             "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/changed",
+            "url_template": "http://hooks.example.com/changed",
             "method": "POST",
             "feed_scope": "all",
             "feed_ids": [],
@@ -124,8 +78,8 @@ def test_admin_webhook_update_revalidates_allowlist(client: TestClient, auth_hea
         headers=auth_headers["admin"],
     )
 
-    assert response.status_code == 403
-    assert "Admin-managed webhook deliveries are disabled" in response.json()["detail"]
+    assert response.status_code == 422
+    assert response.json()["detail"] == "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
 
 
 def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, db_session, seed_users):
@@ -346,7 +300,7 @@ def test_notification_webhook_test_endpoint_redacts_sensitive_previews(client: T
     assert payload["response_body_preview"] == f"Stored body withheld ({len(response_body)} chars)"
 
 
-def test_analyst_cannot_create_notification_webhooks_without_allowlisted_hosts(client: TestClient, auth_headers):
+def test_analyst_can_create_notification_webhooks_by_default(client: TestClient, auth_headers):
     response = client.post(
         "/notifications/webhooks",
         json={
@@ -366,79 +320,18 @@ def test_analyst_cannot_create_notification_webhooks_without_allowlisted_hosts(c
         headers=auth_headers["analyst"],
     )
 
-    assert response.status_code == 403
-    assert (
-        response.json()["detail"]
-        == "Analyst-managed webhook deliveries are disabled until NOTIFICATION_WEBHOOK_ALLOWED_HOSTS is configured"
-    )
-
-
-def test_analyst_can_create_notification_webhooks_for_allowlisted_host(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
     assert response.status_code == 201
     assert response.json()["name"] == "Analyst webhook"
 
 
-def test_analyst_can_create_notification_webhooks_for_allowlisted_url_prefix(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(
-        get_settings(),
-        "notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst tenant webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/services/tenant-a/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
-    assert response.status_code == 201
-    assert response.json()["name"] == "Analyst tenant webhook"
-
-
-def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
+def test_analyst_cannot_create_notification_webhooks_for_public_http_url(client: TestClient, auth_headers):
     response = client.post(
         "/notifications/webhooks",
         json={
             "name": "Analyst webhook",
             "enabled": True,
             "event_type": "rss_item_new",
-            "url_template": "https://evil.example.net/notify",
+            "url_template": "http://hooks.example.com/notify",
             "method": "POST",
             "feed_scope": "all",
             "feed_ids": [],
@@ -452,146 +345,7 @@ def test_analyst_cannot_create_notification_webhooks_for_unapproved_host(client:
     )
 
     assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Webhook destination 'https://evil.example.net/notify' is not approved for analyst-managed webhook deliveries"
-    )
-
-
-def test_analyst_cannot_create_notification_webhooks_for_non_default_allowlisted_port(
-    client: TestClient,
-    auth_headers,
-    monkeypatch,
-):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com:8443/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
-    assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Webhook destination 'https://hooks.example.com:8443/notify' is not approved for analyst-managed webhook deliveries"
-    )
-
-
-def test_analyst_wildcard_allowlist_does_not_include_apex_domain(client: TestClient, auth_headers, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["*.example.com"])
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://example.com/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
-    assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Webhook destination 'https://example.com/notify' is not approved for analyst-managed webhook deliveries"
-    )
-
-
-def test_analyst_cannot_create_notification_webhooks_outside_allowlisted_url_prefix(
-    client: TestClient,
-    auth_headers,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        get_settings(),
-        "notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/services/tenant-b/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
-    assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries"
-    )
-
-
-def test_analyst_cannot_create_notification_webhooks_with_percent_encoded_dot_segments(
-    client: TestClient,
-    auth_headers,
-    monkeypatch,
-):
-    monkeypatch.setattr(
-        get_settings(),
-        "notification_webhook_allowed_hosts",
-        ["https://hooks.example.com/services/tenant-a"],
-    )
-
-    response = client.post(
-        "/notifications/webhooks",
-        json={
-            "name": "Analyst webhook",
-            "enabled": True,
-            "event_type": "rss_item_new",
-            "url_template": "https://hooks.example.com/services/tenant-a/%2e%2e/tenant-b/notify",
-            "method": "POST",
-            "feed_scope": "all",
-            "feed_ids": [],
-            "query_params": [],
-            "headers": [],
-            "body_mode": "none",
-            "body_fields": [],
-            "timeout_seconds": 10,
-        },
-        headers=auth_headers["analyst"],
-    )
-
-    assert response.status_code == 422
-    assert (
-        response.json()["detail"]
-        == "Webhook destination 'https://hooks.example.com/services/tenant-b/notify' is not approved for analyst-managed webhook deliveries"
-    )
+    assert response.json()["detail"] == "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
 
 
 def test_viewer_cannot_create_notification_webhooks(client: TestClient, auth_headers):
@@ -1324,8 +1078,7 @@ def test_user_can_fetch_notification_analytics(client: TestClient, auth_headers,
     }
 
 
-def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, monkeypatch, seed_users):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allowed_hosts", ["hooks.example.com"])
+def test_user_cannot_access_another_users_notification_webhook(client: TestClient, auth_headers, db_session, seed_users):
     admin = seed_users["admin"]
     analyst = seed_users["analyst"]
     webhook = NotificationWebhook(

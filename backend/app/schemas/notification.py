@@ -25,13 +25,6 @@ class NotificationTemplateVariable(BaseModel):
     example: str
 
 
-class NotificationWebhookPolicyResponse(BaseModel):
-    role: str
-    can_manage_webhooks: bool
-    reason: str | None = None
-    allowed_hosts_configured: bool
-
-
 class NotificationWebhookWrite(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     enabled: bool = True

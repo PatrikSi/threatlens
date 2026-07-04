@@ -11,6 +11,8 @@ export function SettingsLayout() {
   const aiEnabled = meQuery.data?.features.ai_enabled ?? false
   const integrationsActive = isSettingsLinkActive(location.pathname, '/settings/integrations')
   const showIntegrationsChildren = integrationsActive || integrationsExpanded
+  const webhooksActive = isSettingsLinkActive(location.pathname, '/settings/integrations/webhooks')
+  const smtpActive = isSettingsLinkActive(location.pathname, '/settings/integrations/smtp')
 
   const navItems = [
     { to: '/settings/account', label: 'Account' },
@@ -62,10 +64,10 @@ export function SettingsLayout() {
               {showIntegrationsChildren && (
                 <div className="mt-1 grid gap-1 pl-2">
                   <Link
-                    to="/settings/integrations"
-                    aria-current={integrationsActive ? 'page' : undefined}
+                    to="/settings/integrations/webhooks"
+                    aria-current={webhooksActive ? 'page' : undefined}
                     className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
-                      integrationsActive
+                      webhooksActive
                         ? 'tl-nav-link-active font-semibold'
                         : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
                     }`}
@@ -74,8 +76,13 @@ export function SettingsLayout() {
                   </Link>
                   {role === 'admin' && (
                     <Link
-                      to="/settings/integrations#smtp"
-                      className="block rounded-lg border border-transparent px-3 py-1.5 text-center text-sm text-slate transition hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06] lg:text-left"
+                      to="/settings/integrations/smtp"
+                      aria-current={smtpActive ? 'page' : undefined}
+                      className={`block rounded-lg border px-3 py-1.5 text-center text-sm transition lg:text-left ${
+                        smtpActive
+                          ? 'tl-nav-link-active font-semibold'
+                          : 'border-transparent text-slate hover:border-slate/20 hover:bg-slate/10 dark:text-slate-200 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06]'
+                      }`}
                     >
                       SMTP
                     </Link>

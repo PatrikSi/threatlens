@@ -28,12 +28,6 @@ const notificationsPageMocks = vi.hoisted(() => ({
     isError: false,
     error: null,
   },
-  webhookPolicy: {
-    role: 'admin' as string,
-    can_manage_webhooks: true,
-    reason: null as string | null,
-    allowed_hosts_configured: false,
-  },
 }))
 
 function createDiscardMock() {
@@ -83,13 +77,6 @@ vi.mock('@tanstack/react-query', () => ({
             updated_at: '2026-04-21T10:00:00Z',
           },
         ],
-      }
-    }
-
-    if (scope === 'notifications' && key === 'webhook-policy') {
-      return {
-        ...baseResult,
-        data: notificationsPageMocks.webhookPolicy,
       }
     }
 

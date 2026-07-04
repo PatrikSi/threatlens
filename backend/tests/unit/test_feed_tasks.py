@@ -4727,7 +4727,6 @@ def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_se
 
 
 def test_process_reserved_notification_deliveries_schedules_retryable_failures(db_session, monkeypatch):
-    monkeypatch.setattr(get_settings(), "notification_webhook_allow_admin_unrestricted", True)
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",

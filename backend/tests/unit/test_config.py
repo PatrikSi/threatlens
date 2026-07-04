@@ -47,12 +47,6 @@ def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
     assert settings.allowed_hosts == ["api", "threatlens.example.com"]
 
 
-def test_notification_webhook_admin_unrestricted_flag_parses_from_env(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("NOTIFICATION_WEBHOOK_ALLOW_ADMIN_UNRESTRICTED", "true")
-    settings = Settings(_env_file=None)
-    assert settings.notification_webhook_allow_admin_unrestricted is True
-
-
 def test_production_requires_strong_jwt_secret():
     with pytest.raises(ValueError):
         isolated_settings(**production_settings_kwargs(jwt_secret="change-me"))

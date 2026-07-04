@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `0.1.0`
-- OpenAPI contract anchor: `openapi-sha256:cfadeaf4ce5dd708ec878682c5c09b67823aa40e1e34049289273fa55c79c62d`
+- OpenAPI contract anchor: `openapi-sha256:68d5b28654bb9807f9c72e4a394e8ff7ce9443e2e99c9b1f48348ed732ae30ff`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -473,11 +473,6 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:notifications`
 - Responses: `200` `application/json` -> array[NotificationTemplateVariable]
-### `GET /v1/notifications/webhook-policy`
-- Summary: Get Notification Webhook Policy
-- Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `read:notifications`
-- Responses: `200` `application/json` -> NotificationWebhookPolicyResponse
 ### `GET /v1/notifications/webhooks`
 - Summary: List Notification Webhooks
 - Auth: ApiTokenBearer or SessionCookieAuth

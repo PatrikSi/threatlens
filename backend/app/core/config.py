@@ -7,8 +7,6 @@ from urllib.parse import quote, urlsplit, urlunsplit
 from pydantic import PrivateAttr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from app.services.notification_webhook_policy import normalize_notification_allow_entry
-
 _PLACEHOLDER_SECRET_PREFIXES = ("replace-with", "change-me", "changeme", "placeholder", "example-", "your-")
 _DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:postgres@db:5432/threatlens"
 _DEFAULT_REDIS_URL = "redis://redis:6379/0"
@@ -186,8 +184,6 @@ class Settings(BaseSettings):
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
-    notification_webhook_allow_admin_unrestricted: bool = False
-    notification_webhook_allowed_hosts: Annotated[list[str], NoDecode] = []
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
@@ -234,7 +230,6 @@ class Settings(BaseSettings):
         "trusted_proxy_cidrs",
         "allowed_hosts",
         "app_data_encryption_previous_keys",
-        "notification_webhook_allowed_hosts",
         mode="before",
     )
     @classmethod
@@ -242,17 +237,6 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [entry.strip() for entry in value.split(",") if entry.strip()]
         return value
-
-    @field_validator("notification_webhook_allowed_hosts", mode="after")
-    @classmethod
-    def _normalize_notification_webhook_allowed_hosts(cls, value):
-        normalized: list[str] = []
-        for entry in value or []:
-            candidate = str(entry).strip()
-            if not candidate:
-                continue
-            normalized.append(normalize_notification_allow_entry(candidate))
-        return normalized
 
     @field_validator("auth_cookie_samesite", mode="before")
     @classmethod
