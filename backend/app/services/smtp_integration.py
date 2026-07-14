@@ -344,6 +344,7 @@ def smtp_notification_event_enabled(
     event_type: NotificationEventType,
     feed: Feed | SimpleNamespace | None = None,
 ) -> bool:
+    """Return whether a runtime task should enqueue an SMTP delivery attempt."""
     instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
     if instance is None or not instance.enabled:
         return False

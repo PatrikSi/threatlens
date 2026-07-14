@@ -5,6 +5,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -425,7 +426,7 @@ def _enqueue_smtp_webhook_failed_notification(delivery: NotificationWebhookDeliv
         logger.exception("smtp_webhook_failed_notification_enqueue_failed delivery_id=%s error=%s", delivery.id, exc)
 
 
-def _smtp_task_response(result, **identifiers):
+def _smtp_task_response(result: SMTPDispatchResult, **identifiers: str) -> dict[str, Any]:
     response = {
         "status": result.status,
         **identifiers,
@@ -443,6 +444,10 @@ def _smtp_task_response(result, **identifiers):
             }
         )
     return response
+
+
+def _smtp_skipped_task_response(reason: str | None, **identifiers: str) -> dict[str, Any]:
+    return _smtp_task_response(SMTPDispatchResult(status="skipped", reason=reason), **identifiers)
 
 
 def _safe_enqueue_smtp_task(task, value: str) -> bool:
@@ -1305,7 +1310,7 @@ def dispatch_smtp_new_item_notification(item_id: str):
     with db_session() as db:
         item, feed, reason = _load_item_and_feed_for_notification(db, item_id)
         if item is None or feed is None:
-            return {"status": "skipped", "reason": reason, "item_id": item_id, "sent": 0, "failed": 0, "skipped": 1}
+            return _smtp_skipped_task_response(reason, item_id=item_id)
         result = dispatch_smtp_notification(db, event_type="rss_item_new", feed=feed, item=item)
         db.commit()
         return _smtp_task_response(result, item_id=item_id)
@@ -1320,11 +1325,11 @@ def dispatch_smtp_alert_match_notification(item_id: str):
     with db_session() as db:
         item, feed, reason = _load_item_and_feed_for_notification(db, item_id)
         if item is None or feed is None:
-            return {"status": "skipped", "reason": reason, "item_id": item_id, "sent": 0, "failed": 0, "skipped": 1}
+            return _smtp_skipped_task_response(reason, item_id=item_id)
 
         alert_context = build_alert_match_context_for_item(db, item=item)
         if alert_context is None:
-            return {"status": "skipped", "reason": "no_alert_match", "item_id": item_id, "sent": 0, "failed": 0, "skipped": 1}
+            return _smtp_skipped_task_response("no_alert_match", item_id=item_id)
 
         result = dispatch_smtp_notification(
             db,
@@ -1346,21 +1351,14 @@ def dispatch_smtp_feed_failing_notification(feed_id: str):
     try:
         parsed_feed_id = uuid.UUID(feed_id)
     except ValueError:
-        return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id, "sent": 0, "failed": 0, "skipped": 1}
+        return _smtp_skipped_task_response("invalid_feed_id", feed_id=feed_id)
 
     with db_session() as db:
         feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
         if feed is None:
-            return {"status": "skipped", "reason": "feed_not_found", "feed_id": feed_id, "sent": 0, "failed": 0, "skipped": 1}
+            return _smtp_skipped_task_response("feed_not_found", feed_id=feed_id)
         if int(feed.error_count or 0) < FEED_FAILING_NOTIFICATION_THRESHOLD:
-            return {
-                "status": "skipped",
-                "reason": "below_failure_threshold",
-                "feed_id": feed_id,
-                "sent": 0,
-                "failed": 0,
-                "skipped": 1,
-            }
+            return _smtp_skipped_task_response("below_failure_threshold", feed_id=feed_id)
 
         result = dispatch_smtp_notification(
             db,
@@ -1381,48 +1379,20 @@ def dispatch_smtp_webhook_failed_notification(delivery_id: str):
     try:
         parsed_delivery_id = uuid.UUID(delivery_id)
     except ValueError:
-        return {
-            "status": "skipped",
-            "reason": "invalid_delivery_id",
-            "delivery_id": delivery_id,
-            "sent": 0,
-            "failed": 0,
-            "skipped": 1,
-        }
+        return _smtp_skipped_task_response("invalid_delivery_id", delivery_id=delivery_id)
 
     with db_session() as db:
         failed_delivery = db.scalar(
             select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == parsed_delivery_id)
         )
         if failed_delivery is None:
-            return {
-                "status": "skipped",
-                "reason": "delivery_not_found",
-                "delivery_id": delivery_id,
-                "sent": 0,
-                "failed": 0,
-                "skipped": 1,
-            }
+            return _smtp_skipped_task_response("delivery_not_found", delivery_id=delivery_id)
         if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
-            return {
-                "status": "skipped",
-                "reason": "not_eligible",
-                "delivery_id": delivery_id,
-                "sent": 0,
-                "failed": 0,
-                "skipped": 1,
-            }
+            return _smtp_skipped_task_response("not_eligible", delivery_id=delivery_id)
 
         source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id))
         if source_webhook is None:
-            return {
-                "status": "skipped",
-                "reason": "source_webhook_not_found",
-                "delivery_id": delivery_id,
-                "sent": 0,
-                "failed": 0,
-                "skipped": 1,
-            }
+            return _smtp_skipped_task_response("source_webhook_not_found", delivery_id=delivery_id)
 
         feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id)) if failed_delivery.feed_id else None
         failed_context = FailedWebhookContext(
@@ -3717,10 +3687,13 @@ def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
     _mark_feed_failure(db, feed, error)
     reservation = reserve_feed_failing_notification_deliveries(db, feed=feed)
-    smtp_feed_failing = int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD and smtp_notification_event_enabled(
-        db,
-        event_type="feed_failing",
-        feed=feed,
+    smtp_feed_failing = (
+        int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD
+        and smtp_notification_event_enabled(
+            db,
+            event_type="feed_failing",
+            feed=feed,
+        )
     )
     db.commit()
     webhook_enqueue_ok = enqueue_notification_webhook_delivery_processing(reservation.delivery_ids)
