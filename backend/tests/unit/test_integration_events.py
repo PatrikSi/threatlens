@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.models.feed import Feed
@@ -12,6 +13,7 @@ from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
 from app.services.integration_compat import ensure_webhook_integration
 from app.services.integration_events import (
+    IntegrationEventContextError,
     emit_integration_event,
     list_recoverable_integration_event_ids,
     route_integration_event,
@@ -223,6 +225,20 @@ def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(db
     event_ids = list_recoverable_integration_event_ids(db_session, now=now)
 
     assert set(event_ids) == {due.id, failed.id, stale_routing.id}
+
+
+def test_route_event_rejects_non_scalar_uuid_payload_with_context_error(db_session):
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="test",
+        source_id=None,
+        idempotency_key=f"invalid-payload:{uuid.uuid4()}",
+        payload={"item_id": ["not", "a", "uuid"]},
+    )
+
+    with pytest.raises(IntegrationEventContextError, match="invalid item_id"):
+        route_integration_event(db_session, event_id=event.id)
 
 
 def _persist_user(db_session) -> User:
