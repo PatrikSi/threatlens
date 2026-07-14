@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from re import split as regex_split
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -57,6 +58,7 @@ class SMTPSettingsUpdate(BaseModel):
     clear_password: bool = False
     from_email: EmailStr | None = None
     from_name: str | None = Field(default=None, max_length=255)
+    to_emails: list[EmailStr] = Field(default_factory=list, max_length=50)
     timeout_seconds: int = Field(default=10, ge=1, le=60)
     event_types: list[NotificationEventType] = Field(default_factory=lambda: list(DEFAULT_SMTP_EVENT_TYPES))
     feed_scope: NotificationFeedScope = "all"
@@ -82,6 +84,31 @@ class SMTPSettingsUpdate(BaseModel):
         if any(char.isspace() for char in value):
             raise ValueError("host must not contain whitespace")
         return value
+
+    @field_validator("to_emails", mode="before")
+    @classmethod
+    def normalize_to_emails(cls, value):
+        if value is None:
+            return []
+        candidates = regex_split(r"[,;\r\n]+", value) if isinstance(value, str) else value
+        if not isinstance(candidates, list):
+            return value
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            parts = regex_split(r"[,;\r\n]+", candidate) if isinstance(candidate, str) else [candidate]
+            for part in parts:
+                if part is None:
+                    continue
+                email = str(part).strip()
+                if not email:
+                    continue
+                dedupe_key = email.lower()
+                if dedupe_key in seen:
+                    continue
+                seen.add(dedupe_key)
+                normalized.append(email)
+        return normalized
 
     @field_validator("subject_template", "html_template", mode="before")
     @classmethod
@@ -153,6 +180,7 @@ class SMTPSettingsResponse(BaseModel):
     has_unreadable_secret: bool
     from_email: EmailStr | None
     from_name: str | None
+    to_emails: list[EmailStr]
     timeout_seconds: int
     event_types: list[NotificationEventType]
     feed_scope: NotificationFeedScope

@@ -302,6 +302,19 @@ export function SMTPIntegrationSettingsPage() {
                       placeholder="ThreatLens"
                       onChange={(value) => setDraft((current) => ({ ...current, from_name: value }))}
                     />
+                    <div className="md:col-span-2">
+                      <TextArea
+                        id="smtp-to-emails"
+                        label="Recipient Emails"
+                        value={draft.to_emails}
+                        error={validation.to_emails}
+                        rows={3}
+                        placeholder="analyst@example.com, soc@example.com"
+                        helperText="One or more addresses for SMTP notifications and reports."
+                        monospace={false}
+                        onChange={(value) => setDraft((current) => ({ ...current, to_emails: value }))}
+                      />
+                    </div>
                   </div>
 
                   {smtpSettings?.password_configured && (
@@ -597,6 +610,9 @@ function TextArea({
   value,
   onChange,
   error,
+  helperText,
+  monospace = true,
+  placeholder,
   rows = 6,
 }: {
   id: string
@@ -604,9 +620,13 @@ function TextArea({
   value: string
   onChange: (value: string) => void
   error?: string
+  helperText?: string
+  monospace?: boolean
+  placeholder?: string
   rows?: number
 }) {
   const errorId = `${id}-error`
+  const helperId = `${id}-helper`
   return (
     <div>
       <label htmlFor={id} className="text-sm font-semibold">
@@ -615,12 +635,20 @@ function TextArea({
       <textarea
         id={id}
         rows={rows}
-        className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+        className={`mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45 ${
+          monospace ? 'font-mono' : ''
+        }`}
         value={value}
+        placeholder={placeholder}
         aria-invalid={error ? true : undefined}
-        aria-describedby={error ? errorId : undefined}
+        aria-describedby={[error ? errorId : null, helperText ? helperId : null].filter(Boolean).join(' ') || undefined}
         onChange={(event) => onChange(event.target.value)}
       />
+      {helperText && (
+        <p id={helperId} className="mt-1 text-xs text-slate dark:text-white/60">
+          {helperText}
+        </p>
+      )}
       {error && (
         <p id={errorId} className="mt-1 text-xs text-red-600">
           {error}

@@ -55,6 +55,7 @@ def process_reserved_notification_deliveries(
     reserve_failed_delivery_notifications: Callable[..., NotificationDeliveryReservationBatch],
     enqueue_delivery_processing: Callable[..., bool],
     logger: logging.Logger,
+    notify_failed_delivery: Callable[[NotificationWebhookDelivery], None] | None = None,
 ) -> tuple[int, int]:
     delivered = 0
     failed = 0
@@ -116,6 +117,8 @@ def process_reserved_notification_deliveries(
             )
             db.commit()
             enqueue_delivery_processing(failed_delivery_reservations.delivery_ids)
+            if notify_failed_delivery is not None:
+                notify_failed_delivery(attempt.delivery)
 
         logger.warning(
             "notification_webhook_delivery_failed webhook_id=%s delivery_id=%s event_type=%s status_code=%s error=%s",

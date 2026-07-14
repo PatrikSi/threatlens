@@ -387,7 +387,7 @@ API calls:
 
 UI elements:
 
-- SMTP connection and authentication form
+- SMTP connection, authentication, sender, and recipient form
 - Event type and feed scope selection
 - Email subject and HTML template editor
 - Connection test and rendered test email action

@@ -795,6 +795,7 @@ export interface SMTPSettings {
   has_unreadable_secret: boolean
   from_email: string | null
   from_name: string | null
+  to_emails: string[]
   timeout_seconds: number
   event_types: NotificationEventType[]
   feed_scope: 'all' | 'selected'
@@ -821,6 +822,7 @@ export interface SMTPSettingsUpdateRequest {
   clear_password?: boolean
   from_email: string | null
   from_name: string | null
+  to_emails: string[]
   timeout_seconds: number
   event_types: NotificationEventType[]
   feed_scope: 'all' | 'selected'

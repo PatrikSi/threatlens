@@ -25,6 +25,7 @@ describe('smtpSettingsDraft', () => {
       has_unreadable_secret: false,
       from_email: 'threatlens@example.com',
       from_name: 'ThreatLens',
+      to_emails: ['analyst@example.com', 'soc@example.com'],
       timeout_seconds: 10,
       event_types: ['rss_item_new'],
       feed_scope: 'all',
@@ -42,7 +43,9 @@ describe('smtpSettingsDraft', () => {
     })
 
     expect(draft.password).toBe('')
+    expect(draft.to_emails).toBe('analyst@example.com\nsoc@example.com')
     expect(createSMTPRequestFromDraft(draft)).not.toHaveProperty('password')
+    expect(createSMTPRequestFromDraft(draft).to_emails).toEqual(['analyst@example.com', 'soc@example.com'])
   })
 
   it('validates required enabled settings and password ownership', () => {
@@ -54,7 +57,24 @@ describe('smtpSettingsDraft', () => {
 
     expect(errors.host).toContain('Host is required')
     expect(errors.from_email).toContain('Sender email is required')
+    expect(errors.to_emails).toContain('At least one recipient')
     expect(errors.username).toContain('Username is required')
+  })
+
+  it('normalizes comma separated recipient emails', () => {
+    expect(
+      createSMTPRequestFromDraft({
+        ...DEFAULT_SMTP_DRAFT,
+        to_emails: 'analyst@example.com, soc@example.com\nANALYST@example.com',
+      }).to_emails,
+    ).toEqual(['analyst@example.com', 'soc@example.com'])
+
+    expect(
+      validateSMTPSettingsDraft({
+        ...DEFAULT_SMTP_DRAFT,
+        to_emails: 'not-an-email',
+      }).to_emails,
+    ).toContain('valid recipient email')
   })
 
   it('validates notification selection and email templates', () => {
@@ -81,6 +101,7 @@ describe('smtpSettingsDraft', () => {
         username: 'relay-user',
         password: 'new-secret',
         from_email: 'threatlens@example.com',
+        to_emails: 'analyst@example.com',
       }),
     ).toMatchObject({ password: 'new-secret' })
 
@@ -90,6 +111,7 @@ describe('smtpSettingsDraft', () => {
         host: 'smtp.example.com',
         clear_password: true,
         from_email: 'threatlens@example.com',
+        to_emails: 'analyst@example.com',
       }),
     ).toMatchObject({ clear_password: true })
   })
