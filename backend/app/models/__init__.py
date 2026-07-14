@@ -13,6 +13,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
+    IntegrationDeliveryMetric,
     IntegrationEvent,
     IntegrationInstance,
     IntegrationRun,
@@ -46,6 +47,7 @@ __all__ = [
     "IOC",
     "IntegrationAttempt",
     "IntegrationDelivery",
+    "IntegrationDeliveryMetric",
     "IntegrationEvent",
     "IntegrationInstance",
     "IntegrationRun",

@@ -85,6 +85,7 @@ from app.services.integration_delivery import (
     mark_integration_delivery_dead_letter,
 )
 from app.services.integration_processors import process_smtp_integration_delivery
+from app.services.integration_maintenance import run_integration_delivery_maintenance
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
@@ -1668,6 +1669,24 @@ def dispatch_pending_integration_deliveries():
         "scanned": len(delivery_ids),
         "queued": len(delivery_ids) if enqueue_ok else 0,
         "enqueue_failed": bool(delivery_ids) and not enqueue_ok,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.maintain_integration_delivery_history",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def maintain_integration_delivery_history():
+    with db_session() as db:
+        result = run_integration_delivery_maintenance(db)
+    return {
+        "status": "ok",
+        "rolled_up": result.rolled_up,
+        "webhook_deliveries_deleted": result.webhook_deliveries_deleted,
+        "deliveries_deleted": result.deliveries_deleted,
+        "events_deleted": result.events_deleted,
+        "metrics_deleted": result.metrics_deleted,
     }
 
 
