@@ -51,6 +51,11 @@ def _persist_rows(db_session, *rows):
         db_session.flush()
 
 
+@pytest.fixture
+def stub_smtp_enqueue(monkeypatch):
+    monkeypatch.setattr("app.tasks.feed_tasks._safe_enqueue_smtp_task", lambda *_args, **_kwargs: True)
+
+
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
     payload = NotificationWebhookWrite(
         name="Example",
@@ -1733,7 +1738,11 @@ def test_retry_notification_webhook_delivery_raises_when_retry_lock_is_busy_with
         retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
 
 
-def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(db_session, monkeypatch):
+def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(
+    db_session,
+    monkeypatch,
+    stub_smtp_enqueue,
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1866,9 +1875,14 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     assert result["matched_webhooks"] == 3
     assert result["delivered"] == 2
     assert result["skipped"] == 1
+    assert result["smtp_enqueue_failed"] is False
 
 
-def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_delivery(db_session, monkeypatch):
+def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_delivery(
+    db_session,
+    monkeypatch,
+    stub_smtp_enqueue,
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1957,7 +1971,11 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
     assert result["skipped"] == 1
 
 
-def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_unavailable(db_session, monkeypatch):
+def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_unavailable(
+    db_session,
+    monkeypatch,
+    stub_smtp_enqueue,
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -2086,7 +2104,11 @@ def test_build_alert_match_context_for_item_collects_matching_alerts(db_session)
     assert context.matched_keywords == ["lockbit", "credential theft"]
 
 
-def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_users(db_session, monkeypatch):
+def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_users(
+    db_session,
+    monkeypatch,
+    stub_smtp_enqueue,
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -2209,7 +2231,11 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
     assert result["skipped"] == 1
 
 
-def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(db_session, monkeypatch):
+def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(
+    db_session,
+    monkeypatch,
+    stub_smtp_enqueue,
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Failing feed",
