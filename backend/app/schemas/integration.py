@@ -48,6 +48,13 @@ class IntegrationSummaryResponse(BaseModel):
     updated_at: datetime
 
 
+class IntegrationDeliveryReplayResponse(BaseModel):
+    source_delivery_id: uuid.UUID
+    delivery_id: uuid.UUID
+    state: Literal["pending"]
+    queued: bool
+
+
 class SMTPSettingsUpdate(BaseModel):
     enabled: bool = False
     host: str | None = Field(default=None, max_length=255)
