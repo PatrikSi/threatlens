@@ -27,6 +27,7 @@ from app.services.integration_storage import (
     list_integration_summaries,
     record_smtp_test_result,
     smtp_settings_response_from_model,
+    sync_smtp_subscriptions,
 )
 from app.services.notification_webhooks import find_unknown_template_variables_in_texts
 from app.services.smtp_integration import test_smtp_integration
@@ -73,6 +74,7 @@ def update_smtp_settings(
     _validate_smtp_notification_settings(db, payload, require_recipients=payload.enabled)
     apply_smtp_settings_update(instance, payload)
     db.add(instance)
+    sync_smtp_subscriptions(db, instance)
     record_audit(
         db,
         actor_user_id=admin.id,

@@ -9,7 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.integration import IntegrationInstance, IntegrationRun
+from app.models.feed import Feed
+from app.models.integration import (
+    IntegrationInstance,
+    IntegrationRun,
+    IntegrationSubscription,
+    IntegrationSubscriptionFeed,
+)
 from app.schemas.integration import (
     DEFAULT_SMTP_EVENT_TYPES,
     DEFAULT_SMTP_HTML_TEMPLATE,
@@ -132,6 +138,46 @@ def apply_smtp_settings_update(instance: IntegrationInstance, payload: SMTPSetti
     instance.last_error_at = None
     instance.last_error = None
     instance.last_test_duration_ms = None
+
+
+def sync_smtp_subscriptions(db: Session, instance: IntegrationInstance) -> list[IntegrationSubscription]:
+    """Synchronize SMTP routing rows while retaining disabled rows for delivery history."""
+    config = _normalize_smtp_config(instance.config_json)
+    configured_event_types = set(config["event_types"])
+    subscriptions = {
+        subscription.event_type: subscription
+        for subscription in db.scalars(
+            select(IntegrationSubscription).where(IntegrationSubscription.integration_id == instance.id)
+        ).all()
+    }
+    active_subscriptions: list[IntegrationSubscription] = []
+    for event_type in sorted(configured_event_types):
+        subscription = subscriptions.get(event_type)
+        if subscription is None:
+            subscription = IntegrationSubscription(
+                integration_id=instance.id,
+                subscription_key=f"event:{event_type}",
+                event_type=event_type,
+            )
+            db.add(subscription)
+        subscription.subscription_key = f"event:{event_type}"
+        subscription.enabled = bool(instance.enabled)
+        subscription.feed_scope = config["feed_scope"]
+        subscription.filter_json = {
+            "feed_scope": config["feed_scope"],
+            "feed_ids": [str(feed_id) for feed_id in config["feed_ids"]],
+        }
+        subscription.transform_json = {}
+        db.flush()
+        _sync_smtp_subscription_feeds(db, subscription=subscription, feed_ids=set(config["feed_ids"]))
+        active_subscriptions.append(subscription)
+
+    for event_type, subscription in subscriptions.items():
+        if event_type not in configured_event_types:
+            subscription.enabled = False
+            db.add(subscription)
+    db.flush()
+    return active_subscriptions
 
 
 def smtp_settings_response_from_model(instance: IntegrationInstance) -> SMTPSettingsResponse:
@@ -366,6 +412,32 @@ def _default_smtp_config() -> dict:
 
 def _smtp_configured(config: dict) -> bool:
     return bool(config.get("host") and config.get("from_email") and config.get("to_emails"))
+
+
+def _sync_smtp_subscription_feeds(
+    db: Session,
+    *,
+    subscription: IntegrationSubscription,
+    feed_ids: set[uuid.UUID],
+) -> None:
+    valid_feed_ids = (
+        set(db.scalars(select(Feed.id).where(Feed.id.in_(feed_ids))).all())
+        if feed_ids
+        else set()
+    )
+    existing = {
+        row.feed_id: row
+        for row in db.scalars(
+            select(IntegrationSubscriptionFeed).where(
+                IntegrationSubscriptionFeed.subscription_id == subscription.id
+            )
+        ).all()
+    }
+    for feed_id, row in existing.items():
+        if feed_id not in valid_feed_ids:
+            db.delete(row)
+    for feed_id in valid_feed_ids - set(existing):
+        db.add(IntegrationSubscriptionFeed(subscription_id=subscription.id, feed_id=feed_id))
 
 
 def _normalize_optional_text(value) -> str | None:

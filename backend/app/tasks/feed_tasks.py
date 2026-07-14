@@ -26,7 +26,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationInstance
+from app.models.integration import IntegrationDelivery, IntegrationInstance
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -80,6 +80,11 @@ from app.services.integration_events import (
     record_integration_event_failure,
     route_integration_event as route_pending_integration_event,
 )
+from app.services.integration_delivery import (
+    list_recoverable_integration_delivery_ids,
+    mark_integration_delivery_dead_letter,
+)
+from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
@@ -402,6 +407,15 @@ def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
             all_enqueued = False
             logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
     return all_enqueued
+
+
+def enqueue_integration_delivery_processing(delivery_ids: list[uuid.UUID]) -> bool:
+    return _enqueue_notification_delivery_batches(
+        delivery_ids,
+        batch_size=settings.notification_delivery_enqueue_batch_size,
+        delivery_task=process_integration_deliveries,
+        logger=logger,
+    )
 
 
 def _emit_item_integration_event(
@@ -1612,6 +1626,96 @@ def dispatch_pending_notification_webhook_deliveries():
 
 
 @celery_app.task(
+    name="app.tasks.feed_tasks.process_integration_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def process_integration_deliveries(delivery_ids: list[str]):
+    delivered = 0
+    failed = 0
+    deferred = 0
+    skipped = 0
+    with db_session() as db:
+        for raw_delivery_id in delivery_ids:
+            try:
+                delivery_id = uuid.UUID(raw_delivery_id)
+            except (AttributeError, TypeError, ValueError):
+                skipped += 1
+                continue
+            delivery = db.get(IntegrationDelivery, delivery_id)
+            if delivery is None:
+                skipped += 1
+                continue
+            if delivery.connector_type == "webhook":
+                legacy_delivery = db.scalar(
+                    select(NotificationWebhookDelivery).where(
+                        NotificationWebhookDelivery.integration_delivery_id == delivery.id
+                    )
+                )
+                if legacy_delivery is None:
+                    mark_integration_delivery_dead_letter(
+                        db,
+                        delivery_id=delivery.id,
+                        error_code="legacy_projection_missing",
+                        error_message="Webhook compatibility delivery no longer exists.",
+                    )
+                    db.commit()
+                    failed += 1
+                    continue
+                webhook_delivered, webhook_failed = _process_reserved_notification_deliveries(
+                    db,
+                    [legacy_delivery.id],
+                )
+                delivered += webhook_delivered
+                failed += webhook_failed
+                continue
+            if delivery.connector_type == "smtp":
+                result = process_smtp_integration_delivery(db, delivery_id=delivery.id)
+                if result.status == "succeeded":
+                    delivered += 1
+                elif result.status in {"retry_wait", "deferred"}:
+                    deferred += 1
+                elif result.status in {"terminal", "missing"}:
+                    skipped += 1
+                else:
+                    failed += 1
+                continue
+            mark_integration_delivery_dead_letter(
+                db,
+                delivery_id=delivery.id,
+                error_code="unsupported_connector",
+                error_message=f"Unsupported integration connector: {delivery.connector_type}",
+            )
+            db.commit()
+            failed += 1
+    return {
+        "status": "ok",
+        "scanned": len(delivery_ids),
+        "delivered": delivered,
+        "failed": failed,
+        "deferred": deferred,
+        "skipped": skipped,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_pending_integration_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dispatch_pending_integration_deliveries():
+    with db_session() as db:
+        delivery_ids = list_recoverable_integration_delivery_ids(db)
+    enqueue_ok = enqueue_integration_delivery_processing(delivery_ids)
+    return {
+        "status": "ok",
+        "scanned": len(delivery_ids),
+        "queued": len(delivery_ids) if enqueue_ok else 0,
+        "enqueue_failed": bool(delivery_ids) and not enqueue_ok,
+    }
+
+
+@celery_app.task(
     name="app.tasks.feed_tasks.route_integration_event",
     acks_late=True,
     reject_on_worker_lost=True,
@@ -1652,13 +1756,13 @@ def route_integration_event(event_id: str):
                 "event_id": event_id,
             }
 
-    enqueue_ok = enqueue_notification_webhook_delivery_processing(result.webhook_delivery_ids)
+    enqueue_ok = enqueue_integration_delivery_processing(result.integration_delivery_ids)
     return {
         "status": result.status,
         "event_id": event_id,
         "integration_deliveries": len(result.integration_delivery_ids),
         "webhook_deliveries": len(result.webhook_delivery_ids),
-        "enqueue_failed": bool(result.webhook_delivery_ids) and not enqueue_ok,
+        "enqueue_failed": bool(result.integration_delivery_ids) and not enqueue_ok,
     }
 
 

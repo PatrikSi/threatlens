@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.integration import IntegrationAttempt, IntegrationDelivery
+from app.models.integration import IntegrationAttempt, IntegrationDelivery, IntegrationInstance
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
@@ -26,6 +28,318 @@ ATTEMPT_RUNNING = "running"
 ATTEMPT_SUCCEEDED = "succeeded"
 ATTEMPT_FAILED = "failed"
 ATTEMPT_INTERRUPTED = "interrupted"
+
+CLAIMED = "claimed"
+DEFERRED = "deferred"
+TERMINAL = "terminal"
+MISSING = "missing"
+
+
+@dataclass(frozen=True)
+class IntegrationDeliveryClaim:
+    status: str
+    delivery_id: uuid.UUID
+    integration_id: uuid.UUID | None = None
+    connector_type: str | None = None
+    event_type: str | None = None
+    attempt_number: int | None = None
+    reason: str | None = None
+    scheduled_for: datetime | None = None
+
+
+@dataclass(frozen=True)
+class IntegrationDeliveryOutcome:
+    recorded: bool
+    state: str | None
+    retry_at: datetime | None = None
+
+
+def claim_integration_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    now: datetime | None = None,
+) -> IntegrationDeliveryClaim:
+    current_time = now or datetime.now(timezone.utc)
+    delivery = db.scalar(
+        select(IntegrationDelivery)
+        .where(IntegrationDelivery.id == delivery_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if delivery is None:
+        return IntegrationDeliveryClaim(status=MISSING, delivery_id=delivery_id, reason="delivery_not_found")
+    if delivery.state in DELIVERY_TERMINAL_STATES:
+        return _claim_result(delivery, status=TERMINAL, reason=f"delivery_{delivery.state}")
+
+    scheduled_for = _coerce_utc(delivery.not_before)
+    if scheduled_for is not None and scheduled_for > current_time:
+        return _claim_result(delivery, status=DEFERRED, reason="not_due", scheduled_for=scheduled_for)
+
+    instance = db.scalar(
+        select(IntegrationInstance)
+        .where(IntegrationInstance.id == delivery.integration_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if instance is None:
+        _dead_letter_without_attempt(delivery, code="integration_missing", message="Integration instance no longer exists.", now=current_time)
+        db.commit()
+        return _claim_result(delivery, status=TERMINAL, reason="integration_missing")
+    if not instance.enabled:
+        _dead_letter_without_attempt(delivery, code="integration_disabled", message="Integration instance is disabled.", now=current_time)
+        db.commit()
+        return _claim_result(delivery, status=TERMINAL, reason="integration_disabled")
+
+    stale_cutoff = current_time - timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
+    claimed_at = _coerce_utc(delivery.claimed_at)
+    if delivery.state == DELIVERY_SENDING and claimed_at is not None and claimed_at >= stale_cutoff:
+        return _claim_result(delivery, status=DEFERRED, reason="already_claimed", scheduled_for=claimed_at)
+    if delivery.state == DELIVERY_SENDING:
+        _interrupt_running_attempt(db, generic=delivery, now=current_time)
+
+    if int(delivery.attempt_count or 0) >= max(1, int(delivery.max_attempts or 1)):
+        _dead_letter_without_attempt(
+            delivery,
+            code="attempts_exhausted",
+            message="Delivery exhausted its configured attempts.",
+            now=current_time,
+        )
+        db.commit()
+        return _claim_result(delivery, status=TERMINAL, reason="attempts_exhausted")
+
+    circuit_until = _coerce_utc(instance.circuit_open_until)
+    if instance.circuit_state == "open" and circuit_until is not None and circuit_until > current_time:
+        _defer_delivery(delivery, until=circuit_until)
+        db.commit()
+        return _claim_result(delivery, status=DEFERRED, reason="circuit_open", scheduled_for=circuit_until)
+    if instance.circuit_state == "open":
+        instance.circuit_state = "half_open"
+        db.add(instance)
+
+    active_attempts = db.scalar(
+        select(func.count())
+        .select_from(IntegrationDelivery)
+        .where(
+            IntegrationDelivery.integration_id == instance.id,
+            IntegrationDelivery.id != delivery.id,
+            IntegrationDelivery.state == DELIVERY_SENDING,
+            IntegrationDelivery.claimed_at >= stale_cutoff,
+        )
+    ) or 0
+    concurrency_limit = 1 if instance.circuit_state == "half_open" else max(1, int(instance.max_concurrency or 1))
+    if int(active_attempts) >= concurrency_limit:
+        retry_at = current_time + timedelta(seconds=max(1, settings.integration_delivery_concurrency_defer_seconds))
+        _defer_delivery(delivery, until=retry_at)
+        db.commit()
+        return _claim_result(delivery, status=DEFERRED, reason="concurrency_limited", scheduled_for=retry_at)
+
+    rate_window_start = current_time - timedelta(minutes=1)
+    recent_attempts = db.scalar(
+        select(func.count())
+        .select_from(IntegrationAttempt)
+        .where(
+            IntegrationAttempt.integration_id == instance.id,
+            IntegrationAttempt.started_at >= rate_window_start,
+        )
+    ) or 0
+    rate_limit = max(1, int(instance.rate_limit_per_minute or 1))
+    if int(recent_attempts) >= rate_limit:
+        retry_at = current_time + timedelta(minutes=1)
+        _defer_delivery(delivery, until=retry_at)
+        db.commit()
+        return _claim_result(delivery, status=DEFERRED, reason="rate_limited", scheduled_for=retry_at)
+
+    attempt_number = max(0, int(delivery.attempt_count or 0)) + 1
+    delivery.state = DELIVERY_SENDING
+    delivery.claimed_at = current_time
+    delivery.not_before = None
+    delivery.attempt_count = attempt_number
+    delivery.last_status_code = None
+    delivery.last_duration_ms = None
+    delivery.last_error_code = None
+    delivery.last_error_message = None
+    delivery.last_error_retryable = None
+    db.add(
+        IntegrationAttempt(
+            delivery_id=delivery.id,
+            integration_id=delivery.integration_id,
+            attempt_number=attempt_number,
+            status=ATTEMPT_RUNNING,
+            started_at=current_time,
+            response_json={},
+        )
+    )
+    db.add(delivery)
+    db.commit()
+    return _claim_result(delivery, status=CLAIMED, attempt_number=attempt_number)
+
+
+def finalize_integration_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    expected_attempt_number: int,
+    success: bool,
+    duration_ms: int | None,
+    error_code: str | None,
+    error_message: str | None,
+    retryable: bool,
+    status_code: int | None = None,
+    response_json: dict | None = None,
+    finished_at: datetime | None = None,
+    schedule_retry: bool = True,
+) -> IntegrationDeliveryOutcome:
+    completed_at = finished_at or datetime.now(timezone.utc)
+    delivery = db.scalar(
+        select(IntegrationDelivery)
+        .where(IntegrationDelivery.id == delivery_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        delivery is None
+        or delivery.state != DELIVERY_SENDING
+        or int(delivery.attempt_count or 0) != int(expected_attempt_number)
+    ):
+        return IntegrationDeliveryOutcome(recorded=False, state=getattr(delivery, "state", None))
+
+    instance = db.scalar(
+        select(IntegrationInstance).where(IntegrationInstance.id == delivery.integration_id).with_for_update()
+    )
+    attempt = db.scalar(
+        select(IntegrationAttempt).where(
+            IntegrationAttempt.delivery_id == delivery.id,
+            IntegrationAttempt.attempt_number == expected_attempt_number,
+        )
+    )
+    if attempt is None:
+        attempt = IntegrationAttempt(
+            delivery_id=delivery.id,
+            integration_id=delivery.integration_id,
+            attempt_number=expected_attempt_number,
+            status=ATTEMPT_RUNNING,
+            started_at=completed_at,
+            response_json={},
+        )
+    attempt.status = ATTEMPT_SUCCEEDED if success else ATTEMPT_FAILED
+    attempt.finished_at = completed_at
+    attempt.duration_ms = duration_ms
+    attempt.status_code = status_code
+    attempt.error_code = None if success else error_code
+    attempt.error_message = None if success else error_message
+    attempt.retryable = False if success else retryable
+    attempt.response_json = dict(response_json or {})
+
+    delivery.claimed_at = None
+    delivery.completed_at = completed_at if success else None
+    delivery.last_status_code = status_code
+    delivery.last_duration_ms = duration_ms
+    delivery.last_error_code = None if success else error_code
+    delivery.last_error_message = None if success else error_message
+    delivery.last_error_retryable = False if success else retryable
+    retry_at: datetime | None = None
+    if success:
+        delivery.state = DELIVERY_SUCCEEDED
+        delivery.not_before = None
+        delivery.dead_lettered_at = None
+    elif not schedule_retry:
+        delivery.state = DELIVERY_FAILED
+        delivery.completed_at = completed_at
+        delivery.not_before = None
+    elif retryable and int(delivery.attempt_count or 0) < max(1, int(delivery.max_attempts or 1)):
+        retry_at = completed_at + timedelta(seconds=_retry_backoff_seconds(delivery))
+        delivery.state = DELIVERY_RETRY_WAIT
+        delivery.not_before = retry_at
+    else:
+        delivery.state = DELIVERY_DEAD_LETTER
+        delivery.not_before = None
+        delivery.dead_lettered_at = completed_at
+
+    if instance is not None:
+        _update_circuit(instance, success=success, retryable=retryable, now=completed_at)
+        db.add(instance)
+    db.add_all([attempt, delivery])
+    return IntegrationDeliveryOutcome(recorded=True, state=delivery.state, retry_at=retry_at)
+
+
+def list_recoverable_integration_delivery_ids(
+    db: Session,
+    *,
+    limit: int | None = None,
+    now: datetime | None = None,
+) -> list[uuid.UUID]:
+    current_time = now or datetime.now(timezone.utc)
+    stale_cutoff = current_time - timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
+    batch_size = max(1, int(limit or settings.integration_delivery_recovery_batch_size))
+    return list(
+        db.scalars(
+            select(IntegrationDelivery.id)
+            .where(
+                or_(
+                    and_(
+                        IntegrationDelivery.state.in_([DELIVERY_PENDING, DELIVERY_RETRY_WAIT]),
+                        or_(IntegrationDelivery.not_before.is_(None), IntegrationDelivery.not_before <= current_time),
+                    ),
+                    and_(
+                        IntegrationDelivery.state == DELIVERY_SENDING,
+                        or_(IntegrationDelivery.claimed_at.is_(None), IntegrationDelivery.claimed_at < stale_cutoff),
+                    ),
+                )
+            )
+            .order_by(func.coalesce(IntegrationDelivery.not_before, IntegrationDelivery.created_at).asc())
+            .limit(batch_size)
+        ).all()
+    )
+
+
+def mark_integration_delivery_dead_letter(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    error_code: str | None = None,
+    error_message: str | None = None,
+    now: datetime | None = None,
+) -> bool:
+    delivery = db.scalar(select(IntegrationDelivery).where(IntegrationDelivery.id == delivery_id).with_for_update())
+    if delivery is None or delivery.state == DELIVERY_SUCCEEDED:
+        return False
+    current_time = now or datetime.now(timezone.utc)
+    delivery.state = DELIVERY_DEAD_LETTER
+    delivery.claimed_at = None
+    delivery.not_before = None
+    delivery.dead_lettered_at = current_time
+    delivery.last_error_code = error_code or delivery.last_error_code
+    delivery.last_error_message = error_message or delivery.last_error_message
+    db.add(delivery)
+    return True
+
+
+def replay_dead_letter_delivery(db: Session, *, delivery_id: uuid.UUID) -> IntegrationDelivery:
+    source = db.scalar(select(IntegrationDelivery).where(IntegrationDelivery.id == delivery_id).with_for_update())
+    if source is None:
+        raise ValueError("Integration delivery not found")
+    if source.state != DELIVERY_DEAD_LETTER:
+        raise ValueError("Only dead-lettered integration deliveries can be replayed")
+    replay_id = uuid.uuid4()
+    replay = IntegrationDelivery(
+        id=replay_id,
+        integration_id=source.integration_id,
+        subscription_id=source.subscription_id,
+        event_id=source.event_id,
+        owner_user_id=source.owner_user_id,
+        source_delivery_id=source.id,
+        connector_type=source.connector_type,
+        event_type=source.event_type,
+        delivery_kind="replay",
+        state=DELIVERY_PENDING,
+        idempotency_key=f"replay:{source.id}:{replay_id}",
+        payload_json=dict(source.payload_json or {}),
+        max_attempts=source.max_attempts,
+    )
+    db.add(replay)
+    db.flush()
+    return replay
 
 
 def ensure_webhook_delivery(
@@ -91,56 +405,9 @@ def claim_webhook_delivery(
 ) -> NotificationWebhookDelivery | None:
     current_time = now or datetime.now(timezone.utc)
     generic = ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=legacy_delivery)
-    generic = db.scalar(
-        select(IntegrationDelivery)
-        .where(IntegrationDelivery.id == generic.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if generic is None:
+    claim = claim_integration_delivery(db, delivery_id=generic.id, now=current_time)
+    if claim.status != CLAIMED or claim.attempt_number is None:
         return None
-    reconciled = _reconcile_legacy_claim_state(generic=generic, legacy_delivery=legacy_delivery)
-    if generic.state in DELIVERY_TERMINAL_STATES:
-        if reconciled:
-            db.add(generic)
-            db.commit()
-        return None
-
-    scheduled_for = _coerce_utc(generic.not_before)
-    if scheduled_for is not None and scheduled_for > current_time:
-        return None
-
-    stale_cutoff = current_time - timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
-    claimed_at = _coerce_utc(generic.claimed_at)
-    if generic.state == DELIVERY_SENDING and claimed_at is not None and claimed_at >= stale_cutoff:
-        if reconciled:
-            db.add(generic)
-            db.commit()
-        return None
-    if generic.state == DELIVERY_SENDING:
-        _interrupt_running_attempt(db, generic=generic, now=current_time)
-
-    attempt_number = max(0, int(generic.attempt_count or 0)) + 1
-    generic.state = DELIVERY_SENDING
-    generic.claimed_at = current_time
-    generic.attempt_count = attempt_number
-    generic.not_before = None
-    generic.last_status_code = None
-    generic.last_duration_ms = None
-    generic.last_error_code = None
-    generic.last_error_message = None
-    generic.last_error_retryable = None
-    db.add(
-        IntegrationAttempt(
-            delivery_id=generic.id,
-            integration_id=generic.integration_id,
-            attempt_number=attempt_number,
-            status=ATTEMPT_RUNNING,
-            started_at=current_time,
-            response_json={},
-        )
-    )
-
     preserve_error = (
         legacy_delivery.delivery_state == DELIVERY_PENDING
         and legacy_delivery.status_code is None
@@ -148,14 +415,14 @@ def claim_webhook_delivery(
     )
     legacy_delivery.delivery_state = DELIVERY_SENDING
     legacy_delivery.claimed_at = current_time
-    legacy_delivery.attempt_count = attempt_number
+    legacy_delivery.attempt_count = claim.attempt_number
     legacy_delivery.attempted_at = current_time
     legacy_delivery.status_code = None
     legacy_delivery.duration_ms = None
     legacy_delivery.response_body_preview = None
     if not preserve_error:
         legacy_delivery.error = None
-    db.add_all([generic, legacy_delivery])
+    db.add(legacy_delivery)
     db.commit()
     db.refresh(legacy_delivery)
     return legacy_delivery
@@ -177,53 +444,21 @@ def finalize_webhook_delivery(
     if webhook is None:
         return False
     generic = ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=legacy_delivery)
-    generic = db.scalar(
-        select(IntegrationDelivery)
-        .where(IntegrationDelivery.id == generic.id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    outcome = finalize_integration_delivery(
+        db,
+        delivery_id=generic.id,
+        expected_attempt_number=expected_attempt_number,
+        success=success,
+        status_code=status_code,
+        duration_ms=duration_ms,
+        error_code=_webhook_error_code(status_code=status_code, error=error),
+        error_message=error,
+        retryable=retryable,
+        response_json={"response_recorded": status_code is not None},
+        finished_at=finished_at,
+        schedule_retry=False,
     )
-    if generic is None:
-        return False
-    if generic.state != DELIVERY_SENDING or int(generic.attempt_count or 0) != int(expected_attempt_number):
-        return False
-
-    completed_at = finished_at or datetime.now(timezone.utc)
-    attempt_number = max(1, int(expected_attempt_number))
-    attempt = db.scalar(
-        select(IntegrationAttempt).where(
-            IntegrationAttempt.delivery_id == generic.id,
-            IntegrationAttempt.attempt_number == attempt_number,
-        )
-    )
-    if attempt is None:
-        attempt = IntegrationAttempt(
-            delivery_id=generic.id,
-            integration_id=generic.integration_id,
-            attempt_number=attempt_number,
-            status=ATTEMPT_RUNNING,
-            started_at=completed_at,
-            response_json={},
-        )
-    attempt.status = ATTEMPT_SUCCEEDED if success else ATTEMPT_FAILED
-    attempt.finished_at = completed_at
-    attempt.duration_ms = duration_ms
-    attempt.status_code = status_code
-    attempt.error_code = _webhook_error_code(status_code=status_code, error=error)
-    attempt.error_message = error
-    attempt.retryable = False if success else retryable
-    attempt.response_json = {"response_recorded": status_code is not None}
-
-    generic.state = DELIVERY_SUCCEEDED if success else DELIVERY_FAILED
-    generic.completed_at = completed_at
-    generic.claimed_at = None
-    generic.last_status_code = status_code
-    generic.last_duration_ms = duration_ms
-    generic.last_error_code = None if success else attempt.error_code
-    generic.last_error_message = None if success else error
-    generic.last_error_retryable = False if success else retryable
-    db.add_all([attempt, generic])
-    return True
+    return outcome.recorded
 
 
 def list_recoverable_webhook_delivery_ids(
@@ -361,6 +596,84 @@ def _webhook_error_code(*, status_code: int | None, error: str | None) -> str | 
     if status_code is not None:
         return f"http_{status_code}"
     return "network_error"
+
+
+def _claim_result(
+    delivery: IntegrationDelivery,
+    *,
+    status: str,
+    reason: str | None = None,
+    scheduled_for: datetime | None = None,
+    attempt_number: int | None = None,
+) -> IntegrationDeliveryClaim:
+    return IntegrationDeliveryClaim(
+        status=status,
+        delivery_id=delivery.id,
+        integration_id=delivery.integration_id,
+        connector_type=delivery.connector_type,
+        event_type=delivery.event_type,
+        attempt_number=attempt_number,
+        reason=reason,
+        scheduled_for=scheduled_for,
+    )
+
+
+def _defer_delivery(delivery: IntegrationDelivery, *, until: datetime) -> None:
+    delivery.state = DELIVERY_RETRY_WAIT
+    delivery.claimed_at = None
+    delivery.not_before = until
+
+
+def _dead_letter_without_attempt(
+    delivery: IntegrationDelivery,
+    *,
+    code: str,
+    message: str,
+    now: datetime,
+) -> None:
+    delivery.state = DELIVERY_DEAD_LETTER
+    delivery.claimed_at = None
+    delivery.not_before = None
+    delivery.dead_lettered_at = now
+    delivery.last_error_code = code
+    delivery.last_error_message = message
+    delivery.last_error_retryable = False
+
+
+def _retry_backoff_seconds(delivery: IntegrationDelivery) -> int:
+    base = max(1, int(settings.integration_delivery_retry_backoff_seconds))
+    maximum = max(base, int(settings.integration_delivery_retry_max_backoff_seconds))
+    exponent = max(0, int(delivery.attempt_count or 1) - 1)
+    exponential = min(maximum, base * (2**exponent))
+    jitter_ceiling = max(1, exponential // 5)
+    digest = hashlib.sha256(f"{delivery.id}:{delivery.attempt_count}".encode("ascii")).digest()
+    jitter = int.from_bytes(digest[:2], "big") % (jitter_ceiling + 1)
+    return min(maximum, exponential + jitter)
+
+
+def _update_circuit(
+    instance: IntegrationInstance,
+    *,
+    success: bool,
+    retryable: bool,
+    now: datetime,
+) -> None:
+    if success:
+        instance.circuit_state = "closed"
+        instance.circuit_failure_count = 0
+        instance.circuit_opened_at = None
+        instance.circuit_open_until = None
+        return
+    if not retryable and instance.circuit_state != "half_open":
+        return
+    instance.circuit_failure_count = max(0, int(instance.circuit_failure_count or 0)) + 1
+    threshold = max(1, int(settings.integration_delivery_circuit_failure_threshold))
+    if instance.circuit_state == "half_open" or instance.circuit_failure_count >= threshold:
+        instance.circuit_state = "open"
+        instance.circuit_opened_at = now
+        instance.circuit_open_until = now + timedelta(
+            seconds=max(1, int(settings.integration_delivery_circuit_open_seconds))
+        )
 
 
 def _coerce_utc(value: datetime | None) -> datetime | None:

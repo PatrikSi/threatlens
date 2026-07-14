@@ -24,6 +24,7 @@ from app.models.user import User
 from app.schemas.notification import NotificationEventType
 from app.services.integration_compat import repair_legacy_webhook_integrations
 from app.services.integration_delivery import ensure_webhook_delivery
+from app.services.integration_storage import sync_smtp_subscriptions
 from app.services.notification_webhooks import (
     NotificationDeliveryReservationBatch,
     build_daily_digest_context,
@@ -121,6 +122,7 @@ def route_integration_event(db: Session, *, event_id: uuid.UUID) -> RoutedIntegr
         event=event,
         delivery_ids=reservation.delivery_ids,
     )
+    integration_delivery_ids.extend(_reserve_smtp_event_deliveries(db, event=event))
     event.routing_state = EVENT_ROUTED
     event.routed_at = datetime.now(timezone.utc)
     event.claimed_at = None
@@ -256,9 +258,9 @@ def _matching_webhooks(
     )
     if owner_user_id is not None:
         query = query.where(IntegrationInstance.owner_user_id == owner_user_id)
-    if feed_id is None:
+    if feed_id is None and event_type != "daily_digest":
         query = query.where(IntegrationSubscription.feed_scope == "all")
-    else:
+    elif feed_id is not None:
         query = query.outerjoin(
             IntegrationSubscriptionFeed,
             and_(
@@ -304,7 +306,18 @@ def _reserve_daily_digest_webhooks(
         ):
             skipped += 1
             continue
-        digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=None)
+        feed_ids = (
+            list(
+                db.scalars(
+                    select(IntegrationSubscriptionFeed.feed_id).where(
+                        IntegrationSubscriptionFeed.subscription_id == webhook.subscription_id
+                    )
+                ).all()
+            )
+            if webhook.feed_scope == "selected"
+            else None
+        )
+        digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=feed_ids)
         if digest_context is None or digest_context.total_items <= 0:
             skipped += 1
             continue
@@ -350,6 +363,74 @@ def _attach_event_to_webhook_deliveries(
         generic_ids.append(generic.id)
     db.flush()
     return generic_ids
+
+
+def _reserve_smtp_event_deliveries(db: Session, *, event: IntegrationEvent) -> list[uuid.UUID]:
+    instances = db.scalars(
+        select(IntegrationInstance).where(
+            IntegrationInstance.integration_type == "smtp",
+            IntegrationInstance.enabled.is_(True),
+        )
+    ).all()
+    for instance in instances:
+        sync_smtp_subscriptions(db, instance)
+
+    feed_id = _payload_uuid(event, "feed_id", required=False)
+    query = (
+        select(IntegrationSubscription, IntegrationInstance)
+        .join(IntegrationInstance, IntegrationInstance.id == IntegrationSubscription.integration_id)
+        .where(
+            IntegrationInstance.integration_type == "smtp",
+            IntegrationInstance.enabled.is_(True),
+            IntegrationSubscription.enabled.is_(True),
+            IntegrationSubscription.event_type == event.event_type,
+        )
+    )
+    if feed_id is None and event.event_type != "daily_digest":
+        query = query.where(IntegrationSubscription.feed_scope == "all")
+    elif feed_id is not None:
+        query = query.outerjoin(
+            IntegrationSubscriptionFeed,
+            and_(
+                IntegrationSubscriptionFeed.subscription_id == IntegrationSubscription.id,
+                IntegrationSubscriptionFeed.feed_id == feed_id,
+            ),
+        ).where(
+            or_(
+                IntegrationSubscription.feed_scope == "all",
+                IntegrationSubscriptionFeed.feed_id == feed_id,
+            )
+        )
+
+    delivery_ids: list[uuid.UUID] = []
+    for subscription, instance in db.execute(query).unique().all():
+        existing = db.scalar(
+            select(IntegrationDelivery).where(
+                IntegrationDelivery.event_id == event.id,
+                IntegrationDelivery.subscription_id == subscription.id,
+                IntegrationDelivery.delivery_kind == "live",
+            )
+        )
+        if existing is not None:
+            delivery_ids.append(existing.id)
+            continue
+        delivery = IntegrationDelivery(
+            integration_id=instance.id,
+            subscription_id=subscription.id,
+            event_id=event.id,
+            owner_user_id=instance.owner_user_id,
+            connector_type="smtp",
+            event_type=event.event_type,
+            delivery_kind="live",
+            state="pending",
+            idempotency_key=f"event:{event.id}:subscription:{subscription.id}:live",
+            payload_json=dict(event.payload_json or {}),
+            max_attempts=max(1, int(settings.integration_delivery_retry_max_attempts)),
+        )
+        db.add(delivery)
+        db.flush()
+        delivery_ids.append(delivery.id)
+    return delivery_ids
 
 
 def _routed_event_result(db: Session, event: IntegrationEvent) -> RoutedIntegrationEvent:

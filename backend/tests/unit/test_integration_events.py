@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 
 from app.models.feed import Feed
-from app.models.integration import IntegrationDelivery, IntegrationEvent, IntegrationSubscriptionFeed
+from app.models.integration import IntegrationDelivery, IntegrationEvent, IntegrationInstance, IntegrationSubscriptionFeed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -15,6 +15,8 @@ from app.services.integration_events import (
     list_recoverable_integration_event_ids,
     route_integration_event,
 )
+from app.schemas.integration import SMTPSettingsUpdate
+from app.services.integration_storage import apply_smtp_settings_update, get_or_create_smtp_integration
 
 
 def test_emit_integration_event_is_idempotent(db_session):
@@ -117,6 +119,91 @@ def test_webhook_repair_ignores_deleted_and_invalid_selected_feed_ids(db_session
     )
 
     assert normalized_feed_ids == {live_feed.id}
+
+
+def test_route_event_fans_out_to_smtp_generic_delivery(db_session):
+    feed = _persist_feed(db_session, "SMTP routed feed")
+    item = _persist_item(db_session, feed)
+    smtp = get_or_create_smtp_integration(db_session)
+    apply_smtp_settings_update(
+        smtp,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["rss_item_new"],
+            feed_scope="selected",
+            feed_ids=[feed.id],
+        ),
+    )
+    db_session.add(smtp)
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"smtp-route:{item.id}",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    deliveries = db_session.scalars(
+        select(IntegrationDelivery).where(IntegrationDelivery.event_id == event.id)
+    ).all()
+    assert len(result.integration_delivery_ids) == 1
+    assert len(deliveries) == 1
+    assert deliveries[0].connector_type == "smtp"
+    assert deliveries[0].state == "pending"
+
+
+def test_route_event_creates_smtp_delivery_for_selected_feed_subscription(db_session):
+    feed = _persist_feed(db_session, "SMTP selected feed")
+    item = _persist_item(db_session, feed)
+    smtp = IntegrationInstance(
+        id=uuid.uuid4(),
+        system_key=f"smtp.test.{uuid.uuid4()}",
+        name="SMTP",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        config_json={
+            "host": "smtp.example.com",
+            "from_email": "threatlens@example.com",
+            "to_emails": ["soc@example.com"],
+            "event_types": ["rss_item_new"],
+            "feed_scope": "selected",
+            "feed_ids": [str(feed.id)],
+        },
+    )
+    db_session.add(smtp)
+    db_session.flush()
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"item:{item.id}:smtp-route",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    delivery = db_session.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.event_id == event.id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    )
+    assert delivery is not None
+    assert result.integration_delivery_ids == [delivery.id]
+    assert result.webhook_delivery_ids == []
+    assert db_session.scalar(
+        select(IntegrationSubscriptionFeed.feed_id).where(
+            IntegrationSubscriptionFeed.subscription_id == delivery.subscription_id
+        )
+    ) == feed.id
 
 
 def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(db_session):
