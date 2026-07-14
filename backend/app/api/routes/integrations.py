@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -11,6 +13,7 @@ from app.models.feed import Feed
 from app.models.user import User
 from app.schemas.integration import (
     IntegrationConnectorResponse,
+    IntegrationDeliveryReplayResponse,
     IntegrationSummaryResponse,
     SMTPSettingsResponse,
     SMTPSettingsUpdate,
@@ -19,6 +22,7 @@ from app.schemas.integration import (
 )
 from app.services.audit import record_audit
 from app.services.integration_registry import list_integration_connectors
+from app.services.integration_delivery import replay_dead_letter_delivery
 from app.services.integration_storage import (
     SMTPSecretError,
     apply_smtp_settings_update,
@@ -31,6 +35,7 @@ from app.services.integration_storage import (
 )
 from app.services.notification_webhooks import find_unknown_template_variables_in_texts
 from app.services.smtp_integration import test_smtp_integration
+from app.tasks.feed_tasks import enqueue_integration_delivery_processing
 
 router = APIRouter(prefix="/integrations", tags=["integrations"])
 
@@ -141,6 +146,40 @@ def test_smtp_settings(
     )
     db.commit()
     return result
+
+
+@router.post(
+    "/deliveries/{delivery_id}/replay",
+    response_model=IntegrationDeliveryReplayResponse,
+)
+def replay_integration_delivery(
+    delivery_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    try:
+        replay = replay_dead_letter_delivery(db, delivery_id=delivery_id)
+    except ValueError as exc:
+        message = str(exc)
+        status_code = status.HTTP_404_NOT_FOUND if message == "Integration delivery not found" else status.HTTP_409_CONFLICT
+        raise HTTPException(status_code=status_code, detail=message) from exc
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.delivery.replay",
+        resource_type="integration_delivery",
+        resource_id=str(replay.id),
+        metadata={"source_delivery_id": str(delivery_id), "connector_type": replay.connector_type},
+    )
+    db.commit()
+    queued = enqueue_integration_delivery_processing([replay.id])
+    return IntegrationDeliveryReplayResponse(
+        source_delivery_id=delivery_id,
+        delivery_id=replay.id,
+        state="pending",
+        queued=queued,
+    )
 
 
 def _password_audit_action(payload: SMTPSettingsUpdate) -> str:

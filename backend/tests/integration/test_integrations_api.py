@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
-from app.models.integration import IntegrationInstance
+from app.models.integration import IntegrationDelivery, IntegrationInstance, IntegrationSubscription
 from app.schemas.integration import SMTPTestResponse
 from app.services.secret_storage import is_encrypted_json
 
@@ -195,3 +195,69 @@ def test_smtp_test_can_use_unsaved_settings_without_mutating_saved_config(client
     assert settings_response.status_code == 200
     assert settings_response.json()["host"] == "saved.example.com"
     assert settings_response.json()["health_status"] == "unknown"
+
+
+def test_admin_can_replay_dead_lettered_integration_delivery(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    monkeypatch,
+):
+    instance = IntegrationInstance(
+        id=uuid.uuid4(),
+        name="Replay SMTP",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        config_json={},
+    )
+    db_session.add(instance)
+    db_session.flush()
+    subscription = IntegrationSubscription(
+        integration_id=instance.id,
+        subscription_key="event:rss_item_new",
+        event_type="rss_item_new",
+    )
+    db_session.add(subscription)
+    db_session.flush()
+    source = IntegrationDelivery(
+        integration_id=instance.id,
+        subscription_id=subscription.id,
+        connector_type="smtp",
+        event_type="rss_item_new",
+        state="dead_letter",
+        delivery_kind="live",
+        idempotency_key=f"dead:{uuid.uuid4()}",
+        payload_json={"item_id": str(uuid.uuid4())},
+        dead_lettered_at=datetime.now(timezone.utc),
+    )
+    db_session.add(source)
+    db_session.commit()
+    queued: list[list[str]] = []
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.process_integration_deliveries.delay",
+        lambda delivery_ids: queued.append(delivery_ids),
+    )
+
+    forbidden = client.post(
+        f"/integrations/deliveries/{source.id}/replay",
+        headers=auth_headers["viewer"],
+    )
+    response = client.post(
+        f"/integrations/deliveries/{source.id}/replay",
+        headers=auth_headers["admin"],
+    )
+
+    assert forbidden.status_code == 403
+    assert response.status_code == 200
+    payload = response.json()
+    replay = db_session.get(IntegrationDelivery, uuid.UUID(payload["delivery_id"]))
+    assert payload["source_delivery_id"] == str(source.id)
+    assert payload["state"] == "pending"
+    assert payload["queued"] is True
+    assert replay is not None
+    assert replay.source_delivery_id == source.id
+    assert replay.delivery_kind == "replay"
+    assert queued == [[str(replay.id)]]
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "integrations.delivery.replay"))
+    assert audit is not None
