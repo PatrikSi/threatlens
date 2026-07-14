@@ -234,6 +234,11 @@ class Settings(BaseSettings):
     integration_delivery_concurrency_defer_seconds: int = 5
     integration_delivery_circuit_failure_threshold: int = 5
     integration_delivery_circuit_open_seconds: int = 300
+    integration_delivery_metrics_delay_seconds: int = 60
+    integration_delivery_maintenance_batch_size: int = 1000
+    integration_delivery_retention_days: int = 90
+    integration_event_retention_days: int = 30
+    integration_metrics_retention_days: int = 730
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator(
