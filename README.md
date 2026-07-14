@@ -146,6 +146,7 @@ View logs:
 ```bash
 docker compose logs -f api
 docker compose logs -f worker
+docker compose logs -f worker-notifications
 docker compose logs -f web
 ```
 

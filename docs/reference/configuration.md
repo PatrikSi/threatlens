@@ -7,7 +7,8 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
-- `worker`: Celery worker for ingestion, processing, notification, maintenance, and AI queues
+- `worker`: Celery worker for ingestion, processing, maintenance, and AI queues
+- `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
 
@@ -104,6 +105,16 @@
 | `NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE` (`notification_delivery_recovery_batch_size`) | `100` | Delivery batch size when retrying stale webhook deliveries. |
 | `NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS` (`notification_delivery_sending_stale_after_seconds`) | `120` | Age after which in-flight webhook sends are treated as stale. |
 | `NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER_SECONDS` (`notification_delivery_queue_degraded_after_seconds`) | `300` | Age after which queued webhook deliveries are surfaced as degraded. |
+| `INTEGRATION_EVENT_ROUTING_BATCH_SIZE` (`integration_event_routing_batch_size`) | `200` | Maximum outbox events recovered per routing sweep. |
+| `INTEGRATION_DELIVERY_RECOVERY_BATCH_SIZE` (`integration_delivery_recovery_batch_size`) | `200` | Maximum generic deliveries recovered per sweep. |
+| `INTEGRATION_DELIVERY_RETRY_MAX_ATTEMPTS` (`integration_delivery_retry_max_attempts`) | `5` | Maximum attempts for generic connector deliveries. |
+| `INTEGRATION_DELIVERY_RETRY_BACKOFF_SECONDS` (`integration_delivery_retry_backoff_seconds`) | `30` | Initial exponential retry delay. |
+| `INTEGRATION_DELIVERY_RETRY_MAX_BACKOFF_SECONDS` (`integration_delivery_retry_max_backoff_seconds`) | `3600` | Retry delay ceiling. |
+| `INTEGRATION_DELIVERY_CIRCUIT_FAILURE_THRESHOLD` (`integration_delivery_circuit_failure_threshold`) | `5` | Consecutive retryable failures before opening an instance circuit. |
+| `INTEGRATION_DELIVERY_CIRCUIT_OPEN_SECONDS` (`integration_delivery_circuit_open_seconds`) | `300` | Open-circuit cooldown before a half-open probe. |
+| `INTEGRATION_DELIVERY_RETENTION_DAYS` (`integration_delivery_retention_days`) | `90` | Terminal generic and linked legacy webhook history retention after metric rollup. |
+| `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Routed/dead outbox event retention after all deliveries are removed. |
+| `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Hourly delivery rollup retention. |
 
 ## Production Validation Rules
 
@@ -131,16 +142,16 @@ Outside production:
 - For Portainer, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mapping before deploying.
 - If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
 - The default ThreatLens application images point at GitHub Container Registry:
-  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, and `beat`
+  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - `THREATLENS_IMAGE_TAG` defaults to `latest`, which tracks the newest default published image. Set it to an immutable release tag such as `1.0.0` or `v1.0.0`, or to a `sha-<commit>` tag, when you need a pinned deployment.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation unless the generated YAML mapping is pasted into the compose file, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
-- `worker` and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- Both workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes the `default`, `ingest`, `processing`, `notifications`, `maintenance`, and `ai` queues.
+- `worker` consumes `default`, `ingest`, `processing`, `maintenance`, and `ai`; `worker-notifications` consumes only `notifications`.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
@@ -199,5 +210,8 @@ Beat schedules:
 - `dispatch-items-missing-iocs`: every `300.0` seconds
 - `dispatch-feed-metadata-backfill`: every `600.0` seconds
 - `dispatch-daily-digest-notifications`: every `3600.0` seconds
+- `dispatch-pending-integration-events`: every `10.0` seconds
+- `dispatch-pending-integration-deliveries`: every `10.0` seconds
+- `maintain-integration-delivery-history`: every `3600.0` seconds
 - `dispatch-daily-ai-brief-generation`: every `300.0` seconds
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`
