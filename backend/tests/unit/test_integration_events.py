@@ -9,13 +9,13 @@ from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
+from app.schemas.integration import SMTPSettingsUpdate
 from app.services.integration_compat import ensure_webhook_integration
 from app.services.integration_events import (
     emit_integration_event,
     list_recoverable_integration_event_ids,
     route_integration_event,
 )
-from app.schemas.integration import SMTPSettingsUpdate
 from app.services.integration_storage import apply_smtp_settings_update, get_or_create_smtp_integration
 
 

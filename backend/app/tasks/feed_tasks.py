@@ -26,7 +26,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationDelivery, IntegrationInstance
+from app.models.integration import IntegrationDelivery
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -89,10 +89,8 @@ from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
     build_alert_match_context_for_item,
-    build_daily_digest_context,
     get_matching_notification_webhooks,
     get_matching_notification_webhooks_for_feed,
-    has_recent_notification_delivery,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
@@ -101,10 +99,8 @@ from app.services.notification_webhooks import (
     reserve_new_item_notification_deliveries,
     reserve_notification_webhook_delivery,
     reserve_webhook_failed_notification_deliveries,
-    try_acquire_notification_delivery_lock,
 )
-from app.services.integration_storage import SMTPSecretError, SMTP_SYSTEM_KEY, build_active_smtp_settings
-from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification, smtp_notification_event_enabled
+from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
@@ -368,11 +364,46 @@ def _process_reserved_notification_deliveries(
         delivery_ids,
         process_delivery=process_notification_webhook_delivery,
         reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
-        reserve_failed_delivery_notifications=reserve_webhook_failed_notification_deliveries,
+        reserve_failed_delivery_notifications=None,
         enqueue_delivery_processing=enqueue_notification_webhook_delivery_processing,
         logger=logger,
-        notify_failed_delivery=_enqueue_smtp_webhook_failed_notification,
+        emit_failed_delivery_event=_emit_failed_webhook_integration_event,
+        enqueue_event_routing=enqueue_integration_event_routing,
+        mark_dead_letter=_mark_failed_webhook_delivery_dead_letter,
     )
+
+
+def _mark_failed_webhook_delivery_dead_letter(
+    db: Session,
+    failed_delivery: NotificationWebhookDelivery,
+) -> None:
+    if failed_delivery.integration_delivery_id is None:
+        return
+    mark_integration_delivery_dead_letter(
+        db,
+        delivery_id=failed_delivery.integration_delivery_id,
+        error_code="attempts_exhausted",
+        error_message=failed_delivery.error or "Webhook delivery attempts were exhausted.",
+    )
+
+
+def _emit_failed_webhook_integration_event(
+    db: Session,
+    failed_delivery: NotificationWebhookDelivery,
+) -> uuid.UUID:
+    event = emit_integration_event(
+        db,
+        event_type="webhook_failed",
+        source_type="notification_webhook_delivery",
+        source_id=failed_delivery.id,
+        idempotency_key=f"webhook_delivery:{failed_delivery.id}:webhook_failed:v1",
+        payload={
+            "source_delivery_id": str(failed_delivery.id),
+            "feed_id": str(failed_delivery.feed_id) if failed_delivery.feed_id else None,
+            "owner_user_id": str(failed_delivery.user_id),
+        },
+    )
+    return event.id
 
 
 def _enqueue_classification_task(item_id: str) -> bool:
@@ -469,13 +500,6 @@ def _enqueue_smtp_feed_failing_notification(feed_id: uuid.UUID) -> bool:
     return True
 
 
-def _enqueue_smtp_webhook_failed_notification(delivery: NotificationWebhookDelivery) -> None:
-    try:
-        dispatch_smtp_webhook_failed_notification.delay(str(delivery.id))
-    except Exception as exc:
-        logger.exception("smtp_webhook_failed_notification_enqueue_failed delivery_id=%s error=%s", delivery.id, exc)
-
-
 def _smtp_task_response(result: SMTPDispatchResult, **identifiers: str) -> dict[str, Any]:
     response = {
         "status": result.status,
@@ -533,32 +557,6 @@ def _load_item_and_feed_for_notification(db: Session, item_id: str) -> tuple[Ite
 def _feed_failing_smtp_scope_key(now: datetime) -> str:
     current = _coerce_utc(now) or datetime.now(timezone.utc)
     return f"{current.date().isoformat()}:{current.hour // 12}"
-
-
-def _dispatch_smtp_daily_digest_notification(db: Session, *, scope_key: str) -> SMTPDispatchResult:
-    if not smtp_notification_event_enabled(db, event_type="daily_digest"):
-        return SMTPDispatchResult(status="skipped", reason="smtp_event_not_matched")
-
-    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
-    if instance is None or not instance.enabled:
-        return SMTPDispatchResult(status="skipped", reason="smtp_disabled")
-
-    try:
-        active = build_active_smtp_settings(instance)
-    except SMTPSecretError:
-        return dispatch_smtp_notification(db, event_type="daily_digest", scope_key=scope_key)
-
-    feed_ids = active.feed_ids if active.feed_scope == "selected" else None
-    digest_context = build_daily_digest_context(db, user_id=None, feed_ids=feed_ids)
-    if digest_context is None or digest_context.total_items <= 0:
-        return SMTPDispatchResult(status="skipped", reason="no_digest_items")
-
-    return dispatch_smtp_notification(
-        db,
-        event_type="daily_digest",
-        digest_context=digest_context,
-        scope_key=scope_key,
-    )
 
 
 def enqueue_article_fetch_processing(item_ids: list[uuid.UUID]) -> bool:
@@ -1538,74 +1536,32 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
 )
 def dispatch_daily_digest_notification_webhooks():
     with db_session() as db:
-        webhooks = get_matching_notification_webhooks(db, event_type="daily_digest")
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
         digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         digest_scope_key = digest_day_start.date().isoformat()
-
-        for webhook in webhooks:
-            user = db.scalar(select(User).where(User.id == webhook.user_id))
-            if user is None or not user.is_active or not user.is_approved:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="daily_digest",
-                scope_key=digest_day_start.date().isoformat(),
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="daily_digest",
-                since=digest_day_start,
-                scope_key=digest_scope_key,
-            ):
-                skipped += 1
-                continue
-
-            feed_ids = [uuid.UUID(value) for value in (webhook.feed_ids_json or [])] if webhook.feed_scope == "selected" else None
-            digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=feed_ids)
-            if digest_context is None or digest_context.total_items <= 0:
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="daily_digest",
-                feed=None,
-                item=None,
-                digest_context=digest_context,
-                item_title=f"{digest_context.total_items} items in last 24h",
-                feed_name=", ".join(digest_context.feed_names[:3]) or None,
-                scope_key=digest_scope_key,
-            )
-            reserved_delivery_ids.append(delivery.id)
-
+        event = emit_integration_event(
+            db,
+            event_type="daily_digest",
+            source_type="digest_window",
+            source_id=digest_scope_key,
+            idempotency_key=f"daily_digest:{digest_scope_key}:v1",
+            payload={"scope_key": digest_scope_key},
+        )
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
-        smtp_result = _dispatch_smtp_daily_digest_notification(db, scope_key=digest_scope_key)
-        db.commit()
-
-        return {
-            "status": "ok",
-            "matched_webhooks": len(webhooks),
-            "delivered": delivered,
-            "failed": failed,
-            "skipped": skipped,
-            "smtp_status": smtp_result.status,
-            "smtp_reason": smtp_result.reason,
-            "smtp_sent": 1 if smtp_result.sent else 0,
-            "smtp_failed": 1 if smtp_result.failed else 0,
-            "smtp_skipped": 1 if smtp_result.skipped else 0,
-        }
+    enqueue_ok = enqueue_integration_event_routing([event.id])
+    return {
+        "status": "ok",
+        "matched_webhooks": 0,
+        "delivered": 0,
+        "failed": 0,
+        "skipped": 0,
+        "smtp_status": "queued" if enqueue_ok else "pending",
+        "smtp_reason": None if enqueue_ok else "event_enqueue_failed",
+        "smtp_sent": 0,
+        "smtp_failed": 0,
+        "smtp_skipped": 0,
+        "integration_event_id": str(event.id),
+        "enqueue_failed": not enqueue_ok,
+    }
 
 
 @celery_app.task(

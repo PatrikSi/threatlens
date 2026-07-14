@@ -17,7 +17,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationEvent
+from app.models.integration import IntegrationDelivery, IntegrationEvent
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -29,8 +29,11 @@ from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
+from app.services.integration_delivery import ensure_webhook_delivery
 from app.tasks.feed_tasks import (
     _feed_url_digest_still_current,
+    _emit_failed_webhook_integration_event,
+    _mark_failed_webhook_delivery_dead_letter,
     _mark_feed_failure_and_enqueue_notifications,
     _process_reserved_notification_deliveries,
     _rss_summary_fallback_text,
@@ -4881,6 +4884,69 @@ def test_process_reserved_notification_deliveries_skips_missing_rows(db_session,
 
     assert delivered == 1
     assert failed == 0
+
+
+def test_exhausted_webhook_delivery_emits_event_and_dead_letters_generic_source(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email="failed-webhook@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Failing webhook",
+        event_type="rss_item_new",
+        url_template="https://hooks.example.com/fail",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=3,
+        success=False,
+        status_code=503,
+        duration_ms=10,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/fail",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        error="HTTP 503",
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add_all([webhook, delivery])
+    db_session.flush()
+    generic = ensure_webhook_delivery(db_session, webhook=webhook, legacy_delivery=delivery)
+    assert delivery.integration_delivery_id == generic.id
+
+    _mark_failed_webhook_delivery_dead_letter(db_session, delivery)
+    event_id = _emit_failed_webhook_integration_event(db_session, delivery)
+    db_session.flush()
+
+    event = db_session.get(IntegrationEvent, event_id)
+    generic = db_session.get(IntegrationDelivery, generic.id)
+    assert event is not None
+    assert event.event_type == "webhook_failed"
+    assert event.payload_json["source_delivery_id"] == str(delivery.id)
+    assert generic is not None
+    assert generic.state == "dead_letter"
 
 
 def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeypatch):
