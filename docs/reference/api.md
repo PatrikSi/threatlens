@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.1.0`
-- OpenAPI contract anchor: `openapi-sha256:48478e6eb54d720d7175d616186820fd1befd25c8c8994e6db7473d71d9ff20d`
+- OpenAPI contract anchor: `openapi-sha256:5e5038eef4fa85a3d7e1c802a963adeb8c0f540153941e0c588e974748272c60`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -347,6 +347,13 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
 - Responses: `200` `application/json` -> array[IntegrationConnectorResponse]
+### `POST /v1/integrations/deliveries/{delivery_id}/replay`
+- Summary: Replay Integration Delivery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `delivery_id` (path, required): string
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/integrations/smtp/settings`
 - Summary: Get Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
