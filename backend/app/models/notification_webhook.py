@@ -11,6 +11,18 @@ class NotificationWebhook(Base):
     __tablename__ = "notification_webhooks"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    integration_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_instances.id", ondelete="CASCADE"),
+        nullable=True,
+        unique=True,
+    )
+    subscription_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_subscriptions.id", ondelete="SET NULL"),
+        nullable=True,
+        unique=True,
+    )
     user_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
