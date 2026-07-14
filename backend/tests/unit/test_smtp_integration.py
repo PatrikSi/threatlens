@@ -49,6 +49,14 @@ class FakeSMTP:
         return self.refused
 
 
+def _use_feed_task_db_session(monkeypatch, db_session) -> None:
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+
+
 def test_dispatch_smtp_notification_sends_and_records_audit(db_session, monkeypatch):
     sent_messages: list[EmailMessage] = []
     monkeypatch.setattr(
@@ -246,11 +254,7 @@ def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(db_ses
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    @contextmanager
-    def _db_session_override():
-        yield db_session
-
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    _use_feed_task_db_session(monkeypatch, db_session)
 
     result = dispatch_smtp_new_item_notification(str(item.id))
 
@@ -330,11 +334,7 @@ def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(db_ses
     )
     db_session.commit()
 
-    @contextmanager
-    def _db_session_override():
-        yield db_session
-
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    _use_feed_task_db_session(monkeypatch, db_session)
 
     result = dispatch_smtp_alert_match_notification(str(item.id))
 
@@ -387,11 +387,7 @@ def test_dispatch_daily_digest_notification_webhooks_sends_smtp_digest(db_sessio
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    @contextmanager
-    def _db_session_override():
-        yield db_session
-
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    _use_feed_task_db_session(monkeypatch, db_session)
 
     result = dispatch_daily_digest_notification_webhooks()
 
