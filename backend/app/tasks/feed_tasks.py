@@ -73,6 +73,12 @@ from app.services.feed_pipeline import (
 )
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
+from app.services.integration_events import (
+    IntegrationEventContextError,
+    list_recoverable_integration_event_ids,
+    record_integration_event_failure,
+    route_integration_event as route_pending_integration_event,
+)
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
@@ -1573,6 +1579,77 @@ def dispatch_pending_notification_webhook_deliveries():
             "delivered": delivered,
             "failed": failed,
         }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.route_integration_event",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def route_integration_event(event_id: str):
+    try:
+        parsed_event_id = uuid.UUID(event_id)
+    except (AttributeError, TypeError, ValueError):
+        return {"status": "skipped", "reason": "invalid_event_id", "event_id": event_id}
+
+    with db_session() as db:
+        try:
+            result = route_pending_integration_event(db, event_id=parsed_event_id)
+            db.commit()
+        except IntegrationEventContextError as exc:
+            db.rollback()
+            record_integration_event_failure(
+                db,
+                event_id=parsed_event_id,
+                error=str(exc),
+                terminal=True,
+            )
+            db.commit()
+            logger.warning("integration_event_dead_lettered event_id=%s error=%s", parsed_event_id, exc)
+            return {"status": "dead_letter", "event_id": event_id, "error": str(exc)}
+        except Exception as exc:
+            db.rollback()
+            failed_event = record_integration_event_failure(
+                db,
+                event_id=parsed_event_id,
+                error=f"{type(exc).__name__}: {exc}",
+                terminal=False,
+            )
+            db.commit()
+            logger.exception("integration_event_routing_failed event_id=%s error=%s", parsed_event_id, exc)
+            return {
+                "status": failed_event.routing_state if failed_event is not None else "missing",
+                "event_id": event_id,
+            }
+
+    enqueue_ok = enqueue_notification_webhook_delivery_processing(result.webhook_delivery_ids)
+    return {
+        "status": result.status,
+        "event_id": event_id,
+        "integration_deliveries": len(result.integration_delivery_ids),
+        "webhook_deliveries": len(result.webhook_delivery_ids),
+        "enqueue_failed": bool(result.webhook_delivery_ids) and not enqueue_ok,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_pending_integration_events",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dispatch_pending_integration_events():
+    with db_session() as db:
+        event_ids = list_recoverable_integration_event_ids(db)
+
+    queued = 0
+    for event_id in event_ids:
+        try:
+            route_integration_event.delay(str(event_id))
+        except Exception as exc:
+            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+            continue
+        queued += 1
+    return {"status": "ok", "scanned": len(event_ids), "queued": queued}
 
 
 @celery_app.task(

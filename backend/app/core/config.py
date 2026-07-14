@@ -223,6 +223,10 @@ class Settings(BaseSettings):
     notification_delivery_queue_degraded_after_seconds: int = 300
     notification_delivery_retry_max_attempts: int = 3
     notification_delivery_retry_backoff_seconds: int = 30
+    integration_event_routing_batch_size: int = 200
+    integration_event_routing_stale_after_seconds: int = 120
+    integration_event_routing_max_attempts: int = 10
+    integration_event_routing_backoff_seconds: int = 10
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator(
