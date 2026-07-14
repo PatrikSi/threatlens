@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models.feed import Feed
+from app.models.integration import IntegrationInstance, IntegrationSubscription
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -151,10 +152,23 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
     assert webhook is not None
     assert webhook.user_id == admin.id
     assert webhook.feed_scope == "all"
+    assert webhook.integration_id is not None
+    assert webhook.subscription_id is not None
+    integration_id = webhook.integration_id
+    instance = db_session.get(IntegrationInstance, webhook.integration_id)
+    subscription = db_session.get(IntegrationSubscription, webhook.subscription_id)
+    assert instance is not None
+    assert instance.owner_user_id == admin.id
+    assert instance.name == "All feeds webhook"
+    assert instance.enabled is False
+    assert subscription is not None
+    assert subscription.event_type == "rss_item_new"
+    assert subscription.filter_json == {"feed_scope": "all", "feed_ids": []}
 
     delete_response = client.delete(f"/notifications/webhooks/{webhook_id}", headers=auth_headers["admin"])
     assert delete_response.status_code == 204
     assert db_session.scalar(select(NotificationWebhook).where(NotificationWebhook.id == uuid.UUID(webhook_id))) is None
+    assert db_session.get(IntegrationInstance, integration_id) is None
 
 
 def test_notification_webhook_create_extracts_query_string_into_params(client: TestClient, auth_headers):

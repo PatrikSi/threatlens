@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, mo
 
 from app.schemas.notification import NotificationEventType, NotificationFeedScope
 
-IntegrationType = Literal["smtp"]
+IntegrationType = Literal["smtp", "webhook"]
 IntegrationDirection = Literal["destination"]
 IntegrationHealthStatus = Literal["unknown", "healthy", "warning", "error"]
 IntegrationRunStatus = Literal["succeeded", "failed"]
