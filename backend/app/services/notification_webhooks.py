@@ -39,6 +39,12 @@ from app.services.notification_webhook_http import (
     canonicalize_headers,
     default_raw_content_type,
 )
+from app.services.integration_delivery import (
+    claim_webhook_delivery as claim_generic_webhook_delivery,
+    ensure_webhook_delivery,
+    finalize_webhook_delivery as finalize_generic_webhook_delivery,
+    list_recoverable_webhook_delivery_ids,
+)
 from app.services.notification_webhook_storage import (
     POLICY_FAILURE_ERROR_PREFIX,
     RENDER_FAILURE_ERROR_PREFIX,
@@ -1053,8 +1059,17 @@ def process_notification_webhook_delivery(
             response_body_preview=None,
             error=f"{POLICY_FAILURE_ERROR_PREFIX}{exc}",
         )
-        finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
-        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
+        finalized, recorded = _finalize_notification_webhook_delivery(
+            db,
+            delivery_id=delivery.id,
+            expected_attempt_number=delivery.attempt_count,
+            result=result,
+        )
+        return NotificationWebhookDeliveryAttempt(
+            result=_delivery_result_from_model(finalized),
+            delivery=finalized,
+            claimed=recorded,
+        )
     if _delivery_has_presend_render_failure(delivery):
         current_result = _delivery_result_from_model(delivery)
         result = NotificationWebhookTestResponse(
@@ -1069,12 +1084,30 @@ def process_notification_webhook_delivery(
             response_body_preview=current_result.response_body_preview,
             error=delivery.error,
         )
-        finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
-        return NotificationWebhookDeliveryAttempt(result=_delivery_result_from_model(finalized), delivery=finalized, claimed=True)
+        finalized, recorded = _finalize_notification_webhook_delivery(
+            db,
+            delivery_id=delivery.id,
+            expected_attempt_number=delivery.attempt_count,
+            result=result,
+        )
+        return NotificationWebhookDeliveryAttempt(
+            result=_delivery_result_from_model(finalized),
+            delivery=finalized,
+            claimed=recorded,
+        )
     rendered = _rendered_request_from_delivery(delivery)
     result = _send_rendered_notification_request(rendered)
-    finalized = _finalize_notification_webhook_delivery(db, delivery_id=delivery.id, result=result)
-    return NotificationWebhookDeliveryAttempt(result=result, delivery=finalized, claimed=True)
+    finalized, recorded = _finalize_notification_webhook_delivery(
+        db,
+        delivery_id=delivery.id,
+        expected_attempt_number=delivery.attempt_count,
+        result=result,
+    )
+    return NotificationWebhookDeliveryAttempt(
+        result=result if recorded else _delivery_result_from_model(finalized),
+        delivery=finalized,
+        claimed=recorded,
+    )
 
 
 def list_recoverable_notification_delivery_ids(
@@ -1083,36 +1116,7 @@ def list_recoverable_notification_delivery_ids(
     limit: int = NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE,
     now: datetime | None = None,
 ) -> list[uuid.UUID]:
-    current_time = now or datetime.now(timezone.utc)
-    claim_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
-    return list(
-        db.scalars(
-            select(NotificationWebhookDelivery.id)
-            .where(
-                or_(
-                    and_(
-                        NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING,
-                        or_(
-                            and_(
-                                NotificationWebhookDelivery.not_before.is_(None),
-                                NotificationWebhookDelivery.attempted_at < claim_cutoff,
-                            ),
-                            NotificationWebhookDelivery.not_before <= current_time,
-                        ),
-                    ),
-                    and_(
-                        NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING,
-                        or_(
-                            NotificationWebhookDelivery.claimed_at.is_(None),
-                            NotificationWebhookDelivery.claimed_at < claim_cutoff,
-                        ),
-                    ),
-                )
-            )
-            .order_by(func.coalesce(NotificationWebhookDelivery.not_before, NotificationWebhookDelivery.attempted_at).asc())
-            .limit(limit)
-        ).all()
-    )
+    return list_recoverable_webhook_delivery_ids(db, limit=limit, now=now)
 
 
 def send_notification_webhook(
@@ -1866,9 +1870,16 @@ def _delivery_has_presend_render_failure(delivery: NotificationWebhookDelivery) 
 
 
 def _is_retryable_notification_delivery(delivery: NotificationWebhookDelivery) -> bool:
-    if delivery.error and delivery.error.startswith((RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX)):
+    return _is_retryable_notification_outcome(status_code=delivery.status_code, error=delivery.error)
+
+
+def _is_retryable_notification_result(result: NotificationWebhookTestResponse) -> bool:
+    return _is_retryable_notification_outcome(status_code=result.status_code, error=result.error)
+
+
+def _is_retryable_notification_outcome(*, status_code: int | None, error: str | None) -> bool:
+    if error and error.startswith((RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX)):
         return False
-    status_code = delivery.status_code
     if status_code is None:
         return True
     if status_code in {408, 425, 429}:
@@ -1972,6 +1983,7 @@ def _create_pending_notification_webhook_delivery(
     )
     db.add(delivery)
     db.flush()
+    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
     return delivery
 
 
@@ -2029,6 +2041,7 @@ def _create_pending_notification_webhook_delivery_from_render_failure(
     )
     db.add(delivery)
     db.flush()
+    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
     return delivery
 
 
@@ -2038,65 +2051,56 @@ def _claim_notification_webhook_delivery(
     delivery_id: uuid.UUID,
     now: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
-    current_time = now or datetime.now(timezone.utc)
-    stale_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
     delivery = db.scalar(
         select(NotificationWebhookDelivery)
         .where(NotificationWebhookDelivery.id == delivery_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if delivery is None:
         return None
 
-    if delivery.delivery_state in NOTIFICATION_DELIVERY_TERMINAL_STATES:
+    webhook = db.get(NotificationWebhook, delivery.webhook_id)
+    if webhook is None:
         return None
-    if delivery.delivery_state == NOTIFICATION_DELIVERY_PENDING and delivery.not_before is not None:
-        scheduled_for = delivery.not_before
-        if scheduled_for.tzinfo is None:
-            scheduled_for = scheduled_for.replace(tzinfo=timezone.utc)
-        if scheduled_for > current_time:
-            return None
-    if (
-        delivery.delivery_state == NOTIFICATION_DELIVERY_SENDING
-        and delivery.claimed_at is not None
-        and delivery.claimed_at >= stale_cutoff
-    ):
-        return None
-
-    preserve_error = (
-        delivery.delivery_state == NOTIFICATION_DELIVERY_PENDING
-        and delivery.status_code is None
-        and delivery.error is not None
-    )
     _upgrade_notification_webhook_delivery_secret_storage(delivery)
-    delivery.delivery_state = NOTIFICATION_DELIVERY_SENDING
-    delivery.claimed_at = current_time
-    delivery.attempt_count = max(int(delivery.attempt_count or 0), 0) + 1
-    delivery.attempted_at = current_time
-    delivery.status_code = None
-    delivery.duration_ms = None
-    delivery.response_body_preview = None
-    if not preserve_error:
-        delivery.error = None
-    db.add(delivery)
-    db.commit()
-    db.refresh(delivery)
-    return delivery
+    return claim_generic_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery, now=now)
 
 
 def _finalize_notification_webhook_delivery(
     db: Session,
     *,
     delivery_id: uuid.UUID,
+    expected_attempt_number: int,
     result: NotificationWebhookTestResponse,
-) -> NotificationWebhookDelivery:
+) -> tuple[NotificationWebhookDelivery, bool]:
     delivery = db.scalar(
         select(NotificationWebhookDelivery)
         .where(NotificationWebhookDelivery.id == delivery_id)
         .with_for_update()
+        .execution_options(populate_existing=True)
     )
     if delivery is None:
         raise ValueError("Webhook delivery not found")
+
+    finished_at = datetime.now(timezone.utc)
+    recorded = finalize_generic_webhook_delivery(
+        db,
+        legacy_delivery=delivery,
+        success=result.success,
+        status_code=result.status_code,
+        duration_ms=result.duration_ms,
+        error=result.error,
+        retryable=not result.success and _is_retryable_notification_result(result),
+        expected_attempt_number=expected_attempt_number,
+        finished_at=finished_at,
+    )
+    if not recorded:
+        db.rollback()
+        current = db.get(NotificationWebhookDelivery, delivery_id)
+        if current is None:
+            raise ValueError("Webhook delivery not found")
+        return current, False
 
     delivery.delivery_state = NOTIFICATION_DELIVERY_SUCCEEDED if result.success else NOTIFICATION_DELIVERY_FAILED
     delivery.success = result.success
@@ -2104,11 +2108,11 @@ def _finalize_notification_webhook_delivery(
     delivery.duration_ms = result.duration_ms
     delivery.response_body_preview = _encrypt_notification_text(result.response_body_preview)
     delivery.error = result.error
-    delivery.attempted_at = datetime.now(timezone.utc)
+    delivery.attempted_at = finished_at
     db.add(delivery)
     db.commit()
     db.refresh(delivery)
-    return delivery
+    return delivery, True
 
 
 def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> RenderedNotificationRequest:
