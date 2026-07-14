@@ -17,6 +17,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
+from app.models.integration import IntegrationEvent
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -30,6 +31,7 @@ from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
 from app.tasks.feed_tasks import (
     _feed_url_digest_still_current,
+    _mark_feed_failure_and_enqueue_notifications,
     _process_reserved_notification_deliveries,
     _rss_summary_fallback_text,
     _scheduled_daily_ai_brief_due,
@@ -1106,7 +1108,7 @@ def test_fetch_feed_marks_non_feed_http_200_response_as_failure(db_session, monk
     assert feed.last_error == "invalid_feed_content"
 
 
-def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+def test_fetch_feed_persists_new_item_event_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1201,20 +1203,53 @@ def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails
     monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_item)
     monkeypatch.setattr("app.tasks.feed_tasks.fetch_article.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        "app.tasks.feed_tasks.route_integration_event.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
     )
 
     result = fetch_feed.run(str(feed.id), force=True)
 
-    delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "rss_item_new",
+            IntegrationEvent.source_type == "item",
+        )
+    )
 
     assert result["status"] == "ok"
     assert result["notification_deliveries_reserved"] == 1
     assert result["notification_enqueue_failed"] is True
-    assert delivery is not None
-    assert delivery.delivery_state == "pending"
-    assert delivery.event_type_snapshot == "rss_item_new"
+    assert event is not None
+    assert event.routing_state == "pending"
+
+
+def test_feed_failure_persists_threshold_event_when_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Failing feed",
+        url="https://example.com/failing.xml",
+        enabled=True,
+        error_count=2,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.route_integration_event.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    enqueued = _mark_feed_failure_and_enqueue_notifications(db_session, feed, "network_timeout")
+
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "feed_failing",
+            IntegrationEvent.source_id == str(feed.id),
+        )
+    )
+    assert enqueued is False
+    assert feed.error_count == 3
+    assert event is not None
+    assert event.routing_state == "pending"
 
 
 def test_enqueue_notification_webhook_delivery_processing_chunks_large_batches(monkeypatch):
@@ -3311,7 +3346,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
     assert child_runs[0].reason == "enqueue_failed"
 
 
-def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+def test_classify_item_persists_alert_match_event_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -3394,20 +3429,23 @@ def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue
     )
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        "app.tasks.feed_tasks.route_integration_event.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
     )
 
     result = classify_item.run(str(item.id))
 
-    delivery = db_session.scalar(
-        select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id)
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "alert_match",
+            IntegrationEvent.source_id == str(item.id),
+        )
     )
 
     assert result["status"] == "ok"
-    assert delivery is not None
-    assert delivery.delivery_state == "pending"
-    assert delivery.event_type_snapshot == "alert_match"
+    assert result["notification_enqueue_failed"] is True
+    assert event is not None
+    assert event.routing_state == "pending"
 
 
 def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatch):
