@@ -13,6 +13,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -95,6 +96,7 @@ class IntegrationSubscription(Base):
     subscription_key: Mapped[str] = mapped_column(String(128), nullable=False)
     event_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    feed_scope: Mapped[str] = mapped_column(String(16), nullable=False, default="all", server_default="all", index=True)
     filter_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     transform_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -103,6 +105,22 @@ class IntegrationSubscription(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+
+class IntegrationSubscriptionFeed(Base):
+    __tablename__ = "integration_subscription_feeds"
+
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_subscriptions.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    feed_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("feeds.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
     )
 
 
@@ -142,6 +160,13 @@ class IntegrationDelivery(Base):
         Index("ix_integration_deliveries_state_due", "state", "not_before", "created_at"),
         Index("ix_integration_deliveries_instance_created", "integration_id", "created_at"),
         Index("ix_integration_deliveries_owner_created", "owner_user_id", "created_at"),
+        Index(
+            "uq_integration_deliveries_live_event_subscription",
+            "event_id",
+            "subscription_id",
+            unique=True,
+            postgresql_where=text("event_id IS NOT NULL AND delivery_kind = 'live'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)

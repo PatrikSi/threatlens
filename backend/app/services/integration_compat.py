@@ -5,7 +5,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.integration import IntegrationInstance, IntegrationSubscription
+from app.models.feed import Feed
+from app.models.integration import IntegrationInstance, IntegrationSubscription, IntegrationSubscriptionFeed
 from app.models.notification_webhook import NotificationWebhook
 
 WEBHOOK_INTEGRATION_TYPE = "webhook"
@@ -62,6 +63,7 @@ def ensure_webhook_integration(
 
     _sync_webhook_subscription(subscription, webhook, instance)
     db.flush()
+    _sync_subscription_feeds(db, subscription=subscription, feed_ids=webhook.feed_ids_json or [])
 
     webhook.integration_id = instance.id
     webhook.subscription_id = subscription.id
@@ -79,6 +81,21 @@ def delete_webhook_integration(db: Session, webhook: NotificationWebhook) -> Non
     instance = db.get(IntegrationInstance, integration_id)
     if instance is not None and instance.integration_type == WEBHOOK_INTEGRATION_TYPE:
         db.delete(instance)
+
+
+def repair_legacy_webhook_integrations(db: Session, *, limit: int = 500) -> int:
+    webhooks = db.scalars(
+        select(NotificationWebhook)
+        .where(
+            (NotificationWebhook.integration_id.is_(None))
+            | (NotificationWebhook.subscription_id.is_(None))
+        )
+        .order_by(NotificationWebhook.created_at.asc())
+        .limit(max(1, int(limit)))
+    ).all()
+    for webhook in webhooks:
+        ensure_webhook_integration(db, webhook)
+    return len(webhooks)
 
 
 def _load_webhook_instance(db: Session, webhook: NotificationWebhook) -> IntegrationInstance | None:
@@ -129,8 +146,39 @@ def _sync_webhook_subscription(
     subscription.subscription_key = WEBHOOK_SUBSCRIPTION_KEY
     subscription.event_type = webhook.event_type
     subscription.enabled = webhook.enabled
+    subscription.feed_scope = webhook.feed_scope
     subscription.filter_json = {
         "feed_scope": webhook.feed_scope,
         "feed_ids": list(webhook.feed_ids_json or []),
     }
     subscription.transform_json = {"legacy_webhook_id": str(webhook.id)}
+
+
+def _sync_subscription_feeds(
+    db: Session,
+    *,
+    subscription: IntegrationSubscription,
+    feed_ids: list[str],
+) -> None:
+    desired_ids: set[uuid.UUID] = set()
+    for value in feed_ids:
+        try:
+            desired_ids.add(uuid.UUID(str(value)))
+        except (TypeError, ValueError):
+            continue
+    if desired_ids:
+        desired_ids = set(db.scalars(select(Feed.id).where(Feed.id.in_(desired_ids))).all())
+    existing = {
+        row.feed_id: row
+        for row in db.scalars(
+            select(IntegrationSubscriptionFeed).where(
+                IntegrationSubscriptionFeed.subscription_id == subscription.id
+            )
+        ).all()
+    }
+    for feed_id, row in existing.items():
+        if feed_id not in desired_ids:
+            db.delete(row)
+    for feed_id in desired_ids - set(existing):
+        db.add(IntegrationSubscriptionFeed(subscription_id=subscription.id, feed_id=feed_id))
+    db.flush()

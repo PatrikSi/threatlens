@@ -17,6 +17,7 @@ from app.models.integration import (
     IntegrationInstance,
     IntegrationRun,
     IntegrationSubscription,
+    IntegrationSubscriptionFeed,
 )
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
@@ -49,6 +50,7 @@ __all__ = [
     "IntegrationInstance",
     "IntegrationRun",
     "IntegrationSubscription",
+    "IntegrationSubscriptionFeed",
     "Item",
     "ItemAIEnrichment",
     "ItemIOC",
