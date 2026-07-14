@@ -13,7 +13,7 @@ from app.services.secret_storage import is_encrypted_json
 def test_admin_can_manage_smtp_settings_without_secret_leakage(client: TestClient, auth_headers, db_session):
     connectors_response = client.get("/integrations/connectors", headers=auth_headers["admin"])
     assert connectors_response.status_code == 200
-    assert connectors_response.json()[0]["integration_type"] == "smtp"
+    assert [connector["integration_type"] for connector in connectors_response.json()] == ["smtp", "webhook"]
 
     viewer_response = client.get("/integrations/smtp/settings", headers=auth_headers["viewer"])
     assert viewer_response.status_code == 403

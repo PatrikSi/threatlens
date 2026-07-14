@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "1.0.0",
-    "x-threatlens-contract-sha256": "c7476f28ec2b40a5b7b7749e07a55036478f3f1847898d3196475fafc175a61f"
+    "version": "1.1.0",
+    "x-threatlens-contract-sha256": "48478e6eb54d720d7175d616186820fd1befd25c8c8994e6db7473d71d9ff20d"
   },
   "servers": [
     {
@@ -10313,7 +10313,10 @@
         "properties": {
           "integration_type": {
             "type": "string",
-            "const": "smtp",
+            "enum": [
+              "smtp",
+              "webhook"
+            ],
             "title": "Integration Type"
           },
           "direction": {
@@ -10369,7 +10372,10 @@
           },
           "integration_type": {
             "type": "string",
-            "const": "smtp",
+            "enum": [
+              "smtp",
+              "webhook"
+            ],
             "title": "Integration Type"
           },
           "direction": {
@@ -12246,7 +12252,10 @@
           },
           "integration_type": {
             "type": "string",
-            "const": "smtp",
+            "enum": [
+              "smtp",
+              "webhook"
+            ],
             "title": "Integration Type"
           },
           "direction": {

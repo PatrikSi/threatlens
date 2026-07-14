@@ -750,7 +750,7 @@ export interface NotificationAnalyticsResponse {
   queue: NotificationQueueSnapshot
 }
 
-export type IntegrationType = 'smtp'
+export type IntegrationType = 'smtp' | 'webhook'
 export type IntegrationDirection = 'destination'
 export type IntegrationHealthStatus = 'unknown' | 'healthy' | 'warning' | 'error'
 export type SMTPSecurityMode = 'starttls' | 'ssl_tls' | 'none'

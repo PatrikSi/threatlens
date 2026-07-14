@@ -23,6 +23,7 @@ from app.schemas.notification import (
     NotificationWebhookWrite,
 )
 from app.services.audit import record_audit
+from app.services.integration_compat import delete_webhook_integration, ensure_webhook_integration
 from app.services.notification_webhooks import (
     NotificationWebhookRetryInProgressError,
     apply_notification_webhook_updates,
@@ -84,6 +85,7 @@ def create_notification_webhook(
     webhook = build_notification_webhook(user.id, payload)
     db.add(webhook)
     db.flush()
+    ensure_webhook_integration(db, webhook)
     record_audit(
         db,
         actor_user_id=user.id,
@@ -114,6 +116,7 @@ def update_notification_webhook(
     _validate_payload(db, payload, actor_user=user)
     apply_notification_webhook_updates(webhook, payload)
     db.add(webhook)
+    ensure_webhook_integration(db, webhook)
     record_audit(
         db,
         actor_user_id=user.id,
@@ -140,14 +143,15 @@ def delete_notification_webhook(
     if webhook is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Webhook not found")
 
-    db.delete(webhook)
+    webhook_name = webhook.name
+    delete_webhook_integration(db, webhook)
     record_audit(
         db,
         actor_user_id=user.id,
         action="notifications.webhook.delete",
         resource_type="notification_webhook",
         resource_id=str(webhook_id),
-        metadata={"name": webhook.name},
+        metadata={"name": webhook_name},
     )
     db.commit()
 
