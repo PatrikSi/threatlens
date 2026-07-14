@@ -4,7 +4,8 @@ from datetime import datetime, timezone
 import pytest
 
 from app.core.config import get_settings
-from app.models.integration import IntegrationInstance
+from app.models.feed import Feed
+from app.models.integration import IntegrationInstance, IntegrationSubscription, IntegrationSubscriptionFeed
 from app.schemas.integration import SMTPSettingsUpdate, SMTPTestResponse
 from app.services.integration_storage import (
     apply_smtp_settings_update,
@@ -12,6 +13,7 @@ from app.services.integration_storage import (
     read_smtp_secret_config,
     record_smtp_test_result,
     smtp_settings_response_from_model,
+    sync_smtp_subscriptions,
 )
 from app.services.secret_storage import is_encrypted_json
 
@@ -114,6 +116,50 @@ def test_smtp_test_result_updates_saved_health_only_for_saved_settings(db_sessio
     assert instance.health_status == "healthy"
     assert instance.last_success_at == result.tested_at
     assert instance.last_error is None
+
+
+def test_smtp_settings_sync_durable_subscriptions_and_normalized_feed_filters(db_session):
+    feed = Feed(id=uuid.uuid4(), name="Selected feed", url="https://example.com/selected.xml")
+    instance = _smtp_instance()
+    db_session.add_all([feed, instance])
+    db_session.flush()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["rss_item_new", "feed_failing"],
+            feed_scope="selected",
+            feed_ids=[feed.id],
+        ),
+    )
+
+    subscriptions = sync_smtp_subscriptions(db_session, instance)
+
+    assert {subscription.event_type for subscription in subscriptions} == {"rss_item_new", "feed_failing"}
+    assert all(subscription.enabled for subscription in subscriptions)
+    assert all(subscription.feed_scope == "selected" for subscription in subscriptions)
+    assert db_session.query(IntegrationSubscriptionFeed).count() == 2
+
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["soc@example.com"],
+            event_types=["rss_item_new"],
+        ),
+    )
+    sync_smtp_subscriptions(db_session, instance)
+
+    disabled = db_session.query(IntegrationSubscription).filter_by(event_type="feed_failing").one()
+    active = db_session.query(IntegrationSubscription).filter_by(event_type="rss_item_new").one()
+    assert disabled.enabled is False
+    assert active.enabled is True
+    assert active.feed_scope == "all"
 
 
 def _smtp_instance() -> IntegrationInstance:

@@ -350,6 +350,85 @@ def dispatch_smtp_notification(
     )
 
 
+def attempt_smtp_integration_delivery(
+    db: Session,
+    *,
+    instance: IntegrationInstance,
+    delivery_id: uuid.UUID,
+    dedupe_key: str,
+    event_type: NotificationEventType,
+    feed: Feed | SimpleNamespace | None = None,
+    item: Item | SimpleNamespace | None = None,
+    alert_context: AlertMatchContext | None = None,
+    failed_webhook_context: FailedWebhookContext | None = None,
+    digest_context: DailyDigestContext | None = None,
+    delivery_kind: str = "live",
+    source_delivery_id: uuid.UUID | None = None,
+    scope_key: str | None = None,
+) -> SMTPDispatchResult:
+    """Attempt one already-claimed generic delivery and preserve SMTP audit history."""
+    started_at = time.perf_counter()
+    attempted_at = datetime.now(timezone.utc)
+    try:
+        active = build_active_smtp_settings(instance)
+    except SMTPSecretError as exc:
+        result = _notification_failure_result(
+            started_at=started_at,
+            attempted_at=attempted_at,
+            delivery_id=delivery_id,
+            recipient_count=0,
+            accepted_count=0,
+            error_code="secret_error",
+            error=str(exc),
+            server_message=None,
+        )
+    else:
+        if not _smtp_runtime_configured(active):
+            result = _notification_failure_result(
+                started_at=started_at,
+                attempted_at=attempted_at,
+                delivery_id=delivery_id,
+                recipient_count=len(active.to_emails),
+                accepted_count=0,
+                error_code="not_configured",
+                error="SMTP integration is enabled but is not fully configured.",
+                server_message=None,
+            )
+        elif not _active_smtp_matches_event(active, event_type=event_type, feed=feed):
+            return SMTPDispatchResult(status="skipped", reason="smtp_event_not_matched")
+        else:
+            result = send_smtp_notification(
+                active,
+                event_type=event_type,
+                feed=feed,
+                item=item,
+                alert_context=alert_context,
+                failed_webhook_context=failed_webhook_context,
+                digest_context=digest_context,
+                delivery_id=delivery_id,
+            )
+
+    _record_smtp_delivery_audit(
+        db,
+        instance=instance,
+        result=result,
+        event_type=event_type,
+        delivery_kind=delivery_kind,
+        dedupe_key=dedupe_key,
+        feed=feed,
+        item=item,
+        source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
+    )
+    _apply_smtp_delivery_result(instance, result)
+    db.add(instance)
+    return SMTPDispatchResult(
+        status="sent" if result.success else "failed",
+        reason=None if result.success else result.error_code,
+        delivery=result,
+    )
+
+
 def smtp_notification_event_enabled(
     db: Session,
     *,

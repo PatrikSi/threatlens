@@ -227,6 +227,13 @@ class Settings(BaseSettings):
     integration_event_routing_stale_after_seconds: int = 120
     integration_event_routing_max_attempts: int = 10
     integration_event_routing_backoff_seconds: int = 10
+    integration_delivery_recovery_batch_size: int = 200
+    integration_delivery_retry_max_attempts: int = 5
+    integration_delivery_retry_backoff_seconds: int = 30
+    integration_delivery_retry_max_backoff_seconds: int = 3600
+    integration_delivery_concurrency_defer_seconds: int = 5
+    integration_delivery_circuit_failure_threshold: int = 5
+    integration_delivery_circuit_open_seconds: int = 300
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator(
