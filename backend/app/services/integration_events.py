@@ -453,7 +453,7 @@ def _routed_event_result(db: Session, event: IntegrationEvent) -> RoutedIntegrat
 
 def _payload_uuid(event: IntegrationEvent, key: str, *, required: bool = True) -> uuid.UUID | None:
     value = event.payload_json.get(key) if isinstance(event.payload_json, dict) else None
-    if value in {None, ""}:
+    if value is None or value == "":
         if required:
             raise IntegrationEventContextError(f"{event.event_type} event is missing {key}")
         return None

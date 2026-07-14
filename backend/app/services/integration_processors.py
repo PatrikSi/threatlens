@@ -268,7 +268,7 @@ def _load_optional_model(db: Session, model, value, *, label: str):
 
 
 def _optional_uuid(value, *, label: str) -> uuid.UUID | None:
-    if value in {None, ""}:
+    if value is None or value == "":
         return None
     try:
         return uuid.UUID(str(value))

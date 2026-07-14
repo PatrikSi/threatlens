@@ -66,6 +66,21 @@ def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(db
     assert "Referenced item" in (delivery.last_error_message or "")
 
 
+def test_smtp_delivery_with_non_scalar_uuid_is_terminal_context_error(db_session):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    delivery.payload_json = {"item_id": {"unexpected": "object"}}
+    db_session.add(delivery)
+    db_session.commit()
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    assert result.status == "dead_letter"
+    assert delivery.attempt_count == 1
+    assert delivery.last_error_code == "context_error"
+    assert delivery.last_error_message == "Invalid item_id"
+
+
 def _persist_smtp_delivery(db_session) -> tuple[Feed, Item, IntegrationDelivery]:
     feed = Feed(id=uuid.uuid4(), name="SMTP feed", url=f"https://example.com/{uuid.uuid4()}.xml")
     item = Item(
