@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.1.0",
-    "x-threatlens-contract-sha256": "48478e6eb54d720d7175d616186820fd1befd25c8c8994e6db7473d71d9ff20d"
+    "x-threatlens-contract-sha256": "5e5038eef4fa85a3d7e1c802a963adeb8c0f540153941e0c588e974748272c60"
   },
   "servers": [
     {
@@ -3287,6 +3287,60 @@
             "SessionCookieAuth": []
           }
         ],
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/deliveries/{delivery_id}/replay": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Replay Integration Delivery",
+        "operationId": "replay_integration_delivery_v1_integrations_deliveries__delivery_id__replay_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Delivery Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationDeliveryReplayResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "write:integrations"
         ]
@@ -10358,6 +10412,37 @@
           "supports_test"
         ],
         "title": "IntegrationConnectorResponse"
+      },
+      "IntegrationDeliveryReplayResponse": {
+        "properties": {
+          "source_delivery_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Source Delivery Id"
+          },
+          "delivery_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Delivery Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "pending",
+            "title": "State"
+          },
+          "queued": {
+            "type": "boolean",
+            "title": "Queued"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source_delivery_id",
+          "delivery_id",
+          "state",
+          "queued"
+        ],
+        "title": "IntegrationDeliveryReplayResponse"
       },
       "IntegrationSummaryResponse": {
         "properties": {
