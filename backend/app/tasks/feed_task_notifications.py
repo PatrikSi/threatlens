@@ -52,10 +52,13 @@ def process_reserved_notification_deliveries(
     *,
     process_delivery: Callable[..., Any],
     reserve_retryable_delivery: Callable[..., Any],
-    reserve_failed_delivery_notifications: Callable[..., NotificationDeliveryReservationBatch],
+    reserve_failed_delivery_notifications: Callable[..., NotificationDeliveryReservationBatch] | None,
     enqueue_delivery_processing: Callable[..., bool],
     logger: logging.Logger,
     notify_failed_delivery: Callable[[NotificationWebhookDelivery], None] | None = None,
+    emit_failed_delivery_event: Callable[[Session, NotificationWebhookDelivery], uuid.UUID] | None = None,
+    enqueue_event_routing: Callable[[list[uuid.UUID]], bool] | None = None,
+    mark_dead_letter: Callable[[Session, NotificationWebhookDelivery], None] | None = None,
 ) -> tuple[int, int]:
     delivered = 0
     failed = 0
@@ -110,15 +113,25 @@ def process_reserved_notification_deliveries(
                 )
             continue
 
+        if mark_dead_letter is not None:
+            mark_dead_letter(db, attempt.delivery)
+
         if attempt.delivery.event_type_snapshot != "webhook_failed":
-            failed_delivery_reservations = reserve_failed_delivery_notifications(
-                db,
-                failed_delivery=attempt.delivery,
-            )
+            if emit_failed_delivery_event is not None and enqueue_event_routing is not None:
+                event_id = emit_failed_delivery_event(db, attempt.delivery)
+                db.commit()
+                enqueue_event_routing([event_id])
+            elif reserve_failed_delivery_notifications is not None:
+                failed_delivery_reservations = reserve_failed_delivery_notifications(
+                    db,
+                    failed_delivery=attempt.delivery,
+                )
+                db.commit()
+                enqueue_delivery_processing(failed_delivery_reservations.delivery_ids)
+                if notify_failed_delivery is not None:
+                    notify_failed_delivery(attempt.delivery)
+        elif mark_dead_letter is not None:
             db.commit()
-            enqueue_delivery_processing(failed_delivery_reservations.delivery_ids)
-            if notify_failed_delivery is not None:
-                notify_failed_delivery(attempt.delivery)
 
         logger.warning(
             "notification_webhook_delivery_failed webhook_id=%s delivery_id=%s event_type=%s status_code=%s error=%s",

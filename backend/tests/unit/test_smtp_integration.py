@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.models.alert_interest import AlertInterest
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
-from app.models.integration import IntegrationInstance
+from app.models.integration import IntegrationEvent, IntegrationInstance
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.user import User
@@ -504,7 +504,7 @@ def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(db_ses
     assert audit.metadata_json["event_type"] == "alert_match"
 
 
-def test_dispatch_daily_digest_notification_webhooks_sends_smtp_digest(db_session, monkeypatch):
+def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_session, monkeypatch):
     sent_messages: list[EmailMessage] = []
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
@@ -546,16 +546,21 @@ def test_dispatch_daily_digest_notification_webhooks_sends_smtp_digest(db_sessio
     db_session.commit()
 
     _use_feed_task_db_session(monkeypatch, db_session)
+    queued_event_ids: list[str] = []
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.route_integration_event.delay",
+        lambda event_id: queued_event_ids.append(event_id),
+    )
 
     result = dispatch_daily_digest_notification_webhooks()
 
-    assert result["smtp_status"] == "sent"
-    assert result["smtp_sent"] == 1
-    assert len(sent_messages) == 1
-    assert sent_messages[0]["Subject"] == "[ThreatLens] Daily digest: 1"
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
-    assert audit is not None
-    assert audit.metadata_json["event_type"] == "daily_digest"
+    event = db_session.scalar(select(IntegrationEvent).where(IntegrationEvent.event_type == "daily_digest"))
+    assert result["smtp_status"] == "queued"
+    assert result["smtp_sent"] == 0
+    assert sent_messages == []
+    assert event is not None
+    assert event.routing_state == "pending"
+    assert queued_event_ids == [str(event.id)]
 
 
 def _smtp_instance() -> IntegrationInstance:
