@@ -321,7 +321,12 @@ def replay_dead_letter_delivery(db: Session, *, delivery_id: uuid.UUID) -> Integ
         raise ValueError("Integration delivery not found")
     if source.state != DELIVERY_DEAD_LETTER:
         raise ValueError("Only dead-lettered integration deliveries can be replayed")
+    legacy_source = _webhook_replay_source(db, source=source) if source.connector_type == "webhook" else None
     replay_id = uuid.uuid4()
+    source_payload = source.payload_json if isinstance(source.payload_json, dict) else {}
+    replay_payload = dict(source_payload)
+    if legacy_source is not None:
+        replay_payload["legacy_webhook_delivery_id"] = str(replay_id)
     replay = IntegrationDelivery(
         id=replay_id,
         integration_id=source.integration_id,
@@ -334,12 +339,80 @@ def replay_dead_letter_delivery(db: Session, *, delivery_id: uuid.UUID) -> Integ
         delivery_kind="replay",
         state=DELIVERY_PENDING,
         idempotency_key=f"replay:{source.id}:{replay_id}",
-        payload_json=dict(source.payload_json or {}),
+        payload_json=replay_payload,
         max_attempts=source.max_attempts,
     )
     db.add(replay)
     db.flush()
+    if legacy_source is not None:
+        db.add(_clone_webhook_replay(source=legacy_source, replay_id=replay.id))
+        db.flush()
     return replay
+
+
+def _webhook_replay_source(
+    db: Session,
+    *,
+    source: IntegrationDelivery,
+) -> NotificationWebhookDelivery:
+    legacy_source = db.scalar(
+        select(NotificationWebhookDelivery)
+        .where(NotificationWebhookDelivery.integration_delivery_id == source.id)
+        .with_for_update()
+    )
+    if legacy_source is not None:
+        return legacy_source
+
+    source_payload = source.payload_json if isinstance(source.payload_json, dict) else {}
+    legacy_delivery_id = source_payload.get("legacy_webhook_delivery_id")
+    try:
+        parsed_legacy_delivery_id = uuid.UUID(str(legacy_delivery_id))
+    except (TypeError, ValueError):
+        parsed_legacy_delivery_id = source.id
+    legacy_source = db.get(NotificationWebhookDelivery, parsed_legacy_delivery_id)
+    if legacy_source is None or legacy_source.integration_delivery_id not in {None, source.id}:
+        raise ValueError("Webhook delivery history is unavailable and cannot be replayed")
+    legacy_source.integration_delivery_id = source.id
+    db.add(legacy_source)
+    db.flush()
+    return legacy_source
+
+
+def _clone_webhook_replay(
+    *,
+    source: NotificationWebhookDelivery,
+    replay_id: uuid.UUID,
+) -> NotificationWebhookDelivery:
+    return NotificationWebhookDelivery(
+        id=replay_id,
+        integration_delivery_id=replay_id,
+        webhook_id=source.webhook_id,
+        user_id=source.user_id,
+        event_type_snapshot=source.event_type_snapshot,
+        item_id=source.item_id,
+        feed_id=source.feed_id,
+        source_delivery_id=source.source_delivery_id or source.id,
+        scope_key=source.scope_key,
+        delivery_kind="retry",
+        delivery_state=DELIVERY_PENDING,
+        attempt_count=0,
+        not_before=None,
+        claimed_at=None,
+        success=False,
+        status_code=None,
+        duration_ms=None,
+        timeout_seconds=source.timeout_seconds,
+        rendered_url=source.rendered_url,
+        rendered_method=source.rendered_method,
+        rendered_headers_json=list(source.rendered_headers_json or []),
+        rendered_query_params_json=list(source.rendered_query_params_json or []),
+        rendered_body=source.rendered_body,
+        response_body_preview=None,
+        error=None,
+        item_title_snapshot=source.item_title_snapshot,
+        feed_name_snapshot=source.feed_name_snapshot,
+        attempted_at=datetime.now(timezone.utc),
+    )
 
 
 def ensure_webhook_delivery(

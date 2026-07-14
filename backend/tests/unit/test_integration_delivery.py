@@ -209,6 +209,56 @@ def test_retryable_failure_opens_circuit_and_dead_letter_can_be_replayed(db_sess
     assert replay.source_delivery_id == delivery.id
 
 
+def test_webhook_dead_letter_replay_creates_legacy_history_projection(db_session):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(db_session, webhook=webhook, legacy_delivery=legacy)
+    generic.state = "dead_letter"
+    generic.dead_lettered_at = datetime.now(timezone.utc)
+    legacy.delivery_state = "failed"
+    legacy.error = "Connection refused"
+    db_session.add_all([generic, legacy])
+    db_session.commit()
+
+    replay = replay_dead_letter_delivery(db_session, delivery_id=generic.id)
+    db_session.flush()
+    projection = db_session.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.integration_delivery_id == replay.id
+        )
+    )
+
+    assert replay.connector_type == "webhook"
+    assert replay.delivery_kind == "replay"
+    assert replay.source_delivery_id == generic.id
+    assert replay.payload_json["legacy_webhook_delivery_id"] == str(replay.id)
+    assert projection is not None
+    assert projection.id == replay.id
+    assert projection.delivery_kind == "retry"
+    assert projection.delivery_state == "pending"
+    assert projection.source_delivery_id == legacy.id
+    assert projection.rendered_url == legacy.rendered_url
+
+
+def test_webhook_dead_letter_replay_rejects_missing_history_projection(db_session):
+    delivery = _persist_generic_delivery(db_session)
+    delivery.connector_type = "webhook"
+    delivery.state = "dead_letter"
+    delivery.payload_json = []
+    db_session.add(delivery)
+    db_session.commit()
+
+    try:
+        replay_dead_letter_delivery(db_session, delivery_id=delivery.id)
+    except ValueError as exc:
+        assert str(exc) == "Webhook delivery history is unavailable and cannot be replayed"
+    else:
+        raise AssertionError("expected replay without webhook history to fail")
+
+    assert db_session.scalar(
+        select(IntegrationDelivery).where(IntegrationDelivery.source_delivery_id == delivery.id)
+    ) is None
+
+
 def _persist_legacy_delivery(db_session) -> tuple[NotificationWebhook, NotificationWebhookDelivery]:
     user = User(
         id=uuid.uuid4(),
