@@ -18,6 +18,13 @@ def test_celery_routes_keep_feed_ingestion_off_the_ai_queue():
     assert TASK_ROUTES["app.tasks.feed_tasks.backfill_daily_ai_briefs"]["queue"] == QUEUE_AI
 
 
+def test_celery_routes_smtp_notifications_to_notification_queue():
+    assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_smtp_new_item_notification"]["queue"] == QUEUE_NOTIFICATIONS
+    assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_smtp_alert_match_notification"]["queue"] == QUEUE_NOTIFICATIONS
+    assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_smtp_feed_failing_notification"]["queue"] == QUEUE_NOTIFICATIONS
+    assert TASK_ROUTES["app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification"]["queue"] == QUEUE_NOTIFICATIONS
+
+
 def test_celery_declares_expected_named_queues():
     queue_names = {queue.name for queue in celery_app.conf.task_queues}
 

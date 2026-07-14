@@ -338,6 +338,22 @@ def dispatch_smtp_notification(
     )
 
 
+def smtp_notification_event_enabled(
+    db: Session,
+    *,
+    event_type: NotificationEventType,
+    feed: Feed | SimpleNamespace | None = None,
+) -> bool:
+    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+    if instance is None or not instance.enabled:
+        return False
+    try:
+        active = build_active_smtp_settings(instance)
+    except SMTPSecretError:
+        return True
+    return _smtp_runtime_configured(active) and _active_smtp_matches_event(active, event_type=event_type, feed=feed)
+
+
 def send_smtp_notification(
     active: ActiveSMTPSettings,
     *,
