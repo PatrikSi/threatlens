@@ -11,6 +11,9 @@ services:
   worker:
     pull_policy: never
 
+  worker-notifications:
+    pull_policy: never
+
   beat:
     pull_policy: never
 
