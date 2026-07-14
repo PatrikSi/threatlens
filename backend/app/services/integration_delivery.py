@@ -478,6 +478,11 @@ def claim_webhook_delivery(
 ) -> NotificationWebhookDelivery | None:
     current_time = now or datetime.now(timezone.utc)
     generic = ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=legacy_delivery)
+    if _reconcile_legacy_claim_state(generic=generic, legacy_delivery=legacy_delivery):
+        db.add(generic)
+        db.commit()
+        if generic.state in DELIVERY_TERMINAL_STATES:
+            return None
     claim = claim_integration_delivery(db, delivery_id=generic.id, now=current_time)
     if claim.status != CLAIMED or claim.attempt_number is None:
         return None
