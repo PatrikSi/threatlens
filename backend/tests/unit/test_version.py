@@ -5,7 +5,7 @@ def test_get_app_version_reads_repository_version(monkeypatch):
     monkeypatch.delenv("APP_VERSION", raising=False)
     get_app_version.cache_clear()
 
-    assert get_app_version() == "1.0.0"
+    assert get_app_version() == "1.1.0"
 
 
 def test_get_app_version_prefers_environment_override(monkeypatch):
