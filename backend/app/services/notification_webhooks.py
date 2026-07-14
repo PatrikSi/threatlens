@@ -1400,6 +1400,9 @@ def build_daily_digest_context(
     now: datetime | None = None,
 ) -> DailyDigestContext | None:
     _ = user_id
+    if feed_ids == []:
+        return None
+
     window_end = now or datetime.now(timezone.utc)
     window_start = window_end - timedelta(hours=DAILY_DIGEST_WINDOW_HOURS)
 
@@ -1409,7 +1412,7 @@ def build_daily_digest_context(
         .where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
         .order_by(Item.first_seen_at.desc())
     )
-    if feed_ids:
+    if feed_ids is not None:
         query = query.where(Item.feed_id.in_(feed_ids))
 
     rows = db.execute(query.limit(50)).all()
@@ -1430,14 +1433,14 @@ def build_daily_digest_context(
         Item.first_seen_at >= window_start,
         Item.first_seen_at <= window_end,
     )
-    if feed_ids:
+    if feed_ids is not None:
         total_items_query = total_items_query.where(Item.feed_id.in_(feed_ids))
     total_items = int(db.scalar(total_items_query) or 0)
     total_feeds_query = select(func.count(func.distinct(Item.feed_id))).where(
         Item.first_seen_at >= window_start,
         Item.first_seen_at <= window_end,
     )
-    if feed_ids:
+    if feed_ids is not None:
         total_feeds_query = total_feeds_query.where(Item.feed_id.in_(feed_ids))
     total_feeds = int(db.scalar(total_feeds_query) or 0)
 
