@@ -29,6 +29,7 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
     has_unreadable_secret: false,
     from_email: 'threatlens@example.com',
     from_name: 'ThreatLens',
+    to_emails: ['analyst@example.com', 'soc@example.com'],
     timeout_seconds: 10,
     event_types: ['rss_item_new'],
     feed_scope: 'all',
@@ -198,6 +199,12 @@ function setInputValue(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event('input', { bubbles: true }))
 }
 
+function setTextAreaValue(textarea: HTMLTextAreaElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')
+  descriptor?.set?.call(textarea, value)
+  textarea.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 function getButton(text: string) {
   return Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.includes(text)) ?? null
 }
@@ -232,6 +239,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     expect(passwordInput).not.toBeNull()
     expect(passwordInput?.value).toBe('')
     expect(passwordInput?.placeholder).toBe('Saved password configured')
+    expect(view.querySelector<HTMLTextAreaElement>('#smtp-to-emails')?.value).toBe('analyst@example.com\nsoc@example.com')
   })
 
   it('tests current unsaved form values and saves typed password replacements', () => {
@@ -239,6 +247,9 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
 
     act(() => {
       setInputValue(view.querySelector<HTMLInputElement>('#smtp-host')!, 'draft.example.com')
+    })
+    act(() => {
+      setTextAreaValue(view.querySelector<HTMLTextAreaElement>('#smtp-to-emails')!, 'draft@example.com, soc@example.com')
     })
     act(() => {
       getCheckboxByLabel(view, 'Send a test email')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
@@ -257,6 +268,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
         recipient_email: 'analyst@example.com',
         settings: expect.objectContaining({
           host: 'draft.example.com',
+          to_emails: ['draft@example.com', 'soc@example.com'],
           event_types: ['rss_item_new'],
           subject_template: '[ThreatLens] {{ event.type }}: {{ item.title }}',
         }),
@@ -274,6 +286,7 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
       expect.objectContaining({
         host: 'draft.example.com',
         password: 'new-secret',
+        to_emails: ['draft@example.com', 'soc@example.com'],
       }),
     )
   })

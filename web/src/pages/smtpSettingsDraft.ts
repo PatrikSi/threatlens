@@ -17,6 +17,7 @@ export type SMTPSettingsDraft = {
   clear_password: boolean
   from_email: string
   from_name: string
+  to_emails: string
   timeout_seconds: string
   event_types: NotificationEventType[]
   feed_scope: 'all' | 'selected'
@@ -37,6 +38,7 @@ export const DEFAULT_SMTP_DRAFT: SMTPSettingsDraft = {
   clear_password: false,
   from_email: '',
   from_name: '',
+  to_emails: '',
   timeout_seconds: '10',
   event_types: ['rss_item_new'],
   feed_scope: 'all',
@@ -56,6 +58,7 @@ export function createSMTPDraftFromSettings(settings: SMTPSettings): SMTPSetting
     clear_password: false,
     from_email: settings.from_email ?? '',
     from_name: settings.from_name ?? '',
+    to_emails: (settings.to_emails ?? []).join('\n'),
     timeout_seconds: String(settings.timeout_seconds),
     event_types: settings.event_types.length ? settings.event_types : ['rss_item_new'],
     feed_scope: settings.feed_scope,
@@ -74,6 +77,7 @@ export function createSMTPRequestFromDraft(draft: SMTPSettingsDraft): SMTPSettin
     username: normalizeOptionalText(draft.username),
     from_email: normalizeOptionalText(draft.from_email),
     from_name: normalizeOptionalText(draft.from_name),
+    to_emails: parseEmailList(draft.to_emails),
     timeout_seconds: parseBoundedInt(draft.timeout_seconds, 10, 1, 60),
     event_types: dedupeEventTypes(draft.event_types),
     feed_scope: draft.feed_scope,
@@ -98,6 +102,8 @@ export function validateSMTPSettingsDraft(draft: SMTPSettingsDraft): SMTPSetting
   const port = Number(draft.port)
   const timeout = Number(draft.timeout_seconds)
   const fromEmail = draft.from_email.trim()
+  const toEmails = parseEmailList(draft.to_emails)
+  const invalidRecipient = findInvalidEmail(draft.to_emails)
   const username = draft.username.trim()
   const password = draft.password.trim()
   const subjectTemplate = draft.subject_template.trim()
@@ -121,6 +127,12 @@ export function validateSMTPSettingsDraft(draft: SMTPSettingsDraft): SMTPSetting
     errors.from_email = 'Sender email is required when SMTP is enabled.'
   } else if (fromEmail && !looksLikeEmail(fromEmail)) {
     errors.from_email = 'Enter a valid sender email address.'
+  }
+
+  if (draft.enabled && !toEmails.length) {
+    errors.to_emails = 'At least one recipient email is required when SMTP is enabled.'
+  } else if (invalidRecipient) {
+    errors.to_emails = `Enter a valid recipient email address: ${invalidRecipient}.`
   }
 
   if (password && !username) {
@@ -151,6 +163,7 @@ export function getFirstSMTPSettingsDraftValidationError(validation: SMTPSetting
     'port',
     'timeout_seconds',
     'from_email',
+    'to_emails',
     'username',
     'password',
     'event_types',
@@ -176,6 +189,7 @@ export function smtpDraftFingerprint(draft: SMTPSettingsDraft): string {
     password: draft.password.trim(),
     from_email: draft.from_email.trim(),
     from_name: draft.from_name.trim(),
+    to_emails: parseEmailList(draft.to_emails),
     timeout_seconds: String(parseBoundedInt(draft.timeout_seconds, 10, 1, 60)),
     event_types: dedupeEventTypes(draft.event_types),
     feed_ids: draft.feed_scope === 'selected' ? Array.from(new Set(draft.feed_ids)).sort() : [],
@@ -191,6 +205,28 @@ function dedupeEventTypes(eventTypes: NotificationEventType[]) {
 function normalizeOptionalText(value: string): string | null {
   const normalized = value.trim()
   return normalized ? normalized : null
+}
+
+function parseEmailList(value: string) {
+  const emails: string[] = []
+  const seen = new Set<string>()
+  for (const candidate of value.split(/[,;\r\n]+/)) {
+    const email = candidate.trim()
+    if (!email) {
+      continue
+    }
+    const dedupeKey = email.toLowerCase()
+    if (seen.has(dedupeKey)) {
+      continue
+    }
+    seen.add(dedupeKey)
+    emails.push(email)
+  }
+  return emails
+}
+
+function findInvalidEmail(value: string) {
+  return parseEmailList(value).find((email) => !looksLikeEmail(email)) ?? null
 }
 
 function parseBoundedInt(value: string, fallback: number, minimum: number, maximum: number) {

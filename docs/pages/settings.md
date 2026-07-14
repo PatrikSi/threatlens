@@ -83,7 +83,7 @@ Legacy route behavior:
 ## Integrations: SMTP (Admin)
 
 - Configurable outbound SMTP destination for notification email.
-- Supports enabling/disabling, host, port, security mode, credentials, sender identity, timeout, event types, feed scope, subject template, and HTML template.
+- Supports enabling/disabling, host, port, security mode, credentials, sender identity, recipient emails, timeout, event types, feed scope, subject template, and HTML template.
 - Test tooling can run a connection/authentication check or send a rendered test email to a chosen recipient.
 - API calls:
   - `GET /integrations/connectors`

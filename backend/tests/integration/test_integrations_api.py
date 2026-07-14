@@ -30,12 +30,14 @@ def test_admin_can_manage_smtp_settings_without_secret_leakage(client: TestClien
             "password": "relay-password",
             "from_email": "threatlens@example.com",
             "from_name": "ThreatLens",
+            "to_emails": ["analyst@example.com", "soc@example.com"],
             "timeout_seconds": 10,
         },
     )
     assert update_response.status_code == 200
     payload = update_response.json()
     assert payload["enabled"] is True
+    assert payload["to_emails"] == ["analyst@example.com", "soc@example.com"]
     assert payload["password_configured"] is True
     assert "password" not in payload
 
@@ -47,6 +49,25 @@ def test_admin_can_manage_smtp_settings_without_secret_leakage(client: TestClien
     assert audit is not None
     assert audit.metadata_json["password_action"] == "updated"
     assert "relay-password" not in str(audit.metadata_json)
+    assert audit.metadata_json["recipient_count"] == 2
+
+
+def test_enabled_smtp_requires_recipient_emails(client: TestClient, auth_headers):
+    update_response = client.put(
+        "/integrations/smtp/settings",
+        headers=auth_headers["admin"],
+        json={
+            "enabled": True,
+            "host": "smtp.example.com",
+            "port": 587,
+            "security": "starttls",
+            "from_email": "threatlens@example.com",
+            "timeout_seconds": 10,
+        },
+    )
+
+    assert update_response.status_code == 422
+    assert "recipient email" in update_response.json()["detail"]
 
 
 def test_smtp_test_uses_saved_settings_and_records_health(client: TestClient, auth_headers, monkeypatch):
@@ -62,6 +83,7 @@ def test_smtp_test_uses_saved_settings_and_records_health(client: TestClient, au
             "password": "relay-password",
             "from_email": "threatlens@example.com",
             "from_name": "ThreatLens",
+            "to_emails": ["analyst@example.com"],
             "timeout_seconds": 10,
         },
     )
@@ -117,6 +139,7 @@ def test_smtp_test_can_use_unsaved_settings_without_mutating_saved_config(client
             "username": None,
             "from_email": "saved@example.com",
             "from_name": "ThreatLens",
+            "to_emails": ["saved-recipient@example.com"],
             "timeout_seconds": 10,
         },
     )
@@ -154,6 +177,7 @@ def test_smtp_test_can_use_unsaved_settings_without_mutating_saved_config(client
                 "password": "draft-password",
                 "from_email": "draft@example.com",
                 "from_name": "ThreatLens Draft",
+                "to_emails": ["draft-recipient@example.com"],
                 "timeout_seconds": 5,
             }
         },

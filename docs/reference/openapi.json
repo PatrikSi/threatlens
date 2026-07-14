@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.0.0",
-    "x-threatlens-contract-sha256": "21661e00468a93e351dd0803de93ba6bcf9cd1376dd5e96ce5cb7f0dc8f58921"
+    "x-threatlens-contract-sha256": "c7476f28ec2b40a5b7b7749e07a55036478f3f1847898d3196475fafc175a61f"
   },
   "servers": [
     {
@@ -12332,6 +12332,14 @@
             ],
             "title": "From Name"
           },
+          "to_emails": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "title": "To Emails"
+          },
           "timeout_seconds": {
             "type": "integer",
             "title": "Timeout Seconds"
@@ -12470,6 +12478,7 @@
           "has_unreadable_secret",
           "from_email",
           "from_name",
+          "to_emails",
           "timeout_seconds",
           "event_types",
           "feed_scope",
@@ -12575,6 +12584,15 @@
               }
             ],
             "title": "From Name"
+          },
+          "to_emails": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "To Emails"
           },
           "timeout_seconds": {
             "type": "integer",

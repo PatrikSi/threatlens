@@ -1341,7 +1341,7 @@ def _build_sample_feed_for_event(
 def build_alert_match_context_for_item(
     db: Session,
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     item: Item | SimpleNamespace,
 ) -> AlertMatchContext | None:
     classification = None
@@ -1357,11 +1357,10 @@ def build_alert_match_context_for_item(
         classification=getattr(classification, "primary_category", None),
     )
 
-    alerts = db.scalars(
-        select(AlertInterest)
-        .where(AlertInterest.user_id == user_id, AlertInterest.enabled.is_(True))
-        .order_by(AlertInterest.created_at.asc())
-    ).all()
+    alert_query = select(AlertInterest).where(AlertInterest.enabled.is_(True))
+    if user_id is not None:
+        alert_query = alert_query.where(AlertInterest.user_id == user_id)
+    alerts = db.scalars(alert_query.order_by(AlertInterest.created_at.asc())).all()
 
     matched_names: list[str] = []
     matched_categories: list[str] = []
@@ -1392,10 +1391,11 @@ def build_alert_match_context_for_item(
 def build_daily_digest_context(
     db: Session,
     *,
-    user_id: uuid.UUID,
+    user_id: uuid.UUID | None = None,
     feed_ids: list[uuid.UUID] | None,
     now: datetime | None = None,
 ) -> DailyDigestContext | None:
+    _ = user_id
     window_end = now or datetime.now(timezone.utc)
     window_start = window_end - timedelta(hours=DAILY_DIGEST_WINDOW_HOURS)
 

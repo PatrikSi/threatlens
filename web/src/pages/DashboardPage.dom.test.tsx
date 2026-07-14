@@ -617,6 +617,26 @@ describe('DashboardPage DOM workflows', () => {
     expect(tagFilters?.className).not.toContain('overflow-y-auto')
   })
 
+  it('starts phone-width dashboard panel filters collapsed until opened', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 390,
+      writable: true,
+    })
+
+    renderPage()
+
+    expect(document.querySelector('[aria-label="RSS Panel 1 feed filters"]')).toBeNull()
+    expect(document.querySelector('[aria-label="RSS Panel 1 tag filters"]')).toBeNull()
+
+    act(() => {
+      getButton('Show Filters')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.querySelector('[aria-label="RSS Panel 1 feed filters"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="RSS Panel 1 tag filters"]')).not.toBeNull()
+  })
+
   it('reports both completed imports and the exact saved view that failed during a partial import', async () => {
     renderPage()
 
