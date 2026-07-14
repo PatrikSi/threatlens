@@ -75,6 +75,7 @@ from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
 from app.services.integration_events import (
     IntegrationEventContextError,
+    emit_integration_event,
     list_recoverable_integration_event_ids,
     record_integration_event_failure,
     route_integration_event as route_pending_integration_event,
@@ -390,6 +391,35 @@ def enqueue_notification_webhook_delivery_processing(
         logger=logger,
         countdown=countdown,
     )
+
+
+def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
+    all_enqueued = True
+    for event_id in event_ids:
+        try:
+            route_integration_event.delay(str(event_id))
+        except Exception as exc:
+            all_enqueued = False
+            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+    return all_enqueued
+
+
+def _emit_item_integration_event(
+    db: Session,
+    *,
+    event_type: str,
+    item: Item,
+    feed: Feed,
+) -> uuid.UUID:
+    event = emit_integration_event(
+        db,
+        event_type=event_type,
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"item:{item.id}:{event_type}:v1",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+    return event.id
 
 
 def _enqueue_smtp_notification_items(item_ids: list[uuid.UUID], *, task) -> bool:
@@ -2256,8 +2286,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
             if not acquired:
                 return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
-            reserved_notification_delivery_ids: list[uuid.UUID] = []
-            smtp_new_item_ids: list[uuid.UUID] = []
+            integration_event_ids: list[uuid.UUID] = []
             with db_session() as db:
                 try:
                     parsed_feed_id = uuid.UUID(feed_id)
@@ -2474,20 +2503,15 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     db.rollback()
                     return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
-                if new_items:
-                    feed_notification_webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
-                    webhook_user_cache: dict[uuid.UUID, User | None] = {}
-                    if smtp_notification_event_enabled(db, event_type="rss_item_new", feed=feed):
-                        smtp_new_item_ids = [new_item.id for new_item in new_items]
-                    for new_item in new_items:
-                        reservation = reserve_new_item_notification_deliveries(
+                for new_item in new_items:
+                    integration_event_ids.append(
+                        _emit_item_integration_event(
                             db,
+                            event_type="rss_item_new",
                             item=new_item,
                             feed=feed,
-                            webhooks=feed_notification_webhooks,
-                            user_cache=webhook_user_cache,
                         )
-                        reserved_notification_delivery_ids.extend(reservation.delivery_ids)
+                    )
 
                 if not _feed_url_digest_still_current(
                     db,
@@ -2511,8 +2535,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 db.commit()
 
             article_enqueue_ok = enqueue_article_fetch_processing(changed_item_ids)
-            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(reserved_notification_delivery_ids)
-            smtp_enqueue_ok = _enqueue_smtp_new_item_notifications(smtp_new_item_ids)
+            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
 
             return {
                 "status": "ok",
@@ -2521,10 +2544,10 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 "new_items": len(new_items),
                 "final_url": final_url,
                 "article_enqueue_failed": bool(changed_item_ids) and not article_enqueue_ok,
-                "notification_deliveries_reserved": len(reserved_notification_delivery_ids),
-                "notification_enqueue_failed": bool(reserved_notification_delivery_ids) and not notification_enqueue_ok,
-                "smtp_notifications_queued": len(smtp_new_item_ids),
-                "smtp_notification_enqueue_failed": bool(smtp_new_item_ids) and not smtp_enqueue_ok,
+                "notification_deliveries_reserved": len(integration_event_ids),
+                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+                "smtp_notifications_queued": len(integration_event_ids),
+                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
             }
     except CoordinationUnavailableError as exc:
         logger.warning(
@@ -2870,8 +2893,7 @@ def fetch_article(self, item_id: str, force: bool = False):
     reject_on_worker_lost=True,
 )
 def classify_item(item_id: str):
-    alert_delivery_ids: list[uuid.UUID] = []
-    smtp_alert_match = False
+    integration_event_ids: list[uuid.UUID] = []
     with db_session() as db:
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -2934,25 +2956,22 @@ def classify_item(item_id: str):
                 feed_url=feed_url,
                 feedback_adjustments=feedback_adjustments,
             )
-            if feed is not None:
-                alert_delivery_ids = reserve_alert_match_notification_deliveries(
-                    db,
-                    item=item,
-                    feed=feed,
-                ).delivery_ids
-                smtp_alert_match = smtp_notification_event_enabled(
-                    db,
-                    event_type="alert_match",
-                    feed=feed,
-                ) and build_alert_match_context_for_item(db, item=item) is not None
+            if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
+                integration_event_ids.append(
+                    _emit_item_integration_event(
+                        db,
+                        event_type="alert_match",
+                        item=item,
+                        feed=feed,
+                    )
+                )
             db.commit()
-            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-            smtp_enqueue_ok = _enqueue_smtp_alert_match_notification(parsed_item_id) if smtp_alert_match else True
-            if alert_delivery_ids and not notification_enqueue_ok:
+            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
+            if integration_event_ids and not notification_enqueue_ok:
                 logger.warning(
-                    "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+                    "classification_notification_enqueue_failed item_id=%s event_count=%s",
                     parsed_item_id,
-                    len(alert_delivery_ids),
+                    len(integration_event_ids),
                 )
             ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
             if queue_ai_enrichment:
@@ -2977,8 +2996,8 @@ def classify_item(item_id: str):
                 "reason": "up_to_date",
                 "item_id": item_id,
                 "category": row.primary_category,
-                "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
-                "smtp_notification_enqueue_failed": smtp_alert_match and not smtp_enqueue_ok,
+                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
                 "ioc_enqueue_failed": not ioc_enqueue_ok,
                 "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
             }
@@ -3014,26 +3033,23 @@ def classify_item(item_id: str):
             feed_url=feed_url,
             feedback_adjustments=feedback_adjustments,
         )
-        if feed is not None:
-            alert_delivery_ids = reserve_alert_match_notification_deliveries(
-                db,
-                item=item,
-                feed=feed,
-            ).delivery_ids
-            smtp_alert_match = smtp_notification_event_enabled(
-                db,
-                event_type="alert_match",
-                feed=feed,
-            ) and build_alert_match_context_for_item(db, item=item) is not None
+        if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
+            integration_event_ids.append(
+                _emit_item_integration_event(
+                    db,
+                    event_type="alert_match",
+                    item=item,
+                    feed=feed,
+                )
+            )
         db.commit()
 
-    notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-    smtp_enqueue_ok = _enqueue_smtp_alert_match_notification(parsed_item_id) if smtp_alert_match else True
-    if alert_delivery_ids and not notification_enqueue_ok:
+    notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
+    if integration_event_ids and not notification_enqueue_ok:
         logger.warning(
-            "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+            "classification_notification_enqueue_failed item_id=%s event_count=%s",
             parsed_item_id,
-            len(alert_delivery_ids),
+            len(integration_event_ids),
         )
     ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
     if queue_ai_enrichment:
@@ -3057,8 +3073,8 @@ def classify_item(item_id: str):
         "status": "ok",
         "item_id": item_id,
         "category": result.primary_category,
-        "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
-        "smtp_notification_enqueue_failed": smtp_alert_match and not smtp_enqueue_ok,
+        "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+        "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
         "ioc_enqueue_failed": not ioc_enqueue_ok,
         "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
     }
@@ -3763,16 +3779,21 @@ def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
 
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
     _mark_feed_failure(db, feed, error)
-    reservation = reserve_feed_failing_notification_deliveries(db, feed=feed)
-    smtp_feed_failing = (
-        int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD
-        and smtp_notification_event_enabled(
+    integration_event_ids: list[uuid.UUID] = []
+    if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
+        event = emit_integration_event(
             db,
             event_type="feed_failing",
-            feed=feed,
+            source_type="feed",
+            source_id=feed.id,
+            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
+            payload={
+                "feed_id": str(feed.id),
+                "scope_key": scope_key,
+                "error_count": int(feed.error_count or 0),
+            },
         )
-    )
+        integration_event_ids.append(event.id)
     db.commit()
-    webhook_enqueue_ok = enqueue_notification_webhook_delivery_processing(reservation.delivery_ids)
-    smtp_enqueue_ok = _enqueue_smtp_feed_failing_notification(feed.id) if smtp_feed_failing else True
-    return webhook_enqueue_ok and smtp_enqueue_ok
+    return enqueue_integration_event_routing(integration_event_ids)
