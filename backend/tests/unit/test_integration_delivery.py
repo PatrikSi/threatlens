@@ -106,6 +106,65 @@ def test_stale_webhook_attempt_cannot_overwrite_newer_recovery_attempt(db_sessio
     ]
 
 
+def test_webhook_claim_reconciles_terminal_delivery_from_legacy_worker(db_session):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(db_session, webhook=webhook, legacy_delivery=legacy)
+    completed_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    legacy.delivery_state = "succeeded"
+    legacy.success = True
+    legacy.attempt_count = 1
+    legacy.status_code = 204
+    legacy.duration_ms = 18
+    legacy.attempted_at = completed_at
+    db_session.add(legacy)
+    db_session.commit()
+
+    claimed = claim_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        legacy_delivery=legacy,
+        now=completed_at + timedelta(seconds=1),
+    )
+
+    db_session.refresh(generic)
+    assert claimed is None
+    assert generic.state == "succeeded"
+    assert generic.attempt_count == 1
+    assert generic.completed_at == completed_at
+    assert generic.last_status_code == 204
+    assert db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == generic.id)
+    ) is None
+
+
+def test_webhook_claim_reconciles_inflight_delivery_from_legacy_worker(db_session):
+    webhook, legacy = _persist_legacy_delivery(db_session)
+    generic = ensure_webhook_delivery(db_session, webhook=webhook, legacy_delivery=legacy)
+    claimed_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    legacy.delivery_state = "sending"
+    legacy.attempt_count = 1
+    legacy.claimed_at = claimed_at
+    legacy.attempted_at = claimed_at
+    db_session.add(legacy)
+    db_session.commit()
+
+    claimed = claim_webhook_delivery(
+        db_session,
+        webhook=webhook,
+        legacy_delivery=legacy,
+        now=claimed_at + timedelta(seconds=1),
+    )
+
+    db_session.refresh(generic)
+    assert claimed is None
+    assert generic.state == "sending"
+    assert generic.attempt_count == 1
+    assert generic.claimed_at == claimed_at
+    assert db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == generic.id)
+    ) is None
+
+
 def test_generic_delivery_retries_with_backoff_and_rejects_stale_results(db_session, monkeypatch):
     delivery = _persist_generic_delivery(db_session)
     monkeypatch.setattr("app.services.integration_delivery.settings.integration_delivery_retry_backoff_seconds", 30)
