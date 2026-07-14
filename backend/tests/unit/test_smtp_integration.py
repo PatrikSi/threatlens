@@ -13,8 +13,13 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
-from app.services.integration_storage import apply_smtp_settings_update
-from app.services.smtp_integration import SMTP_DELIVERY_AUDIT_ACTION, dispatch_smtp_notification
+from app.services.integration_storage import apply_smtp_settings_update, build_active_smtp_settings
+from app.services.smtp_integration import (
+    SMTP_DELIVERY_AUDIT_ACTION,
+    dispatch_smtp_notification,
+    smtp_notification_event_enabled,
+    test_smtp_integration as run_smtp_integration_test,
+)
 from app.tasks.feed_tasks import (
     dispatch_daily_digest_notification_webhooks,
     dispatch_smtp_alert_match_notification,
@@ -215,6 +220,159 @@ def test_dispatch_smtp_notification_records_failure_audit(db_session, monkeypatc
     assert audit.metadata_json["recipient_count"] == 1
     assert instance.health_status == "error"
     assert instance.last_error == "SMTP connection failed."
+
+
+def test_dispatch_smtp_notification_records_message_build_failures(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: (_ for _ in ()).throw(AssertionError("SMTP should not open when message building fails")),
+    )
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
+            subject_template="{{ item.title }}",
+        ),
+    )
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/header-failure",
+        title="Bad\nSubject",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:smtp-header-failure",
+        content_hash="1" * 64,
+        status="new",
+    )
+    db_session.add_all([instance, feed, item])
+    db_session.commit()
+
+    result = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    db_session.commit()
+
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    assert result.failed is True
+    assert result.reason == "render_error"
+    assert audit is not None
+    assert audit.success is False
+    assert audit.metadata_json["error_code"] == "render_error"
+    assert "Subject" in audit.metadata_json["error"]
+    assert instance.health_status == "error"
+
+
+def test_smtp_test_rejects_invalid_message_headers_before_connect(db_session, monkeypatch):
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: (_ for _ in ()).throw(AssertionError("SMTP should not open when validation fails")),
+    )
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
+            subject_template="Bad\nSubject",
+        ),
+    )
+    active = build_active_smtp_settings(instance)
+
+    result = run_smtp_integration_test(active, recipient_email="analyst@example.com")
+
+    assert result.success is False
+    assert result.error_code == "validation_error"
+    assert result.error is not None
+    assert "Subject" in result.error
+
+
+def test_dispatch_smtp_notification_dedupes_unreadable_secret_failures(db_session):
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            username="relay-user",
+            password="relay-password",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
+        ),
+    )
+    instance.secret_json = {"_threatlens_encrypted": "enc:v1:not-a-valid-token"}
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/secret-error",
+        title="Secret error",
+        summary="summary",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="dedupe:item:smtp-secret-error",
+        content_hash="2" * 64,
+        status="new",
+    )
+    db_session.add_all([instance, feed, item])
+    db_session.commit()
+
+    first = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    db_session.commit()
+    second = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+
+    audits = db_session.scalars(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)).all()
+    assert first.failed is True
+    assert first.reason == "secret_error"
+    assert second.skipped is True
+    assert second.reason == "duplicate_delivery"
+    assert len(audits) == 1
+    assert audits[0].metadata_json["error_code"] == "secret_error"
+
+
+def test_smtp_event_enabled_respects_saved_scope_when_secret_is_unreadable(db_session):
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            username="relay-user",
+            password="relay-password",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com"],
+            event_types=["rss_item_new"],
+        ),
+    )
+    instance.secret_json = {"_threatlens_encrypted": "enc:v1:not-a-valid-token"}
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add_all([instance, feed])
+    db_session.commit()
+
+    assert smtp_notification_event_enabled(db_session, event_type="rss_item_new", feed=feed) is True
+    assert smtp_notification_event_enabled(db_session, event_type="alert_match", feed=feed) is False
 
 
 def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(db_session, monkeypatch):

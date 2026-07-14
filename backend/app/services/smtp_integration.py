@@ -30,6 +30,7 @@ from app.services.integration_storage import (
     ActiveSMTPSettings,
     SMTPSecretError,
     build_active_smtp_settings,
+    smtp_settings_response_from_model,
 )
 from app.services.notification_webhooks import (
     AlertMatchContext,
@@ -224,9 +225,9 @@ def _build_test_message(active: ActiveSMTPSettings, recipient_email: str) -> Ema
     message = EmailMessage()
     assert active.from_email is not None
     subject, html_body = _render_test_message_content(active)
-    message["From"] = formataddr((active.from_name or "ThreatLens", active.from_email))
-    message["To"] = recipient_email
-    message["Subject"] = subject
+    _set_message_header(message, "From", formataddr((active.from_name or "ThreatLens", active.from_email)))
+    _set_message_header(message, "To", recipient_email)
+    _set_message_header(message, "Subject", subject)
     message.set_content(_html_to_plain_text(html_body))
     message.add_alternative(html_body, subtype="html")
     return message
@@ -263,6 +264,19 @@ def dispatch_smtp_notification(
     try:
         active = build_active_smtp_settings(instance)
     except SMTPSecretError as exc:
+        skip_reason = _smtp_delivery_attempt_skip_reason(
+            db,
+            instance_id=instance.id,
+            dedupe_key=dedupe_key,
+            event_type=event_type,
+            delivery_kind=delivery_kind,
+            feed=feed,
+            item=item,
+            source_delivery_id=source_delivery_id,
+            scope_key=scope_key,
+        )
+        if skip_reason is not None:
+            return SMTPDispatchResult(status="skipped", reason=skip_reason)
         result = _notification_failure_result(
             started_at=time.perf_counter(),
             attempted_at=datetime.now(timezone.utc),
@@ -292,21 +306,19 @@ def dispatch_smtp_notification(
         return SMTPDispatchResult(status="skipped", reason="smtp_not_configured")
     if not _active_smtp_matches_event(active, event_type=event_type, feed=feed):
         return SMTPDispatchResult(status="skipped", reason="smtp_event_not_matched")
-    if _has_smtp_delivery_attempt(db, instance_id=instance.id, dedupe_key=dedupe_key):
-        return SMTPDispatchResult(status="skipped", reason="duplicate_delivery")
-    if not try_acquire_notification_delivery_lock(
+    skip_reason = _smtp_delivery_attempt_skip_reason(
         db,
-        webhook_id=instance.id,
+        instance_id=instance.id,
+        dedupe_key=dedupe_key,
         event_type=event_type,
         delivery_kind=delivery_kind,
-        item_id=getattr(item, "id", None),
-        feed_id=getattr(feed, "id", None),
+        feed=feed,
+        item=item,
         source_delivery_id=source_delivery_id,
         scope_key=scope_key,
-    ):
-        return SMTPDispatchResult(status="skipped", reason="delivery_lock_unavailable")
-    if _has_smtp_delivery_attempt(db, instance_id=instance.id, dedupe_key=dedupe_key):
-        return SMTPDispatchResult(status="skipped", reason="duplicate_delivery")
+    )
+    if skip_reason is not None:
+        return SMTPDispatchResult(status="skipped", reason=skip_reason)
 
     result = send_smtp_notification(
         active,
@@ -351,7 +363,14 @@ def smtp_notification_event_enabled(
     try:
         active = build_active_smtp_settings(instance)
     except SMTPSecretError:
-        return True
+        saved = smtp_settings_response_from_model(instance)
+        return bool(saved.configured) and _smtp_config_matches_event(
+            event_types=list(saved.event_types),
+            feed_scope=saved.feed_scope,
+            feed_ids=list(saved.feed_ids),
+            event_type=event_type,
+            feed=feed,
+        )
     return _smtp_runtime_configured(active) and _active_smtp_matches_event(active, event_type=event_type, feed=feed)
 
 
@@ -580,14 +599,21 @@ def _build_notification_message(
     )
 
     message = EmailMessage()
-    message["From"] = formataddr((active.from_name or "ThreatLens", active.from_email))
-    message["To"] = ", ".join(active.to_emails)
-    message["Subject"] = subject
-    message["X-ThreatLens-Delivery-ID"] = str(delivery_id)
-    message["X-ThreatLens-Event-Type"] = event_type
+    _set_message_header(message, "From", formataddr((active.from_name or "ThreatLens", active.from_email)))
+    _set_message_header(message, "To", ", ".join(active.to_emails))
+    _set_message_header(message, "Subject", subject)
+    _set_message_header(message, "X-ThreatLens-Delivery-ID", str(delivery_id))
+    _set_message_header(message, "X-ThreatLens-Event-Type", event_type)
     message.set_content(_html_to_plain_text(html_body))
     message.add_alternative(html_body, subtype="html")
     return message
+
+
+def _set_message_header(message: EmailMessage, name: str, value: str) -> None:
+    try:
+        message[name] = value
+    except ValueError as exc:
+        raise TemplateRenderError(f"SMTP message header {name} is invalid: {exc}") from exc
 
 
 def _validate_test_settings(active: ActiveSMTPSettings, *, recipient_email: str | None) -> str | None:
@@ -599,7 +625,7 @@ def _validate_test_settings(active: ActiveSMTPSettings, *, recipient_email: str 
         return "Sender email is required before sending a test email."
     if recipient_email:
         try:
-            _render_test_message_content(active)
+            _build_test_message(active, recipient_email)
         except TemplateRenderError as exc:
             return str(exc)
     return None
@@ -629,14 +655,31 @@ def _active_smtp_matches_event(
     event_type: NotificationEventType,
     feed: Feed | SimpleNamespace | None,
 ) -> bool:
-    if event_type not in active.event_types:
+    return _smtp_config_matches_event(
+        event_types=active.event_types,
+        feed_scope=active.feed_scope,
+        feed_ids=active.feed_ids,
+        event_type=event_type,
+        feed=feed,
+    )
+
+
+def _smtp_config_matches_event(
+    *,
+    event_types: list[str],
+    feed_scope: str,
+    feed_ids: list[uuid.UUID],
+    event_type: NotificationEventType,
+    feed: Feed | SimpleNamespace | None,
+) -> bool:
+    if event_type not in event_types:
         return False
-    if active.feed_scope == "all":
+    if feed_scope == "all":
         return True
     if event_type == "daily_digest":
         return True
     feed_id = getattr(feed, "id", None)
-    return feed_id is not None and feed_id in active.feed_ids
+    return feed_id is not None and feed_id in feed_ids
 
 
 def _render_test_message_content(active: ActiveSMTPSettings) -> tuple[str, str]:
@@ -873,6 +916,36 @@ def _apply_smtp_delivery_result(instance: IntegrationInstance, result: SMTPNotif
         instance.health_status = INTEGRATION_HEALTH_ERROR
         instance.last_error_at = result.attempted_at
         instance.last_error = result.error
+
+
+def _smtp_delivery_attempt_skip_reason(
+    db: Session,
+    *,
+    instance_id: uuid.UUID,
+    dedupe_key: str,
+    event_type: NotificationEventType,
+    delivery_kind: str,
+    feed: Feed | SimpleNamespace | None,
+    item: Item | SimpleNamespace | None,
+    source_delivery_id: uuid.UUID | None,
+    scope_key: str | None,
+) -> str | None:
+    if _has_smtp_delivery_attempt(db, instance_id=instance_id, dedupe_key=dedupe_key):
+        return "duplicate_delivery"
+    if not try_acquire_notification_delivery_lock(
+        db,
+        webhook_id=instance_id,
+        event_type=event_type,
+        delivery_kind=delivery_kind,
+        item_id=getattr(item, "id", None),
+        feed_id=getattr(feed, "id", None),
+        source_delivery_id=source_delivery_id,
+        scope_key=scope_key,
+    ):
+        return "delivery_lock_unavailable"
+    if _has_smtp_delivery_attempt(db, instance_id=instance_id, dedupe_key=dedupe_key):
+        return "duplicate_delivery"
+    return None
 
 
 def _has_smtp_delivery_attempt(db: Session, *, instance_id: uuid.UUID, dedupe_key: str) -> bool:
