@@ -949,6 +949,54 @@ describe('AiSettingsPage DOM workflows', () => {
     expect(pageText()).toContain('Showing 21-25 of 25')
   })
 
+  it('keeps an explicitly opened active run selected outside the current history window', () => {
+    const pinnedRun = createAiRun('run-pinned', {
+      status: 'queued',
+      started_at: null,
+      finished_at: null,
+      actor_email: 'pinned-run@example.com',
+      item_title: 'Pinned active run',
+    })
+    const historyRun = createAiRun('run-history', {
+      actor_email: 'history-run@example.com',
+      item_title: 'Visible history run',
+    })
+    const pinnedQueueRun = {
+      ...aiSettingsPageDomMocks.queuedRunsData.items[0],
+      id: 'run-pinned',
+      model: 'gpt-threat',
+    }
+    aiSettingsPageDomMocks.queuedRunsData = {
+      items: [pinnedQueueRun],
+      total: 1,
+      limit: 10,
+      offset: 0,
+    }
+    aiSettingsPageDomMocks.historyRunsDataByPage = {
+      0: {
+        items: [historyRun],
+        total: 1,
+        limit: 20,
+        offset: 0,
+      },
+    }
+    aiSettingsPageDomMocks.runDetailById = {
+      'run-pinned': { run: pinnedRun, events: [] },
+      'run-history': { run: historyRun, events: [] },
+    }
+    renderPage()
+
+    act(() => {
+      getButton('Jobs')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      getButton('Open Run')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('pinned-run@example.com')
+    expect(pageText()).not.toContain('history-run@example.com')
+  })
+
   it('shows sanitized request and response summaries in the provider exchange view', () => {
     const run = createAiRun('run-provider-debug', {
       item_title: 'Provider debug article',
