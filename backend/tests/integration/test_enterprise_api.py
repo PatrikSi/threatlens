@@ -1,11 +1,17 @@
 import uuid
+import threading
+import time
 from datetime import datetime, timedelta, timezone
+from queue import Queue
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.orm import Session
 
+from app.api.routes.users import _acquire_active_admin_invariant_lock, _ensure_active_approved_admin_remains
 from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
@@ -20,6 +26,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
+from app.schemas.user import UserUpdateRequest
 from app.core.security import get_password_hash
 from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
@@ -2597,6 +2604,93 @@ def test_admin_can_remove_own_admin_role_when_another_active_approved_admin_exis
     stale_token_response = client.get("/feeds", headers=auth_headers["admin"])
     assert stale_token_response.status_code == 401
     assert stale_token_response.json()["detail"] == "Invalid credentials"
+
+
+def test_concurrent_admin_demotions_leave_one_active_approved_admin(database_engine):
+    first_admin = User(
+        id=uuid.uuid4(),
+        email=f"concurrent.first.{uuid.uuid4()}@example.com",
+        password_hash=get_password_hash("AdminPass987!"),
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    second_admin = User(
+        id=uuid.uuid4(),
+        email=f"concurrent.second.{uuid.uuid4()}@example.com",
+        password_hash=get_password_hash("AdminPass987!"),
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    first_admin_id = first_admin.id
+    second_admin_id = second_admin.id
+    with Session(bind=database_engine) as seed_session:
+        seed_session.add_all([first_admin, second_admin])
+        seed_session.commit()
+    admin_ids = [first_admin_id, second_admin_id]
+    started = threading.Event()
+    outcomes: Queue[int | str] = Queue()
+
+    first_session = Session(bind=database_engine)
+    try:
+        _acquire_active_admin_invariant_lock(first_session)
+        locked_first = first_session.scalar(
+            select(User).where(User.id == first_admin_id).with_for_update()
+        )
+        _ensure_active_approved_admin_remains(
+            first_session,
+            locked_first,
+            UserUpdateRequest(role="viewer"),
+        )
+        locked_first.role = "viewer"
+        first_session.flush()
+
+        def _demote_second_admin() -> None:
+            with Session(bind=database_engine) as second_session:
+                started.set()
+                try:
+                    _acquire_active_admin_invariant_lock(second_session)
+                    locked_second = second_session.scalar(
+                        select(User).where(User.id == second_admin_id).with_for_update()
+                    )
+                    _ensure_active_approved_admin_remains(
+                        second_session,
+                        locked_second,
+                        UserUpdateRequest(role="viewer"),
+                    )
+                    locked_second.role = "viewer"
+                    second_session.commit()
+                    outcomes.put("committed")
+                except HTTPException as exc:
+                    second_session.rollback()
+                    outcomes.put(exc.status_code)
+
+        contender = threading.Thread(target=_demote_second_admin, daemon=True)
+        contender.start()
+        assert started.wait(timeout=2)
+        time.sleep(0.1)
+        assert contender.is_alive()
+        first_session.commit()
+        contender.join(timeout=5)
+        assert not contender.is_alive()
+    finally:
+        first_session.rollback()
+        first_session.close()
+
+    assert outcomes.get_nowait() == 400
+    with Session(bind=database_engine) as verify_session:
+        active_admin_count = verify_session.scalar(
+            select(func.count(User.id)).where(
+                User.id.in_(admin_ids),
+                User.role == "admin",
+                User.is_active.is_(True),
+                User.is_approved.is_(True),
+            )
+        )
+        assert active_admin_count == 1
+        verify_session.execute(delete(User).where(User.id.in_(admin_ids)))
+        verify_session.commit()
 
 
 def test_role_promotion_invalidates_existing_browser_session_and_api_token(client: TestClient, db_session, seed_users, auth_headers):
