@@ -849,6 +849,109 @@ export interface SMTPTestResponse {
   used_unsaved_settings: boolean
 }
 
+export interface SMTPHook extends SMTPSettings {
+  is_default: boolean
+  uses_shared_credentials: boolean
+  credential_source_id: string | null
+  credential_source_name: string | null
+}
+
+export interface SMTPHookWriteRequest {
+  name: string
+  credential_source_id: string | null
+  settings: SMTPSettingsUpdateRequest
+}
+
+export interface SMTPHookTestRequest {
+  hook_id?: string | null
+  hook?: SMTPHookWriteRequest | null
+  send_email?: boolean
+  recipient_email?: string | null
+}
+
+export interface SMTPTemplateDefault {
+  send_for: NotificationEventType | 'all'
+  event_types: NotificationEventType[]
+  subject_template: string
+  html_template: string
+}
+
+export interface SMTPAnalyticsEventSummary {
+  event_type: NotificationEventType
+  total_deliveries: number
+  failed_deliveries: number
+}
+
+export interface SMTPAnalyticsHookSummary {
+  hook_id: string
+  hook_name: string
+  failed_deliveries: number
+  last_failure_at: string | null
+}
+
+export interface SMTPAnalyticsResponse {
+  hook_count: number
+  enabled_hook_count: number
+  total_deliveries: number
+  successful_deliveries: number
+  failed_deliveries: number
+  success_rate_pct: number
+  failures_last_24h: number
+  pending_deliveries: number
+  retry_wait_deliveries: number
+  most_failing_hook: SMTPAnalyticsHookSummary | null
+  events: SMTPAnalyticsEventSummary[]
+}
+
+export interface SMTPDeliveryAttempt {
+  attempt_number: number
+  status: string
+  started_at: string
+  finished_at: string | null
+  duration_ms: number | null
+  error_code: string | null
+  error_message: string | null
+  retryable: boolean | null
+  recipient_count: number | null
+  accepted_count: number | null
+}
+
+export interface SMTPDelivery {
+  id: string
+  hook_id: string
+  event_type: NotificationEventType
+  delivery_kind: 'live' | 'replay'
+  state: 'pending' | 'sending' | 'retry_wait' | 'succeeded' | 'failed' | 'dead_letter'
+  attempt_count: number
+  max_attempts: number
+  feed_id: string | null
+  item_id: string | null
+  source_delivery_id: string | null
+  last_duration_ms: number | null
+  last_error_code: string | null
+  last_error_message: string | null
+  last_error_retryable: boolean | null
+  created_at: string
+  updated_at: string
+  completed_at: string | null
+  dead_lettered_at: string | null
+  attempts: SMTPDeliveryAttempt[]
+}
+
+export interface SMTPDeliveryListResponse {
+  deliveries: SMTPDelivery[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface IntegrationDeliveryReplayResponse {
+  source_delivery_id: string
+  delivery_id: string
+  state: 'pending'
+  queued: boolean
+}
+
 export interface TaggingSettings {
   id: string
   enabled_categories: string[]
