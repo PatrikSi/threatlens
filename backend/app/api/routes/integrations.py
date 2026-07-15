@@ -48,6 +48,7 @@ from app.services.integration_storage import (
     SMTPSecretError,
     apply_smtp_settings_update,
     build_active_smtp_settings,
+    get_smtp_credential_source,
     get_or_create_smtp_integration,
     list_integration_summaries,
     record_smtp_test_result,
@@ -280,37 +281,48 @@ def test_smtp_hook(
             instance = get_smtp_hook(db, payload.hook_id)
         except SMTPHookNotFoundError as exc:
             raise _smtp_hook_http_error(exc) from exc
-    _validate_smtp_notification_settings(db, payload.hook.settings, require_recipients=False)
+    used_unsaved_settings = payload.hook is not None
     try:
-        credential_source = validate_smtp_hook_credential_selection(
-            db,
-            payload=payload.hook,
-            target=instance,
-        )
+        if payload.hook is None:
+            if instance is None:
+                raise SMTPHookNotFoundError("SMTP hook not found")
+            credential_source = get_smtp_credential_source(db, instance)
+            active_settings = build_active_smtp_settings(instance, credential_source=credential_source)
+        else:
+            _validate_smtp_notification_settings(
+                db,
+                payload.hook.settings,
+                require_recipients=False,
+                allow_shared_host=payload.hook.credential_source_id is not None,
+            )
+            credential_source = validate_smtp_hook_credential_selection(
+                db,
+                payload=payload.hook,
+                target=instance,
+            )
+            runtime_instance = instance or IntegrationInstance(
+                id=uuid.uuid4(),
+                name=payload.hook.name,
+                integration_type="smtp",
+                direction="destination",
+                enabled=False,
+                config_json={},
+            )
+            active_settings = build_active_smtp_settings(
+                runtime_instance,
+                override=payload.hook.settings,
+                credential_source=credential_source,
+            )
     except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
         raise _smtp_hook_http_error(exc) from exc
-    runtime_instance = instance or IntegrationInstance(
-        id=uuid.uuid4(),
-        name=payload.hook.name,
-        integration_type="smtp",
-        direction="destination",
-        enabled=False,
-        config_json={},
-    )
-    try:
-        active_settings = build_active_smtp_settings(
-            runtime_instance,
-            override=payload.hook.settings,
-            credential_source=credential_source,
-        )
     except SMTPSecretError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     result = test_smtp_integration(
         active_settings,
         recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
-    ).model_copy(update={"used_unsaved_settings": True})
+    ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
     if instance is not None:
-        record_smtp_test_result(db, instance=instance, result=result, used_unsaved_settings=True)
+        record_smtp_test_result(db, instance=instance, result=result, used_unsaved_settings=used_unsaved_settings)
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -323,6 +335,7 @@ def test_smtp_hook(
             "error_code": result.error_code,
             "recipient_provided": bool(payload.send_email and payload.recipient_email),
             "used_shared_credentials": credential_source is not None,
+            "used_unsaved_settings": used_unsaved_settings,
         },
     )
     db.commit()

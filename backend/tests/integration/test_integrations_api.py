@@ -279,6 +279,49 @@ def test_admin_can_create_multiple_smtp_hooks_and_reuse_credentials(
     assert {hook["name"] for hook in hooks_response.json()} >= {"SMTP", "Primary relay", "Alert relay"}
 
 
+def test_saved_smtp_hook_test_updates_health_without_resubmitting_secrets(
+    client: TestClient,
+    auth_headers,
+    monkeypatch,
+):
+    hook = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["admin"],
+        json=_smtp_hook_payload("Health relay"),
+    ).json()
+    captured = {}
+
+    def fake_test(active_settings, *, recipient_email):
+        captured["password"] = active_settings.password
+        captured["recipient_email"] = recipient_email
+        return SMTPTestResponse(
+            success=True,
+            action="connection",
+            duration_ms=9,
+            recipient_email=None,
+            error_code=None,
+            error=None,
+            server_message="connected",
+            tested_at=datetime.now(timezone.utc),
+            used_unsaved_settings=True,
+        )
+
+    monkeypatch.setattr("app.api.routes.integrations.test_smtp_integration", fake_test)
+    response = client.post(
+        "/integrations/smtp/hooks/test",
+        headers=auth_headers["admin"],
+        json={"hook_id": hook["id"]},
+    )
+    assert response.status_code == 200
+    assert response.json()["used_unsaved_settings"] is False
+    assert captured == {"password": "relay-password", "recipient_email": None}
+
+    hooks = client.get("/integrations/smtp/hooks", headers=auth_headers["admin"]).json()
+    saved = next(candidate for candidate in hooks if candidate["id"] == hook["id"])
+    assert saved["health_status"] == "healthy"
+    assert saved["last_test_at"] is not None
+
+
 def test_smtp_credential_sources_reject_chains_and_deletion_while_in_use(
     client: TestClient,
     auth_headers,

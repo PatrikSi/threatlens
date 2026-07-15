@@ -373,12 +373,14 @@ class SMTPTestRequest(BaseModel):
 
 class SMTPHookTestRequest(BaseModel):
     hook_id: uuid.UUID | None = None
-    hook: SMTPHookWrite
+    hook: SMTPHookWrite | None = None
     send_email: bool = False
     recipient_email: EmailStr | None = None
 
     @model_validator(mode="after")
     def validate_send_mode(self):
+        if self.hook_id is None and self.hook is None:
+            raise ValueError("hook is required when testing a new SMTP hook")
         if self.recipient_email is not None:
             self.send_email = True
         if self.send_email and self.recipient_email is None:
