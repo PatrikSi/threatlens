@@ -52,6 +52,10 @@ class SMTPHookConflictError(ValueError):
     pass
 
 
+class SMTPHookValidationError(ValueError):
+    pass
+
+
 def list_smtp_hooks(db: Session) -> list[SMTPHookResponse]:
     instances = db.scalars(
         select(IntegrationInstance)
@@ -61,13 +65,19 @@ def list_smtp_hooks(db: Session) -> list[SMTPHookResponse]:
     return [smtp_hook_response(db, instance) for instance in instances if not smtp_instance_is_archived(instance)]
 
 
-def get_smtp_hook(db: Session, hook_id: uuid.UUID) -> IntegrationInstance:
-    instance = db.scalar(
-        select(IntegrationInstance).where(
-            IntegrationInstance.id == hook_id,
-            IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE,
-        )
+def get_smtp_hook(
+    db: Session,
+    hook_id: uuid.UUID,
+    *,
+    for_update: bool = False,
+) -> IntegrationInstance:
+    query = select(IntegrationInstance).where(
+        IntegrationInstance.id == hook_id,
+        IntegrationInstance.integration_type == SMTP_INTEGRATION_TYPE,
     )
+    if for_update:
+        query = query.with_for_update()
+    instance = db.scalar(query)
     if instance is None or smtp_instance_is_archived(instance):
         raise SMTPHookNotFoundError("SMTP hook not found")
     return instance
@@ -75,7 +85,8 @@ def get_smtp_hook(db: Session, hook_id: uuid.UUID) -> IntegrationInstance:
 
 def create_smtp_hook(db: Session, payload: SMTPHookWrite) -> IntegrationInstance:
     _validate_unique_name(db, payload.name)
-    source = validate_smtp_hook_credential_selection(db, payload=payload)
+    source = validate_smtp_hook_credential_selection(db, payload=payload, lock_source=True)
+    _validate_direct_credentials(instance=None, payload=payload, required=payload.settings.enabled)
     instance = IntegrationInstance(
         name=payload.name,
         integration_type=SMTP_INTEGRATION_TYPE,
@@ -100,11 +111,21 @@ def create_smtp_hook(db: Session, payload: SMTPHookWrite) -> IntegrationInstance
 
 def update_smtp_hook(db: Session, instance: IntegrationInstance, payload: SMTPHookWrite) -> None:
     _validate_unique_name(db, payload.name, excluding_id=instance.id)
-    source = validate_smtp_hook_credential_selection(db, payload=payload, target=instance)
-    if source is not None and _active_credential_dependents(db, instance.id):
+    source = validate_smtp_hook_credential_selection(db, payload=payload, target=instance, lock_source=True)
+    dependents = _active_credential_dependents(db, instance.id)
+    if source is not None and dependents:
         raise SMTPHookConflictError(
             "This SMTP hook supplies credentials to other hooks and cannot reuse another hook's credentials."
         )
+    if dependents and not payload.settings.host:
+        raise SMTPHookConflictError(
+            "This SMTP hook supplies credentials to other hooks and must retain an SMTP host."
+        )
+    _validate_direct_credentials(
+        instance=instance,
+        payload=payload,
+        required=payload.settings.enabled or bool(dependents),
+    )
     apply_smtp_hook_settings_update(
         instance,
         payload.settings,
@@ -140,12 +161,16 @@ def validate_smtp_credential_source(
     *,
     source_id: uuid.UUID | None,
     target: IntegrationInstance | None = None,
+    lock_source: bool = False,
 ) -> IntegrationInstance | None:
     if source_id is None:
         return None
     if target is not None and source_id == target.id:
         raise SMTPHookConflictError("An SMTP hook cannot reuse its own credentials.")
-    source = db.get(IntegrationInstance, source_id)
+    source_query = select(IntegrationInstance).where(IntegrationInstance.id == source_id)
+    if lock_source:
+        source_query = source_query.with_for_update()
+    source = db.scalar(source_query)
     if source is None or source.integration_type != SMTP_INTEGRATION_TYPE or smtp_instance_is_archived(source):
         raise SMTPHookNotFoundError("The selected SMTP credential source was not found.")
     if source.credential_source_integration_id is not None:
@@ -155,9 +180,13 @@ def validate_smtp_credential_source(
     source_config = source.config_json if isinstance(source.config_json, dict) else {}
     if not source_config.get("host"):
         raise SMTPHookConflictError("The selected SMTP credential source does not have a server host configured.")
-    _, secret_error = read_smtp_secret_config(source)
+    secrets, secret_error = read_smtp_secret_config(source)
     if secret_error:
         raise SMTPHookConflictError(secret_error)
+    if source_config.get("username") and not secrets.get("password"):
+        raise SMTPHookConflictError(
+            "The selected SMTP credential source has a username but no saved password."
+        )
     return source
 
 
@@ -166,11 +195,13 @@ def validate_smtp_hook_credential_selection(
     *,
     payload: SMTPHookWrite,
     target: IntegrationInstance | None = None,
+    lock_source: bool = False,
 ) -> IntegrationInstance | None:
     source = validate_smtp_credential_source(
         db,
         source_id=payload.credential_source_id,
         target=target,
+        lock_source=lock_source,
     )
     _validate_shared_credential_payload(payload, source=source)
     return source
@@ -421,6 +452,31 @@ def _validate_shared_credential_payload(payload: SMTPHookWrite, *, source: Integ
         raise SMTPHookConflictError(
             "A password cannot be changed while reusing SMTP credentials. Edit the credential source instead."
         )
+
+
+def _validate_direct_credentials(
+    *,
+    instance: IntegrationInstance | None,
+    payload: SMTPHookWrite,
+    required: bool,
+) -> None:
+    if payload.credential_source_id is not None or not required or not payload.settings.username:
+        return
+    if payload.settings.password:
+        return
+    if payload.settings.clear_password:
+        raise SMTPHookValidationError(
+            "A password is required while an SMTP username is configured. Remove the username or provide a password."
+        )
+    if instance is not None:
+        secrets, secret_error = read_smtp_secret_config(instance)
+        if secret_error:
+            raise SMTPHookValidationError(secret_error)
+        if secrets.get("password"):
+            return
+    raise SMTPHookValidationError(
+        "A password is required while an SMTP username is configured. Remove the username or provide a password."
+    )
 
 
 def _validate_unique_name(db: Session, name: str, *, excluding_id: uuid.UUID | None = None) -> None:
