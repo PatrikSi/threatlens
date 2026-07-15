@@ -40,7 +40,7 @@ def _alembic_config() -> Config:
 
 
 def _database_url_for_schema(database_url: str, schema_name: str) -> str:
-    url = make_url(database_url).update_query_dict({"options": f"-csearch_path={schema_name}"})
+    url = make_url(database_url).update_query_dict({"options": f"-csearch_path={schema_name},public"})
     return url.render_as_string(hide_password=False)
 
 
