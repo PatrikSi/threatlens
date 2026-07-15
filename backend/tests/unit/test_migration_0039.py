@@ -55,6 +55,12 @@ def test_already_0038_stale_guid_key_upgrades_and_runtime_upsert_finds_item(
 
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+        connection.execute(
+            text(
+                f'CREATE TABLE "{schema_name}".alembic_version '
+                "(version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
+            )
+        )
 
     try:
         with monkeypatch.context() as migration_env:
