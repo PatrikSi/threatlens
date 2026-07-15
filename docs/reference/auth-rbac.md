@@ -44,7 +44,8 @@ Defined in `backend/app/core/security.py`:
 - Expiry: `JWT_EXPIRES_MINUTES` (default 1440)
 - Password changes increment the user's auth-token version, which invalidates previously issued JWTs and cookie-backed sessions.
 - Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
-- Role changes and email changes do not rotate tokens by themselves.
+- Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
+- Email-only changes do not rotate credentials.
 
 ## API Token Behavior
 
@@ -95,6 +96,8 @@ Resource scopes:
 - `read:users`, `write:users`
 - `read:audit`
 - `read:stats`
+- `read:integrations`, `write:integrations`
+- `read:health`
 
 Wildcard/admin scopes:
 
@@ -135,6 +138,7 @@ Paths below are relative to the published `/api/v1` base.
 | `/alerts/matches` | authenticated user | `read:alerts` and `read:items` |
 | `/notifications/template-variables`, `/notifications/analytics`, `/notifications/webhooks`, `/notifications/webhooks/{id}/deliveries` | authenticated user | `read:notifications` |
 | `/notifications/webhooks` mutate/test/retry | `admin` or `analyst` | `write:notifications` |
+| `/integrations/*` | `admin` | `read:integrations` / `write:integrations` |
 | `/ai/*` | `admin` | `read:ai` / `write:ai` |
 | `/tags` read | authenticated user | `read:tags` |
 | `/tags` create | `admin` or `analyst` | `write:tags` |
@@ -146,7 +150,8 @@ Paths below are relative to the published `/api/v1` base.
 | `/audit-logs` | `admin` | `read:audit` |
 | `/audit-logs/export` | `admin` | `read:audit` |
 | `/stats/*` | authenticated user | `read:stats` |
-| `/health` | none | none |
+| `/health`, `/health/ready`, `/health/live` basic status | none | none |
+| `/health/worker`, `/health/beat`, `/health/notifications`, `/health/encrypted-data` | `admin` | `read:health` |
 
 ## Practical Trust Notes
 
@@ -154,3 +159,6 @@ Paths below are relative to the published `/api/v1` base.
 - `write:<resource>` implies `read:<resource>` during scope checks.
 - `ALLOW_LEGACY_UNSCOPED_TOKENS=true` weakens token authorization by allowing empty-scope legacy tokens to bypass scope checks. Production settings reject this mode.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
+- Viewer-role access and API tokens without `write:notifications` receive webhook configuration with secret-bearing values redacted. Operator cookie sessions and write-scoped operator tokens retain the existing editable response.
+- User updates are serialized around the active-admin invariant; concurrent demotions cannot remove the final active, approved admin.
+- Non-admin token revocation is owner-constrained and returns the same not-found response for foreign and nonexistent token IDs.

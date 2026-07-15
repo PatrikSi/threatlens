@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.1.0`
-- OpenAPI contract anchor: `openapi-sha256:a4ac8af6e590b44ecc52530668f4f73ebcc610adfe5f52893f5e4a04b997bc23`
+- OpenAPI contract anchor: `openapi-sha256:bfa8a9492ee1482f0b52b08d415b1e70246b1b45dfee646ffc06a2ade05ced82`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -313,10 +313,12 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/beat`
 - Summary: Beat
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/encrypted-data`
 - Summary: Encrypted Data
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> EncryptedDataInventoryResponse
 ### `GET /v1/health/live`
 - Summary: Live
@@ -325,6 +327,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/notifications`
 - Summary: Notifications
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/ready`
 - Summary: Ready
@@ -333,6 +336,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/worker`
 - Summary: Worker
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 
 ## Integrations

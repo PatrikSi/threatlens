@@ -19,7 +19,9 @@ ThreatLens remains a modular monolith backed by PostgreSQL, Redis, and Celery. I
 
 Delivery is at least once. Event and delivery idempotency keys prevent duplicate durable work, while connector delivery IDs help downstream systems deduplicate ambiguous network outcomes.
 
-Legacy notification webhook rows remain compatibility projections. Existing webhook IDs, API routes, encrypted request snapshots, delivery history, and retry behavior are preserved while generic records become the execution source of truth. New code repairs projections created by an older process during rolling upgrades.
+Connector behavior is registered through an executable `IntegrationConnector` contract. Each built-in connector publishes immutable metadata and owns event routing plus delivery processing. The initial registry contains SMTP and webhook connectors; API schemas remain a closed `smtp|webhook` union until a new connector is fully implemented and supported.
+
+Legacy notification webhook rows remain compatibility records. Existing webhook IDs, API routes, encrypted request snapshots, delivery history, and retry behavior are preserved while generic records drive execution. During the compatibility window, the legacy webhook row remains authoritative for configuration so an older process can update it safely; routing repairs the linked generic instance and subscription before creating new deliveries.
 
 Audit logs remain immutable operator records and are not used as operational queue state.
 
@@ -27,6 +29,7 @@ Audit logs remain immutable operator records and are not used as operational que
 
 - Domain writes can commit independently of Redis and external destinations.
 - Connector failures cannot roll back feed ingestion or classification.
+- Adding a built-in destination does not require connector-specific branching in domain tasks; it requires a registered connector, configuration/API surface, and tests.
 - Webhook and SMTP delivery share bounded retries, rate limits, circuit breaking, replay, retention, and metrics.
 - A timeout after a remote system accepts a request remains ambiguous; exact-once external side effects are not claimed.
 - The compatibility projection adds temporary dual-write complexity and must be covered by migration and reconciliation tests.
@@ -40,6 +43,18 @@ Audit logs remain immutable operator records and are not used as operational que
 - Interrupted routing and delivery claims are recoverable without operator database edits.
 - A failing or rate-limited integration cannot consume unbounded worker concurrency.
 - Retention never removes non-terminal events, deliveries, or attempts.
+- Connector task adapters enqueue durable IDs only after their transaction commits.
+- Unknown connector types are deferred during rolling upgrades instead of being dead-lettered by an older worker.
+
+## Runtime Flow
+
+1. A domain transaction inserts an idempotent `integration_events` row.
+2. The notification worker claims the event and asks every registered connector to route matching subscriptions.
+3. Routing inserts one idempotent live `integration_deliveries` row per event/subscription pair.
+4. A connector claims its delivery, records an `integration_attempts` row, performs the external side effect, and finalizes both records atomically.
+5. Retryable failures use bounded exponential backoff. Per-instance concurrency, rate limits, and circuit state protect the worker and destination.
+6. Exhausted failures enter dead letter. Replay creates a linked delivery instead of mutating historical attempts.
+7. Terminal history is aggregated into hourly metrics before retention removes eligible detail rows.
 
 ## Compatibility
 

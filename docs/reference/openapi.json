@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.1.0",
-    "x-threatlens-contract-sha256": "a4ac8af6e590b44ecc52530668f4f73ebcc610adfe5f52893f5e4a04b997bc23"
+    "x-threatlens-contract-sha256": "bfa8a9492ee1482f0b52b08d415b1e70246b1b45dfee646ffc06a2ade05ced82"
   },
   "servers": [
     {
@@ -5646,6 +5646,9 @@
           {
             "SessionCookieAuth": []
           }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:health"
         ]
       }
     },
@@ -5673,6 +5676,9 @@
           {
             "SessionCookieAuth": []
           }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:health"
         ]
       }
     },
@@ -5700,6 +5706,9 @@
           {
             "SessionCookieAuth": []
           }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:health"
         ]
       }
     },
@@ -5729,6 +5738,9 @@
           {
             "SessionCookieAuth": []
           }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:health"
         ]
       }
     }
@@ -12431,6 +12443,11 @@
           "timeout_seconds": {
             "type": "integer",
             "title": "Timeout Seconds"
+          },
+          "secrets_redacted": {
+            "type": "boolean",
+            "title": "Secrets Redacted",
+            "default": false
           },
           "created_at": {
             "type": "string",
