@@ -1,12 +1,13 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
-from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS
+from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
+from app.core.token_scopes import SCOPE_READ_NOTIFICATIONS, SCOPE_WRITE_NOTIFICATIONS, has_required_scope
 from app.db.session import get_db
 from app.models.feed import Feed
 from app.models.notification_webhook import NotificationWebhook
@@ -63,6 +64,7 @@ def get_notifications_analytics(
 
 @router.get("/webhooks", response_model=list[NotificationWebhookResponse])
 def list_notification_webhooks(
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_NOTIFICATIONS)),
 ):
@@ -71,7 +73,14 @@ def list_notification_webhooks(
         .where(NotificationWebhook.user_id == user.id)
         .order_by(NotificationWebhook.created_at.asc())
     ).all()
-    return [notification_webhook_response_from_model(webhook) for webhook in webhooks]
+    token_scopes = getattr(request.state, "token_scopes", None)
+    can_read_secrets = user.role in {ROLE_ADMIN, ROLE_ANALYST} and (
+        token_scopes is None or has_required_scope(set(token_scopes), SCOPE_WRITE_NOTIFICATIONS)
+    )
+    return [
+        notification_webhook_response_from_model(webhook, redact_secrets=not can_read_secrets)
+        for webhook in webhooks
+    ]
 
 
 @router.post("/webhooks", response_model=NotificationWebhookResponse, status_code=status.HTTP_201_CREATED)
