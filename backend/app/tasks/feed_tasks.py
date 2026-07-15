@@ -80,12 +80,13 @@ from app.services.integration_events import (
     record_integration_event_failure,
     route_integration_event as route_pending_integration_event,
 )
+from app.services.integration_connectors import IntegrationConnectorRuntime
 from app.services.integration_delivery import (
     list_recoverable_integration_delivery_ids,
     mark_integration_delivery_dead_letter,
 )
-from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.integration_maintenance import run_integration_delivery_maintenance
+from app.services.integration_registry import get_integration_connector
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
@@ -441,12 +442,16 @@ def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
     return all_enqueued
 
 
-def enqueue_integration_delivery_processing(delivery_ids: list[uuid.UUID]) -> bool:
+def enqueue_integration_delivery_processing(
+    delivery_ids: list[uuid.UUID],
+    countdown: int | None = None,
+) -> bool:
     return _enqueue_notification_delivery_batches(
         delivery_ids,
         batch_size=settings.notification_delivery_enqueue_batch_size,
         delivery_task=process_integration_deliveries,
         logger=logger,
+        countdown=countdown,
     )
 
 
@@ -1603,48 +1608,36 @@ def process_integration_deliveries(delivery_ids: list[str]):
             if delivery is None:
                 skipped += 1
                 continue
-            if delivery.connector_type == "webhook":
-                legacy_delivery = db.scalar(
-                    select(NotificationWebhookDelivery).where(
-                        NotificationWebhookDelivery.integration_delivery_id == delivery.id
-                    )
-                )
-                if legacy_delivery is None:
-                    mark_integration_delivery_dead_letter(
-                        db,
-                        delivery_id=delivery.id,
-                        error_code="legacy_projection_missing",
-                        error_message="Webhook compatibility delivery no longer exists.",
-                    )
-                    db.commit()
-                    failed += 1
-                    continue
-                webhook_delivered, webhook_failed = _process_reserved_notification_deliveries(
+            connector = get_integration_connector(delivery.connector_type)
+            if connector is None:
+                mark_integration_delivery_dead_letter(
                     db,
-                    [legacy_delivery.id],
+                    delivery_id=delivery.id,
+                    error_code="unsupported_connector",
+                    error_message=f"Unsupported integration connector: {delivery.connector_type}",
                 )
-                delivered += webhook_delivered
-                failed += webhook_failed
+                db.commit()
+                failed += 1
                 continue
-            if delivery.connector_type == "smtp":
-                result = process_smtp_integration_delivery(db, delivery_id=delivery.id)
-                if result.status == "succeeded":
-                    delivered += 1
-                elif result.status in {"retry_wait", "deferred"}:
-                    deferred += 1
-                elif result.status in {"terminal", "missing"}:
-                    skipped += 1
-                else:
-                    failed += 1
-                continue
-            mark_integration_delivery_dead_letter(
+            result = connector.process_delivery(
                 db,
-                delivery_id=delivery.id,
-                error_code="unsupported_connector",
-                error_message=f"Unsupported integration connector: {delivery.connector_type}",
+                delivery=delivery,
+                runtime=IntegrationConnectorRuntime(
+                    enqueue_deliveries=lambda ids, countdown=None: enqueue_integration_delivery_processing(
+                        ids,
+                        countdown=countdown,
+                    ),
+                    enqueue_events=enqueue_integration_event_routing,
+                ),
             )
-            db.commit()
-            failed += 1
+            if result.status == "succeeded":
+                delivered += 1
+            elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
+                deferred += 1
+            elif result.status in {"terminal", "missing"}:
+                skipped += 1
+            else:
+                failed += 1
     return {
         "status": "ok",
         "scanned": len(delivery_ids),

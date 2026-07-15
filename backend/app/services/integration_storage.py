@@ -26,7 +26,7 @@ from app.schemas.integration import (
     SMTPTestResponse,
 )
 from app.schemas.notification import NotificationEventType
-from app.services.integration_registry import SMTP_CONFIG_SCHEMA_VERSION
+from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.secret_storage import decrypt_json, encrypt_json
 
 SMTP_SYSTEM_KEY = "smtp.default"
