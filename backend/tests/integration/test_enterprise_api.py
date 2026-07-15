@@ -1477,6 +1477,100 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
     }
 
 
+def test_health_ready_details_require_health_scope_for_api_tokens(
+    client: TestClient,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    admin = seed_users["admin"]
+    narrow_token = _issue_api_token(
+        db_session,
+        admin,
+        name="narrow-health-reader",
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    health_token = _issue_api_token(
+        db_session,
+        admin,
+        name="health-reader",
+        scopes=["read:health"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    monkeypatch.setattr("app.api.routes.health._database_health_ok", lambda _db: True)
+    monkeypatch.setattr("app.api.routes.health._redis_health_ok", lambda _settings: True)
+    monkeypatch.setattr(
+        "app.api.routes.health._worker_health_snapshot",
+        lambda _settings: (True, {"worker": "pong"}, {}),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.health._beat_health_snapshot",
+        lambda _settings: (True, datetime.now(timezone.utc).isoformat(), 0),
+    )
+
+    narrow_response = client.get(
+        "/health/ready",
+        headers={"Authorization": f"Bearer {narrow_token}"},
+    )
+    health_response = client.get(
+        "/health/ready",
+        headers={"Authorization": f"Bearer {health_token}"},
+    )
+
+    assert narrow_response.status_code == 200
+    assert narrow_response.json() == {"ok": True}
+    assert health_response.status_code == 200
+    assert health_response.json() == {
+        "ok": True,
+        "db": True,
+        "redis": True,
+        "worker": True,
+        "beat": True,
+    }
+
+
+def test_operational_health_endpoints_require_health_scope(
+    client: TestClient,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    admin = seed_users["admin"]
+    narrow_token = _issue_api_token(
+        db_session,
+        admin,
+        name="narrow-operational-health",
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    health_token = _issue_api_token(
+        db_session,
+        admin,
+        name="operational-health",
+        scopes=["read:health"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.health._worker_health_snapshot",
+        lambda _settings: (True, {"worker": "pong"}, {"missing": []}),
+    )
+
+    denied_response = client.get(
+        "/health/worker",
+        headers={"Authorization": f"Bearer {narrow_token}"},
+    )
+    allowed_response = client.get(
+        "/health/worker",
+        headers={"Authorization": f"Bearer {health_token}"},
+    )
+
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == "Insufficient token scope"
+    assert allowed_response.status_code == 200
+    assert allowed_response.json()["workers"] == {"worker": "pong"}
+
+
 def test_health_encrypted_data_endpoint_requires_admin(client: TestClient, auth_headers):
     response = client.get("/health/encrypted-data", headers=auth_headers["viewer"])
 
