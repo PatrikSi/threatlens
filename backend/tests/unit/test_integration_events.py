@@ -5,13 +5,20 @@ import pytest
 from sqlalchemy import select
 
 from app.models.feed import Feed
-from app.models.integration import IntegrationDelivery, IntegrationEvent, IntegrationInstance, IntegrationSubscriptionFeed
+from app.models.integration import (
+    IntegrationDelivery,
+    IntegrationEvent,
+    IntegrationInstance,
+    IntegrationSubscriptionFeed,
+)
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
+from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.integration_compat import ensure_webhook_integration
+from app.services.integration_connectors import IntegrationConnectorRuntime
 from app.services.integration_events import (
     IntegrationEventContextError,
     emit_integration_event,
@@ -19,6 +26,7 @@ from app.services.integration_events import (
     route_integration_event,
 )
 from app.services.integration_storage import apply_smtp_settings_update, get_or_create_smtp_integration
+from app.services.integration_registry import get_integration_connector
 
 
 def test_emit_integration_event_is_idempotent(db_session):
@@ -98,6 +106,62 @@ def test_route_event_matches_normalized_feed_subscriptions_and_preserves_legacy_
     assert set(repeated.webhook_delivery_ids) == set(result.webhook_delivery_ids)
     assert db_session.query(NotificationWebhookDelivery).count() == 2
     assert db_session.query(IntegrationDelivery).count() == 2
+
+
+def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history(db_session, monkeypatch):
+    user = _persist_user(db_session)
+    feed = _persist_feed(db_session, "Connector feed")
+    item = _persist_item(db_session, feed)
+    _persist_webhook(db_session, user, name="Connector webhook", feed_scope="all")
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"connector-process:{item.id}",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id), "owner_user_id": str(user.id)},
+    )
+    routed = route_integration_event(db_session, event_id=event.id)
+    delivery = db_session.get(IntegrationDelivery, routed.integration_delivery_ids[0])
+    connector = get_integration_connector("webhook")
+    queued_deliveries: list[uuid.UUID] = []
+    queued_events: list[uuid.UUID] = []
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        lambda rendered: NotificationWebhookTestResponse(
+            success=True,
+            status_code=204,
+            duration_ms=12,
+            rendered_url=rendered.url,
+            rendered_method=rendered.method,
+            rendered_headers=rendered.headers,
+            rendered_query_params=rendered.query_params,
+            rendered_body=rendered.body,
+            response_body_preview=None,
+            error=None,
+        ),
+    )
+
+    result = connector.process_delivery(
+        db_session,
+        delivery=delivery,
+        runtime=IntegrationConnectorRuntime(
+            enqueue_deliveries=lambda ids, _countdown: queued_deliveries.extend(ids) is None,
+            enqueue_events=lambda ids: queued_events.extend(ids) is None,
+        ),
+    )
+
+    db_session.refresh(delivery)
+    legacy = db_session.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.integration_delivery_id == delivery.id
+        )
+    )
+    assert result.status == "succeeded"
+    assert delivery.state == "succeeded"
+    assert legacy is not None and legacy.delivery_state == "succeeded"
+    assert queued_deliveries == []
+    assert queued_events == []
 
 
 def test_webhook_repair_ignores_deleted_and_invalid_selected_feed_ids(db_session):
