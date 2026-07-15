@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.1.0`
-- OpenAPI contract anchor: `openapi-sha256:5e5038eef4fa85a3d7e1c802a963adeb8c0f540153941e0c588e974748272c60`
+- OpenAPI contract anchor: `openapi-sha256:a4ac8af6e590b44ecc52530668f4f73ebcc610adfe5f52893f5e4a04b997bc23`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -354,6 +354,60 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Parameters:
   - `delivery_id` (path, required): string
 - Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/analytics`
+- Summary: Get Smtp Analytics
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> SMTPAnalyticsResponse
+### `GET /v1/integrations/smtp/hooks`
+- Summary: Get Smtp Hooks
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[SMTPHookResponse]
+### `POST /v1/integrations/smtp/hooks`
+- Summary: Create Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPHookWrite
+- Responses: `201` `application/json` -> SMTPHookResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/integrations/smtp/hooks/test`
+- Summary: Test Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPHookTestRequest
+- Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/integrations/smtp/hooks/{hook_id}`
+- Summary: Delete Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/integrations/smtp/hooks/{hook_id}`
+- Summary: Update Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+- Request body: `application/json` -> SMTPHookWrite
+- Responses: `200` `application/json` -> SMTPHookResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/hooks/{hook_id}/deliveries`
+- Summary: Get Smtp Hook Deliveries
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> SMTPDeliveryListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
+- Summary: Replay Smtp Hook Delivery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+  - `delivery_id` (path, required): string
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/integrations/smtp/settings`
 - Summary: Get Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -365,6 +419,11 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPSettingsUpdate
 - Responses: `200` `application/json` -> SMTPSettingsResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/template-defaults`
+- Summary: Get Smtp Template Defaults
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[SMTPTemplateDefaultResponse]
 ### `POST /v1/integrations/smtp/test`
 - Summary: Test Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth

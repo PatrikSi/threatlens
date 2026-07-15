@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.1.0",
-    "x-threatlens-contract-sha256": "5e5038eef4fa85a3d7e1c802a963adeb8c0f540153941e0c588e974748272c60"
+    "x-threatlens-contract-sha256": "a4ac8af6e590b44ecc52530668f4f73ebcc610adfe5f52893f5e4a04b997bc23"
   },
   "servers": [
     {
@@ -3212,6 +3212,462 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SMTPSettingsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/hooks": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Smtp Hooks",
+        "operationId": "get_smtp_hooks_v1_integrations_smtp_hooks_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SMTPHookResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Smtp Hooks V1 Integrations Smtp Hooks Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      },
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Create Smtp Hook Route",
+        "operationId": "create_smtp_hook_route_v1_integrations_smtp_hooks_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPHookWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPHookResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/hooks/{hook_id}": {
+      "patch": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Update Smtp Hook Route",
+        "operationId": "update_smtp_hook_route_v1_integrations_smtp_hooks__hook_id__patch",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hook Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPHookWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPHookResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      },
+      "delete": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Delete Smtp Hook Route",
+        "operationId": "delete_smtp_hook_route_v1_integrations_smtp_hooks__hook_id__delete",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hook Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/template-defaults": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Smtp Template Defaults",
+        "operationId": "get_smtp_template_defaults_v1_integrations_smtp_template_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SMTPTemplateDefaultResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Smtp Template Defaults V1 Integrations Smtp Template Defaults Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/analytics": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Smtp Analytics Route",
+        "operationId": "get_smtp_analytics_route_v1_integrations_smtp_analytics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPAnalyticsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/hooks/{hook_id}/deliveries": {
+      "get": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Get Smtp Hook Deliveries",
+        "operationId": "get_smtp_hook_deliveries_v1_integrations_smtp_hooks__hook_id__deliveries_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hook Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 10,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPDeliveryListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Replay Smtp Hook Delivery",
+        "operationId": "replay_smtp_hook_delivery_v1_integrations_smtp_hooks__hook_id__deliveries__delivery_id__replay_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "hook_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Hook Id"
+            }
+          },
+          {
+            "name": "delivery_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Delivery Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IntegrationDeliveryReplayResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:integrations"
+        ]
+      }
+    },
+    "/v1/integrations/smtp/hooks/test": {
+      "post": {
+        "tags": [
+          "integrations"
+        ],
+        "summary": "Test Smtp Hook",
+        "operationId": "test_smtp_hook_v1_integrations_smtp_hooks_test_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SMTPHookTestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SMTPTestResponse"
                 }
               }
             }
@@ -12324,6 +12780,858 @@
         ],
         "title": "RegistrationSettingsResponse"
       },
+      "SMTPAnalyticsEventSummary": {
+        "properties": {
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "rss_item_new",
+              "alert_match",
+              "feed_failing",
+              "webhook_failed",
+              "daily_digest"
+            ],
+            "title": "Event Type"
+          },
+          "total_deliveries": {
+            "type": "integer",
+            "title": "Total Deliveries"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_type",
+          "total_deliveries",
+          "failed_deliveries"
+        ],
+        "title": "SMTPAnalyticsEventSummary"
+      },
+      "SMTPAnalyticsHookSummary": {
+        "properties": {
+          "hook_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Hook Id"
+          },
+          "hook_name": {
+            "type": "string",
+            "title": "Hook Name"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries"
+          },
+          "last_failure_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Failure At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hook_id",
+          "hook_name",
+          "failed_deliveries",
+          "last_failure_at"
+        ],
+        "title": "SMTPAnalyticsHookSummary"
+      },
+      "SMTPAnalyticsResponse": {
+        "properties": {
+          "hook_count": {
+            "type": "integer",
+            "title": "Hook Count"
+          },
+          "enabled_hook_count": {
+            "type": "integer",
+            "title": "Enabled Hook Count"
+          },
+          "total_deliveries": {
+            "type": "integer",
+            "title": "Total Deliveries"
+          },
+          "successful_deliveries": {
+            "type": "integer",
+            "title": "Successful Deliveries"
+          },
+          "failed_deliveries": {
+            "type": "integer",
+            "title": "Failed Deliveries"
+          },
+          "success_rate_pct": {
+            "type": "number",
+            "title": "Success Rate Pct"
+          },
+          "failures_last_24h": {
+            "type": "integer",
+            "title": "Failures Last 24H"
+          },
+          "pending_deliveries": {
+            "type": "integer",
+            "title": "Pending Deliveries"
+          },
+          "retry_wait_deliveries": {
+            "type": "integer",
+            "title": "Retry Wait Deliveries"
+          },
+          "most_failing_hook": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SMTPAnalyticsHookSummary"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/SMTPAnalyticsEventSummary"
+            },
+            "type": "array",
+            "title": "Events"
+          }
+        },
+        "type": "object",
+        "required": [
+          "hook_count",
+          "enabled_hook_count",
+          "total_deliveries",
+          "successful_deliveries",
+          "failed_deliveries",
+          "success_rate_pct",
+          "failures_last_24h",
+          "pending_deliveries",
+          "retry_wait_deliveries",
+          "most_failing_hook",
+          "events"
+        ],
+        "title": "SMTPAnalyticsResponse"
+      },
+      "SMTPDeliveryAttemptResponse": {
+        "properties": {
+          "attempt_number": {
+            "type": "integer",
+            "title": "Attempt Number"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retryable"
+          },
+          "recipient_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Count"
+          },
+          "accepted_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_number",
+          "status",
+          "started_at",
+          "finished_at",
+          "duration_ms",
+          "error_code",
+          "error_message",
+          "retryable",
+          "recipient_count",
+          "accepted_count"
+        ],
+        "title": "SMTPDeliveryAttemptResponse"
+      },
+      "SMTPDeliveryListResponse": {
+        "properties": {
+          "deliveries": {
+            "items": {
+              "$ref": "#/components/schemas/SMTPDeliveryResponse"
+            },
+            "type": "array",
+            "title": "Deliveries"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "deliveries",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "SMTPDeliveryListResponse"
+      },
+      "SMTPDeliveryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "hook_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Hook Id"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "rss_item_new",
+              "alert_match",
+              "feed_failing",
+              "webhook_failed",
+              "daily_digest"
+            ],
+            "title": "Event Type"
+          },
+          "delivery_kind": {
+            "type": "string",
+            "enum": [
+              "live",
+              "replay"
+            ],
+            "title": "Delivery Kind"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "sending",
+              "retry_wait",
+              "succeeded",
+              "failed",
+              "dead_letter"
+            ],
+            "title": "State"
+          },
+          "attempt_count": {
+            "type": "integer",
+            "title": "Attempt Count"
+          },
+          "max_attempts": {
+            "type": "integer",
+            "title": "Max Attempts"
+          },
+          "feed_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Id"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "source_delivery_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Delivery Id"
+          },
+          "last_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Duration Ms"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Message"
+          },
+          "last_error_retryable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Retryable"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "dead_lettered_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dead Lettered At"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/SMTPDeliveryAttemptResponse"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "hook_id",
+          "event_type",
+          "delivery_kind",
+          "state",
+          "attempt_count",
+          "max_attempts",
+          "feed_id",
+          "item_id",
+          "source_delivery_id",
+          "last_duration_ms",
+          "last_error_code",
+          "last_error_message",
+          "last_error_retryable",
+          "created_at",
+          "updated_at",
+          "completed_at",
+          "dead_lettered_at"
+        ],
+        "title": "SMTPDeliveryResponse"
+      },
+      "SMTPHookResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "integration_type": {
+            "type": "string",
+            "enum": [
+              "smtp",
+              "webhook"
+            ],
+            "title": "Integration Type"
+          },
+          "direction": {
+            "type": "string",
+            "const": "destination",
+            "title": "Direction"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "schema_version": {
+            "type": "integer",
+            "title": "Schema Version"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "port": {
+            "type": "integer",
+            "title": "Port"
+          },
+          "security": {
+            "type": "string",
+            "enum": [
+              "starttls",
+              "ssl_tls",
+              "none"
+            ],
+            "title": "Security"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "password_configured": {
+            "type": "boolean",
+            "title": "Password Configured"
+          },
+          "has_unreadable_secret": {
+            "type": "boolean",
+            "title": "Has Unreadable Secret"
+          },
+          "from_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Email"
+          },
+          "from_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Name"
+          },
+          "to_emails": {
+            "items": {
+              "type": "string",
+              "format": "email"
+            },
+            "type": "array",
+            "title": "To Emails"
+          },
+          "timeout_seconds": {
+            "type": "integer",
+            "title": "Timeout Seconds"
+          },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "feed_scope": {
+            "type": "string",
+            "enum": [
+              "all",
+              "selected"
+            ],
+            "title": "Feed Scope"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Feed Ids"
+          },
+          "subject_template": {
+            "type": "string",
+            "title": "Subject Template"
+          },
+          "html_template": {
+            "type": "string",
+            "title": "Html Template"
+          },
+          "health_status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "healthy",
+              "warning",
+              "error"
+            ],
+            "title": "Health Status"
+          },
+          "last_test_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test At"
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Success At"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_test_duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Duration Ms"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "is_default": {
+            "type": "boolean",
+            "title": "Is Default"
+          },
+          "uses_shared_credentials": {
+            "type": "boolean",
+            "title": "Uses Shared Credentials"
+          },
+          "credential_source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Source Id"
+          },
+          "credential_source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Source Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "integration_type",
+          "direction",
+          "enabled",
+          "configured",
+          "schema_version",
+          "host",
+          "port",
+          "security",
+          "username",
+          "password_configured",
+          "has_unreadable_secret",
+          "from_email",
+          "from_name",
+          "to_emails",
+          "timeout_seconds",
+          "event_types",
+          "feed_scope",
+          "feed_ids",
+          "subject_template",
+          "html_template",
+          "health_status",
+          "last_test_at",
+          "last_success_at",
+          "last_error_at",
+          "last_error",
+          "last_test_duration_ms",
+          "created_at",
+          "updated_at",
+          "is_default",
+          "uses_shared_credentials",
+          "credential_source_id",
+          "credential_source_name"
+        ],
+        "title": "SMTPHookResponse"
+      },
+      "SMTPHookTestRequest": {
+        "properties": {
+          "hook_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hook Id"
+          },
+          "hook": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SMTPHookWrite"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "send_email": {
+            "type": "boolean",
+            "title": "Send Email",
+            "default": false
+          },
+          "recipient_email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipient Email"
+          }
+        },
+        "type": "object",
+        "title": "SMTPHookTestRequest"
+      },
+      "SMTPHookWrite": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "credential_source_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Source Id"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SMTPSettingsUpdate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "settings"
+        ],
+        "title": "SMTPHookWrite"
+      },
       "SMTPSettingsResponse": {
         "properties": {
           "id": {
@@ -12741,6 +14049,44 @@
         },
         "type": "object",
         "title": "SMTPSettingsUpdate"
+      },
+      "SMTPTemplateDefaultResponse": {
+        "properties": {
+          "send_for": {
+            "type": "string",
+            "title": "Send For"
+          },
+          "event_types": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "rss_item_new",
+                "alert_match",
+                "feed_failing",
+                "webhook_failed",
+                "daily_digest"
+              ]
+            },
+            "type": "array",
+            "title": "Event Types"
+          },
+          "subject_template": {
+            "type": "string",
+            "title": "Subject Template"
+          },
+          "html_template": {
+            "type": "string",
+            "title": "Html Template"
+          }
+        },
+        "type": "object",
+        "required": [
+          "send_for",
+          "event_types",
+          "subject_template",
+          "html_template"
+        ],
+        "title": "SMTPTemplateDefaultResponse"
       },
       "SMTPTestRequest": {
         "properties": {
