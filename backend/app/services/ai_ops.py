@@ -57,6 +57,9 @@ AI_TRIGGER_AUTO = "auto"
 AI_TRIGGER_MANUAL = "manual"
 AI_TRIGGER_SCHEDULED = "scheduled"
 
+AI_DAILY_BRIEF_BACKFILL_SCOPE = "daily_brief_backfill"
+AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY = "parent_progress_eligible"
+
 AI_STATUS_QUEUED = "queued"
 AI_STATUS_RUNNING = "running"
 AI_STATUS_READY = "ready"
@@ -302,7 +305,7 @@ def finish_ai_task_run(
         payload["error"] = error
     record_ai_task_event(db, run_id=run.id, event_type=event_type, message=error or reason, payload=payload)
     if run.parent_run_id:
-        _increment_parent_run_progress(db, parent_run_id=run.parent_run_id, child_status=status, child_reason=reason)
+        _increment_parent_run_progress(db, child_run=run)
     return run
 
 
@@ -758,22 +761,29 @@ def list_daily_brief_source_items(
     ]
 
 
-def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, child_status: str, child_reason: str | None) -> None:
-    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id).with_for_update())
+def _increment_parent_run_progress(db: Session, *, child_run: AITaskRun) -> None:
+    if child_run.parent_run_id is None:
+        return
+    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == child_run.parent_run_id).with_for_update())
     if parent is None:
         return
+
+    if _is_daily_brief_backfill_parent(parent):
+        _recalculate_daily_brief_backfill_parent_progress(db, parent=parent)
+        return
+
     parent.processed_count = int(parent.processed_count or 0) + 1
-    if child_status == AI_STATUS_READY:
+    if child_run.status == AI_STATUS_READY:
         parent.success_count = int(parent.success_count or 0) + 1
-    elif child_status == AI_STATUS_ERROR:
+    elif child_run.status == AI_STATUS_ERROR:
         parent.error_count = int(parent.error_count or 0) + 1
-    elif child_status == AI_STATUS_SKIPPED:
+    elif child_run.status == AI_STATUS_SKIPPED:
         parent.skipped_count = int(parent.skipped_count or 0) + 1
-        if child_reason in {"unchanged", "source_hash_unchanged"}:
+        if child_run.reason in {"unchanged", "source_hash_unchanged"}:
             parent.skipped_unchanged_count = int(parent.skipped_unchanged_count or 0) + 1
-        if child_reason in INELIGIBLE_REASONS:
+        if child_run.reason in INELIGIBLE_REASONS:
             parent.skipped_ineligible_count = int(parent.skipped_ineligible_count or 0) + 1
-        if child_reason == "canceled":
+        if child_run.reason == "canceled":
             parent.metadata_json = _merge_metadata(parent.metadata_json, {"was_canceled": True})
     if parent.started_at is None:
         parent.started_at = datetime.now(timezone.utc)
@@ -792,6 +802,127 @@ def _increment_parent_run_progress(db: Session, *, parent_run_id: uuid.UUID, chi
                 "success_count": parent.success_count,
                 "error_count": parent.error_count,
                 "skipped_count": parent.skipped_count,
+            },
+        )
+    db.add(parent)
+
+
+def reconcile_daily_brief_backfill_parent_progress(
+    db: Session,
+    *,
+    parent_run_id: uuid.UUID,
+    reopen_incomplete: bool = False,
+) -> AITaskRun | None:
+    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id).with_for_update())
+    if parent is None or not _is_daily_brief_backfill_parent(parent):
+        return parent
+    _recalculate_daily_brief_backfill_parent_progress(
+        db,
+        parent=parent,
+        reopen_incomplete=reopen_incomplete,
+    )
+    return parent
+
+
+def _is_daily_brief_backfill_parent(run: AITaskRun) -> bool:
+    return (
+        run.task_type == AI_TASK_TYPE_REPROCESS
+        and (run.metadata_json or {}).get("scope") == AI_DAILY_BRIEF_BACKFILL_SCOPE
+    )
+
+
+def _recalculate_daily_brief_backfill_parent_progress(
+    db: Session,
+    *,
+    parent: AITaskRun,
+    reopen_incomplete: bool = False,
+) -> None:
+    child_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.parent_run_id == parent.id,
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            )
+            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        )
+    )
+    outcomes_by_date: dict[str, AITaskRun] = {}
+    for child in child_runs:
+        if child.finished_at is None or child.status not in AI_TERMINAL_STATUSES:
+            continue
+        metadata = child.metadata_json or {}
+        if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
+            continue
+        if child.reason and child.reason.startswith("stale_"):
+            continue
+        brief_date = metadata.get("brief_date")
+        outcome_key = str(brief_date) if brief_date else f"legacy:{child.id}"
+        outcomes_by_date[outcome_key] = child
+
+    outcomes = list(outcomes_by_date.values())
+    previous_processed_count = int(parent.processed_count or 0)
+    parent.processed_count = len(outcomes)
+    parent.success_count = sum(child.status == AI_STATUS_READY for child in outcomes)
+    parent.error_count = sum(child.status == AI_STATUS_ERROR for child in outcomes)
+    parent.skipped_count = sum(child.status == AI_STATUS_SKIPPED for child in outcomes)
+    parent.skipped_unchanged_count = sum(
+        child.status == AI_STATUS_SKIPPED and child.reason in {"unchanged", "source_hash_unchanged"}
+        for child in outcomes
+    )
+    parent.skipped_ineligible_count = sum(
+        child.status == AI_STATUS_SKIPPED and child.reason in INELIGIBLE_REASONS
+        for child in outcomes
+    )
+    if any(child.reason == "canceled" for child in outcomes):
+        parent.metadata_json = _merge_metadata(parent.metadata_json, {"was_canceled": True})
+
+    target_count = int(parent.target_count or 0)
+    progress_terminal_reason = parent.reason in {
+        None,
+        "partial_failures",
+        "partial_skips",
+        "stale_reprocess_tracking",
+    }
+    progress_terminal = parent.status in AI_TERMINAL_STATUSES and progress_terminal_reason
+    if target_count > 0 and parent.processed_count >= target_count:
+        terminal_status, terminal_reason = _resolve_parent_terminal_state(parent)
+        if parent.finished_at is None:
+            parent.finished_at = datetime.now(timezone.utc)
+            if parent.started_at is None:
+                parent.started_at = parent.finished_at
+            parent.duration_ms = _duration_ms_between(parent.started_at, parent.finished_at)
+            parent.status = terminal_status
+            parent.reason = terminal_reason
+            record_ai_task_event(
+                db,
+                run_id=parent.id,
+                event_type="completed",
+                payload={
+                    "status": parent.status,
+                    "processed_count": parent.processed_count,
+                    "success_count": parent.success_count,
+                    "error_count": parent.error_count,
+                    "skipped_count": parent.skipped_count,
+                },
+            )
+        elif progress_terminal:
+            parent.status = terminal_status
+            parent.reason = terminal_reason
+    elif reopen_incomplete and parent.finished_at is not None and progress_terminal:
+        parent.status = AI_STATUS_RUNNING
+        parent.reason = None
+        parent.finished_at = None
+        parent.duration_ms = None
+        parent.metadata_json = _merge_metadata(parent.metadata_json, {"progress_repaired": True})
+        record_ai_task_event(
+            db,
+            run_id=parent.id,
+            event_type="progress_repaired",
+            payload={
+                "previous_processed_count": previous_processed_count,
+                "processed_count": parent.processed_count,
+                "target_count": target_count,
             },
         )
     db.add(parent)
@@ -966,28 +1097,34 @@ def _load_user_emails(db: Session, actor_ids: list[uuid.UUID | None]) -> dict[uu
 
 def _load_live_task_snapshot() -> tuple[bool, list[str], list[AILiveTaskResponse], list[AILiveTaskResponse], list[AILiveTaskResponse]]:
     settings = get_settings()
-    snapshot_available = False
-    workers: list[str] = []
-    active_tasks: list[AILiveTaskResponse] = []
-    reserved_tasks: list[AILiveTaskResponse] = []
-    scheduled_tasks: list[AILiveTaskResponse] = []
     try:
         inspector = celery_app.control.inspect(timeout=settings.health_worker_ping_timeout_seconds)
-        ping = inspector.ping() or {}
-        workers = sorted(ping.keys())
-        active_raw = inspector.active() or {}
-        reserved_raw = inspector.reserved() or {}
-        scheduled_raw = inspector.scheduled() or {}
-        active_tasks = _flatten_live_tasks(active_raw, state="active")
-        reserved_tasks = _flatten_live_tasks(reserved_raw, state="reserved")
-        scheduled_tasks = _flatten_live_tasks(scheduled_raw, state="scheduled")
-        snapshot_available = bool(workers or active_raw or reserved_raw or scheduled_raw)
     except Exception:
-        workers = []
-        active_tasks = []
-        reserved_tasks = []
-        scheduled_tasks = []
-    return snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks
+        return False, [], [], [], []
+
+    responses: list[dict[str, Any]] = []
+    all_calls_succeeded = True
+    for inspect_call in (inspector.ping, inspector.active, inspector.reserved, inspector.scheduled):
+        try:
+            response = inspect_call() or {}
+        except Exception:
+            response = {}
+            all_calls_succeeded = False
+        responses.append(response)
+
+    _ping, active_raw, reserved_raw, scheduled_raw = responses
+    worker_names = set().union(*(response.keys() for response in responses))
+    workers = sorted(worker_names)
+    snapshot_complete = bool(workers) and all_calls_succeeded and all(
+        set(response.keys()) == worker_names for response in responses
+    )
+    return (
+        snapshot_complete,
+        workers,
+        _flatten_live_tasks(active_raw, state="active"),
+        _flatten_live_tasks(reserved_raw, state="reserved"),
+        _flatten_live_tasks(scheduled_raw, state="scheduled"),
+    )
 
 
 def _normalize_live_task_snapshot(
@@ -1018,24 +1155,16 @@ def _reconcile_stale_ai_runs(
 
     _ = workers
     can_reconcile_missing_live_tasks = bool(snapshot_available)
-    live_task_ids = (
-        {
-            task.celery_task_id
-            for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
-            if task.celery_task_id
-        }
-        if can_reconcile_missing_live_tasks
-        else set()
-    )
-    live_run_ids = (
-        {
-            task.run_id
-            for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
-            if task.run_id
-        }
-        if can_reconcile_missing_live_tasks
-        else set()
-    )
+    live_task_ids = {
+        task.celery_task_id
+        for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
+        if task.celery_task_id
+    }
+    live_run_ids = {
+        task.run_id
+        for task in [*active_tasks, *reserved_tasks, *scheduled_tasks]
+        if task.run_id
+    }
     now = datetime.now(timezone.utc)
     stale_before = now - STALE_AI_RUN_GRACE_PERIOD
     fallback_stale_before = now - STALE_AI_RUN_FALLBACK_GRACE_PERIOD
@@ -1070,6 +1199,8 @@ def _reconcile_stale_ai_runs(
                 stale_reason = "stale_task_lost"
                 stale_error = "Task no longer appears in Celery and did not report completion"
         else:
+            if (run.celery_task_id and run.celery_task_id in live_task_ids) or run.id in live_run_ids:
+                continue
             if not _is_unfinished_run_past_stale_grace(run, fallback_stale_before):
                 continue
             stale_reason = "stale_task_snapshot_unavailable"

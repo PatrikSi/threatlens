@@ -34,6 +34,8 @@ from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
 from app.services.ai_integration import is_stale_daily_brief_pending
 from app.services.ai_ops import (
+    AI_DAILY_BRIEF_BACKFILL_SCOPE,
+    AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY,
     AI_STATUS_ERROR,
     AI_STATUS_QUEUED,
     AI_STATUS_READY,
@@ -50,6 +52,7 @@ from app.services.ai_ops import (
     get_ai_task_run_stop_reason,
     is_ai_task_run_cancel_requested,
     queue_ai_task_run,
+    reconcile_daily_brief_backfill_parent_progress,
     record_ai_task_event,
     _reconcile_stale_ai_runs,
     start_ai_task_run,
@@ -1962,6 +1965,44 @@ def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = N
     return references
 
 
+def _daily_brief_backfill_attempts(
+    db: Session,
+    *,
+    parent_run_id: uuid.UUID,
+    brief_date: str,
+) -> list[AITaskRun]:
+    child_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.parent_run_id == parent_run_id,
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            )
+            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        )
+    )
+    return [run for run in child_runs if str((run.metadata_json or {}).get("brief_date") or "") == brief_date]
+
+
+def _daily_brief_backfill_attempt_is_settled(run: AITaskRun) -> bool:
+    if run.finished_at is None or run.status not in {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}:
+        return False
+    metadata = run.metadata_json or {}
+    if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
+        return False
+    return not (run.reason and run.reason.startswith("stale_"))
+
+
+def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
+    attempt_numbers: list[int] = []
+    for attempt in attempts:
+        try:
+            attempt_numbers.append(int((attempt.metadata_json or {}).get("attempt") or 0))
+        except (TypeError, ValueError):
+            continue
+    return max([len(attempts), *attempt_numbers], default=0) + 1
+
+
 @celery_app.task(
     bind=True,
     name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
@@ -1996,13 +2037,18 @@ def backfill_daily_ai_briefs(
                 parsed_actor_user_id = None
 
         run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
+        parent_was_running = bool(
+            run is not None
+            and run.status == AI_STATUS_RUNNING
+            and run.finished_at is None
+        )
         if run is None:
             run = queue_ai_task_run(
                 db,
                 task_type=AI_TASK_TYPE_REPROCESS,
                 trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
                 actor_user_id=parsed_actor_user_id,
-                metadata={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+                metadata={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
                 target_count=max(0, effective_days),
             )
 
@@ -2010,18 +2056,23 @@ def backfill_daily_ai_briefs(
         run.target_count = max(0, effective_days)
         run.metadata_json = {
             **dict(run.metadata_json or {}),
-            "scope": "daily_brief_backfill",
+            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
             "days": max(0, effective_days),
             "force": True,
             "includes_today": True,
         }
         db.add(run)
+        run = reconcile_daily_brief_backfill_parent_progress(
+            db,
+            parent_run_id=parent_run_id,
+            reopen_incomplete=True,
+        ) or run
         started_run = start_ai_task_run(
             db,
             run_id=parent_run_id,
             worker_name=worker_name,
             celery_task_id=celery_task_id,
-            metadata_updates={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+            metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
         )
         db.commit()
 
@@ -2092,6 +2143,21 @@ def backfill_daily_ai_briefs(
         try:
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
+                    active_parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                    if parent_was_running and active_parent is not None and active_parent.finished_at is None:
+                        active_parent.metadata_json = {
+                            **dict(active_parent.metadata_json or {}),
+                            "duplicate_lock_observed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        db.add(active_parent)
+                        record_ai_task_event(
+                            db,
+                            run_id=parent_run_id,
+                            event_type="duplicate_delivery_deferred",
+                            payload={"celery_task_id": celery_task_id, "worker_name": worker_name},
+                        )
+                        db.commit()
+                        return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
                     finish_ai_task_run(
                         db,
                         run_id=parent_run_id,
@@ -2105,6 +2171,7 @@ def backfill_daily_ai_briefs(
 
                 processed_dates: list[str] = []
                 for reference_time in _daily_brief_backfill_reference_times(effective_days):
+                    brief_date = reference_time.date().isoformat()
                     parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
                     if parent_run is None:
                         return {
@@ -2133,6 +2200,32 @@ def backfill_daily_ai_briefs(
                             "processed_dates": processed_dates,
                         }
 
+                    attempts = _daily_brief_backfill_attempts(
+                        db,
+                        parent_run_id=parent_run_id,
+                        brief_date=brief_date,
+                    )
+                    if any(_daily_brief_backfill_attempt_is_settled(attempt) for attempt in attempts):
+                        processed_dates.append(brief_date)
+                        continue
+
+                    attempt_number = _daily_brief_backfill_attempt_number(attempts)
+                    for interrupted_attempt in [attempt for attempt in attempts if attempt.finished_at is None]:
+                        interrupted_attempt.metadata_json = {
+                            **dict(interrupted_attempt.metadata_json or {}),
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
+                            "superseded_by_attempt": attempt_number,
+                        }
+                        db.add(interrupted_attempt)
+                        finish_ai_task_run(
+                            db,
+                            run_id=interrupted_attempt.id,
+                            status=AI_STATUS_SKIPPED,
+                            reason="superseded_by_redelivery",
+                            worker_name=interrupted_attempt.worker_name or worker_name,
+                            model=interrupted_attempt.model or active_model,
+                        )
+
                     child_run = queue_ai_task_run(
                         db,
                         task_type=AI_TASK_TYPE_DAILY_BRIEF,
@@ -2141,10 +2234,12 @@ def backfill_daily_ai_briefs(
                         parent_run_id=parent_run_id,
                         model=active_model,
                         metadata={
-                            "scope": "daily_brief_backfill",
+                            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
                             "force": True,
-                            "brief_date": reference_time.date().isoformat(),
+                            "brief_date": brief_date,
                             "reference_time": reference_time.isoformat(),
+                            "attempt": attempt_number,
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
                         },
                     )
                     start_ai_task_run(
@@ -2152,7 +2247,7 @@ def backfill_daily_ai_briefs(
                         run_id=child_run.id,
                         worker_name=worker_name,
                         celery_task_id=celery_task_id,
-                        metadata_updates={"scope": "daily_brief_backfill", "force": True},
+                        metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "force": True},
                     )
                     db.commit()
                     child_run_id = child_run.id
@@ -2175,10 +2270,13 @@ def backfill_daily_ai_briefs(
                             error=str(exc) or _exception_type_name(exc),
                             worker_name=worker_name,
                             model=active_model,
-                            metadata_updates={"brief_date": reference_time.date().isoformat()},
+                            metadata_updates={
+                                "brief_date": brief_date,
+                                AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
+                            },
                         )
                         db.commit()
-                        processed_dates.append(reference_time.date().isoformat())
+                        processed_dates.append(brief_date)
                         continue
 
                     finish_ai_task_run(
@@ -2198,12 +2296,13 @@ def backfill_daily_ai_briefs(
                         metadata_updates={
                             "items_considered": result.items_considered,
                             "items_selected": result.items_selected,
-                            "brief_date": reference_time.date().isoformat(),
+                            "brief_date": brief_date,
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
                         },
                         daily_brief_id=result.brief.id if result.brief is not None else None,
                     )
                     db.commit()
-                    processed_dates.append(reference_time.date().isoformat())
+                    processed_dates.append(brief_date)
 
                 refreshed_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
                 return {
