@@ -370,6 +370,50 @@ def test_smtp_credential_sources_reject_chains_and_deletion_while_in_use(
     ).status_code == 204
 
 
+def test_smtp_hooks_reject_unusable_direct_auth_and_protect_credential_dependents(
+    client: TestClient,
+    auth_headers,
+):
+    missing_password = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["admin"],
+        json=_smtp_hook_payload("Missing password", password=None),
+    )
+    assert missing_password.status_code == 422
+    assert "password is required" in missing_password.json()["detail"]
+
+    source_payload = _smtp_hook_payload("Protected source")
+    source = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["admin"],
+        json=source_payload,
+    ).json()
+    dependent = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["admin"],
+        json=_smtp_hook_payload("Protected dependent", password=None, credential_source_id=source["id"]),
+    )
+    assert dependent.status_code == 201
+
+    source_payload["settings"].update({"enabled": False, "host": None, "password": None})
+    remove_host = client.patch(
+        f"/integrations/smtp/hooks/{source['id']}",
+        headers=auth_headers["admin"],
+        json=source_payload,
+    )
+    assert remove_host.status_code == 409
+    assert "must retain an SMTP host" in remove_host.json()["detail"]
+
+    source_payload["settings"].update({"host": "smtp.example.com", "clear_password": True})
+    clear_password = client.patch(
+        f"/integrations/smtp/hooks/{source['id']}",
+        headers=auth_headers["admin"],
+        json=source_payload,
+    )
+    assert clear_password.status_code == 422
+    assert "password is required" in clear_password.json()["detail"]
+
+
 def test_default_smtp_hook_and_template_defaults_remain_backward_compatible(client: TestClient, auth_headers):
     legacy = client.get("/integrations/smtp/settings", headers=auth_headers["admin"])
     assert legacy.status_code == 200

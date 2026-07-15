@@ -95,6 +95,28 @@ def get_or_create_smtp_integration(db: Session) -> IntegrationInstance:
     return instance
 
 
+def get_or_create_persisted_smtp_integration(db: Session) -> IntegrationInstance:
+    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+    if instance is not None:
+        return instance
+    instance = get_or_create_smtp_integration(db)
+    db.commit()
+    db.refresh(instance)
+    return instance
+
+
+def lock_smtp_configuration(db: Session) -> IntegrationInstance:
+    instance = get_or_create_smtp_integration(db)
+    db.flush()
+    locked = db.scalar(
+        select(IntegrationInstance)
+        .where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return locked or instance
+
+
 def list_integration_summaries(db: Session) -> list[IntegrationSummaryResponse]:
     instances = db.scalars(select(IntegrationInstance).order_by(IntegrationInstance.name.asc())).all()
     summaries: list[IntegrationSummaryResponse] = []
@@ -228,7 +250,11 @@ def smtp_settings_response_from_model(
         integration_type="smtp",
         direction="destination",
         enabled=bool(instance.enabled),
-        configured=_smtp_configured(config, credential_config=credential_config),
+        configured=_smtp_configured(
+            config,
+            credential_config=credential_config,
+            password_configured=bool(secrets.get("password")),
+        ),
         schema_version=int(instance.schema_version or SMTP_CONFIG_SCHEMA_VERSION),
         host=credential_config["host"],
         port=credential_config["port"],
@@ -470,9 +496,20 @@ def _default_smtp_config() -> dict:
     }
 
 
-def _smtp_configured(config: dict, *, credential_config: dict | None = None) -> bool:
+def _smtp_configured(
+    config: dict,
+    *,
+    credential_config: dict | None = None,
+    password_configured: bool = False,
+) -> bool:
     credentials = credential_config or config
-    return bool(credentials.get("host") and config.get("from_email") and config.get("to_emails"))
+    authentication_configured = not credentials.get("username") or password_configured
+    return bool(
+        credentials.get("host")
+        and authentication_configured
+        and config.get("from_email")
+        and config.get("to_emails")
+    )
 
 
 def _sync_smtp_subscription_feeds(

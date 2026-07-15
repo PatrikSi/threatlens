@@ -445,7 +445,8 @@ def smtp_notification_event_enabled(
         active = build_active_smtp_settings(instance)
     except SMTPSecretError:
         saved = smtp_settings_response_from_model(instance)
-        return bool(saved.configured) and _smtp_config_matches_event(
+        has_routable_configuration = bool(saved.host and saved.from_email and saved.to_emails)
+        return has_routable_configuration and _smtp_config_matches_event(
             event_types=list(saved.event_types),
             feed_scope=saved.feed_scope,
             feed_ids=list(saved.feed_ids),

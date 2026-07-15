@@ -33,6 +33,7 @@ from app.services.integration_delivery import replay_dead_letter_delivery
 from app.services.integration_smtp_hooks import (
     SMTPHookConflictError,
     SMTPHookNotFoundError,
+    SMTPHookValidationError,
     archive_smtp_hook,
     create_smtp_hook,
     get_smtp_analytics,
@@ -50,7 +51,9 @@ from app.services.integration_storage import (
     build_active_smtp_settings,
     get_smtp_credential_source,
     get_or_create_smtp_integration,
+    get_or_create_persisted_smtp_integration,
     list_integration_summaries,
+    lock_smtp_configuration,
     record_smtp_test_result,
     smtp_settings_response_from_model,
     sync_smtp_subscriptions,
@@ -76,7 +79,7 @@ def list_integrations(
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
 ):
-    get_or_create_smtp_integration(db)
+    get_or_create_persisted_smtp_integration(db)
     return list_integration_summaries(db)
 
 
@@ -86,7 +89,7 @@ def get_smtp_settings(
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
 ):
-    instance = get_or_create_smtp_integration(db)
+    instance = get_or_create_persisted_smtp_integration(db)
     return smtp_settings_response_from_model(instance)
 
 
@@ -96,7 +99,7 @@ def get_smtp_hooks(
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
 ):
-    get_or_create_smtp_integration(db)
+    get_or_create_persisted_smtp_integration(db)
     return list_smtp_hooks(db)
 
 
@@ -107,6 +110,7 @@ def create_smtp_hook_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
 ):
+    lock_smtp_configuration(db)
     _validate_smtp_notification_settings(
         db,
         payload.settings,
@@ -115,7 +119,7 @@ def create_smtp_hook_route(
     )
     try:
         instance = create_smtp_hook(db, payload)
-    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+    except (SMTPHookConflictError, SMTPHookNotFoundError, SMTPHookValidationError) as exc:
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
@@ -138,8 +142,9 @@ def update_smtp_hook_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
 ):
+    lock_smtp_configuration(db)
     try:
-        instance = get_smtp_hook(db, hook_id)
+        instance = get_smtp_hook(db, hook_id, for_update=True)
     except SMTPHookNotFoundError as exc:
         raise _smtp_hook_http_error(exc) from exc
     _validate_smtp_notification_settings(
@@ -150,7 +155,7 @@ def update_smtp_hook_route(
     )
     try:
         update_smtp_hook(db, instance, payload)
-    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+    except (SMTPHookConflictError, SMTPHookNotFoundError, SMTPHookValidationError) as exc:
         raise _smtp_hook_http_error(exc) from exc
     record_audit(
         db,
@@ -172,8 +177,9 @@ def delete_smtp_hook_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
 ):
+    lock_smtp_configuration(db)
     try:
-        instance = get_smtp_hook(db, hook_id)
+        instance = get_smtp_hook(db, hook_id, for_update=True)
         archive_smtp_hook(db, instance)
     except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
         raise _smtp_hook_http_error(exc) from exc
@@ -202,7 +208,7 @@ def get_smtp_analytics_route(
     _admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
 ):
-    get_or_create_smtp_integration(db)
+    get_or_create_persisted_smtp_integration(db)
     return get_smtp_analytics(db)
 
 
@@ -349,7 +355,7 @@ def update_smtp_settings(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
 ):
-    instance = get_or_create_smtp_integration(db)
+    instance = lock_smtp_configuration(db)
     _validate_smtp_notification_settings(db, payload, require_recipients=payload.enabled)
     apply_smtp_settings_update(instance, payload)
     db.add(instance)
@@ -464,12 +470,15 @@ def _password_audit_action(payload: SMTPSettingsUpdate) -> str:
     return "preserved"
 
 
-def _smtp_hook_http_error(exc: SMTPHookConflictError | SMTPHookNotFoundError) -> HTTPException:
-    status_code = (
-        status.HTTP_404_NOT_FOUND
-        if isinstance(exc, SMTPHookNotFoundError)
-        else status.HTTP_409_CONFLICT
-    )
+def _smtp_hook_http_error(
+    exc: SMTPHookConflictError | SMTPHookNotFoundError | SMTPHookValidationError,
+) -> HTTPException:
+    if isinstance(exc, SMTPHookNotFoundError):
+        status_code = status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, SMTPHookValidationError):
+        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    else:
+        status_code = status.HTTP_409_CONFLICT
     return HTTPException(status_code=status_code, detail=str(exc))
 
 
