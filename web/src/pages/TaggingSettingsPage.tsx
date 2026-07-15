@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -71,6 +71,7 @@ export function TaggingSettingsPage() {
   const [reapplyLimit, setReapplyLimit] = useState('0')
   const [pendingRuleDelete, setPendingRuleDelete] = useState<TaggingRule | null>(null)
   const [pendingReapplyRequest, setPendingReapplyRequest] = useState<TaggingReapplyRequest | null>(null)
+  const syncedSettingsDraftRef = useRef<TaggingSettingsDraft | null>(null)
 
   const bundleQuery = useQuery({
     queryKey: ['tagging', 'settings'],
@@ -83,15 +84,29 @@ export function TaggingSettingsPage() {
   })
 
   useEffect(() => {
-    if (!bundleQuery.data) {
+    if (!bundleQuery.data?.settings) {
       return
     }
 
-    setSettingsDraft({
-      enabled_categories: [...bundleQuery.data.settings.enabled_categories],
-      min_auto_tag_confidence: String(bundleQuery.data.settings.min_auto_tag_confidence),
-      secondary_tag_limit: String(bundleQuery.data.settings.secondary_tag_limit),
+    const nextServerDraft = createSettingsDraft(bundleQuery.data.settings)
+    const previousServerDraft = syncedSettingsDraftRef.current
+    setSettingsDraft((current) => {
+      if (
+        previousServerDraft === null ||
+        JSON.stringify(current) === JSON.stringify(previousServerDraft) ||
+        JSON.stringify(current) === JSON.stringify(nextServerDraft)
+      ) {
+        return nextServerDraft
+      }
+      return current
     })
+    syncedSettingsDraftRef.current = nextServerDraft
+  }, [bundleQuery.data?.settings])
+
+  useEffect(() => {
+    if (!bundleQuery.data) {
+      return
+    }
 
     const availableRuleIds = new Set(bundleQuery.data.rules.map((rule) => rule.id))
     if (selectedRuleId && !availableRuleIds.has(selectedRuleId)) {
@@ -110,11 +125,7 @@ export function TaggingSettingsPage() {
     [bundleQuery.data, selectedRuleId],
   )
   const baselineSettingsDraft: TaggingSettingsDraft = bundleQuery.data
-    ? {
-        enabled_categories: [...bundleQuery.data.settings.enabled_categories],
-        min_auto_tag_confidence: String(bundleQuery.data.settings.min_auto_tag_confidence),
-        secondary_tag_limit: String(bundleQuery.data.settings.secondary_tag_limit),
-      }
+    ? createSettingsDraft(bundleQuery.data.settings)
     : {
         enabled_categories: [...BUILTIN_CATEGORIES],
         min_auto_tag_confidence: '0.45',
@@ -699,32 +710,42 @@ export function TaggingSettingsPage() {
               </div>
 
               {ruleDraft.feed_scope === 'selected' && (
-                <div className="mt-4 grid gap-2 md:grid-cols-2">
-                  {feeds.map((feed) => {
-                    const checked = ruleDraft.feed_ids.includes(feed.id)
-                    return (
-                      <label key={feed.id} className="flex items-start gap-3 rounded border border-slate/20 p-3 text-sm dark:border-cyan-900/40">
-                        <input
-                          className="mt-1"
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() =>
-                            setRuleDraft((current) => ({
-                              ...current,
-                              feed_scope: 'selected',
-                              feed_ids: checked
-                                ? current.feed_ids.filter((candidate) => candidate !== feed.id)
-                                : [...current.feed_ids, feed.id],
-                            }))
-                          }
-                        />
-                        <span>
-                          <span className="block font-semibold">{feed.name}</span>
-                          <span className="text-xs text-slate dark:text-white/60">{feed.url}</span>
-                        </span>
-                      </label>
-                    )
-                  })}
+                <div className="mt-4">
+                  {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading feeds...</p>}
+                  {feedsQuery.isError && (
+                    <p role="alert" className="text-sm text-red-600">
+                      {resolveApiMessage(feedsQuery.error, 'Failed to load feeds for rule scope.')}
+                    </p>
+                  )}
+                  {!feedsQuery.isLoading && !feedsQuery.isError && (
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {feeds.map((feed) => {
+                        const checked = ruleDraft.feed_ids.includes(feed.id)
+                        return (
+                          <label key={feed.id} className="flex items-start gap-3 rounded border border-slate/20 p-3 text-sm dark:border-cyan-900/40">
+                            <input
+                              className="mt-1"
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setRuleDraft((current) => ({
+                                  ...current,
+                                  feed_scope: 'selected',
+                                  feed_ids: checked
+                                    ? current.feed_ids.filter((candidate) => candidate !== feed.id)
+                                    : [...current.feed_ids, feed.id],
+                                }))
+                              }
+                            />
+                            <span>
+                              <span className="block font-semibold">{feed.name}</span>
+                              <span className="text-xs text-slate dark:text-white/60">{feed.url}</span>
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -960,6 +981,14 @@ function createDefaultRuleDraft(): TaggingRuleDraft {
     feed_scope: 'all',
     feed_ids: [],
     min_classification_confidence: '',
+  }
+}
+
+function createSettingsDraft(settings: TaggingSettingsBundleResponse['settings']): TaggingSettingsDraft {
+  return {
+    enabled_categories: [...settings.enabled_categories],
+    min_auto_tag_confidence: String(settings.min_auto_tag_confidence),
+    secondary_tag_limit: String(settings.secondary_tag_limit),
   }
 }
 
