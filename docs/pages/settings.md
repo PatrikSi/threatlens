@@ -91,6 +91,7 @@ Legacy route behavior:
 - Per-hook history separates event deliveries from SMTP tests. Test history retains result, action, recipient, saved-versus-draft settings, duration, normalized error details, SMTP server response, timestamps, and run ID.
 - Tests against a saved hook are retained even when they use unsaved draft values. A brand-new unsaved hook has no persistent integration ID, so its result is available only in the immediate test response until the hook is saved.
 - Test runs do not affect delivery analytics, retries, circuit breaking, or dead-letter counts.
+- SMTP test audit entries include the retained run ID when available, duration, normalized error details, and a bounded server response without storing SMTP credentials.
 - Dead-letter deliveries can be replayed without rewriting their historical attempt records.
 - API calls:
   - `GET /integrations/connectors`

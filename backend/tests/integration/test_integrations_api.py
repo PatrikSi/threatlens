@@ -165,6 +165,23 @@ def test_smtp_test_uses_saved_settings_and_records_health(client: TestClient, au
     assert settings_response.json()["health_status"] == "healthy"
     assert settings_response.json()["last_success_at"] is not None
 
+    test_audit = client.get(
+        "/audit-logs?action=integrations.smtp.test",
+        headers=auth_headers["admin"],
+    ).json()["logs"][0]
+    assert test_audit["success"] is True
+    assert test_audit["metadata_json"] == {
+        "run_id": test_audit["metadata_json"]["run_id"],
+        "action": "send",
+        "duration_ms": 12,
+        "error_code": None,
+        "error_message": None,
+        "server_message": "accepted",
+        "recipient_provided": True,
+        "used_unsaved_settings": False,
+    }
+    assert uuid.UUID(test_audit["metadata_json"]["run_id"])
+
 
 def test_smtp_test_can_use_unsaved_settings_without_mutating_saved_config(client: TestClient, auth_headers, monkeypatch):
     client.put(
@@ -288,6 +305,7 @@ def test_admin_can_create_multiple_smtp_hooks_and_reuse_credentials(
 def test_saved_smtp_hook_test_updates_health_without_resubmitting_secrets(
     client: TestClient,
     auth_headers,
+    db_session,
     monkeypatch,
 ):
     hook = client.post(
@@ -349,6 +367,77 @@ def test_saved_smtp_hook_test_updates_health_without_resubmitting_secrets(
         "server_message": "connected",
         "started_at": history["runs"][0]["started_at"],
         "finished_at": history["runs"][0]["finished_at"],
+    }
+    test_audit = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "integrations.smtp.hook.test",
+            AuditLog.resource_id == hook["id"],
+        )
+    )
+    assert test_audit is not None
+    assert test_audit.metadata_json == {
+        "run_id": history["runs"][0]["id"],
+        "action": "connection",
+        "duration_ms": 9,
+        "error_code": None,
+        "error_message": None,
+        "server_message": "connected",
+        "recipient_provided": False,
+        "used_unsaved_settings": False,
+        "used_shared_credentials": False,
+    }
+
+
+def test_unsaved_smtp_hook_test_audit_retains_failure_diagnostics(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    monkeypatch,
+):
+    def fake_test(_active_settings, *, recipient_email):
+        return SMTPTestResponse(
+            success=False,
+            action="connection",
+            duration_ms=27,
+            recipient_email=recipient_email,
+            error_code="connection_error",
+            error="SMTP connection failed.",
+            server_message="Connection refused by relay.",
+            tested_at=datetime.now(timezone.utc),
+            used_unsaved_settings=False,
+        )
+
+    monkeypatch.setattr("app.api.routes.integrations.test_smtp_integration", fake_test)
+    draft = _smtp_hook_payload("Unsaved diagnostic relay")
+    response = client.post(
+        "/integrations/smtp/hooks/test",
+        headers=auth_headers["admin"],
+        json={"hook": draft},
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is False
+
+    assert db_session.scalar(
+        select(IntegrationInstance).where(IntegrationInstance.name == "Unsaved diagnostic relay")
+    ) is None
+    test_audit = db_session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "integrations.smtp.hook.test",
+            AuditLog.resource_id == "unsaved",
+        )
+    )
+    assert test_audit is not None
+    assert test_audit.success is False
+    assert test_audit.metadata_json == {
+        "run_id": None,
+        "action": "connection",
+        "duration_ms": 27,
+        "error_code": "connection_error",
+        "error_message": "SMTP connection failed.",
+        "server_message": "Connection refused by relay.",
+        "recipient_provided": False,
+        "used_unsaved_settings": True,
+        "used_shared_credentials": False,
     }
 
 

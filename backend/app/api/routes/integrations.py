@@ -345,8 +345,21 @@ def test_smtp_hook(
         active_settings,
         recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
     ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
+    run = None
     if instance is not None:
-        record_smtp_test_result(db, instance=instance, result=result, used_unsaved_settings=used_unsaved_settings)
+        run = record_smtp_test_result(
+            db,
+            instance=instance,
+            result=result,
+            used_unsaved_settings=used_unsaved_settings,
+        )
+    audit_metadata = _smtp_test_audit_metadata(
+        result,
+        run_id=run.id if run is not None else None,
+        recipient_provided=bool(payload.send_email and payload.recipient_email),
+        used_unsaved_settings=used_unsaved_settings,
+    )
+    audit_metadata["used_shared_credentials"] = credential_source is not None
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -354,13 +367,7 @@ def test_smtp_hook(
         resource_type="integration_instance",
         resource_id=str(instance.id) if instance is not None else "unsaved",
         success=result.success,
-        metadata={
-            "action": result.action,
-            "error_code": result.error_code,
-            "recipient_provided": bool(payload.send_email and payload.recipient_email),
-            "used_shared_credentials": credential_source is not None,
-            "used_unsaved_settings": used_unsaved_settings,
-        },
+        metadata=audit_metadata,
     )
     db.commit()
     return result
@@ -422,7 +429,7 @@ def test_smtp_settings(
         active_settings,
         recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
     ).model_copy(update={"used_unsaved_settings": used_unsaved_settings})
-    record_smtp_test_result(
+    run = record_smtp_test_result(
         db,
         instance=instance,
         result=result,
@@ -435,12 +442,12 @@ def test_smtp_settings(
         resource_type="integration_instance",
         resource_id=str(instance.id),
         success=result.success,
-        metadata={
-            "action": result.action,
-            "error_code": result.error_code,
-            "recipient_provided": bool(payload.send_email and payload.recipient_email),
-            "used_unsaved_settings": used_unsaved_settings,
-        },
+        metadata=_smtp_test_audit_metadata(
+            result,
+            run_id=run.id,
+            recipient_provided=bool(payload.send_email and payload.recipient_email),
+            used_unsaved_settings=used_unsaved_settings,
+        ),
     )
     db.commit()
     return result
@@ -486,6 +493,25 @@ def _password_audit_action(payload: SMTPSettingsUpdate) -> str:
     if payload.clear_password:
         return "cleared"
     return "preserved"
+
+
+def _smtp_test_audit_metadata(
+    result: SMTPTestResponse,
+    *,
+    run_id: uuid.UUID | None,
+    recipient_provided: bool,
+    used_unsaved_settings: bool,
+) -> dict:
+    return {
+        "run_id": str(run_id) if run_id is not None else None,
+        "action": result.action,
+        "duration_ms": result.duration_ms,
+        "error_code": result.error_code,
+        "error_message": result.error,
+        "server_message": result.server_message[:4000] if result.server_message else None,
+        "recipient_provided": recipient_provided,
+        "used_unsaved_settings": used_unsaved_settings,
+    }
 
 
 def _smtp_hook_http_error(
