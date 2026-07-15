@@ -1030,6 +1030,7 @@ def process_notification_webhook_delivery(
     db: Session,
     *,
     delivery_id: uuid.UUID,
+    commit_outcome: bool = True,
 ) -> NotificationWebhookDeliveryAttempt:
     delivery = _claim_notification_webhook_delivery(db, delivery_id=delivery_id)
     if delivery is None:
@@ -1064,6 +1065,7 @@ def process_notification_webhook_delivery(
             delivery_id=delivery.id,
             expected_attempt_number=delivery.attempt_count,
             result=result,
+            commit_outcome=commit_outcome,
         )
         return NotificationWebhookDeliveryAttempt(
             result=_delivery_result_from_model(finalized),
@@ -1089,6 +1091,7 @@ def process_notification_webhook_delivery(
             delivery_id=delivery.id,
             expected_attempt_number=delivery.attempt_count,
             result=result,
+            commit_outcome=commit_outcome,
         )
         return NotificationWebhookDeliveryAttempt(
             result=_delivery_result_from_model(finalized),
@@ -1102,6 +1105,7 @@ def process_notification_webhook_delivery(
         delivery_id=delivery.id,
         expected_attempt_number=delivery.attempt_count,
         result=result,
+        commit_outcome=commit_outcome,
     )
     return NotificationWebhookDeliveryAttempt(
         result=result if recorded else _delivery_result_from_model(finalized),
@@ -2076,6 +2080,7 @@ def _finalize_notification_webhook_delivery(
     delivery_id: uuid.UUID,
     expected_attempt_number: int,
     result: NotificationWebhookTestResponse,
+    commit_outcome: bool,
 ) -> tuple[NotificationWebhookDelivery, bool]:
     delivery = db.scalar(
         select(NotificationWebhookDelivery)
@@ -2113,8 +2118,11 @@ def _finalize_notification_webhook_delivery(
     delivery.error = result.error
     delivery.attempted_at = finished_at
     db.add(delivery)
-    db.commit()
-    db.refresh(delivery)
+    if commit_outcome:
+        db.commit()
+        db.refresh(delivery)
+    else:
+        db.flush()
     return delivery, True
 
 

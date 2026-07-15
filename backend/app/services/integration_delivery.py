@@ -315,6 +315,29 @@ def mark_integration_delivery_dead_letter(
     return True
 
 
+def defer_integration_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    error_code: str,
+    error_message: str,
+    delay_seconds: int = 60,
+    now: datetime | None = None,
+) -> bool:
+    delivery = db.scalar(select(IntegrationDelivery).where(IntegrationDelivery.id == delivery_id).with_for_update())
+    if delivery is None or delivery.state in DELIVERY_TERMINAL_STATES:
+        return False
+    current_time = now or datetime.now(timezone.utc)
+    delivery.state = DELIVERY_RETRY_WAIT
+    delivery.claimed_at = None
+    delivery.not_before = current_time + timedelta(seconds=max(1, int(delay_seconds)))
+    delivery.last_error_code = error_code
+    delivery.last_error_message = error_message
+    delivery.last_error_retryable = True
+    db.add(delivery)
+    return True
+
+
 def replay_dead_letter_delivery(db: Session, *, delivery_id: uuid.UUID) -> IntegrationDelivery:
     source = db.scalar(select(IntegrationDelivery).where(IntegrationDelivery.id == delivery_id).with_for_update())
     if source is None:

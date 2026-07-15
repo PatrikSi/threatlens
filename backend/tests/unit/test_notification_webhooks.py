@@ -1882,7 +1882,8 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
         reserved_webhook_ids[delivery_id] = webhook.id
         return SimpleNamespace(id=delivery_id)
 
-    def _process(_db, *, delivery_id):
+    def _process(_db, *, delivery_id, commit_outcome=True):
+        assert commit_outcome is False
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),
@@ -2236,7 +2237,8 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
         reserved_webhook_ids[delivery_id] = webhook.id
         return SimpleNamespace(id=delivery_id)
 
-    def _process(_db, *, delivery_id):
+    def _process(_db, *, delivery_id, commit_outcome=True):
+        assert commit_outcome is False
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),

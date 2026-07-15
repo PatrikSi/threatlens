@@ -21,12 +21,13 @@ from app.models.user import User
 from app.services.integration_compat import WEBHOOK_CONFIG_SCHEMA_VERSION, repair_legacy_webhook_integrations
 from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
+    ConnectorFollowupDelivery,
     ConnectorRoutingResult,
     IntegrationConnectorDefinition,
-    IntegrationConnectorRuntime,
     IntegrationEventContextError,
 )
 from app.services.integration_delivery import ensure_webhook_delivery, mark_integration_delivery_dead_letter
+from app.services.notification_delivery_processing import process_reserved_notification_deliveries
 from app.services.notification_webhooks import (
     NotificationDeliveryReservationBatch,
     build_daily_digest_context,
@@ -40,7 +41,6 @@ from app.services.notification_webhooks import (
     reserve_webhook_failed_notification_deliveries,
     try_acquire_notification_delivery_lock,
 )
-from app.tasks.feed_task_notifications import process_reserved_notification_deliveries
 
 logger = logging.getLogger(__name__)
 
@@ -65,8 +65,8 @@ class WebhookIntegrationConnector:
             compatibility_delivery_ids=reservation.delivery_ids,
         )
         return ConnectorRoutingResult(
-            delivery_ids=delivery_ids,
-            compatibility_delivery_ids=reservation.delivery_ids,
+            delivery_ids=tuple(delivery_ids),
+            compatibility_delivery_ids=tuple(reservation.delivery_ids),
         )
 
     def process_delivery(
@@ -74,7 +74,6 @@ class WebhookIntegrationConnector:
         db: Session,
         *,
         delivery: IntegrationDelivery,
-        runtime: IntegrationConnectorRuntime,
     ) -> ConnectorDeliveryResult:
         legacy_delivery = db.scalar(
             select(NotificationWebhookDelivery).where(
@@ -95,33 +94,31 @@ class WebhookIntegrationConnector:
                 reason="Webhook compatibility delivery no longer exists.",
             )
 
-        def enqueue_compatibility_deliveries(
-            compatibility_ids: list[uuid.UUID],
-            *,
-            countdown: int | None = None,
-        ) -> bool:
-            generic_ids = list(
-                db.scalars(
-                    select(NotificationWebhookDelivery.integration_delivery_id).where(
-                        NotificationWebhookDelivery.id.in_(compatibility_ids),
-                        NotificationWebhookDelivery.integration_delivery_id.is_not(None),
-                    )
-                ).all()
-            )
-            return len(generic_ids) == len(compatibility_ids) and runtime.enqueue_deliveries(generic_ids, countdown)
-
-        process_reserved_notification_deliveries(
+        processing = process_reserved_notification_deliveries(
             db,
             [legacy_delivery.id],
-            process_delivery=process_notification_webhook_delivery,
+            process_delivery=lambda session, *, delivery_id: process_notification_webhook_delivery(
+                session,
+                delivery_id=delivery_id,
+                commit_outcome=False,
+            ),
             reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
             reserve_failed_delivery_notifications=None,
-            enqueue_delivery_processing=enqueue_compatibility_deliveries,
             logger=logger,
             emit_failed_delivery_event=self._emit_failed_delivery_event,
-            enqueue_event_routing=runtime.enqueue_events,
             mark_dead_letter=self._mark_dead_letter,
         )
+        followup_deliveries: list[ConnectorFollowupDelivery] = []
+        for followup in processing.followup_deliveries:
+            compatibility_delivery = db.get(NotificationWebhookDelivery, followup.delivery_id)
+            if compatibility_delivery is None or compatibility_delivery.integration_delivery_id is None:
+                continue
+            followup_deliveries.append(
+                ConnectorFollowupDelivery(
+                    delivery_id=compatibility_delivery.integration_delivery_id,
+                    countdown_seconds=followup.countdown_seconds,
+                )
+            )
         current = db.get(IntegrationDelivery, delivery.id)
         if current is None:
             return ConnectorDeliveryResult(delivery.id, "missing", "Integration delivery no longer exists.")
@@ -130,6 +127,8 @@ class WebhookIntegrationConnector:
             status=current.state,
             reason=current.last_error_message,
             retry_at=current.not_before.isoformat() if current.not_before is not None else None,
+            followup_deliveries=tuple(followup_deliveries),
+            followup_event_ids=processing.followup_event_ids,
         )
 
     def _reserve_event_deliveries(

@@ -18,7 +18,6 @@ from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.integration_compat import ensure_webhook_integration
-from app.services.integration_connectors import IntegrationConnectorRuntime
 from app.services.integration_events import (
     IntegrationEventContextError,
     emit_integration_event,
@@ -124,8 +123,6 @@ def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history
     routed = route_integration_event(db_session, event_id=event.id)
     delivery = db_session.get(IntegrationDelivery, routed.integration_delivery_ids[0])
     connector = get_integration_connector("webhook")
-    queued_deliveries: list[uuid.UUID] = []
-    queued_events: list[uuid.UUID] = []
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
         lambda rendered: NotificationWebhookTestResponse(
@@ -145,10 +142,6 @@ def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history
     result = connector.process_delivery(
         db_session,
         delivery=delivery,
-        runtime=IntegrationConnectorRuntime(
-            enqueue_deliveries=lambda ids, _countdown: queued_deliveries.extend(ids) is None,
-            enqueue_events=lambda ids: queued_events.extend(ids) is None,
-        ),
     )
 
     db_session.refresh(delivery)
@@ -160,8 +153,8 @@ def test_webhook_connector_processes_generic_delivery_and_updates_legacy_history
     assert result.status == "succeeded"
     assert delivery.state == "succeeded"
     assert legacy is not None and legacy.delivery_state == "succeeded"
-    assert queued_deliveries == []
-    assert queued_events == []
+    assert result.followup_deliveries == ()
+    assert result.followup_event_ids == ()
 
 
 def test_webhook_repair_ignores_deleted_and_invalid_selected_feed_ids(db_session):
