@@ -164,6 +164,7 @@ export function AiSettingsPage() {
   const [runPage, setRunPage] = useState(0)
   const [runFilters, setRunFilters] = useState<RunFilters>(DEFAULT_RUN_FILTERS)
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null)
+  const [pinnedRunId, setPinnedRunId] = useState<string | null>(null)
   const [pendingRunNavigation, setPendingRunNavigation] = useState<string | null>(null)
   const [settledActiveTab, setSettledActiveTab] = useState<AiTab>('overview')
   const activityTabRef = useRef<HTMLElement | null>(null)
@@ -426,11 +427,14 @@ export function AiSettingsPage() {
     if (!runsQuery.data || runsQuery.isPlaceholderData) {
       return
     }
+    if (pinnedRunId && selectedRunId === pinnedRunId) {
+      return
+    }
     const nextSelectedRunId = resolveVisibleRunSelection(runsQuery.data?.items, selectedRunId)
     if (nextSelectedRunId !== selectedRunId) {
       setSelectedRunId(nextSelectedRunId)
     }
-  }, [runsQuery.data, runsQuery.isPlaceholderData, selectedRunId])
+  }, [pinnedRunId, runsQuery.data, runsQuery.isPlaceholderData, selectedRunId])
 
   useEffect(() => {
     if (!activityQueriesEnabled || !runsQuery.data || runsQuery.isPlaceholderData) {
@@ -745,6 +749,7 @@ export function AiSettingsPage() {
     setSelectedModel('all')
     setRunFilters(DEFAULT_RUN_FILTERS)
     setRunPage(0)
+    setPinnedRunId(runId)
     setSelectedRunId(runId)
     setPendingRunNavigation(runId)
     setActiveTab('activity')
@@ -973,7 +978,10 @@ export function AiSettingsPage() {
                 setRunPage={setRunPage}
                 runsQuery={runsQuery}
                 selectedRunId={selectedRunId}
-                setSelectedRunId={setSelectedRunId}
+                onSelectRun={(runId) => {
+                  setPinnedRunId(null)
+                  setSelectedRunId(runId)
+                }}
                 runDetailQuery={runDetailQuery}
                 briefSources={briefSourcesQuery.data ?? []}
                 briefSourcesLoading={briefSourcesQuery.isLoading}
@@ -2147,7 +2155,7 @@ function ActivityTab({
   setRunPage,
   runsQuery,
   selectedRunId,
-  setSelectedRunId,
+  onSelectRun,
   runDetailQuery,
   briefSources,
   briefSourcesLoading,
@@ -2207,7 +2215,7 @@ function ActivityTab({
   setRunPage: Dispatch<SetStateAction<number>>
   runsQuery: ReturnType<typeof useQuery<AITaskRunListResponse>>
   selectedRunId: string | null
-  setSelectedRunId: Dispatch<SetStateAction<string | null>>
+  onSelectRun: (runId: string) => void
   runDetailQuery: ReturnType<typeof useQuery<AITaskRunDetailResponse>>
   briefSources: AIDailyBriefSourceItemResponse[]
   briefSourcesLoading: boolean
@@ -2502,7 +2510,7 @@ function ActivityTab({
                     className={`cursor-pointer border-t border-slate/10 text-slate dark:border-cyan-900/30 dark:text-white/80 ${
                       selectedRunId === run.id ? 'bg-cyan/5 dark:bg-cyan/10' : ''
                     }`}
-                    onClick={() => setSelectedRunId(run.id)}
+                    onClick={() => onSelectRun(run.id)}
                   >
                     <td className="py-2 pr-2 align-top">
                       <input
@@ -2511,7 +2519,7 @@ function ActivityTab({
                         className="mt-1 h-4 w-4"
                         aria-label={formatRunSelectionLabel(run)}
                         checked={selectedRunId === run.id}
-                        onChange={() => setSelectedRunId(run.id)}
+                        onChange={() => onSelectRun(run.id)}
                       />
                     </td>
                     <td className="py-2">
