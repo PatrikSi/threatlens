@@ -450,6 +450,60 @@ def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(mon
     assert scheduled_tasks == []
 
 
+def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(db_session, monkeypatch):
+    item = _create_item(db_session, source_guid="partial-worker-snapshot")
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    start_ai_task_run(
+        db_session,
+        run_id=run.id,
+        worker_name="celery@worker-b",
+        celery_task_id="worker-b-task",
+    )
+    stale_time = datetime.now(timezone.utc) - timedelta(minutes=20)
+    run.queued_at = stale_time
+    run.started_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+
+    class _PartialInspector:
+        def ping(self):
+            return {"celery@worker-a": {"ok": "pong"}, "celery@worker-b": {"ok": "pong"}}
+
+        def active(self):
+            return {"celery@worker-a": []}
+
+        def reserved(self):
+            return {"celery@worker-a": [], "celery@worker-b": []}
+
+        def scheduled(self):
+            return {"celery@worker-a": [], "celery@worker-b": []}
+
+    monkeypatch.setattr("app.services.ai_ops.celery_app.control.inspect", lambda timeout: _PartialInspector())
+
+    snapshot_complete, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+
+    db_session.expire_all()
+    refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
+
+    assert snapshot_complete is False
+    assert workers == ["celery@worker-a", "celery@worker-b"]
+    assert active_tasks == []
+    assert reserved_tasks == []
+    assert scheduled_tasks == []
+    assert refreshed is not None
+    assert refreshed.status == AI_STATUS_RUNNING
+    assert refreshed.finished_at is None
+    assert response.items[0].status == AI_STATUS_RUNNING
+
+
 def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
     item = _create_item(db_session, source_guid="snapshot-unavailable")
 
