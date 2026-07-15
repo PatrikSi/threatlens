@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -10,19 +10,40 @@ from app.api.deps import get_admin_user, require_token_scopes
 from app.core.token_scopes import SCOPE_READ_INTEGRATIONS, SCOPE_WRITE_INTEGRATIONS
 from app.db.session import get_db
 from app.models.feed import Feed
+from app.models.integration import IntegrationDelivery, IntegrationInstance
 from app.models.user import User
 from app.schemas.integration import (
     IntegrationConnectorResponse,
     IntegrationDeliveryReplayResponse,
     IntegrationSummaryResponse,
+    SMTPAnalyticsResponse,
+    SMTPDeliveryListResponse,
+    SMTPHookResponse,
+    SMTPHookTestRequest,
+    SMTPHookWrite,
     SMTPSettingsResponse,
     SMTPSettingsUpdate,
+    SMTPTemplateDefaultResponse,
     SMTPTestRequest,
     SMTPTestResponse,
 )
 from app.services.audit import record_audit
 from app.services.integration_registry import list_integration_connectors
 from app.services.integration_delivery import replay_dead_letter_delivery
+from app.services.integration_smtp_hooks import (
+    SMTPHookConflictError,
+    SMTPHookNotFoundError,
+    archive_smtp_hook,
+    create_smtp_hook,
+    get_smtp_analytics,
+    get_smtp_hook,
+    list_smtp_deliveries,
+    list_smtp_hooks,
+    list_smtp_template_defaults,
+    smtp_hook_response,
+    update_smtp_hook,
+    validate_smtp_hook_credential_selection,
+)
 from app.services.integration_storage import (
     SMTPSecretError,
     apply_smtp_settings_update,
@@ -66,6 +87,246 @@ def get_smtp_settings(
 ):
     instance = get_or_create_smtp_integration(db)
     return smtp_settings_response_from_model(instance)
+
+
+@router.get("/smtp/hooks", response_model=list[SMTPHookResponse])
+def get_smtp_hooks(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+):
+    get_or_create_smtp_integration(db)
+    return list_smtp_hooks(db)
+
+
+@router.post("/smtp/hooks", response_model=SMTPHookResponse, status_code=status.HTTP_201_CREATED)
+def create_smtp_hook_route(
+    payload: SMTPHookWrite,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    _validate_smtp_notification_settings(
+        db,
+        payload.settings,
+        require_recipients=payload.settings.enabled,
+        allow_shared_host=payload.credential_source_id is not None,
+    )
+    try:
+        instance = create_smtp_hook(db, payload)
+    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.smtp.hook.create",
+        resource_type="integration_instance",
+        resource_id=str(instance.id),
+        metadata=_smtp_hook_audit_metadata(payload),
+    )
+    db.commit()
+    db.refresh(instance)
+    return smtp_hook_response(db, instance)
+
+
+@router.patch("/smtp/hooks/{hook_id}", response_model=SMTPHookResponse)
+def update_smtp_hook_route(
+    hook_id: uuid.UUID,
+    payload: SMTPHookWrite,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    try:
+        instance = get_smtp_hook(db, hook_id)
+    except SMTPHookNotFoundError as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    _validate_smtp_notification_settings(
+        db,
+        payload.settings,
+        require_recipients=payload.settings.enabled,
+        allow_shared_host=payload.credential_source_id is not None,
+    )
+    try:
+        update_smtp_hook(db, instance, payload)
+    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.smtp.hook.update",
+        resource_type="integration_instance",
+        resource_id=str(instance.id),
+        metadata=_smtp_hook_audit_metadata(payload),
+    )
+    db.commit()
+    db.refresh(instance)
+    return smtp_hook_response(db, instance)
+
+
+@router.delete("/smtp/hooks/{hook_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_smtp_hook_route(
+    hook_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    try:
+        instance = get_smtp_hook(db, hook_id)
+        archive_smtp_hook(db, instance)
+    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.smtp.hook.delete",
+        resource_type="integration_instance",
+        resource_id=str(instance.id),
+        metadata={"name": instance.name},
+    )
+    db.commit()
+
+
+@router.get("/smtp/template-defaults", response_model=list[SMTPTemplateDefaultResponse])
+def get_smtp_template_defaults(
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+):
+    return list_smtp_template_defaults()
+
+
+@router.get("/smtp/analytics", response_model=SMTPAnalyticsResponse)
+def get_smtp_analytics_route(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+):
+    get_or_create_smtp_integration(db)
+    return get_smtp_analytics(db)
+
+
+@router.get("/smtp/hooks/{hook_id}/deliveries", response_model=SMTPDeliveryListResponse)
+def get_smtp_hook_deliveries(
+    hook_id: uuid.UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+):
+    try:
+        instance = get_smtp_hook(db, hook_id)
+    except SMTPHookNotFoundError as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    return list_smtp_deliveries(db, instance=instance, page=page, page_size=page_size)
+
+
+@router.post(
+    "/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay",
+    response_model=IntegrationDeliveryReplayResponse,
+)
+def replay_smtp_hook_delivery(
+    hook_id: uuid.UUID,
+    delivery_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    try:
+        get_smtp_hook(db, hook_id)
+    except SMTPHookNotFoundError as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    delivery = db.scalar(
+        select(IntegrationDelivery).where(
+            IntegrationDelivery.id == delivery_id,
+            IntegrationDelivery.integration_id == hook_id,
+            IntegrationDelivery.connector_type == "smtp",
+        )
+    )
+    if delivery is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SMTP delivery not found")
+    try:
+        replay = replay_dead_letter_delivery(db, delivery_id=delivery.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.smtp.delivery.replay",
+        resource_type="integration_delivery",
+        resource_id=str(replay.id),
+        metadata={"source_delivery_id": str(delivery.id), "hook_id": str(hook_id)},
+    )
+    db.commit()
+    queued = enqueue_integration_delivery_processing([replay.id])
+    return IntegrationDeliveryReplayResponse(
+        source_delivery_id=delivery.id,
+        delivery_id=replay.id,
+        state="pending",
+        queued=queued,
+    )
+
+
+@router.post("/smtp/hooks/test", response_model=SMTPTestResponse)
+def test_smtp_hook(
+    payload: SMTPHookTestRequest,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_INTEGRATIONS)),
+):
+    instance = None
+    if payload.hook_id is not None:
+        try:
+            instance = get_smtp_hook(db, payload.hook_id)
+        except SMTPHookNotFoundError as exc:
+            raise _smtp_hook_http_error(exc) from exc
+    _validate_smtp_notification_settings(db, payload.hook.settings, require_recipients=False)
+    try:
+        credential_source = validate_smtp_hook_credential_selection(
+            db,
+            payload=payload.hook,
+            target=instance,
+        )
+    except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    runtime_instance = instance or IntegrationInstance(
+        id=uuid.uuid4(),
+        name=payload.hook.name,
+        integration_type="smtp",
+        direction="destination",
+        enabled=False,
+        config_json={},
+    )
+    try:
+        active_settings = build_active_smtp_settings(
+            runtime_instance,
+            override=payload.hook.settings,
+            credential_source=credential_source,
+        )
+    except SMTPSecretError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    result = test_smtp_integration(
+        active_settings,
+        recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
+    ).model_copy(update={"used_unsaved_settings": True})
+    if instance is not None:
+        record_smtp_test_result(db, instance=instance, result=result, used_unsaved_settings=True)
+    record_audit(
+        db,
+        actor_user_id=admin.id,
+        action="integrations.smtp.hook.test",
+        resource_type="integration_instance",
+        resource_id=str(instance.id) if instance is not None else "unsaved",
+        success=result.success,
+        metadata={
+            "action": result.action,
+            "error_code": result.error_code,
+            "recipient_provided": bool(payload.send_email and payload.recipient_email),
+            "used_shared_credentials": credential_source is not None,
+        },
+    )
+    db.commit()
+    return result
 
 
 @router.put("/smtp/settings", response_model=SMTPSettingsResponse)
@@ -190,12 +451,45 @@ def _password_audit_action(payload: SMTPSettingsUpdate) -> str:
     return "preserved"
 
 
+def _smtp_hook_http_error(exc: SMTPHookConflictError | SMTPHookNotFoundError) -> HTTPException:
+    status_code = (
+        status.HTTP_404_NOT_FOUND
+        if isinstance(exc, SMTPHookNotFoundError)
+        else status.HTTP_409_CONFLICT
+    )
+    return HTTPException(status_code=status_code, detail=str(exc))
+
+
+def _smtp_hook_audit_metadata(payload: SMTPHookWrite) -> dict:
+    settings = payload.settings
+    return {
+        "name": payload.name,
+        "enabled": settings.enabled,
+        "host": settings.host if payload.credential_source_id is None else None,
+        "port": settings.port if payload.credential_source_id is None else None,
+        "security": settings.security if payload.credential_source_id is None else None,
+        "username_configured": bool(settings.username) if payload.credential_source_id is None else None,
+        "from_email": str(settings.from_email) if settings.from_email else None,
+        "recipient_count": len(settings.to_emails),
+        "event_types": settings.event_types,
+        "feed_scope": settings.feed_scope,
+        "credential_source_id": str(payload.credential_source_id) if payload.credential_source_id else None,
+        "password_action": "shared" if payload.credential_source_id else _password_audit_action(settings),
+    }
+
+
 def _validate_smtp_notification_settings(
     db: Session,
     payload: SMTPSettingsUpdate,
     *,
     require_recipients: bool,
+    allow_shared_host: bool = False,
 ) -> None:
+    if payload.enabled and not payload.host and not allow_shared_host:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="SMTP host is required when SMTP is enabled",
+        )
     if require_recipients and not payload.to_emails:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

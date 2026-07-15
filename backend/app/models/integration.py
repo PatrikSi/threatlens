@@ -30,6 +30,12 @@ class IntegrationInstance(Base):
         nullable=True,
         index=True,
     )
+    credential_source_integration_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_instances.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     system_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     integration_type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
