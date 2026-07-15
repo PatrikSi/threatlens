@@ -14,6 +14,7 @@ IntegrationDirection = Literal["destination"]
 IntegrationHealthStatus = Literal["unknown", "healthy", "warning", "error"]
 IntegrationRunStatus = Literal["succeeded", "failed"]
 SMTPSecurityMode = Literal["starttls", "ssl_tls", "none"]
+SMTPDeliveryState = Literal["pending", "sending", "retry_wait", "succeeded", "failed", "dead_letter"]
 
 DEFAULT_SMTP_EVENT_TYPES: tuple[NotificationEventType, ...] = ("rss_item_new",)
 DEFAULT_SMTP_SUBJECT_TEMPLATE = "[ThreatLens] {{ event.type }}: {{ item.title }}"
@@ -22,6 +23,64 @@ DEFAULT_SMTP_HTML_TEMPLATE = """<h2>{{ event.type }}</h2>
 <p>{{ item.summary }}</p>
 <p><a href="{{ item.url }}">Open source item</a></p>
 <p>Feed: {{ feed.name }}</p>"""
+ALL_SMTP_EVENT_TYPES: tuple[NotificationEventType, ...] = (
+    "rss_item_new",
+    "alert_match",
+    "feed_failing",
+    "webhook_failed",
+    "daily_digest",
+)
+SMTP_TEMPLATE_DEFAULTS: dict[str, tuple[list[NotificationEventType], str, str]] = {
+    "rss_item_new": (
+        ["rss_item_new"],
+        "[ThreatLens] New item: {{ item.title }}",
+        """<h2>New threat intelligence item</h2>
+<p><strong>{{ item.title }}</strong></p>
+<p>{{ item.summary }}</p>
+<p><a href="{{ item.url }}">Open source item</a></p>
+<p>Feed: {{ feed.name }}</p>""",
+    ),
+    "alert_match": (
+        ["alert_match"],
+        "[ThreatLens] Alert match: {{ alert.primary_name }}",
+        """<h2>Alert match</h2>
+<p><strong>{{ alert.primary_name }}</strong> matched {{ item.title }}.</p>
+<p>Keywords: {{ alert.matched_keywords }}</p>
+<p><a href="{{ item.url }}">Review source item</a></p>
+<p>Feed: {{ feed.name }}</p>""",
+    ),
+    "feed_failing": (
+        ["feed_failing"],
+        "[ThreatLens] Feed failing: {{ feed.name }}",
+        """<h2>Feed health warning</h2>
+<p><strong>{{ feed.name }}</strong> has failed {{ feed.error_count }} consecutive fetches.</p>
+<p>Latest error: {{ feed.last_error }}</p>
+<p>Feed URL: {{ feed.url }}</p>""",
+    ),
+    "webhook_failed": (
+        ["webhook_failed"],
+        "[ThreatLens] Webhook failed: {{ failed_webhook.name }}",
+        """<h2>Webhook delivery failed</h2>
+<p><strong>{{ failed_webhook.name }}</strong> failed while sending {{ failed_webhook.event_type }}.</p>
+<p>Status: {{ failed_webhook.status_code }}</p>
+<p>Error: {{ failed_webhook.error }}</p>
+<p>Attempted: {{ failed_webhook.attempted_at }}</p>""",
+    ),
+    "daily_digest": (
+        ["daily_digest"],
+        "[ThreatLens] Daily digest: {{ digest.total_items }} items",
+        """<h2>Threat intelligence daily digest</h2>
+<p>{{ digest.total_items }} items across {{ digest.total_feeds }} feeds.</p>
+<p>Feeds: {{ digest.feed_names }}</p>
+<p><strong>Top items</strong></p>
+<p>{{ digest.top_titles }}</p>""",
+    ),
+    "all": (
+        list(ALL_SMTP_EVENT_TYPES),
+        DEFAULT_SMTP_SUBJECT_TEMPLATE,
+        DEFAULT_SMTP_HTML_TEMPLATE,
+    ),
+}
 
 
 class IntegrationConnectorResponse(BaseModel):
@@ -162,8 +221,6 @@ class SMTPSettingsUpdate(BaseModel):
         if self.clear_password and self.password:
             raise ValueError("clear_password cannot be combined with password")
         if self.enabled:
-            if not self.host:
-                raise ValueError("host is required when SMTP is enabled")
             if self.from_email is None:
                 raise ValueError("from_email is required when SMTP is enabled")
         return self
@@ -204,10 +261,121 @@ class SMTPSettingsResponse(BaseModel):
     updated_at: datetime
 
 
+class SMTPHookWrite(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    credential_source_id: uuid.UUID | None = None
+    settings: SMTPSettingsUpdate
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def normalize_name(cls, value):
+        if not isinstance(value, str):
+            return value
+        return value.strip()
+
+
+class SMTPHookResponse(SMTPSettingsResponse):
+    is_default: bool
+    uses_shared_credentials: bool
+    credential_source_id: uuid.UUID | None
+    credential_source_name: str | None
+
+
+class SMTPTemplateDefaultResponse(BaseModel):
+    send_for: str
+    event_types: list[NotificationEventType]
+    subject_template: str
+    html_template: str
+
+
+class SMTPDeliveryAttemptResponse(BaseModel):
+    attempt_number: int
+    status: str
+    started_at: datetime
+    finished_at: datetime | None
+    duration_ms: int | None
+    error_code: str | None
+    error_message: str | None
+    retryable: bool | None
+    recipient_count: int | None
+    accepted_count: int | None
+
+
+class SMTPDeliveryResponse(BaseModel):
+    id: uuid.UUID
+    hook_id: uuid.UUID
+    event_type: NotificationEventType
+    delivery_kind: Literal["live", "replay"]
+    state: SMTPDeliveryState
+    attempt_count: int
+    max_attempts: int
+    feed_id: uuid.UUID | None
+    item_id: uuid.UUID | None
+    source_delivery_id: uuid.UUID | None
+    last_duration_ms: int | None
+    last_error_code: str | None
+    last_error_message: str | None
+    last_error_retryable: bool | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+    dead_lettered_at: datetime | None
+    attempts: list[SMTPDeliveryAttemptResponse] = Field(default_factory=list)
+
+
+class SMTPDeliveryListResponse(BaseModel):
+    deliveries: list[SMTPDeliveryResponse]
+    total: int
+    page: int
+    page_size: int
+
+
+class SMTPAnalyticsEventSummary(BaseModel):
+    event_type: NotificationEventType
+    total_deliveries: int
+    failed_deliveries: int
+
+
+class SMTPAnalyticsHookSummary(BaseModel):
+    hook_id: uuid.UUID
+    hook_name: str
+    failed_deliveries: int
+    last_failure_at: datetime | None
+
+
+class SMTPAnalyticsResponse(BaseModel):
+    hook_count: int
+    enabled_hook_count: int
+    total_deliveries: int
+    successful_deliveries: int
+    failed_deliveries: int
+    success_rate_pct: float
+    failures_last_24h: int
+    pending_deliveries: int
+    retry_wait_deliveries: int
+    most_failing_hook: SMTPAnalyticsHookSummary | None
+    events: list[SMTPAnalyticsEventSummary]
+
+
 class SMTPTestRequest(BaseModel):
     send_email: bool = False
     recipient_email: EmailStr | None = None
     settings: SMTPSettingsUpdate | None = None
+
+    @model_validator(mode="after")
+    def validate_send_mode(self):
+        if self.recipient_email is not None:
+            self.send_email = True
+        if self.send_email and self.recipient_email is None:
+            raise ValueError("recipient_email is required when send_email is true")
+        return self
+
+
+class SMTPHookTestRequest(BaseModel):
+    hook_id: uuid.UUID | None = None
+    hook: SMTPHookWrite
+    send_email: bool = False
+    recipient_email: EmailStr | None = None
 
     @model_validator(mode="after")
     def validate_send_mode(self):

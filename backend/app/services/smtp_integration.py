@@ -30,6 +30,7 @@ from app.services.integration_storage import (
     ActiveSMTPSettings,
     SMTPSecretError,
     build_active_smtp_settings,
+    get_smtp_credential_source,
     smtp_settings_response_from_model,
 )
 from app.services.notification_webhooks import (
@@ -370,7 +371,8 @@ def attempt_smtp_integration_delivery(
     started_at = time.perf_counter()
     attempted_at = datetime.now(timezone.utc)
     try:
-        active = build_active_smtp_settings(instance)
+        credential_source = get_smtp_credential_source(db, instance)
+        active = build_active_smtp_settings(instance, credential_source=credential_source)
     except SMTPSecretError as exc:
         result = _notification_failure_result(
             started_at=started_at,
