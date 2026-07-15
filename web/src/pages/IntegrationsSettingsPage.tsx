@@ -19,6 +19,7 @@ import {
   SMTPSecurityMode,
   SMTPTemplateDefault,
   SMTPTestResponse,
+  SMTPTestRunListResponse,
 } from '../types/api'
 import {
   applySMTPTemplateDefault,
@@ -68,6 +69,8 @@ export function SMTPIntegrationSettingsPage() {
   const [pendingDelete, setPendingDelete] = useState<SMTPHook | null>(null)
   const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pendingReplay, setPendingReplay] = useState<SMTPDelivery | null>(null)
+  const [deliveryPage, setDeliveryPage] = useState(1)
+  const [testRunPage, setTestRunPage] = useState(1)
 
   const hooksQuery = useQuery({
     queryKey: ['integrations', 'smtp', 'hooks'],
@@ -145,6 +148,11 @@ export function SMTPIntegrationSettingsPage() {
     }
   }, [hasUserEdited, newHookDraft, selectedHook, selectionInitialized])
 
+  useEffect(() => {
+    setDeliveryPage(1)
+    setTestRunPage(1)
+  }, [selectedHookId])
+
   const saveHook = useMutation({
     mutationKey: ['integrations', 'smtp', 'hooks', 'save'],
     mutationFn: ({ hookId, hook }: { hookId: string | null; hook: SMTPHookWriteRequest }) =>
@@ -187,21 +195,36 @@ export function SMTPIntegrationSettingsPage() {
         method: 'POST',
         body: JSON.stringify(payload),
       }),
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       setTestResult(result)
       setNotice({
         tone: result.success ? 'success' : 'error',
         message: result.success ? 'SMTP test succeeded.' : result.error || 'SMTP test failed.',
       })
-      void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'hooks'] })
+      void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'hooks'], exact: true })
+      if (variables.hook_id) {
+        void queryClient.invalidateQueries({
+          queryKey: ['integrations', 'smtp', 'hooks', variables.hook_id, 'test-runs'],
+        })
+      }
     },
   })
 
   const deliveriesQuery = useQuery({
-    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'deliveries'],
+    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'deliveries', deliveryPage],
     queryFn: () =>
       apiFetch<SMTPDeliveryListResponse>(
-        `/integrations/smtp/hooks/${selectedHookId}/deliveries?page=1&page_size=10`,
+        `/integrations/smtp/hooks/${selectedHookId}/deliveries?page=${deliveryPage}&page_size=10`,
+      ),
+    enabled: Boolean(selectedHookId),
+    refetchInterval: selectedHookId ? DELIVERY_HISTORY_REFRESH_MS : false,
+  })
+
+  const testRunsQuery = useQuery({
+    queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'test-runs', testRunPage],
+    queryFn: () =>
+      apiFetch<SMTPTestRunListResponse>(
+        `/integrations/smtp/hooks/${selectedHookId}/test-runs?page=${testRunPage}&page_size=10`,
       ),
     enabled: Boolean(selectedHookId),
     refetchInterval: selectedHookId ? DELIVERY_HISTORY_REFRESH_MS : false,
@@ -633,8 +656,15 @@ export function SMTPIntegrationSettingsPage() {
             hook={selectedHook}
             feeds={feeds}
             deliveries={deliveriesQuery.data}
-            loading={deliveriesQuery.isLoading}
-            error={deliveriesQuery.error}
+            deliveryLoading={deliveriesQuery.isLoading}
+            deliveryError={deliveriesQuery.error}
+            deliveryPage={deliveryPage}
+            onDeliveryPageChange={setDeliveryPage}
+            testRuns={testRunsQuery.data}
+            testRunLoading={testRunsQuery.isLoading}
+            testRunError={testRunsQuery.error}
+            testRunPage={testRunPage}
+            onTestRunPageChange={setTestRunPage}
             replaying={replayDelivery.isPending}
             onReplay={setPendingReplay}
           />
@@ -727,57 +757,156 @@ function SMTPAnalyticsPanel({ analytics, loading, error }: { analytics?: SMTPAna
   )
 }
 
-function SMTPDeliveryHistory({ hook, feeds, deliveries, loading, error, replaying, onReplay }: { hook: SMTPHook | null; feeds: Feed[]; deliveries?: SMTPDeliveryListResponse; loading: boolean; error: unknown; replaying: boolean; onReplay: (delivery: SMTPDelivery) => void }) {
+function SMTPDeliveryHistory({
+  hook,
+  feeds,
+  deliveries,
+  deliveryLoading,
+  deliveryError,
+  deliveryPage,
+  onDeliveryPageChange,
+  testRuns,
+  testRunLoading,
+  testRunError,
+  testRunPage,
+  onTestRunPageChange,
+  replaying,
+  onReplay,
+}: {
+  hook: SMTPHook | null
+  feeds: Feed[]
+  deliveries?: SMTPDeliveryListResponse
+  deliveryLoading: boolean
+  deliveryError: unknown
+  deliveryPage: number
+  onDeliveryPageChange: (page: number) => void
+  testRuns?: SMTPTestRunListResponse
+  testRunLoading: boolean
+  testRunError: unknown
+  testRunPage: number
+  onTestRunPageChange: (page: number) => void
+  replaying: boolean
+  onReplay: (delivery: SMTPDelivery) => void
+}) {
+  const [historyView, setHistoryView] = useState<'deliveries' | 'tests'>('deliveries')
   const latest = deliveries?.deliveries[0]
+  const latestTestRun = testRuns?.runs[0]
+  const deliveryMetricPrefix = deliveryPage === 1 ? 'Latest' : 'First Shown'
+  const testMetricPrefix = testRunPage === 1 ? 'Latest' : 'First Shown'
   return (
     <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h3 className="font-display text-lg">Delivery History</h3><p className="mt-1 text-sm text-slate dark:text-white/75">Inspect generic delivery state, retry attempts, and SMTP outcomes for this hook.</p></div>
-        {latest && <span className={`tl-chip ${deliveryStateBadgeClass(latest.state)}`}>Last status: {describeDeliveryState(latest.state)}</span>}
-      </div>
-      {!hook && <p className="mt-3 text-sm text-slate dark:text-white/70">Select a saved SMTP hook to view delivery history.</p>}
-      {hook && loading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading delivery history...</p>}
-      {hook && Boolean(error) && <p className="mt-3 text-sm text-red-600">{resolveApiMessage(error, 'Failed to load SMTP delivery history.')}</p>}
-      {hook && deliveries?.deliveries.length ? (
-        <div className="mt-4 space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <Metric label="Deliveries" value={String(deliveries.total)} />
-            <Metric label="Last Attempts" value={String(latest?.attempt_count ?? 0)} />
-            <Metric label="Last Duration" value={latest?.last_duration_ms != null ? `${latest.last_duration_ms} ms` : 'n/a'} />
-            <Metric label="Last Updated" value={latest ? formatDateTime(latest.updated_at) : 'Never'} />
-          </div>
-          {deliveries.deliveries.map((delivery) => {
-            const feedName = feeds.find((feed) => feed.id === delivery.feed_id)?.name
-            return (
-              <details key={delivery.id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
-                <summary className="cursor-pointer list-none">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className={`tl-chip ${deliveryStateBadgeClass(delivery.state)}`}>{describeDeliveryState(delivery.state)}</span>
-                        <span className="tl-chip tl-chip-neutral">{delivery.delivery_kind === 'replay' ? 'Replay' : 'Live'}</span>
-                        <span className="tl-chip tl-chip-neutral">{describeEventType(delivery.event_type)}</span>
-                      </div>
-                      <p className="mt-2 text-sm font-semibold">{feedName || (delivery.feed_id ? `Feed ${delivery.feed_id.slice(0, 8)}` : 'SMTP delivery')}</p>
-                      <p className="mt-1 text-xs text-slate dark:text-white/60">Created {formatDateTime(delivery.created_at)}</p>
-                    </div>
-                    <div className="text-right text-xs text-slate dark:text-white/60"><p>{delivery.last_duration_ms != null ? `${delivery.last_duration_ms} ms` : 'No duration'}</p><p>{delivery.attempt_count} of {delivery.max_attempts} attempts</p></div>
-                  </div>
-                </summary>
-                <div className="mt-4 space-y-3 text-sm">
-                  {delivery.state === 'dead_letter' && <button type="button" className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={replaying} onClick={() => onReplay(delivery)}>Replay dead letter</button>}
-                  {delivery.last_error_message && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200"><p className="font-semibold">{delivery.last_error_code || 'Delivery error'}</p><p className="mt-1 break-words text-xs">{delivery.last_error_message}</p></div>}
-                  <div>
-                    <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Attempts</p>
-                    {delivery.attempts.length ? <div className="mt-2 space-y-2">{delivery.attempts.map((attempt) => <div key={attempt.attempt_number} className="grid gap-1 rounded bg-slate/5 px-3 py-2 text-xs dark:bg-white/5 sm:grid-cols-[80px_1fr_auto]"><span className="font-semibold">Attempt {attempt.attempt_number}</span><span>{attempt.error_message || `${attempt.accepted_count ?? 0} of ${attempt.recipient_count ?? 0} recipients accepted`}</span><span>{attempt.duration_ms != null ? `${attempt.duration_ms} ms` : attempt.status}</span></div>)}</div> : <p className="mt-2 text-xs text-slate dark:text-white/60">No worker attempt has started yet.</p>}
-                  </div>
-                </div>
-              </details>
-            )
-          })}
+        <div><h3 className="font-display text-lg">SMTP History</h3><p className="mt-1 text-sm text-slate dark:text-white/75">Inspect event deliveries, test diagnostics, retry attempts, and SMTP responses for this hook.</p></div>
+        <div role="tablist" aria-label="SMTP history view" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
+          <button type="button" role="tab" id="smtp-deliveries-tab" aria-selected={historyView === 'deliveries'} aria-controls="smtp-deliveries-panel" className={`rounded px-3 py-1 text-sm ${historyView === 'deliveries' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`} onClick={() => setHistoryView('deliveries')}>Deliveries</button>
+          <button type="button" role="tab" id="smtp-tests-tab" aria-selected={historyView === 'tests'} aria-controls="smtp-tests-panel" className={`rounded px-3 py-1 text-sm ${historyView === 'tests' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`} onClick={() => setHistoryView('tests')}>Tests</button>
         </div>
-      ) : hook && !loading && !error ? <p className="mt-3 text-sm text-slate dark:text-white/70">No deliveries have been recorded for this hook.</p> : null}
+      </div>
+      {historyView === 'deliveries' ? (
+        <div id="smtp-deliveries-panel" role="tabpanel" aria-labelledby="smtp-deliveries-tab">
+          {!hook && <p className="mt-3 text-sm text-slate dark:text-white/70">Select a saved SMTP hook to view delivery history.</p>}
+          {hook && deliveryLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading delivery history...</p>}
+          {hook && Boolean(deliveryError) && <p className="mt-3 text-sm text-red-600">{resolveApiMessage(deliveryError, 'Failed to load SMTP delivery history.')}</p>}
+          {hook && deliveries?.deliveries.length ? (
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Metric label="Deliveries" value={String(deliveries.total)} />
+                <Metric label={`${deliveryMetricPrefix} Attempts`} value={String(latest?.attempt_count ?? 0)} />
+                <Metric label={`${deliveryMetricPrefix} Duration`} value={latest?.last_duration_ms != null ? `${latest.last_duration_ms} ms` : 'n/a'} />
+                <Metric label={`${deliveryMetricPrefix} Updated`} value={latest ? formatDateTime(latest.updated_at) : 'Never'} />
+              </div>
+              {deliveries.deliveries.map((delivery) => {
+                const feedName = feeds.find((feed) => feed.id === delivery.feed_id)?.name
+                return (
+                  <details key={delivery.id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                    <summary className="cursor-pointer list-none">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`tl-chip ${deliveryStateBadgeClass(delivery.state)}`}>{describeDeliveryState(delivery.state)}</span>
+                            <span className="tl-chip tl-chip-neutral">{delivery.delivery_kind === 'replay' ? 'Replay' : 'Live'}</span>
+                            <span className="tl-chip tl-chip-neutral">{describeEventType(delivery.event_type)}</span>
+                          </div>
+                          <p className="mt-2 text-sm font-semibold">{feedName || (delivery.feed_id ? `Feed ${delivery.feed_id.slice(0, 8)}` : 'SMTP delivery')}</p>
+                          <p className="mt-1 text-xs text-slate dark:text-white/60">Created {formatDateTime(delivery.created_at)}</p>
+                        </div>
+                        <div className="text-right text-xs text-slate dark:text-white/60"><p>{delivery.last_duration_ms != null ? `${delivery.last_duration_ms} ms` : 'No duration'}</p><p>{delivery.attempt_count} of {delivery.max_attempts} attempts</p></div>
+                      </div>
+                    </summary>
+                    <div className="mt-4 space-y-3 text-sm">
+                      {delivery.state === 'dead_letter' && <button type="button" className="rounded border border-slate/30 px-3 py-1.5 text-xs font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={replaying} onClick={() => onReplay(delivery)}>Replay dead letter</button>}
+                      {delivery.last_error_message && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200"><p className="font-semibold">{delivery.last_error_code || 'Delivery error'}</p><p className="mt-1 break-words text-xs">{delivery.last_error_message}</p></div>}
+                      <div>
+                        <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">Attempts</p>
+                        {delivery.attempts.length ? <div className="mt-2 space-y-2">{delivery.attempts.map((attempt) => <div key={attempt.attempt_number} className="grid gap-1 rounded bg-slate/5 px-3 py-2 text-xs dark:bg-white/5 sm:grid-cols-[80px_1fr_auto]"><span className="font-semibold">Attempt {attempt.attempt_number}</span><span>{attempt.error_message || `${attempt.accepted_count ?? 0} of ${attempt.recipient_count ?? 0} recipients accepted`}</span><span>{attempt.duration_ms != null ? `${attempt.duration_ms} ms` : attempt.status}</span></div>)}</div> : <p className="mt-2 text-xs text-slate dark:text-white/60">No worker attempt has started yet.</p>}
+                      </div>
+                    </div>
+                  </details>
+                )
+              })}
+              <HistoryPagination page={deliveryPage} pageSize={deliveries.page_size} total={deliveries.total} onPageChange={onDeliveryPageChange} />
+            </div>
+          ) : hook && !deliveryLoading && !deliveryError ? <p className="mt-3 text-sm text-slate dark:text-white/70">No deliveries have been recorded for this hook.</p> : null}
+        </div>
+      ) : (
+        <div id="smtp-tests-panel" role="tabpanel" aria-labelledby="smtp-tests-tab">
+          {!hook && <p className="mt-3 text-sm text-slate dark:text-white/70">Save this SMTP hook before its tests can be retained in history.</p>}
+          {hook && testRunLoading && <p className="mt-3 text-sm text-slate dark:text-white/70">Loading SMTP test history...</p>}
+          {hook && Boolean(testRunError) && <p className="mt-3 text-sm text-red-600">{resolveApiMessage(testRunError, 'Failed to load SMTP test history.')}</p>}
+          {hook && testRuns?.runs.length ? (
+            <div className="mt-4 space-y-3">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Metric label="Tests" value={String(testRuns.total)} />
+                <Metric label={`${testMetricPrefix} Result`} value={latestTestRun?.status === 'succeeded' ? 'Succeeded' : 'Failed'} />
+                <Metric label={`${testMetricPrefix} Duration`} value={latestTestRun?.duration_ms != null ? `${latestTestRun.duration_ms} ms` : 'n/a'} />
+                <Metric label={`${testMetricPrefix} Tested`} value={latestTestRun ? formatDateTime(latestTestRun.started_at) : 'Never'} />
+              </div>
+              {testRuns.runs.map((run) => (
+                <details key={run.id} open={run.status === 'failed'} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                  <summary className="cursor-pointer list-none">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`tl-chip ${run.status === 'succeeded' ? 'tl-chip-success' : 'tl-chip-danger'}`}>{run.status === 'succeeded' ? 'Succeeded' : 'Failed'}</span>
+                          <span className="tl-chip tl-chip-neutral">{run.action === 'send' ? 'Test email' : run.action === 'connection' ? 'Connection test' : 'Legacy test'}</span>
+                          <span className="tl-chip tl-chip-neutral">{run.used_unsaved_settings ? 'Draft settings' : 'Saved settings'}</span>
+                        </div>
+                        <p className="mt-2 text-sm font-semibold">{run.recipient_email ? `Recipient: ${run.recipient_email}` : 'Connection and authentication only'}</p>
+                        <p className="mt-1 text-xs text-slate dark:text-white/60">Started {formatDateTime(run.started_at)}</p>
+                      </div>
+                      <div className="text-right text-xs text-slate dark:text-white/60"><p>{run.duration_ms != null ? `${run.duration_ms} ms` : 'No duration'}</p><p>{run.finished_at ? `Finished ${formatDateTime(run.finished_at)}` : 'Finish time unavailable'}</p></div>
+                    </div>
+                  </summary>
+                  <div className="mt-4 space-y-3 text-sm">
+                    {(run.error_code || run.error_message) && <div className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-200"><p className="font-semibold">{run.error_code || 'SMTP test error'}</p>{run.error_message && <p className="mt-1 break-words text-xs">{run.error_message}</p>}</div>}
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-slate dark:text-white/60">SMTP Server Response</p>
+                      {run.server_message ? <code className="mt-2 block whitespace-pre-wrap break-words rounded bg-slate/10 px-3 py-2 text-xs dark:bg-white/5">{run.server_message}</code> : <p className="mt-2 text-xs text-slate dark:text-white/60">No SMTP server response was captured for this test.</p>}
+                    </div>
+                    <p className="break-all text-xs text-slate dark:text-white/50">Run ID: {run.id}</p>
+                  </div>
+                </details>
+              ))}
+              <HistoryPagination page={testRunPage} pageSize={testRuns.page_size} total={testRuns.total} onPageChange={onTestRunPageChange} />
+            </div>
+          ) : hook && !testRunLoading && !testRunError ? <p className="mt-3 text-sm text-slate dark:text-white/70">No SMTP tests have been recorded for this hook yet.</p> : null}
+        </div>
+      )}
     </section>
+  )
+}
+
+function HistoryPagination({ page, pageSize, total, onPageChange }: { page: number; pageSize: number; total: number; onPageChange: (page: number) => void }) {
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)))
+  if (totalPages === 1) {
+    return null
+  }
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-slate/20 pt-3 text-sm dark:border-cyan-900/40">
+      <button type="button" className="rounded border border-slate/30 px-3 py-1.5 font-semibold disabled:opacity-40 dark:border-cyan-900/40" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>Previous</button>
+      <span className="text-slate dark:text-white/65">Page {page} of {totalPages}</span>
+      <button type="button" className="rounded border border-slate/30 px-3 py-1.5 font-semibold disabled:opacity-40 dark:border-cyan-900/40" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>Next</button>
+    </div>
   )
 }
 
