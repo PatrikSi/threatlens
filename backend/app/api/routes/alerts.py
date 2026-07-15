@@ -348,7 +348,16 @@ def _list_matches_for_alerts(
     if not all_keywords:
         return AlertMatchListResponse(items=[], total=0, page=page, page_size=page_size)
     if len(all_keywords) > settings.alert_matches_keyword_cap:
-        all_keywords = all_keywords[: settings.alert_matches_keyword_cap]
+        alert_label = "alert" if len(alerts) == 1 else "alerts"
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Alert matching selected {len(alerts)} {alert_label} with {len(all_keywords)} distinct keywords, "
+                f"exceeding ALERT_MATCHES_KEYWORD_CAP={settings.alert_matches_keyword_cap}. "
+                "Reduce keywords or disable unneeded alerts, narrow the request with alert_ids or categories, "
+                "or increase ALERT_MATCHES_KEYWORD_CAP."
+            ),
+        )
 
     state_subquery = (
         select(
