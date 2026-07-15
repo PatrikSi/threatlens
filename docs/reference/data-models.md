@@ -186,6 +186,8 @@ Primary key on `item_id`:
 
 `IntegrationInstance` stores connector configuration, encrypted secret material, health, per-instance concurrency/rate limits, and circuit-breaker state. SMTP hooks may reference another SMTP instance as a credential source.
 
+`IntegrationRun` stores connector operations that are not event deliveries. SMTP test runs record success or failure, timing, normalized error details, and safe diagnostic metadata such as test action, recipient, draft-settings use, and the bounded SMTP server response. These runs do not enter the delivery retry or metrics state machine.
+
 `IntegrationSubscription` maps an instance to an event type, enabled state, feed scope, structured filter, and transform. Selected feeds are normalized through `IntegrationSubscriptionFeed`.
 
 `IntegrationEvent` is the transactional outbox record. Its unique idempotency key, routing state, attempt count, claim timestamps, and `available_at` field support crash-safe routing recovery.

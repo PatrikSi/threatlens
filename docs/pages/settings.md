@@ -88,6 +88,9 @@ Legacy route behavior:
 - New hooks can store their own authentication or reuse credentials from an existing SMTP hook.
 - Changing the `Send for` event loads an event-specific default subject and body template.
 - Test tooling can run a connection/authentication check or send a rendered test email to a chosen recipient.
+- Per-hook history separates event deliveries from SMTP tests. Test history retains result, action, recipient, saved-versus-draft settings, duration, normalized error details, SMTP server response, timestamps, and run ID.
+- Tests against a saved hook are retained even when they use unsaved draft values. A brand-new unsaved hook has no persistent integration ID, so its result is available only in the immediate test response until the hook is saved.
+- Test runs do not affect delivery analytics, retries, circuit breaking, or dead-letter counts.
 - Dead-letter deliveries can be replayed without rewriting their historical attempt records.
 - API calls:
   - `GET /integrations/connectors`
@@ -99,6 +102,7 @@ Legacy route behavior:
   - `GET /integrations/smtp/template-defaults`
   - `GET /integrations/smtp/analytics`
   - `GET /integrations/smtp/hooks/{hook_id}/deliveries`
+  - `GET /integrations/smtp/hooks/{hook_id}/test-runs`
   - `POST /integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
   - `POST /integrations/smtp/hooks/test`
 - Legacy-compatible SMTP settings endpoints remain available: `GET /integrations/smtp/settings`, `PUT /integrations/smtp/settings`, and `POST /integrations/smtp/test`.

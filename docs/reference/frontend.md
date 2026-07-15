@@ -387,18 +387,29 @@ API calls:
 
 UI elements:
 
-- SMTP connection, authentication, sender, and recipient form
-- Event type and feed scope selection
-- Email subject and HTML template editor
-- Connection test and rendered test email action
-- Template variable reference list
+- Multi-hook SMTP list with per-hook health and credential-source status
+- SMTP connection, authentication, sender, recipient, event, and feed-scope editor
+- Optional credential reuse from another direct-credential SMTP hook
+- Event-specific default subject and HTML templates
+- Connection test and rendered test-email action using saved or current draft settings
+- Paginated `Deliveries` and `Tests` history views with attempts, errors, server responses, timing, recipients, configuration source, and run IDs
+- Dead-letter delivery replay
+- Aggregate delivery health and event statistics
+- Template variable reference
 
 API calls:
 
 - `GET /integrations/connectors`
-- `GET /integrations/smtp/settings`
-- `PUT /integrations/smtp/settings`
-- `POST /integrations/smtp/test`
+- `GET /integrations/smtp/hooks`
+- `POST /integrations/smtp/hooks`
+- `PATCH /integrations/smtp/hooks/{hook_id}`
+- `DELETE /integrations/smtp/hooks/{hook_id}`
+- `GET /integrations/smtp/template-defaults`
+- `GET /integrations/smtp/analytics`
+- `GET /integrations/smtp/hooks/{hook_id}/deliveries?page={page}&page_size=10`
+- `GET /integrations/smtp/hooks/{hook_id}/test-runs?page={page}&page_size=10`
+- `POST /integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
+- `POST /integrations/smtp/hooks/test`
 - `GET /feeds`
 - `GET /notifications/template-variables`
 
@@ -537,9 +548,16 @@ API calls:
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks/{id}/deliveries` |
 | `pages/NotificationsPage.tsx` | `POST` | `/notifications/webhooks/{id}/deliveries/{delivery_id}/retry` |
 | `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/connectors` |
-| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/settings` |
-| `pages/IntegrationsSettingsPage.tsx` | `PUT` | `/integrations/smtp/settings` |
-| `pages/IntegrationsSettingsPage.tsx` | `POST` | `/integrations/smtp/test` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/hooks` |
+| `pages/IntegrationsSettingsPage.tsx` | `POST` | `/integrations/smtp/hooks` |
+| `pages/IntegrationsSettingsPage.tsx` | `PATCH` | `/integrations/smtp/hooks/{hook_id}` |
+| `pages/IntegrationsSettingsPage.tsx` | `DELETE` | `/integrations/smtp/hooks/{hook_id}` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/template-defaults` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/analytics` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/hooks/{hook_id}/deliveries` |
+| `pages/IntegrationsSettingsPage.tsx` | `GET` | `/integrations/smtp/hooks/{hook_id}/test-runs` |
+| `pages/IntegrationsSettingsPage.tsx` | `POST` | `/integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay` |
+| `pages/IntegrationsSettingsPage.tsx` | `POST` | `/integrations/smtp/hooks/test` |
 | `pages/IntegrationsSettingsPage.tsx` | `GET` | `/feeds` |
 | `pages/IntegrationsSettingsPage.tsx` | `GET` | `/notifications/template-variables` |
 | `pages/TaggingSettingsPage.tsx` | `GET` | `/feeds` |
