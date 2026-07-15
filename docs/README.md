@@ -16,7 +16,7 @@ This documentation covers:
 - Database and schema field-level contracts.
 - Frontend pages, UI elements, local state values, constants, storage keys, and API calls.
 - AI configuration, daily briefing, enrichment, and admin operations surfaces.
-- Background worker pipeline, tasks, classification/IOC extraction value sets, webhook dispatch, and custom tagging behavior.
+- Background worker pipeline, tasks, classification/IOC extraction value sets, integration delivery, and custom tagging behavior.
 
 ## Index
 
@@ -32,6 +32,7 @@ This documentation covers:
 - [Data Models and Contracts](./reference/data-models.md)
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
+- [Integration Event and Delivery Platform ADR](./architecture/0001-integration-event-delivery-platform.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)
