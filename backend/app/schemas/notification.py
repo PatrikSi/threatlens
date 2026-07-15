@@ -112,6 +112,7 @@ class NotificationWebhookResponse(BaseModel):
     body_fields: list[NotificationWebhookField]
     body_template: str | None
     timeout_seconds: int
+    secrets_redacted: bool = False
     created_at: datetime
     updated_at: datetime
 

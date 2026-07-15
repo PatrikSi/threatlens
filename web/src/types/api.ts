@@ -645,6 +645,7 @@ export interface NotificationWebhook {
   body_fields: NotificationWebhookField[]
   body_template: string | null
   timeout_seconds: number
+  secrets_redacted?: boolean
   created_at: string
   updated_at: string
 }

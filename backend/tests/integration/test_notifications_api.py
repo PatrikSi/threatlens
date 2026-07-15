@@ -1,18 +1,40 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app.core.security import generate_api_token
+from app.models.api_token import ApiToken
 from app.models.feed import Feed
 from app.models.integration import IntegrationInstance, IntegrationSubscription
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.services.notification_webhooks import NotificationWebhookRetryInProgressError
-from app.schemas.notification import NotificationWebhookTestResponse
+from app.schemas.notification import NotificationWebhookTestResponse, NotificationWebhookWrite
+from app.services.notification_webhooks import (
+    NotificationWebhookRetryInProgressError,
+    build_notification_webhook,
+    notification_webhook_write_from_model,
+)
+
+
+def _issue_notification_api_token(db_session, user: User, *, scopes: list[str]) -> str:
+    token_value, token_prefix, token_hash = generate_api_token()
+    db_session.add(
+        ApiToken(
+            user_id=user.id,
+            name=f"notifications-{'-'.join(scopes)}",
+            token_prefix=token_prefix,
+            token_hash=token_hash,
+            scopes=scopes,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+    )
+    db_session.commit()
+    return token_value
 
 
 def test_admin_can_create_notification_webhooks_by_default(client: TestClient, auth_headers):
@@ -121,6 +143,8 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
     list_response = client.get("/notifications/webhooks", headers=auth_headers["admin"])
     assert list_response.status_code == 200
     assert len(list_response.json()) == 1
+    assert list_response.json()[0]["url_template"] == "https://hooks.example.com:443/notify"
+    assert list_response.json()[0]["secrets_redacted"] is False
 
     webhook_id = created["id"]
     update_response = client.patch(
@@ -169,6 +193,81 @@ def test_user_can_crud_notification_webhooks(client: TestClient, auth_headers, d
     assert delete_response.status_code == 204
     assert db_session.scalar(select(NotificationWebhook).where(NotificationWebhook.id == uuid.UUID(webhook_id))) is None
     assert db_session.get(IntegrationInstance, integration_id) is None
+
+
+def test_viewer_notification_webhook_list_redacts_decrypted_configuration(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    viewer = seed_users["viewer"]
+    webhook = build_notification_webhook(
+        viewer.id,
+        NotificationWebhookWrite(
+            name="Secret webhook",
+            url_template="https://hooks.example.com/canary-url-secret",
+            query_params=[{"key": "safe-looking-key", "value": "canary-query-secret"}],
+            headers=[{"key": "X-Custom", "value": "canary-header-secret"}],
+            body_mode="raw",
+            body_template="canary-body-secret",
+        ),
+    )
+    db_session.add(webhook)
+    db_session.commit()
+
+    response = client.get("/notifications/webhooks", headers=auth_headers["viewer"])
+
+    assert response.status_code == 200
+    assert "canary-" not in response.text
+    payload = response.json()[0]
+    assert payload["secrets_redacted"] is True
+    assert payload["url_template"] == "REDACTED"
+    assert payload["query_params"] == [{"key": "safe-looking-key", "value": "REDACTED"}]
+    assert payload["headers"] == [{"key": "X-Custom", "value": "REDACTED"}]
+    assert payload["body_template"] == "REDACTED"
+
+    stored_payload = notification_webhook_write_from_model(webhook)
+    assert stored_payload.url_template == "https://hooks.example.com/canary-url-secret"
+    assert stored_payload.query_params[0].value == "canary-query-secret"
+    assert stored_payload.headers[0].value == "canary-header-secret"
+    assert stored_payload.body_template == "canary-body-secret"
+
+
+def test_read_only_notification_api_token_redacts_configuration_for_operator(
+    client: TestClient,
+    db_session,
+    seed_users,
+):
+    analyst = seed_users["analyst"]
+    webhook = build_notification_webhook(
+        analyst.id,
+        NotificationWebhookWrite(
+            name="Scoped webhook",
+            url_template="https://hooks.example.com/operator-secret",
+            body_mode="none",
+        ),
+    )
+    db_session.add(webhook)
+    db_session.commit()
+    read_token = _issue_notification_api_token(db_session, analyst, scopes=["read:notifications"])
+    write_token = _issue_notification_api_token(db_session, analyst, scopes=["write:notifications"])
+
+    read_response = client.get(
+        "/notifications/webhooks",
+        headers={"Authorization": f"Bearer {read_token}"},
+    )
+    write_response = client.get(
+        "/notifications/webhooks",
+        headers={"Authorization": f"Bearer {write_token}"},
+    )
+
+    assert read_response.status_code == 200
+    assert read_response.json()[0]["url_template"] == "REDACTED"
+    assert read_response.json()[0]["secrets_redacted"] is True
+    assert write_response.status_code == 200
+    assert write_response.json()[0]["url_template"] == "https://hooks.example.com/operator-secret"
+    assert write_response.json()[0]["secrets_redacted"] is False
 
 
 def test_notification_webhook_create_extracts_query_string_into_params(client: TestClient, auth_headers):
