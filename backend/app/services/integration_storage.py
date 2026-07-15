@@ -398,6 +398,7 @@ def record_smtp_test_result(
             "action": result.action,
             "recipient_email": str(result.recipient_email) if result.recipient_email else None,
             "used_unsaved_settings": used_unsaved_settings,
+            "server_message": result.server_message[:4000] if result.server_message else None,
         },
     )
     db.add(run)

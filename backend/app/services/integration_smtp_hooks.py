@@ -12,6 +12,7 @@ from app.models.integration import (
     IntegrationDelivery,
     IntegrationDeliveryMetric,
     IntegrationInstance,
+    IntegrationRun,
 )
 from app.schemas.integration import (
     SMTPAnalyticsEventSummary,
@@ -23,6 +24,8 @@ from app.schemas.integration import (
     SMTPHookResponse,
     SMTPHookWrite,
     SMTPTemplateDefaultResponse,
+    SMTPTestRunListResponse,
+    SMTPTestRunResponse,
     SMTP_TEMPLATE_DEFAULTS,
 )
 from app.services.integration_registry import SMTP_CONFIG_SCHEMA_VERSION
@@ -397,6 +400,54 @@ def list_smtp_deliveries(
         total=total,
         page=page,
         page_size=page_size,
+    )
+
+
+def list_smtp_test_runs(
+    db: Session,
+    *,
+    instance: IntegrationInstance,
+    page: int,
+    page_size: int,
+) -> SMTPTestRunListResponse:
+    query = select(IntegrationRun).where(
+        IntegrationRun.integration_id == instance.id,
+        IntegrationRun.run_type == "test",
+    )
+    total = int(db.scalar(select(func.count()).select_from(query.subquery())) or 0)
+    runs = db.scalars(
+        query.order_by(IntegrationRun.started_at.desc(), IntegrationRun.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    return SMTPTestRunListResponse(
+        runs=[_smtp_test_run_response(run) for run in runs],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+def _smtp_test_run_response(run: IntegrationRun) -> SMTPTestRunResponse:
+    metadata = run.metadata_json if isinstance(run.metadata_json, dict) else {}
+    action = metadata.get("action")
+    if action not in {"connection", "send"}:
+        action = None
+    recipient_email = metadata.get("recipient_email")
+    server_message = metadata.get("server_message")
+    return SMTPTestRunResponse(
+        id=run.id,
+        hook_id=run.integration_id,
+        status="succeeded" if run.status == "succeeded" else "failed",
+        action=action,
+        recipient_email=recipient_email if isinstance(recipient_email, str) else None,
+        used_unsaved_settings=metadata.get("used_unsaved_settings") is True,
+        duration_ms=run.duration_ms,
+        error_code=run.error_code,
+        error_message=run.error_message,
+        server_message=server_message if isinstance(server_message, str) else None,
+        started_at=run.started_at,
+        finished_at=run.finished_at,
     )
 
 

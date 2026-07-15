@@ -330,6 +330,28 @@ class SMTPDeliveryListResponse(BaseModel):
     page_size: int
 
 
+class SMTPTestRunResponse(BaseModel):
+    id: uuid.UUID
+    hook_id: uuid.UUID
+    status: IntegrationRunStatus
+    action: Literal["connection", "send"] | None
+    recipient_email: str | None
+    used_unsaved_settings: bool
+    duration_ms: int | None
+    error_code: str | None
+    error_message: str | None
+    server_message: str | None
+    started_at: datetime
+    finished_at: datetime | None
+
+
+class SMTPTestRunListResponse(BaseModel):
+    runs: list[SMTPTestRunResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class SMTPAnalyticsEventSummary(BaseModel):
     event_type: NotificationEventType
     total_deliveries: int

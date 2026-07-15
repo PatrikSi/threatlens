@@ -5,7 +5,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
-from app.models.integration import IntegrationAttempt, IntegrationDelivery, IntegrationInstance, IntegrationSubscription
+from app.models.integration import (
+    IntegrationAttempt,
+    IntegrationDelivery,
+    IntegrationInstance,
+    IntegrationRun,
+    IntegrationSubscription,
+)
 from app.schemas.integration import SMTPTestResponse
 from app.services.integration_storage import build_active_smtp_settings, get_smtp_credential_source
 from app.services.secret_storage import is_encrypted_json
@@ -320,6 +326,115 @@ def test_saved_smtp_hook_test_updates_health_without_resubmitting_secrets(
     saved = next(candidate for candidate in hooks if candidate["id"] == hook["id"])
     assert saved["health_status"] == "healthy"
     assert saved["last_test_at"] is not None
+
+    history_response = client.get(
+        f"/integrations/smtp/hooks/{hook['id']}/test-runs",
+        headers=auth_headers["admin"],
+    )
+    assert history_response.status_code == 200
+    history = history_response.json()
+    assert history["total"] == 1
+    assert history["page"] == 1
+    assert history["page_size"] == 10
+    assert history["runs"][0] == {
+        "id": history["runs"][0]["id"],
+        "hook_id": hook["id"],
+        "status": "succeeded",
+        "action": "connection",
+        "recipient_email": None,
+        "used_unsaved_settings": False,
+        "duration_ms": 9,
+        "error_code": None,
+        "error_message": None,
+        "server_message": "connected",
+        "started_at": history["runs"][0]["started_at"],
+        "finished_at": history["runs"][0]["finished_at"],
+    }
+
+
+def test_smtp_test_run_history_is_paginated_authorized_and_tolerates_legacy_metadata(
+    client: TestClient,
+    auth_headers,
+    db_session,
+):
+    hook = client.post(
+        "/integrations/smtp/hooks",
+        headers=auth_headers["admin"],
+        json=_smtp_hook_payload("Diagnostic relay"),
+    ).json()
+    hook_id = uuid.UUID(hook["id"])
+    db_session.add_all(
+        [
+            IntegrationRun(
+                integration_id=hook_id,
+                run_type="test",
+                status="failed",
+                started_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                finished_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                duration_ms=102,
+                error_code="authentication_error",
+                error_message="SMTP authentication failed.",
+                metadata_json={
+                    "action": "send",
+                    "recipient_email": "analyst@example.com",
+                    "used_unsaved_settings": True,
+                    "server_message": "535 credentials rejected",
+                },
+            ),
+            IntegrationRun(
+                integration_id=hook_id,
+                run_type="test",
+                status="unexpected_legacy_status",
+                started_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                metadata_json={
+                    "action": "unknown",
+                    "recipient_email": ["invalid legacy value"],
+                    "used_unsaved_settings": "yes",
+                    "server_message": 250,
+                },
+            ),
+            IntegrationRun(
+                integration_id=hook_id,
+                run_type="maintenance",
+                status="succeeded",
+                started_at=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                metadata_json={},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    forbidden = client.get(
+        f"/integrations/smtp/hooks/{hook['id']}/test-runs",
+        headers=auth_headers["viewer"],
+    )
+    assert forbidden.status_code == 403
+
+    first_page = client.get(
+        f"/integrations/smtp/hooks/{hook['id']}/test-runs?page=1&page_size=1",
+        headers=auth_headers["admin"],
+    )
+    assert first_page.status_code == 200
+    payload = first_page.json()
+    assert payload["total"] == 2
+    assert payload["page_size"] == 1
+    assert payload["runs"][0]["status"] == "failed"
+    assert payload["runs"][0]["action"] == "send"
+    assert payload["runs"][0]["recipient_email"] == "analyst@example.com"
+    assert payload["runs"][0]["used_unsaved_settings"] is True
+    assert payload["runs"][0]["server_message"] == "535 credentials rejected"
+
+    legacy_page = client.get(
+        f"/integrations/smtp/hooks/{hook['id']}/test-runs?page=2&page_size=1",
+        headers=auth_headers["admin"],
+    )
+    assert legacy_page.status_code == 200
+    legacy = legacy_page.json()["runs"][0]
+    assert legacy["status"] == "failed"
+    assert legacy["action"] is None
+    assert legacy["recipient_email"] is None
+    assert legacy["used_unsaved_settings"] is False
+    assert legacy["server_message"] is None
 
 
 def test_smtp_credential_sources_reject_chains_and_deletion_while_in_use(
