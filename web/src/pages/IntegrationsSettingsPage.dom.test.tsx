@@ -15,6 +15,9 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
   testMutate: vi.fn(),
   deleteMutate: vi.fn(),
   replayMutate: vi.fn(),
+  deleteShouldFail: false,
+  deferReplaySuccess: false,
+  pendingReplaySuccess: null as null | (() => void),
   queryData: {} as Record<string, unknown>,
   smtpSettings: {
     id: 'smtp-1',
@@ -252,16 +255,39 @@ vi.mock('@tanstack/react-query', () => ({
     }
     return { ...baseResult, data: undefined }
   },
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: {
+    mutationKey?: unknown
+    onSuccess?: (result: unknown, variables: unknown) => void
+    onError?: (error: unknown, variables: unknown) => void
+  }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'integrations:smtp:hooks:test') {
       return mutationResult(integrationsPageDomMocks.testMutate)
     }
     if (mutationKey === 'integrations:smtp:hooks:delete') {
-      return mutationResult(integrationsPageDomMocks.deleteMutate)
+      return mutationResult(
+        vi.fn((hookId: string) => {
+          integrationsPageDomMocks.deleteMutate(hookId)
+          if (integrationsPageDomMocks.deleteShouldFail) {
+            options.onError?.(new Error('SMTP hook deletion failed.'), hookId)
+            return
+          }
+          options.onSuccess?.(undefined, hookId)
+        }),
+      )
     }
     if (mutationKey === 'integrations:smtp:deliveries:replay') {
-      return mutationResult(integrationsPageDomMocks.replayMutate)
+      return mutationResult(
+        vi.fn((variables: { hookId: string; deliveryId: string }) => {
+          integrationsPageDomMocks.replayMutate(variables)
+          const complete = () => options.onSuccess?.({ queued: true }, variables)
+          if (integrationsPageDomMocks.deferReplaySuccess) {
+            integrationsPageDomMocks.pendingReplaySuccess = complete
+            return
+          }
+          complete()
+        }),
+      )
     }
     return mutationResult(integrationsPageDomMocks.saveMutate)
   },
@@ -344,6 +370,9 @@ afterEach(() => {
   integrationsPageDomMocks.testMutate.mockReset()
   integrationsPageDomMocks.deleteMutate.mockReset()
   integrationsPageDomMocks.replayMutate.mockReset()
+  integrationsPageDomMocks.deleteShouldFail = false
+  integrationsPageDomMocks.deferReplaySuccess = false
+  integrationsPageDomMocks.pendingReplaySuccess = null
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -353,6 +382,28 @@ afterEach(() => {
 })
 
 describe('IntegrationsSettingsPage DOM workflows', () => {
+  it('keeps the SMTP delete confirmation open and renders failures', () => {
+    integrationsPageDomMocks.deleteShouldFail = true
+    renderPage()
+
+    act(() => {
+      getButton('Backup Relay')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      getButton('Delete hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      Array.from(document.querySelectorAll('button'))
+        .filter((button) => button.textContent?.trim() === 'Delete hook')
+        .at(-1)
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.body.textContent).toContain('Delete SMTP hook?')
+    expect(document.body.textContent).toContain('Backup Relay')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('SMTP hook deletion failed.')
+  })
+
   it('renders SMTP settings without exposing the saved password', () => {
     const view = renderPage()
 
@@ -474,6 +525,28 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
     expect(integrationsPageDomMocks.replayMutate).toHaveBeenCalledWith({
       hookId: 'smtp-1',
       deliveryId: 'delivery-1',
+    })
+  })
+
+  it('invalidates the replayed hook delivery cache even after selection changes', () => {
+    integrationsPageDomMocks.deferReplaySuccess = true
+    renderPage()
+
+    act(() => {
+      getButton('Replay dead letter')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      getButton('Replay delivery')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      getButton('Backup Relay')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      integrationsPageDomMocks.pendingReplaySuccess?.()
+    })
+
+    expect(integrationsPageDomMocks.queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['integrations', 'smtp', 'hooks', 'smtp-1', 'deliveries'],
     })
   })
 })

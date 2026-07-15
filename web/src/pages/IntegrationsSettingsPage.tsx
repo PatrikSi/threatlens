@@ -66,6 +66,7 @@ export function SMTPIntegrationSettingsPage() {
   const [testRecipient, setTestRecipient] = useState('')
   const [testResult, setTestResult] = useState<SMTPTestResponse | null>(null)
   const [pendingDelete, setPendingDelete] = useState<SMTPHook | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [pendingReplay, setPendingReplay] = useState<SMTPDelivery | null>(null)
 
   const hooksQuery = useQuery({
@@ -167,6 +168,7 @@ export function SMTPIntegrationSettingsPage() {
     mutationFn: (hookId: string) => apiFetch<void>(`/integrations/smtp/hooks/${hookId}`, { method: 'DELETE' }),
     onSuccess: () => {
       setPendingDelete(null)
+      setDeleteError(null)
       setSelectedHookId(null)
       setDraftState(newHookDraft)
       setHasUserEdited(false)
@@ -175,7 +177,7 @@ export function SMTPIntegrationSettingsPage() {
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp'] })
       void queryClient.invalidateQueries({ queryKey: ['integrations'] })
     },
-    onError: () => setPendingDelete(null),
+    onError: (error) => setDeleteError(resolveApiMessage(error, 'Failed to delete SMTP hook.')),
   })
 
   const testHook = useMutation({
@@ -212,14 +214,14 @@ export function SMTPIntegrationSettingsPage() {
         `/integrations/smtp/hooks/${hookId}/deliveries/${deliveryId}/replay`,
         { method: 'POST' },
       ),
-    onSuccess: (result) => {
+    onSuccess: (result, variables) => {
       setPendingReplay(null)
       setNotice({
         tone: 'success',
         message: result.queued ? 'Dead-letter delivery queued for replay.' : 'Replay created and awaiting queue recovery.',
       })
       void queryClient.invalidateQueries({
-        queryKey: ['integrations', 'smtp', 'hooks', selectedHookId, 'deliveries'],
+        queryKey: ['integrations', 'smtp', 'hooks', variables.hookId, 'deliveries'],
       })
       void queryClient.invalidateQueries({ queryKey: ['integrations', 'smtp', 'analytics'] })
     },
@@ -577,7 +579,18 @@ export function SMTPIntegrationSettingsPage() {
                   <button type="button" className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={saveHook.isPending} onClick={onSave}>{saveHook.isPending ? 'Saving...' : selectedHook ? 'Save hook' : 'Create hook'}</button>
                   <button type="button" className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={testHook.isPending} onClick={onTest}>{testHook.isPending ? 'Testing...' : 'Test SMTP'}</button>
                   {selectedHook && !selectedHook.is_default && (
-                    <button type="button" className="tl-button-danger rounded px-3 py-2 text-sm font-semibold" onClick={() => confirmDiscardUnsavedChanges(() => setPendingDelete(selectedHook))}>Delete hook</button>
+                    <button
+                      type="button"
+                      className="tl-button-danger rounded px-3 py-2 text-sm font-semibold"
+                      onClick={() =>
+                        confirmDiscardUnsavedChanges(() => {
+                          setDeleteError(null)
+                          setPendingDelete(selectedHook)
+                        })
+                      }
+                    >
+                      Delete hook
+                    </button>
                   )}
                 </div>
                 {selectedHook?.is_default && <p className="mt-2 text-xs text-slate dark:text-white/60">The default hook can be disabled but remains available to older clients.</p>}
@@ -634,9 +647,24 @@ export function SMTPIntegrationSettingsPage() {
         description={pendingDelete ? `Delete ${pendingDelete.name}? Delivery history will remain in retained integration records.` : undefined}
         confirmLabel="Delete hook"
         isConfirming={deleteHook.isPending}
-        onConfirm={() => pendingDelete && deleteHook.mutate(pendingDelete.id)}
-        onCancel={() => setPendingDelete(null)}
-      />
+        onConfirm={() => {
+          if (!pendingDelete) {
+            return
+          }
+          setDeleteError(null)
+          deleteHook.mutate(pendingDelete.id)
+        }}
+        onCancel={() => {
+          setPendingDelete(null)
+          setDeleteError(null)
+        }}
+      >
+        {deleteError && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+            {deleteError}
+          </p>
+        )}
+      </ConfirmDialog>
       <ConfirmDialog
         open={Boolean(pendingReplay)}
         title="Replay dead-letter delivery?"
