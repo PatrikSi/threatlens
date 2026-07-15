@@ -95,7 +95,7 @@ def test_smtp_secret_can_be_replaced_or_cleared_without_leaking_previous_value()
     assert secrets == {}
 
 
-def test_smtp_test_result_updates_saved_health_only_for_saved_settings(db_session):
+def test_smtp_test_result_updates_saved_health_and_retains_diagnostics(db_session):
     instance = _smtp_instance()
     db_session.add(instance)
     db_session.flush()
@@ -111,11 +111,17 @@ def test_smtp_test_result_updates_saved_health_only_for_saved_settings(db_sessio
         used_unsaved_settings=False,
     )
 
-    record_smtp_test_result(db_session, instance=instance, result=result, used_unsaved_settings=False)
+    run = record_smtp_test_result(db_session, instance=instance, result=result, used_unsaved_settings=False)
 
     assert instance.health_status == "healthy"
     assert instance.last_success_at == result.tested_at
     assert instance.last_error is None
+    assert run.metadata_json == {
+        "action": "connection",
+        "recipient_email": None,
+        "used_unsaved_settings": False,
+        "server_message": "250 OK",
+    }
 
 
 def test_smtp_settings_sync_durable_subscriptions_and_normalized_feed_filters(db_session):

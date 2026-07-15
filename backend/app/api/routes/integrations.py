@@ -26,6 +26,7 @@ from app.schemas.integration import (
     SMTPTemplateDefaultResponse,
     SMTPTestRequest,
     SMTPTestResponse,
+    SMTPTestRunListResponse,
 )
 from app.services.audit import record_audit
 from app.services.integration_registry import list_integration_connectors
@@ -40,6 +41,7 @@ from app.services.integration_smtp_hooks import (
     get_smtp_hook,
     list_smtp_deliveries,
     list_smtp_hooks,
+    list_smtp_test_runs,
     list_smtp_template_defaults,
     smtp_hook_response,
     update_smtp_hook,
@@ -226,6 +228,22 @@ def get_smtp_hook_deliveries(
     except SMTPHookNotFoundError as exc:
         raise _smtp_hook_http_error(exc) from exc
     return list_smtp_deliveries(db, instance=instance, page=page, page_size=page_size)
+
+
+@router.get("/smtp/hooks/{hook_id}/test-runs", response_model=SMTPTestRunListResponse)
+def get_smtp_hook_test_runs(
+    hook_id: uuid.UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=10, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_INTEGRATIONS)),
+):
+    try:
+        instance = get_smtp_hook(db, hook_id)
+    except SMTPHookNotFoundError as exc:
+        raise _smtp_hook_http_error(exc) from exc
+    return list_smtp_test_runs(db, instance=instance, page=page, page_size=page_size)
 
 
 @router.post(
