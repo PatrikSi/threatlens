@@ -16,6 +16,30 @@ from app.schemas.user import UserAdminResponse, UserCreateRequest, UserUpdateReq
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/users", tags=["users"])
+ACTIVE_ADMIN_ADVISORY_LOCK_ID = 6072351299479551566
+
+
+def _acquire_active_admin_invariant_lock(db: Session) -> None:
+    bind = db.get_bind()
+    if bind is not None and bind.dialect.name == "postgresql":
+        db.scalar(select(func.pg_advisory_xact_lock(ACTIVE_ADMIN_ADVISORY_LOCK_ID)))
+        return
+    db.scalars(
+        select(User.id)
+        .where(User.role == ROLE_ADMIN, User.is_active.is_(True), User.is_approved.is_(True))
+        .with_for_update()
+    ).all()
+
+
+def _reload_admin_after_invariant_lock(db: Session, admin_id: uuid.UUID) -> User:
+    admin = db.scalar(
+        select(User)
+        .where(User.id == admin_id)
+        .execution_options(populate_existing=True)
+    )
+    if admin is None or admin.role != ROLE_ADMIN or not admin.is_active or not admin.is_approved:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
+    return admin
 
 
 def _ensure_active_approved_admin_remains(db: Session, user: User, payload: UserUpdateRequest) -> None:
@@ -103,7 +127,14 @@ def update_user(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_USERS)),
 ):
-    user = db.scalar(select(User).where(User.id == user_id))
+    _acquire_active_admin_invariant_lock(db)
+    admin = _reload_admin_after_invariant_lock(db, admin.id)
+    user = db.scalar(
+        select(User)
+        .where(User.id == user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
