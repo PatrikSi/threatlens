@@ -219,7 +219,7 @@ vi.mock('@tanstack/react-query', () => ({
         data: integrationsPageDomMocks.queryData[key],
       }
     }
-    if (key === 'integrations:smtp:hooks:smtp-1:deliveries') {
+    if (key === 'integrations:smtp:hooks:smtp-1:deliveries:1') {
       integrationsPageDomMocks.queryData[key] ??= {
         total: 1,
         page: 1,
@@ -245,6 +245,60 @@ vi.mock('@tanstack/react-query', () => ({
             completed_at: null,
             dead_lettered_at: '2026-07-04T10:01:00Z',
             attempts: [],
+          },
+        ],
+      }
+      return {
+        ...baseResult,
+        data: integrationsPageDomMocks.queryData[key],
+      }
+    }
+    if (key === 'integrations:smtp:hooks:smtp-1:test-runs:1') {
+      integrationsPageDomMocks.queryData[key] ??= {
+        total: 11,
+        page: 1,
+        page_size: 10,
+        runs: [
+          {
+            id: 'test-run-failed',
+            hook_id: 'smtp-1',
+            status: 'failed',
+            action: 'send',
+            recipient_email: 'analyst@example.com',
+            used_unsaved_settings: true,
+            duration_ms: 842,
+            error_code: 'authentication_error',
+            error_message: 'SMTP authentication failed.',
+            server_message: '535 5.7.8 Credentials rejected',
+            started_at: '2026-07-04T12:00:00Z',
+            finished_at: '2026-07-04T12:00:01Z',
+          },
+        ],
+      }
+      return {
+        ...baseResult,
+        data: integrationsPageDomMocks.queryData[key],
+      }
+    }
+    if (key === 'integrations:smtp:hooks:smtp-1:test-runs:2') {
+      integrationsPageDomMocks.queryData[key] ??= {
+        total: 11,
+        page: 2,
+        page_size: 10,
+        runs: [
+          {
+            id: 'test-run-succeeded',
+            hook_id: 'smtp-1',
+            status: 'succeeded',
+            action: 'connection',
+            recipient_email: null,
+            used_unsaved_settings: false,
+            duration_ms: 34,
+            error_code: null,
+            error_message: null,
+            server_message: 'Connection and authentication succeeded.',
+            started_at: '2026-07-03T12:00:00Z',
+            finished_at: '2026-07-03T12:00:00Z',
           },
         ],
       }
@@ -526,6 +580,31 @@ describe('IntegrationsSettingsPage DOM workflows', () => {
       hookId: 'smtp-1',
       deliveryId: 'delivery-1',
     })
+  })
+
+  it('shows paginated SMTP test diagnostics separately from deliveries', () => {
+    const view = renderPage()
+
+    act(() => {
+      getButton('Tests')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('authentication_error')
+    expect(view.textContent).toContain('SMTP authentication failed.')
+    expect(view.textContent).toContain('535 5.7.8 Credentials rejected')
+    expect(view.textContent).toContain('Recipient: analyst@example.com')
+    expect(view.textContent).toContain('Draft settings')
+    expect(view.textContent).toContain('Run ID: test-run-failed')
+    expect(view.textContent).toContain('Page 1 of 2')
+
+    act(() => {
+      getButton('Next')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.textContent).toContain('Connection and authentication only')
+    expect(view.textContent).toContain('Saved settings')
+    expect(view.textContent).toContain('Connection and authentication succeeded.')
+    expect(view.textContent).toContain('Page 2 of 2')
   })
 
   it('invalidates the replayed hook delivery cache even after selection changes', () => {

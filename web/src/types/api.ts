@@ -946,6 +946,28 @@ export interface SMTPDeliveryListResponse {
   page_size: number
 }
 
+export interface SMTPTestRun {
+  id: string
+  hook_id: string
+  status: 'succeeded' | 'failed'
+  action: 'connection' | 'send' | null
+  recipient_email: string | null
+  used_unsaved_settings: boolean
+  duration_ms: number | null
+  error_code: string | null
+  error_message: string | null
+  server_message: string | null
+  started_at: string
+  finished_at: string | null
+}
+
+export interface SMTPTestRunListResponse {
+  runs: SMTPTestRun[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface IntegrationDeliveryReplayResponse {
   source_delivery_id: string
   delivery_id: string
