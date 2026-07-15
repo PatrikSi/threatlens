@@ -17,7 +17,6 @@ from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorRoutingResult,
     IntegrationConnectorDefinition,
-    IntegrationConnectorRuntime,
     IntegrationEventContextError,
 )
 from app.services.integration_processors import process_smtp_integration_delivery
@@ -103,16 +102,14 @@ class SMTPIntegrationConnector:
             db.add(delivery)
             db.flush()
             delivery_ids.append(delivery.id)
-        return ConnectorRoutingResult(delivery_ids=delivery_ids)
+        return ConnectorRoutingResult(delivery_ids=tuple(delivery_ids))
 
     def process_delivery(
         self,
         db: Session,
         *,
         delivery: IntegrationDelivery,
-        runtime: IntegrationConnectorRuntime,
     ) -> ConnectorDeliveryResult:
-        del runtime
         result = process_smtp_integration_delivery(db, delivery_id=delivery.id)
         return ConnectorDeliveryResult(
             delivery_id=result.delivery_id,

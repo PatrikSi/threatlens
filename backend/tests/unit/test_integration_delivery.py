@@ -10,6 +10,7 @@ from app.models.user import User
 from app.services.integration_delivery import (
     claim_integration_delivery,
     claim_webhook_delivery,
+    defer_integration_delivery,
     ensure_webhook_delivery,
     finalize_integration_delivery,
     finalize_webhook_delivery,
@@ -316,6 +317,27 @@ def test_webhook_dead_letter_replay_rejects_missing_history_projection(db_sessio
     assert db_session.scalar(
         select(IntegrationDelivery).where(IntegrationDelivery.source_delivery_id == delivery.id)
     ) is None
+
+
+def test_unknown_connector_delivery_is_deferred_for_rolling_upgrade(db_session):
+    delivery = _persist_generic_delivery(db_session)
+    delivery.connector_type = "future-connector"
+    started_at = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+
+    deferred = defer_integration_delivery(
+        db_session,
+        delivery_id=delivery.id,
+        error_code="unsupported_connector",
+        error_message="Connector is not installed on this worker.",
+        delay_seconds=90,
+        now=started_at,
+    )
+
+    assert deferred is True
+    assert delivery.state == "retry_wait"
+    assert delivery.not_before == started_at + timedelta(seconds=90)
+    assert delivery.last_error_retryable is True
+    assert delivery.dead_lettered_at is None
 
 
 def _persist_legacy_delivery(db_session) -> tuple[NotificationWebhook, NotificationWebhookDelivery]:

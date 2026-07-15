@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
@@ -39,8 +38,14 @@ class IntegrationConnectorDefinition:
 
 @dataclass(frozen=True)
 class ConnectorRoutingResult:
-    delivery_ids: list[uuid.UUID] = field(default_factory=list)
-    compatibility_delivery_ids: list[uuid.UUID] = field(default_factory=list)
+    delivery_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
+    compatibility_delivery_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True)
+class ConnectorFollowupDelivery:
+    delivery_id: uuid.UUID
+    countdown_seconds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -49,12 +54,8 @@ class ConnectorDeliveryResult:
     status: str
     reason: str | None = None
     retry_at: str | None = None
-
-
-@dataclass(frozen=True)
-class IntegrationConnectorRuntime:
-    enqueue_deliveries: Callable[[list[uuid.UUID], int | None], bool]
-    enqueue_events: Callable[[list[uuid.UUID]], bool]
+    followup_deliveries: tuple[ConnectorFollowupDelivery, ...] = field(default_factory=tuple)
+    followup_event_ids: tuple[uuid.UUID, ...] = field(default_factory=tuple)
 
 
 @runtime_checkable
@@ -68,5 +69,4 @@ class IntegrationConnector(Protocol):
         db: Session,
         *,
         delivery: IntegrationDelivery,
-        runtime: IntegrationConnectorRuntime,
     ) -> ConnectorDeliveryResult: ...

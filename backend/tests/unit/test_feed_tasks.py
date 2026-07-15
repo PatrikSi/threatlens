@@ -4858,11 +4858,91 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     assert captured["countdown"] == max(1, int(get_settings().notification_delivery_retry_backoff_seconds))
 
 
+def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="atomic-retry@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Atomic retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="pending",
+        attempt_count=0,
+        success=False,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.notification_webhooks._send_rendered_notification_request",
+        lambda _rendered: NotificationWebhookTestResponse(
+            success=False,
+            status_code=503,
+            duration_ms=25,
+            rendered_url="https://hooks.example.com/retry",
+            rendered_method="POST",
+            rendered_headers=[],
+            rendered_query_params=[],
+            rendered_body=None,
+            response_body_preview="busy",
+            error="HTTP 503",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.reserve_retryable_notification_webhook_delivery",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("retry reservation failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="retry reservation failed"):
+        _process_reserved_notification_deliveries(db_session, [delivery.id])
+    db_session.rollback()
+    db_session.expire_all()
+
+    persisted = db_session.get(NotificationWebhookDelivery, delivery.id)
+    generic = db_session.get(IntegrationDelivery, persisted.integration_delivery_id)
+    assert persisted.delivery_state == "sending"
+    assert generic is not None and generic.state == "sending"
+    assert db_session.scalar(
+        select(NotificationWebhookDelivery.id).where(
+            NotificationWebhookDelivery.source_delivery_id == delivery.id
+        )
+    ) is None
+
+
 def test_process_reserved_notification_deliveries_skips_missing_rows(db_session, monkeypatch):
     missing_delivery_id = uuid.uuid4()
     existing_delivery_id = uuid.uuid4()
 
-    def _fake_process(_db, *, delivery_id: uuid.UUID):
+    def _fake_process(_db, *, delivery_id: uuid.UUID, commit_outcome: bool = True):
+        assert commit_outcome is False
         if delivery_id == missing_delivery_id:
             raise ValueError("Webhook delivery not found")
         return SimpleNamespace(

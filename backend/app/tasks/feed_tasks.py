@@ -80,8 +80,8 @@ from app.services.integration_events import (
     record_integration_event_failure,
     route_integration_event as route_pending_integration_event,
 )
-from app.services.integration_connectors import IntegrationConnectorRuntime
 from app.services.integration_delivery import (
+    defer_integration_delivery,
     list_recoverable_integration_delivery_ids,
     mark_integration_delivery_dead_letter,
 )
@@ -364,7 +364,11 @@ def _process_reserved_notification_deliveries(
     return _process_reserved_notification_deliveries_impl(
         db,
         delivery_ids,
-        process_delivery=process_notification_webhook_delivery,
+        process_delivery=lambda session, *, delivery_id: process_notification_webhook_delivery(
+            session,
+            delivery_id=delivery_id,
+            commit_outcome=False,
+        ),
         reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
         reserve_failed_delivery_notifications=None,
         enqueue_delivery_processing=enqueue_notification_webhook_delivery_processing,
@@ -1610,26 +1614,29 @@ def process_integration_deliveries(delivery_ids: list[str]):
                 continue
             connector = get_integration_connector(delivery.connector_type)
             if connector is None:
-                mark_integration_delivery_dead_letter(
+                defer_integration_delivery(
                     db,
                     delivery_id=delivery.id,
                     error_code="unsupported_connector",
-                    error_message=f"Unsupported integration connector: {delivery.connector_type}",
+                    error_message=(
+                        f"Connector {delivery.connector_type!r} is not available on this worker; "
+                        "delivery will be retried after the worker is upgraded."
+                    ),
                 )
                 db.commit()
-                failed += 1
+                deferred += 1
                 continue
             result = connector.process_delivery(
                 db,
                 delivery=delivery,
-                runtime=IntegrationConnectorRuntime(
-                    enqueue_deliveries=lambda ids, countdown=None: enqueue_integration_delivery_processing(
-                        ids,
-                        countdown=countdown,
-                    ),
-                    enqueue_events=enqueue_integration_event_routing,
-                ),
             )
+            for followup in result.followup_deliveries:
+                enqueue_integration_delivery_processing(
+                    [followup.delivery_id],
+                    countdown=followup.countdown_seconds,
+                )
+            if result.followup_event_ids:
+                enqueue_integration_event_routing(list(result.followup_event_ids))
             if result.status == "succeeded":
                 delivered += 1
             elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
