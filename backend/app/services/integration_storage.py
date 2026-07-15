@@ -416,6 +416,7 @@ def record_smtp_test_result(
             instance.last_error = result.error
         db.add(instance)
 
+    db.flush()
     return run
 
 
