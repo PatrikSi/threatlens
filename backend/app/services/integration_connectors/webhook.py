@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
@@ -18,7 +18,11 @@ from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.services.integration_compat import WEBHOOK_CONFIG_SCHEMA_VERSION, repair_legacy_webhook_integrations
+from app.services.integration_compat import (
+    WEBHOOK_CONFIG_SCHEMA_VERSION,
+    ensure_webhook_integration,
+    repair_legacy_webhook_integrations,
+)
 from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorFollowupDelivery,
@@ -192,30 +196,23 @@ class WebhookIntegrationConnector:
             .join(IntegrationInstance, IntegrationInstance.id == NotificationWebhook.integration_id)
             .where(
                 IntegrationInstance.integration_type == self.definition.integration_type,
-                IntegrationInstance.enabled.is_(True),
-                IntegrationSubscription.enabled.is_(True),
-                IntegrationSubscription.event_type == event_type,
                 NotificationWebhook.enabled.is_(True),
+                NotificationWebhook.event_type == event_type,
             )
         )
         if owner_user_id is not None:
-            query = query.where(IntegrationInstance.owner_user_id == owner_user_id)
-        if feed_id is None and event_type != "daily_digest":
-            query = query.where(IntegrationSubscription.feed_scope == "all")
-        elif feed_id is not None:
-            query = query.outerjoin(
-                IntegrationSubscriptionFeed,
-                and_(
-                    IntegrationSubscriptionFeed.subscription_id == IntegrationSubscription.id,
-                    IntegrationSubscriptionFeed.feed_id == feed_id,
-                ),
-            ).where(
-                or_(
-                    IntegrationSubscription.feed_scope == "all",
-                    IntegrationSubscriptionFeed.feed_id == feed_id,
-                )
-            )
-        return list(db.scalars(query.order_by(NotificationWebhook.created_at.asc())).unique().all())
+            query = query.where(NotificationWebhook.user_id == owner_user_id)
+
+        candidates = db.scalars(query.order_by(NotificationWebhook.created_at.asc())).unique().all()
+        webhooks = [
+            webhook
+            for webhook in candidates
+            if _legacy_webhook_matches_feed(webhook, event_type=event_type, feed_id=feed_id)
+        ]
+        for webhook in webhooks:
+            # Older nodes only know the legacy row. Repair its generic projection before routing.
+            ensure_webhook_integration(db, webhook)
+        return webhooks
 
     def _reserve_daily_digest(
         self,
@@ -348,3 +345,18 @@ def _payload_uuid(event: IntegrationEvent, key: str, *, required: bool = True) -
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise IntegrationEventContextError(f"{event.event_type} event has invalid {key}") from exc
+
+
+def _legacy_webhook_matches_feed(
+    webhook: NotificationWebhook,
+    *,
+    event_type: str,
+    feed_id: uuid.UUID | None,
+) -> bool:
+    if event_type == "daily_digest":
+        return True
+    if webhook.feed_scope == "all":
+        return True
+    if feed_id is None:
+        return False
+    return str(feed_id) in {str(value) for value in (webhook.feed_ids_json or [])}

@@ -9,6 +9,7 @@ from app.models.integration import (
     IntegrationDelivery,
     IntegrationEvent,
     IntegrationInstance,
+    IntegrationSubscription,
     IntegrationSubscriptionFeed,
 )
 from app.models.item import Item
@@ -178,6 +179,56 @@ def test_webhook_repair_ignores_deleted_and_invalid_selected_feed_ids(db_session
     )
 
     assert normalized_feed_ids == {live_feed.id}
+
+
+def test_route_event_reconciles_webhook_changes_written_by_older_node(db_session):
+    user = _persist_user(db_session)
+    selected_feed = _persist_feed(db_session, "Selected after legacy update")
+    previously_selected_feed = _persist_feed(db_session, "Selected before legacy update")
+    item = _persist_item(db_session, selected_feed)
+    webhook = _persist_webhook(
+        db_session,
+        user,
+        name="Legacy-updated webhook",
+        feed_scope="selected",
+        feed_ids=[previously_selected_feed.id],
+    )
+    subscription = db_session.get(IntegrationSubscription, webhook.subscription_id)
+    assert subscription is not None
+    assert subscription.filter_json["feed_ids"] == [str(previously_selected_feed.id)]
+
+    # Simulate a pre-integration node that only updates the compatibility table.
+    webhook.feed_ids_json = [str(selected_feed.id)]
+    db_session.add(webhook)
+    db_session.flush()
+    event = emit_integration_event(
+        db_session,
+        event_type="rss_item_new",
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"legacy-update:{item.id}",
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(selected_feed.id),
+            "owner_user_id": str(user.id),
+        },
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    assert len(result.webhook_delivery_ids) == 1
+    db_session.refresh(subscription)
+    assert subscription.filter_json == {
+        "feed_scope": "selected",
+        "feed_ids": [str(selected_feed.id)],
+    }
+    assert set(
+        db_session.scalars(
+            select(IntegrationSubscriptionFeed.feed_id).where(
+                IntegrationSubscriptionFeed.subscription_id == subscription.id
+            )
+        ).all()
+    ) == {selected_feed.id}
 
 
 def test_route_event_fans_out_to_smtp_generic_delivery(db_session):
