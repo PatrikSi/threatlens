@@ -114,6 +114,17 @@ export function StatsPage() {
   const allFeedIds = useMemo(() => feedsQuery.data?.map((feed) => feed.id) ?? [], [feedsQuery.data])
   const selectedFeedLabel = selectedFeedIds.length ? `${selectedFeedIds.length} selected` : 'All feeds selected'
 
+  useEffect(() => {
+    if (!feedsQuery.data) {
+      return
+    }
+    const availableFeedIds = new Set(feedsQuery.data.map((feed) => feed.id))
+    setSelectedFeedIds((current) => {
+      const next = current.filter((feedId) => availableFeedIds.has(feedId))
+      return next.length === current.length ? current : next
+    })
+  }, [feedsQuery.data])
+
   const toggleFeedSelection = (feedId: string) => {
     setSelectedFeedIds((current) => {
       if (current.includes(feedId)) {
@@ -132,7 +143,11 @@ export function StatsPage() {
             <p className="text-sm text-slate dark:text-slate-300">Feed ingestion and article extraction analytics over time.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2">
+            <label htmlFor="stats-time-window" className="sr-only">
+              Statistics time window
+            </label>
             <select
+              id="stats-time-window"
               value={days}
               onChange={(event) => setDays(Number(event.target.value))}
               className="w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
