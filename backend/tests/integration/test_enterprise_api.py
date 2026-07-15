@@ -2713,6 +2713,36 @@ def test_api_token_flow(client: TestClient, auth_headers):
     assert denied_response.status_code == 401
 
 
+def test_token_revocation_hides_foreign_token_ids_from_non_admins(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    foreign_token = ApiToken(
+        id=uuid.uuid4(),
+        user_id=seed_users["analyst"].id,
+        name="foreign-token",
+        token_prefix=f"tl_{uuid.uuid4().hex[:12]}",
+        token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    db_session.add(foreign_token)
+    db_session.commit()
+
+    foreign_response = client.delete(f"/tokens/{foreign_token.id}", headers=auth_headers["viewer"])
+    missing_response = client.delete(f"/tokens/{uuid.uuid4()}", headers=auth_headers["viewer"])
+
+    assert foreign_response.status_code == 404
+    assert foreign_response.json() == missing_response.json() == {"detail": "Token not found"}
+    db_session.refresh(foreign_token)
+    assert foreign_token.revoked_at is None
+
+    admin_response = client.delete(f"/tokens/{foreign_token.id}", headers=auth_headers["admin"])
+    assert admin_response.status_code == 204
+
+
 def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
     token_response = client.post(
         "/tokens",

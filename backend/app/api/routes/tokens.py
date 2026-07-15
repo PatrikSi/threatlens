@@ -204,12 +204,12 @@ def revoke_token(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_TOKENS)),
 ):
-    token = db.scalar(select(ApiToken).where(ApiToken.id == token_id))
+    token_query = select(ApiToken).where(ApiToken.id == token_id)
+    if user.role != ROLE_ADMIN:
+        token_query = token_query.where(ApiToken.user_id == user.id)
+    token = db.scalar(token_query)
     if token is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Token not found")
-
-    if token.user_id != user.id and user.role != ROLE_ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
     if token.revoked_at is None:
         token.revoked_at = datetime.now(timezone.utc)
