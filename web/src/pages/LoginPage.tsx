@@ -113,6 +113,16 @@ export function LoginPage() {
             {authMessage}
           </p>
         )}
+        {registrationSettingsQuery.isError && (
+          <p
+            role="alert"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mt-3 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+          >
+            Registration availability could not be loaded. Sign-in is still available.
+          </p>
+        )}
 
         {selfRegistrationEnabled && (
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
