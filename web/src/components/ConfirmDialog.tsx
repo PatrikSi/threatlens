@@ -52,7 +52,7 @@ export function DialogSurface({
   initialFocusRef,
   panelClassName = 'max-w-xl',
   bodyClassName = 'mt-4 space-y-3 text-sm text-slate dark:text-white/75',
-  footerClassName = 'mt-5 flex flex-wrap items-center justify-end gap-2',
+  footerClassName = 'mt-5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:justify-end',
   onClose,
 }: DialogSurfaceProps) {
   const titleId = useId()
@@ -76,11 +76,11 @@ export function DialogSurface({
   const describedBy = [description ? descriptionId : null, children ? bodyId : null].filter(Boolean).join(' ') || undefined
 
   const dialog = (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-3 py-3 sm:px-4 sm:py-6">
       <div
         ref={dialogRef}
         data-dialog-root="true"
-        className={`w-full rounded-2xl border border-slate/20 bg-white p-5 shadow-2xl dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
+        className={`max-h-[calc(100dvh-1.5rem)] w-full overflow-y-auto rounded-lg border border-slate/20 bg-white p-4 shadow-2xl sm:max-h-none sm:overflow-visible sm:rounded-2xl sm:p-5 dark:border-cyan-900/40 dark:bg-[#041612] ${panelClassName}`}
         role={role}
         aria-modal="true"
         aria-labelledby={titleId}

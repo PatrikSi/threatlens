@@ -21,6 +21,7 @@ import {
   ItemListEntry,
 } from '../types/api'
 import { AIReprocessScopeValidation } from './aiReprocessQueueState'
+import { AiRunMobileList } from './AiRunMobileCard'
 import {
   EmptyInline,
   Field,
@@ -1193,7 +1194,17 @@ export function ActivityTab({
             </p>
           )}
 
-          <div className="mt-4 overflow-x-auto">
+          <AiRunMobileList
+            runList={runsQuery.data}
+            selectedRunId={selectedRunId}
+            isLoading={runListLoading}
+            isRefreshing={runListRefreshing}
+            isPageLoading={runListPageLoading}
+            onSelect={onSelectRun}
+            onInspect={setInspectedRunId}
+          />
+
+          <div className="mt-4 hidden overflow-x-auto sm:block">
             <table
               className={`min-w-full text-sm transition-opacity ${runListPageLoading ? 'opacity-70' : ''}`}
               aria-busy={runListLoading || runListRefreshing || runListPageLoading}
@@ -1504,4 +1515,3 @@ export function ActivityTab({
     </div>
   )
 }
-

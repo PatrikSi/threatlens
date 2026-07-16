@@ -167,7 +167,31 @@ export function OverviewTab({
           </Panel>
 
           <Panel title="Per-Model Usage" subtitle="Requests, success rate, latency, and token footprint by model.">
-            <div className="overflow-x-auto">
+            <div className="space-y-2 sm:hidden" aria-label="Per-model AI usage records">
+              {overview.per_model.map((row) => (
+                <article key={row.model} className="rounded-lg border border-slate/15 bg-slate/5 p-3 dark:border-cyan-900/30 dark:bg-white/[0.03]">
+                  <div className="flex items-start justify-between gap-3">
+                    <h4 className="min-w-0 break-all text-sm font-semibold">{row.model}</h4>
+                    <span className="tl-chip tl-chip-neutral shrink-0">{row.success_rate_pct.toFixed(1)}% success</span>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Requests</dt>
+                      <dd className="mt-0.5">{row.total_requests}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Latency</dt>
+                      <dd className="mt-0.5">{row.average_latency_ms.toFixed(1)} ms</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Tokens</dt>
+                      <dd className="mt-0.5">{row.total_tokens.toLocaleString()}</dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto sm:block">
               <table className="min-w-full text-sm">
                 <thead className="text-left text-xs uppercase text-slate dark:text-white/55">
                   <tr>
@@ -286,5 +310,4 @@ export function OverviewTab({
     </div>
   )
 }
-
 

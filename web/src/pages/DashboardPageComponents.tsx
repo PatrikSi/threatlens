@@ -54,7 +54,7 @@ export function ArticlePreviewDrawer({
         aria-valuemax={maxWidth}
         aria-valuenow={width}
         tabIndex={0}
-        className="absolute left-0 top-1/2 z-10 flex h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20 bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2 focus-visible:ring-cyan/50 dark:border-cyan-900/50 dark:bg-[#062019] dark:hover:border-cyan-500/60"
+        className="absolute left-0 top-1/2 z-10 hidden h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20 bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2 focus-visible:ring-cyan/50 sm:flex dark:border-cyan-900/50 dark:bg-[#062019] dark:hover:border-cyan-500/60"
         onPointerDown={onResizeStart}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft') {
@@ -74,7 +74,7 @@ export function ArticlePreviewDrawer({
       >
         <span className="h-12 w-1 rounded-full bg-slate/35 dark:bg-cyan-700/70" />
       </div>
-      <div className="flex items-start justify-between gap-3 border-b border-slate/20 px-4 py-3 dark:border-cyan-900/40">
+      <div className="flex flex-col gap-3 border-b border-slate/20 px-4 py-3 sm:flex-row sm:items-start sm:justify-between dark:border-cyan-900/40">
         <div className="min-w-0">
           <p className="text-xs font-semibold uppercase text-slate dark:text-slate-400">{preview.sourceLabel}</p>
           <h2 id="article-preview-title" className="truncate font-display text-lg font-semibold text-ink dark:text-slate-100">
@@ -82,12 +82,12 @@ export function ArticlePreviewDrawer({
           </h2>
           <p className="mt-0.5 truncate text-sm text-slate dark:text-slate-300">{preview.title}</p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="grid w-full shrink-0 grid-cols-2 items-center gap-2 sm:flex sm:w-auto">
           <a
             href={preview.url}
             target="_blank"
             rel="noreferrer"
-            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-center text-xs font-semibold hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
           >
             Open Original
           </a>
@@ -244,4 +244,3 @@ function renderArticleBlocks(text: string, itemId: string) {
     return <p key={`${itemId}-paragraph-${index}`}>{block.text}</p>
   })
 }
-
