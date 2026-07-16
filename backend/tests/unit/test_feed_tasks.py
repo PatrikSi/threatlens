@@ -205,8 +205,8 @@ class _HeartbeatRedis:
 
 def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.MonkeyPatch):
     redis_client = _HeartbeatRedis()
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
-    monkeypatch.setattr("app.tasks.feed_tasks._lease_renewal_interval_seconds", lambda _ttl: 0.01)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination._lease_renewal_interval_seconds", lambda _ttl: 0.01)
 
     feed_key = "threatlens:feed:lock:feed-1"
     brief_key = "threatlens:ai:daily_brief:lock"
@@ -233,7 +233,7 @@ def test_feed_lock_does_not_take_over_before_lock_ttl_expires(monkeypatch: pytes
     stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
     redis_client.set(stale_feed_key, "dead-token", ex=900)
     redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
         assert acquired is False
@@ -246,7 +246,7 @@ def test_feed_lock_can_take_over_stale_lease_without_ttl(monkeypatch: pytest.Mon
     stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
     redis_client.set(stale_feed_key, "dead-token")
     redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
         assert acquired is True
@@ -259,8 +259,8 @@ def test_domain_slot_uses_open_slot_instead_of_preempting_live_ttl_slot(monkeypa
     open_slot_key = "threatlens:domain:example.com:slot:2"
     redis_client.set(stale_slot_key, "dead-token", ex=30)
     redis_client.set(f"{stale_slot_key}:heartbeat", f"dead-token|{time.time() - 31:.6f}", ex=30)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
-    monkeypatch.setattr("app.tasks.feed_tasks.settings", SimpleNamespace(per_domain_concurrency=2))
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.settings", SimpleNamespace(per_domain_concurrency=2))
 
     with domain_slot("example.com", max_wait_seconds=0.1):
         assert redis_client.get(stale_slot_key) == "dead-token"
