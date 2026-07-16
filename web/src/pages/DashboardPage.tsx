@@ -3732,7 +3732,7 @@ export function DashboardPage() {
                       </div>
 
                       {selectedBrief.key_points.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Key points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.key_points.map((point, index) => (
@@ -3743,7 +3743,7 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.recommended_actions.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Recommended actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.recommended_actions.map((action, index) => (
@@ -3754,11 +3754,11 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.items.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="tl-daily-brief-section rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Referenced items</p>
                           <div className="mt-2 space-y-2">
                             {selectedBrief.items.map((item) => (
-                              <article key={item.id} className="rounded border border-slate/20 p-2 dark:border-cyan-900/40">
+                              <article key={item.id} className="tl-daily-brief-item rounded border border-slate/20 p-2 dark:border-cyan-900/40">
                                 <div className="flex items-start justify-between gap-2">
                                   {sanitizeHref(item.url) ? (
                                     <a
@@ -3794,7 +3794,7 @@ export function DashboardPage() {
                 <div className={`flex flex-1 flex-col p-2.5 sm:p-3 ${windowMeta.panelClassName}`}>
                   <label className="text-xs font-semibold text-slate dark:text-slate-300">Scratch notes</label>
                   <textarea
-                    className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
+                    className="tl-dashboard-notes-editor mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
                     placeholder="Use this space for quick notes, pivots, and hypotheses..."
                     value={windowLayout.scratch_note}
                     onChange={(event) => updateWindowScratchNote(windowLayout.id, event.target.value)}
