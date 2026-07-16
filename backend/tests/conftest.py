@@ -28,7 +28,7 @@ from app.main import app
 from app.models.api_token import ApiToken
 from app.models.user import User
 from app.services import auth_rate_limit
-from app.tasks import feed_tasks
+from app.tasks import feed_task_coordination, feed_tasks
 
 _BACKEND_DIR = Path(__file__).resolve().parents[1]
 _TEST_DATABASE_URL_ENV = "THREATLENS_TEST_DATABASE_URL"
@@ -330,6 +330,7 @@ def auth_rate_limit_backend(test_redis_url: str | None):
 @pytest.fixture()
 def _install_test_redis_backend(monkeypatch: pytest.MonkeyPatch, auth_rate_limit_backend):
     monkeypatch.setattr(auth_rate_limit, "redis_client", auth_rate_limit_backend)
+    monkeypatch.setattr(feed_task_coordination, "redis_client", auth_rate_limit_backend)
     monkeypatch.setattr(feed_tasks, "redis_client", auth_rate_limit_backend)
 
 
