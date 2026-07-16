@@ -241,6 +241,12 @@ textarea:disabled {
 }
 
 @media (max-width: 639px) {
+  .tl-app-header {
+    background: var(--tl-panel-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
   .tl-app-content .font-display.text-2xl {
     font-size: 1.125rem;
     line-height: 1.4;
