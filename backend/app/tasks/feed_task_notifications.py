@@ -9,9 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
 from app.models.item import Item
-from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.notification_webhooks import NotificationDeliveryReservationBatch
+from app.services.notification_delivery_processing import (
+    process_reserved_notification_deliveries as process_reserved_notification_deliveries_transactionally,
+)
 
 
 def enqueue_notification_delivery_batches(
@@ -52,84 +54,37 @@ def process_reserved_notification_deliveries(
     *,
     process_delivery: Callable[..., Any],
     reserve_retryable_delivery: Callable[..., Any],
-    reserve_failed_delivery_notifications: Callable[..., NotificationDeliveryReservationBatch],
+    reserve_failed_delivery_notifications: Callable[..., NotificationDeliveryReservationBatch] | None,
     enqueue_delivery_processing: Callable[..., bool],
     logger: logging.Logger,
     notify_failed_delivery: Callable[[NotificationWebhookDelivery], None] | None = None,
+    emit_failed_delivery_event: Callable[[Session, NotificationWebhookDelivery], uuid.UUID] | None = None,
+    enqueue_event_routing: Callable[[list[uuid.UUID]], bool] | None = None,
+    mark_dead_letter: Callable[[Session, NotificationWebhookDelivery], None] | None = None,
 ) -> tuple[int, int]:
-    delivered = 0
-    failed = 0
-
-    for delivery_id in delivery_ids:
-        try:
-            attempt = process_delivery(db, delivery_id=delivery_id)
-        except ValueError as exc:
-            if str(exc) != "Webhook delivery not found":
-                raise
-            logger.info("notification_webhook_delivery_missing delivery_id=%s", delivery_id)
-            continue
-
-        if not getattr(attempt, "claimed", True):
-            logger.info(
-                "notification_webhook_delivery_already_claimed delivery_id=%s state=%s",
-                delivery_id,
-                getattr(attempt.delivery, "delivery_state", "unknown"),
-            )
-            continue
-
-        if attempt.result.success:
-            delivered += 1
-            continue
-
-        failed += 1
-        source_webhook = db.scalar(
-            select(NotificationWebhook).where(NotificationWebhook.id == attempt.delivery.webhook_id)
+    result = process_reserved_notification_deliveries_transactionally(
+        db,
+        delivery_ids,
+        process_delivery=process_delivery,
+        reserve_retryable_delivery=reserve_retryable_delivery,
+        reserve_failed_delivery_notifications=reserve_failed_delivery_notifications,
+        logger=logger,
+        emit_failed_delivery_event=emit_failed_delivery_event,
+        mark_dead_letter=mark_dead_letter,
+    )
+    for followup in result.followup_deliveries:
+        enqueue_delivery_processing(
+            [followup.delivery_id],
+            countdown=followup.countdown_seconds,
         )
-        retry_reservation = (
-            reserve_retryable_delivery(
-                db,
-                webhook=source_webhook,
-                delivery=attempt.delivery,
-            )
-            if source_webhook is not None and attempt.delivery.event_type_snapshot != "webhook_failed"
-            else None
-        )
-        if retry_reservation is not None:
-            if retry_reservation.created:
-                db.commit()
-                enqueue_delivery_processing(
-                    [retry_reservation.delivery.id],
-                    countdown=retry_reservation.countdown_seconds,
-                )
-                logger.warning(
-                    "notification_webhook_delivery_retry_scheduled webhook_id=%s delivery_id=%s retry_delivery_id=%s countdown_seconds=%s",
-                    attempt.delivery.webhook_id,
-                    attempt.delivery.id,
-                    retry_reservation.delivery.id,
-                    retry_reservation.countdown_seconds,
-                )
-            continue
-
-        if attempt.delivery.event_type_snapshot != "webhook_failed":
-            failed_delivery_reservations = reserve_failed_delivery_notifications(
-                db,
-                failed_delivery=attempt.delivery,
-            )
-            db.commit()
-            enqueue_delivery_processing(failed_delivery_reservations.delivery_ids)
-            if notify_failed_delivery is not None:
-                notify_failed_delivery(attempt.delivery)
-
-        logger.warning(
-            "notification_webhook_delivery_failed webhook_id=%s delivery_id=%s event_type=%s status_code=%s error=%s",
-            attempt.delivery.webhook_id,
-            attempt.delivery.id,
-            attempt.delivery.event_type_snapshot,
-            attempt.result.status_code,
-            attempt.result.error,
-        )
-
-    return delivered, failed
+    if result.followup_event_ids and enqueue_event_routing is not None:
+        enqueue_event_routing(list(result.followup_event_ids))
+    if notify_failed_delivery is not None:
+        for failed_delivery_id in result.terminal_failed_delivery_ids:
+            failed_delivery = db.get(NotificationWebhookDelivery, failed_delivery_id)
+            if failed_delivery is not None:
+                notify_failed_delivery(failed_delivery)
+    return result.delivered, result.failed
 
 
 def dispatch_item_notification_batch(

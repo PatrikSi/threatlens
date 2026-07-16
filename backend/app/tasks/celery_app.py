@@ -35,6 +35,11 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification": {"queue": QUEUE_NOTIFICATIONS},
     "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries": {"queue": QUEUE_NOTIFICATIONS},
     "app.tasks.feed_tasks.process_notification_webhook_deliveries": {"queue": QUEUE_NOTIFICATIONS},
+    "app.tasks.feed_tasks.route_integration_event": {"queue": QUEUE_NOTIFICATIONS},
+    "app.tasks.feed_tasks.dispatch_pending_integration_events": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.feed_tasks.process_integration_deliveries": {"queue": QUEUE_NOTIFICATIONS},
+    "app.tasks.feed_tasks.dispatch_pending_integration_deliveries": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.feed_tasks.maintain_integration_delivery_history": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.generate_item_ai_enrichment": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
@@ -100,6 +105,18 @@ celery_app.conf.update(
         "dispatch-pending-notification-webhooks": {
             "task": "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries",
             "schedule": 60.0,
+        },
+        "dispatch-pending-integration-events": {
+            "task": "app.tasks.feed_tasks.dispatch_pending_integration_events",
+            "schedule": 10.0,
+        },
+        "dispatch-pending-integration-deliveries": {
+            "task": "app.tasks.feed_tasks.dispatch_pending_integration_deliveries",
+            "schedule": 10.0,
+        },
+        "maintain-integration-delivery-history": {
+            "task": "app.tasks.feed_tasks.maintain_integration_delivery_history",
+            "schedule": 3600.0,
         },
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",

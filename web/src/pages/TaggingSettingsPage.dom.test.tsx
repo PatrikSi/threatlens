@@ -65,6 +65,7 @@ const taggingPageDomMocks = vi.hoisted(() => ({
   deleteRuleMutate: vi.fn(),
   previewRuleMutate: vi.fn(),
   reapplyMutate: vi.fn(),
+  feedsError: false,
 }))
 
 const routerMocks = vi.hoisted(() => ({
@@ -102,6 +103,14 @@ vi.mock('@tanstack/react-query', () => ({
     }
 
     if (scope === 'feeds') {
+      if (taggingPageDomMocks.feedsError) {
+        return {
+          ...baseResult,
+          isError: true,
+          error: new Error('feeds unavailable'),
+          data: undefined,
+        }
+      }
       return {
         ...baseResult,
         data: taggingPageDomMocks.feedsData,
@@ -213,9 +222,50 @@ afterEach(() => {
   taggingPageDomMocks.deleteRuleMutate.mockReset()
   taggingPageDomMocks.reapplyMutate.mockReset()
   taggingPageDomMocks.saveSettingsMutate.mockReset()
+  taggingPageDomMocks.feedsError = false
 })
 
 describe('TaggingSettingsPage DOM workflows', () => {
+  it('preserves a dirty settings draft across rule selection and settings refetches', () => {
+    const view = renderPage()
+    const confidenceInput = view.querySelector<HTMLInputElement>('#tagging-auto-confidence')
+    const savedRuleButton = Array.from(view.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('VPN disclosures'),
+    )
+
+    act(() => {
+      setInputValue(confidenceInput!, '0.73')
+      savedRuleButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(confidenceInput?.value).toBe('0.73')
+
+    taggingPageDomMocks.bundleData = {
+      ...taggingPageDomMocks.bundleData,
+      settings: { ...taggingPageDomMocks.bundleData.settings },
+      rules: taggingPageDomMocks.bundleData.rules.map((rule) => ({ ...rule })),
+    }
+    act(() => {
+      root?.render(<TaggingSettingsPage />)
+    })
+
+    expect(view.querySelector<HTMLInputElement>('#tagging-auto-confidence')?.value).toBe('0.73')
+  })
+
+  it('shows feed reference failures instead of an empty rule scope', () => {
+    taggingPageDomMocks.feedsError = true
+    const view = renderPage()
+    const selectedFeedsButton = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Selected feeds',
+    )
+
+    act(() => {
+      selectedFeedsButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('Failed to load feeds for rule scope.')
+  })
+
   it('loads an existing rule, exposes selection semantics, and preserves toggle state', () => {
     const view = renderPage()
 

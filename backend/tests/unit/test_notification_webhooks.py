@@ -23,6 +23,7 @@ from app.services.notification_webhook_http import (
 from app.services.notification_webhooks import (
     NotificationWebhookRetryInProgressError,
     build_alert_match_context_for_item,
+    build_daily_digest_context,
     get_notification_analytics,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
@@ -889,6 +890,33 @@ def test_read_response_preview_caps_body_size():
     response = httpx.Response(200, content=b"a" * 5000)
 
     assert read_response_preview(response, max_bytes=4000) == "a" * 4000
+
+
+def test_daily_digest_empty_selected_feed_list_does_not_include_all_feeds(db_session):
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/feed.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        url="https://example.com/articles/digest",
+        title="Threat report",
+        published_at=now,
+        first_seen_at=now,
+        dedupe_key="dedupe:item:empty-selected-digest",
+        content_hash="d" * 64,
+        status="new",
+    )
+    _persist_rows(db_session, feed, item)
+    db_session.commit()
+
+    assert build_daily_digest_context(db_session, feed_ids=[], now=now) is None
+    assert build_daily_digest_context(db_session, feed_ids=None, now=now).total_items == 1
 
 
 def test_send_notification_webhook_for_item_records_delivery_history(db_session, monkeypatch):
@@ -1854,7 +1882,8 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
         reserved_webhook_ids[delivery_id] = webhook.id
         return SimpleNamespace(id=delivery_id)
 
-    def _process(_db, *, delivery_id):
+    def _process(_db, *, delivery_id, commit_outcome=True):
+        assert commit_outcome is False
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),
@@ -2208,7 +2237,8 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
         reserved_webhook_ids[delivery_id] = webhook.id
         return SimpleNamespace(id=delivery_id)
 
-    def _process(_db, *, delivery_id):
+    def _process(_db, *, delivery_id, commit_outcome=True):
+        assert commit_outcome is False
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),

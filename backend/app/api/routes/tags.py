@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import exists, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
@@ -38,8 +39,13 @@ def create_tag(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists")
 
     tag = Tag(name=payload.name.lower())
-    db.add(tag)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(tag)
+            db.flush()
+    except IntegrityError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tag already exists") from exc
+
     record_audit(
         db,
         actor_user_id=user.id,

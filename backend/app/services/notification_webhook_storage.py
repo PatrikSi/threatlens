@@ -123,6 +123,10 @@ def redact_notification_query_params(fields: list[NotificationWebhookField]) -> 
     return redacted
 
 
+def redact_notification_config_fields(fields: list[NotificationWebhookField]) -> list[NotificationWebhookField]:
+    return [NotificationWebhookField(key=field.key, value="REDACTED") for field in fields]
+
+
 def redact_delivery_body_preview(value: str | None) -> str | None:
     if value is None:
         return None
@@ -174,7 +178,11 @@ def notification_webhook_write_from_model(webhook: NotificationWebhook) -> Notif
     )
 
 
-def notification_webhook_response_from_model(webhook: NotificationWebhook) -> NotificationWebhookResponse:
+def notification_webhook_response_from_model(
+    webhook: NotificationWebhook,
+    *,
+    redact_secrets: bool = False,
+) -> NotificationWebhookResponse:
     payload = notification_webhook_write_from_model(webhook)
     return NotificationWebhookResponse(
         id=webhook.id,
@@ -182,16 +190,17 @@ def notification_webhook_response_from_model(webhook: NotificationWebhook) -> No
         name=payload.name,
         enabled=payload.enabled,
         event_type=payload.event_type,
-        url_template=payload.url_template,
+        url_template="REDACTED" if redact_secrets else payload.url_template,
         method=payload.method,
         feed_scope=payload.feed_scope,
         feed_ids=payload.feed_ids,
-        query_params=payload.query_params,
-        headers=payload.headers,
+        query_params=(redact_notification_config_fields(payload.query_params) if redact_secrets else payload.query_params),
+        headers=redact_notification_config_fields(payload.headers) if redact_secrets else payload.headers,
         body_mode=payload.body_mode,
-        body_fields=payload.body_fields,
-        body_template=payload.body_template,
+        body_fields=(redact_notification_config_fields(payload.body_fields) if redact_secrets else payload.body_fields),
+        body_template=("REDACTED" if redact_secrets and payload.body_template is not None else payload.body_template),
         timeout_seconds=payload.timeout_seconds,
+        secrets_redacted=redact_secrets,
         created_at=webhook.created_at,
         updated_at=webhook.updated_at,
     )

@@ -26,7 +26,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationInstance
+from app.models.integration import IntegrationDelivery
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -34,6 +34,8 @@ from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
 from app.services.ai_integration import is_stale_daily_brief_pending
 from app.services.ai_ops import (
+    AI_DAILY_BRIEF_BACKFILL_SCOPE,
+    AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY,
     AI_STATUS_ERROR,
     AI_STATUS_QUEUED,
     AI_STATUS_READY,
@@ -50,6 +52,7 @@ from app.services.ai_ops import (
     get_ai_task_run_stop_reason,
     is_ai_task_run_cancel_requested,
     queue_ai_task_run,
+    reconcile_daily_brief_backfill_parent_progress,
     record_ai_task_event,
     _reconcile_stale_ai_runs,
     start_ai_task_run,
@@ -73,14 +76,26 @@ from app.services.feed_pipeline import (
 )
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
+from app.services.integration_events import (
+    IntegrationEventContextError,
+    emit_integration_event,
+    list_recoverable_integration_event_ids,
+    record_integration_event_failure,
+    route_integration_event as route_pending_integration_event,
+)
+from app.services.integration_delivery import (
+    defer_integration_delivery,
+    list_recoverable_integration_delivery_ids,
+    mark_integration_delivery_dead_letter,
+)
+from app.services.integration_maintenance import run_integration_delivery_maintenance
+from app.services.integration_registry import get_integration_connector
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
     build_alert_match_context_for_item,
-    build_daily_digest_context,
     get_matching_notification_webhooks,
     get_matching_notification_webhooks_for_feed,
-    has_recent_notification_delivery,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
@@ -89,10 +104,8 @@ from app.services.notification_webhooks import (
     reserve_new_item_notification_deliveries,
     reserve_notification_webhook_delivery,
     reserve_webhook_failed_notification_deliveries,
-    try_acquire_notification_delivery_lock,
 )
-from app.services.integration_storage import SMTPSecretError, SMTP_SYSTEM_KEY, build_active_smtp_settings
-from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification, smtp_notification_event_enabled
+from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
@@ -354,13 +367,52 @@ def _process_reserved_notification_deliveries(
     return _process_reserved_notification_deliveries_impl(
         db,
         delivery_ids,
-        process_delivery=process_notification_webhook_delivery,
+        process_delivery=lambda session, *, delivery_id: process_notification_webhook_delivery(
+            session,
+            delivery_id=delivery_id,
+            commit_outcome=False,
+        ),
         reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
-        reserve_failed_delivery_notifications=reserve_webhook_failed_notification_deliveries,
+        reserve_failed_delivery_notifications=None,
         enqueue_delivery_processing=enqueue_notification_webhook_delivery_processing,
         logger=logger,
-        notify_failed_delivery=_enqueue_smtp_webhook_failed_notification,
+        emit_failed_delivery_event=_emit_failed_webhook_integration_event,
+        enqueue_event_routing=enqueue_integration_event_routing,
+        mark_dead_letter=_mark_failed_webhook_delivery_dead_letter,
     )
+
+
+def _mark_failed_webhook_delivery_dead_letter(
+    db: Session,
+    failed_delivery: NotificationWebhookDelivery,
+) -> None:
+    if failed_delivery.integration_delivery_id is None:
+        return
+    mark_integration_delivery_dead_letter(
+        db,
+        delivery_id=failed_delivery.integration_delivery_id,
+        error_code="attempts_exhausted",
+        error_message=failed_delivery.error or "Webhook delivery attempts were exhausted.",
+    )
+
+
+def _emit_failed_webhook_integration_event(
+    db: Session,
+    failed_delivery: NotificationWebhookDelivery,
+) -> uuid.UUID:
+    event = emit_integration_event(
+        db,
+        event_type="webhook_failed",
+        source_type="notification_webhook_delivery",
+        source_id=failed_delivery.id,
+        idempotency_key=f"webhook_delivery:{failed_delivery.id}:webhook_failed:v1",
+        payload={
+            "source_delivery_id": str(failed_delivery.id),
+            "feed_id": str(failed_delivery.feed_id) if failed_delivery.feed_id else None,
+            "owner_user_id": str(failed_delivery.user_id),
+        },
+    )
+    return event.id
 
 
 def _enqueue_classification_task(item_id: str) -> bool:
@@ -384,6 +436,48 @@ def enqueue_notification_webhook_delivery_processing(
         logger=logger,
         countdown=countdown,
     )
+
+
+def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
+    all_enqueued = True
+    for event_id in event_ids:
+        try:
+            route_integration_event.delay(str(event_id))
+        except Exception as exc:
+            all_enqueued = False
+            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+    return all_enqueued
+
+
+def enqueue_integration_delivery_processing(
+    delivery_ids: list[uuid.UUID],
+    countdown: int | None = None,
+) -> bool:
+    return _enqueue_notification_delivery_batches(
+        delivery_ids,
+        batch_size=settings.notification_delivery_enqueue_batch_size,
+        delivery_task=process_integration_deliveries,
+        logger=logger,
+        countdown=countdown,
+    )
+
+
+def _emit_item_integration_event(
+    db: Session,
+    *,
+    event_type: str,
+    item: Item,
+    feed: Feed,
+) -> uuid.UUID:
+    event = emit_integration_event(
+        db,
+        event_type=event_type,
+        source_type="item",
+        source_id=item.id,
+        idempotency_key=f"item:{item.id}:{event_type}:v1",
+        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+    return event.id
 
 
 def _enqueue_smtp_notification_items(item_ids: list[uuid.UUID], *, task) -> bool:
@@ -417,13 +511,6 @@ def _enqueue_smtp_feed_failing_notification(feed_id: uuid.UUID) -> bool:
         logger.exception("smtp_feed_failing_notification_enqueue_failed feed_id=%s error=%s", feed_id, exc)
         return False
     return True
-
-
-def _enqueue_smtp_webhook_failed_notification(delivery: NotificationWebhookDelivery) -> None:
-    try:
-        dispatch_smtp_webhook_failed_notification.delay(str(delivery.id))
-    except Exception as exc:
-        logger.exception("smtp_webhook_failed_notification_enqueue_failed delivery_id=%s error=%s", delivery.id, exc)
 
 
 def _smtp_task_response(result: SMTPDispatchResult, **identifiers: str) -> dict[str, Any]:
@@ -483,32 +570,6 @@ def _load_item_and_feed_for_notification(db: Session, item_id: str) -> tuple[Ite
 def _feed_failing_smtp_scope_key(now: datetime) -> str:
     current = _coerce_utc(now) or datetime.now(timezone.utc)
     return f"{current.date().isoformat()}:{current.hour // 12}"
-
-
-def _dispatch_smtp_daily_digest_notification(db: Session, *, scope_key: str) -> SMTPDispatchResult:
-    if not smtp_notification_event_enabled(db, event_type="daily_digest"):
-        return SMTPDispatchResult(status="skipped", reason="smtp_event_not_matched")
-
-    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
-    if instance is None or not instance.enabled:
-        return SMTPDispatchResult(status="skipped", reason="smtp_disabled")
-
-    try:
-        active = build_active_smtp_settings(instance)
-    except SMTPSecretError:
-        return dispatch_smtp_notification(db, event_type="daily_digest", scope_key=scope_key)
-
-    feed_ids = active.feed_ids if active.feed_scope == "selected" else None
-    digest_context = build_daily_digest_context(db, user_id=None, feed_ids=feed_ids)
-    if digest_context is None or digest_context.total_items <= 0:
-        return SMTPDispatchResult(status="skipped", reason="no_digest_items")
-
-    return dispatch_smtp_notification(
-        db,
-        event_type="daily_digest",
-        digest_context=digest_context,
-        scope_key=scope_key,
-    )
 
 
 def enqueue_article_fetch_processing(item_ids: list[uuid.UUID]) -> bool:
@@ -1488,74 +1549,32 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
 )
 def dispatch_daily_digest_notification_webhooks():
     with db_session() as db:
-        webhooks = get_matching_notification_webhooks(db, event_type="daily_digest")
-        reserved_delivery_ids: list[uuid.UUID] = []
-        skipped = 0
         digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         digest_scope_key = digest_day_start.date().isoformat()
-
-        for webhook in webhooks:
-            user = db.scalar(select(User).where(User.id == webhook.user_id))
-            if user is None or not user.is_active or not user.is_approved:
-                skipped += 1
-                continue
-
-            if not try_acquire_notification_delivery_lock(
-                db,
-                webhook_id=webhook.id,
-                event_type="daily_digest",
-                scope_key=digest_day_start.date().isoformat(),
-            ):
-                skipped += 1
-                continue
-
-            if has_recent_notification_delivery(
-                db,
-                webhook_id=webhook.id,
-                event_type="daily_digest",
-                since=digest_day_start,
-                scope_key=digest_scope_key,
-            ):
-                skipped += 1
-                continue
-
-            feed_ids = [uuid.UUID(value) for value in (webhook.feed_ids_json or [])] if webhook.feed_scope == "selected" else None
-            digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=feed_ids)
-            if digest_context is None or digest_context.total_items <= 0:
-                skipped += 1
-                continue
-
-            delivery = reserve_notification_webhook_delivery(
-                db,
-                webhook=webhook,
-                user=user,
-                event_type="daily_digest",
-                feed=None,
-                item=None,
-                digest_context=digest_context,
-                item_title=f"{digest_context.total_items} items in last 24h",
-                feed_name=", ".join(digest_context.feed_names[:3]) or None,
-                scope_key=digest_scope_key,
-            )
-            reserved_delivery_ids.append(delivery.id)
-
+        event = emit_integration_event(
+            db,
+            event_type="daily_digest",
+            source_type="digest_window",
+            source_id=digest_scope_key,
+            idempotency_key=f"daily_digest:{digest_scope_key}:v1",
+            payload={"scope_key": digest_scope_key},
+        )
         db.commit()
-        delivered, failed = _process_reserved_notification_deliveries(db, reserved_delivery_ids)
-        smtp_result = _dispatch_smtp_daily_digest_notification(db, scope_key=digest_scope_key)
-        db.commit()
-
-        return {
-            "status": "ok",
-            "matched_webhooks": len(webhooks),
-            "delivered": delivered,
-            "failed": failed,
-            "skipped": skipped,
-            "smtp_status": smtp_result.status,
-            "smtp_reason": smtp_result.reason,
-            "smtp_sent": 1 if smtp_result.sent else 0,
-            "smtp_failed": 1 if smtp_result.failed else 0,
-            "smtp_skipped": 1 if smtp_result.skipped else 0,
-        }
+    enqueue_ok = enqueue_integration_event_routing([event.id])
+    return {
+        "status": "ok",
+        "matched_webhooks": 0,
+        "delivered": 0,
+        "failed": 0,
+        "skipped": 0,
+        "smtp_status": "queued" if enqueue_ok else "pending",
+        "smtp_reason": None if enqueue_ok else "event_enqueue_failed",
+        "smtp_sent": 0,
+        "smtp_failed": 0,
+        "smtp_skipped": 0,
+        "integration_event_id": str(event.id),
+        "enqueue_failed": not enqueue_ok,
+    }
 
 
 @celery_app.task(
@@ -1573,6 +1592,176 @@ def dispatch_pending_notification_webhook_deliveries():
             "delivered": delivered,
             "failed": failed,
         }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.process_integration_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def process_integration_deliveries(delivery_ids: list[str]):
+    delivered = 0
+    failed = 0
+    deferred = 0
+    skipped = 0
+    with db_session() as db:
+        for raw_delivery_id in delivery_ids:
+            try:
+                delivery_id = uuid.UUID(raw_delivery_id)
+            except (AttributeError, TypeError, ValueError):
+                skipped += 1
+                continue
+            delivery = db.get(IntegrationDelivery, delivery_id)
+            if delivery is None:
+                skipped += 1
+                continue
+            connector = get_integration_connector(delivery.connector_type)
+            if connector is None:
+                defer_integration_delivery(
+                    db,
+                    delivery_id=delivery.id,
+                    error_code="unsupported_connector",
+                    error_message=(
+                        f"Connector {delivery.connector_type!r} is not available on this worker; "
+                        "delivery will be retried after the worker is upgraded."
+                    ),
+                )
+                db.commit()
+                deferred += 1
+                continue
+            result = connector.process_delivery(
+                db,
+                delivery=delivery,
+            )
+            for followup in result.followup_deliveries:
+                enqueue_integration_delivery_processing(
+                    [followup.delivery_id],
+                    countdown=followup.countdown_seconds,
+                )
+            if result.followup_event_ids:
+                enqueue_integration_event_routing(list(result.followup_event_ids))
+            if result.status == "succeeded":
+                delivered += 1
+            elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
+                deferred += 1
+            elif result.status in {"terminal", "missing"}:
+                skipped += 1
+            else:
+                failed += 1
+    return {
+        "status": "ok",
+        "scanned": len(delivery_ids),
+        "delivered": delivered,
+        "failed": failed,
+        "deferred": deferred,
+        "skipped": skipped,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_pending_integration_deliveries",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dispatch_pending_integration_deliveries():
+    with db_session() as db:
+        delivery_ids = list_recoverable_integration_delivery_ids(db)
+    enqueue_ok = enqueue_integration_delivery_processing(delivery_ids)
+    return {
+        "status": "ok",
+        "scanned": len(delivery_ids),
+        "queued": len(delivery_ids) if enqueue_ok else 0,
+        "enqueue_failed": bool(delivery_ids) and not enqueue_ok,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.maintain_integration_delivery_history",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def maintain_integration_delivery_history():
+    with db_session() as db:
+        result = run_integration_delivery_maintenance(db)
+    return {
+        "status": "ok",
+        "rolled_up": result.rolled_up,
+        "webhook_deliveries_deleted": result.webhook_deliveries_deleted,
+        "deliveries_deleted": result.deliveries_deleted,
+        "events_deleted": result.events_deleted,
+        "metrics_deleted": result.metrics_deleted,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.route_integration_event",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def route_integration_event(event_id: str):
+    try:
+        parsed_event_id = uuid.UUID(event_id)
+    except (AttributeError, TypeError, ValueError):
+        return {"status": "skipped", "reason": "invalid_event_id", "event_id": event_id}
+
+    with db_session() as db:
+        try:
+            result = route_pending_integration_event(db, event_id=parsed_event_id)
+            db.commit()
+        except IntegrationEventContextError as exc:
+            db.rollback()
+            record_integration_event_failure(
+                db,
+                event_id=parsed_event_id,
+                error=str(exc),
+                terminal=True,
+            )
+            db.commit()
+            logger.warning("integration_event_dead_lettered event_id=%s error=%s", parsed_event_id, exc)
+            return {"status": "dead_letter", "event_id": event_id, "error": str(exc)}
+        except Exception as exc:
+            db.rollback()
+            failed_event = record_integration_event_failure(
+                db,
+                event_id=parsed_event_id,
+                error=f"{type(exc).__name__}: {exc}",
+                terminal=False,
+            )
+            db.commit()
+            logger.exception("integration_event_routing_failed event_id=%s error=%s", parsed_event_id, exc)
+            return {
+                "status": failed_event.routing_state if failed_event is not None else "missing",
+                "event_id": event_id,
+            }
+
+    enqueue_ok = enqueue_integration_delivery_processing(result.integration_delivery_ids)
+    return {
+        "status": result.status,
+        "event_id": event_id,
+        "integration_deliveries": len(result.integration_delivery_ids),
+        "webhook_deliveries": len(result.webhook_delivery_ids),
+        "enqueue_failed": bool(result.integration_delivery_ids) and not enqueue_ok,
+    }
+
+
+@celery_app.task(
+    name="app.tasks.feed_tasks.dispatch_pending_integration_events",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+def dispatch_pending_integration_events():
+    with db_session() as db:
+        event_ids = list_recoverable_integration_event_ids(db)
+
+    queued = 0
+    for event_id in event_ids:
+        try:
+            route_integration_event.delay(str(event_id))
+        except Exception as exc:
+            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+            continue
+        queued += 1
+    return {"status": "ok", "scanned": len(event_ids), "queued": queued}
 
 
 @celery_app.task(
@@ -1776,6 +1965,44 @@ def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = N
     return references
 
 
+def _daily_brief_backfill_attempts(
+    db: Session,
+    *,
+    parent_run_id: uuid.UUID,
+    brief_date: str,
+) -> list[AITaskRun]:
+    child_runs = list(
+        db.scalars(
+            select(AITaskRun)
+            .where(
+                AITaskRun.parent_run_id == parent_run_id,
+                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+            )
+            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        )
+    )
+    return [run for run in child_runs if str((run.metadata_json or {}).get("brief_date") or "") == brief_date]
+
+
+def _daily_brief_backfill_attempt_is_settled(run: AITaskRun) -> bool:
+    if run.finished_at is None or run.status not in {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}:
+        return False
+    metadata = run.metadata_json or {}
+    if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
+        return False
+    return not (run.reason and run.reason.startswith("stale_"))
+
+
+def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
+    attempt_numbers: list[int] = []
+    for attempt in attempts:
+        try:
+            attempt_numbers.append(int((attempt.metadata_json or {}).get("attempt") or 0))
+        except (TypeError, ValueError):
+            continue
+    return max([len(attempts), *attempt_numbers], default=0) + 1
+
+
 @celery_app.task(
     bind=True,
     name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
@@ -1810,13 +2037,18 @@ def backfill_daily_ai_briefs(
                 parsed_actor_user_id = None
 
         run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
+        parent_was_running = bool(
+            run is not None
+            and run.status == AI_STATUS_RUNNING
+            and run.finished_at is None
+        )
         if run is None:
             run = queue_ai_task_run(
                 db,
                 task_type=AI_TASK_TYPE_REPROCESS,
                 trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
                 actor_user_id=parsed_actor_user_id,
-                metadata={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+                metadata={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
                 target_count=max(0, effective_days),
             )
 
@@ -1824,18 +2056,23 @@ def backfill_daily_ai_briefs(
         run.target_count = max(0, effective_days)
         run.metadata_json = {
             **dict(run.metadata_json or {}),
-            "scope": "daily_brief_backfill",
+            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
             "days": max(0, effective_days),
             "force": True,
             "includes_today": True,
         }
         db.add(run)
+        run = reconcile_daily_brief_backfill_parent_progress(
+            db,
+            parent_run_id=parent_run_id,
+            reopen_incomplete=True,
+        ) or run
         started_run = start_ai_task_run(
             db,
             run_id=parent_run_id,
             worker_name=worker_name,
             celery_task_id=celery_task_id,
-            metadata_updates={"scope": "daily_brief_backfill", "days": max(0, effective_days), "force": True},
+            metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
         )
         db.commit()
 
@@ -1906,6 +2143,21 @@ def backfill_daily_ai_briefs(
         try:
             with daily_ai_brief_lock() as acquired:
                 if not acquired:
+                    active_parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
+                    if parent_was_running and active_parent is not None and active_parent.finished_at is None:
+                        active_parent.metadata_json = {
+                            **dict(active_parent.metadata_json or {}),
+                            "duplicate_lock_observed_at": datetime.now(timezone.utc).isoformat(),
+                        }
+                        db.add(active_parent)
+                        record_ai_task_event(
+                            db,
+                            run_id=parent_run_id,
+                            event_type="duplicate_delivery_deferred",
+                            payload={"celery_task_id": celery_task_id, "worker_name": worker_name},
+                        )
+                        db.commit()
+                        return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
                     finish_ai_task_run(
                         db,
                         run_id=parent_run_id,
@@ -1919,6 +2171,7 @@ def backfill_daily_ai_briefs(
 
                 processed_dates: list[str] = []
                 for reference_time in _daily_brief_backfill_reference_times(effective_days):
+                    brief_date = reference_time.date().isoformat()
                     parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
                     if parent_run is None:
                         return {
@@ -1947,6 +2200,32 @@ def backfill_daily_ai_briefs(
                             "processed_dates": processed_dates,
                         }
 
+                    attempts = _daily_brief_backfill_attempts(
+                        db,
+                        parent_run_id=parent_run_id,
+                        brief_date=brief_date,
+                    )
+                    if any(_daily_brief_backfill_attempt_is_settled(attempt) for attempt in attempts):
+                        processed_dates.append(brief_date)
+                        continue
+
+                    attempt_number = _daily_brief_backfill_attempt_number(attempts)
+                    for interrupted_attempt in [attempt for attempt in attempts if attempt.finished_at is None]:
+                        interrupted_attempt.metadata_json = {
+                            **dict(interrupted_attempt.metadata_json or {}),
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
+                            "superseded_by_attempt": attempt_number,
+                        }
+                        db.add(interrupted_attempt)
+                        finish_ai_task_run(
+                            db,
+                            run_id=interrupted_attempt.id,
+                            status=AI_STATUS_SKIPPED,
+                            reason="superseded_by_redelivery",
+                            worker_name=interrupted_attempt.worker_name or worker_name,
+                            model=interrupted_attempt.model or active_model,
+                        )
+
                     child_run = queue_ai_task_run(
                         db,
                         task_type=AI_TASK_TYPE_DAILY_BRIEF,
@@ -1955,10 +2234,12 @@ def backfill_daily_ai_briefs(
                         parent_run_id=parent_run_id,
                         model=active_model,
                         metadata={
-                            "scope": "daily_brief_backfill",
+                            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
                             "force": True,
-                            "brief_date": reference_time.date().isoformat(),
+                            "brief_date": brief_date,
                             "reference_time": reference_time.isoformat(),
+                            "attempt": attempt_number,
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
                         },
                     )
                     start_ai_task_run(
@@ -1966,7 +2247,7 @@ def backfill_daily_ai_briefs(
                         run_id=child_run.id,
                         worker_name=worker_name,
                         celery_task_id=celery_task_id,
-                        metadata_updates={"scope": "daily_brief_backfill", "force": True},
+                        metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "force": True},
                     )
                     db.commit()
                     child_run_id = child_run.id
@@ -1989,10 +2270,13 @@ def backfill_daily_ai_briefs(
                             error=str(exc) or _exception_type_name(exc),
                             worker_name=worker_name,
                             model=active_model,
-                            metadata_updates={"brief_date": reference_time.date().isoformat()},
+                            metadata_updates={
+                                "brief_date": brief_date,
+                                AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
+                            },
                         )
                         db.commit()
-                        processed_dates.append(reference_time.date().isoformat())
+                        processed_dates.append(brief_date)
                         continue
 
                     finish_ai_task_run(
@@ -2012,12 +2296,13 @@ def backfill_daily_ai_briefs(
                         metadata_updates={
                             "items_considered": result.items_considered,
                             "items_selected": result.items_selected,
-                            "brief_date": reference_time.date().isoformat(),
+                            "brief_date": brief_date,
+                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
                         },
                         daily_brief_id=result.brief.id if result.brief is not None else None,
                     )
                     db.commit()
-                    processed_dates.append(reference_time.date().isoformat())
+                    processed_dates.append(brief_date)
 
                 refreshed_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
                 return {
@@ -2179,8 +2464,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
             if not acquired:
                 return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
 
-            reserved_notification_delivery_ids: list[uuid.UUID] = []
-            smtp_new_item_ids: list[uuid.UUID] = []
+            integration_event_ids: list[uuid.UUID] = []
             with db_session() as db:
                 try:
                     parsed_feed_id = uuid.UUID(feed_id)
@@ -2397,20 +2681,15 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                     db.rollback()
                     return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
 
-                if new_items:
-                    feed_notification_webhooks = get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
-                    webhook_user_cache: dict[uuid.UUID, User | None] = {}
-                    if smtp_notification_event_enabled(db, event_type="rss_item_new", feed=feed):
-                        smtp_new_item_ids = [new_item.id for new_item in new_items]
-                    for new_item in new_items:
-                        reservation = reserve_new_item_notification_deliveries(
+                for new_item in new_items:
+                    integration_event_ids.append(
+                        _emit_item_integration_event(
                             db,
+                            event_type="rss_item_new",
                             item=new_item,
                             feed=feed,
-                            webhooks=feed_notification_webhooks,
-                            user_cache=webhook_user_cache,
                         )
-                        reserved_notification_delivery_ids.extend(reservation.delivery_ids)
+                    )
 
                 if not _feed_url_digest_still_current(
                     db,
@@ -2434,8 +2713,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 db.commit()
 
             article_enqueue_ok = enqueue_article_fetch_processing(changed_item_ids)
-            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(reserved_notification_delivery_ids)
-            smtp_enqueue_ok = _enqueue_smtp_new_item_notifications(smtp_new_item_ids)
+            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
 
             return {
                 "status": "ok",
@@ -2444,10 +2722,10 @@ def fetch_feed(self, feed_id: str, force: bool = False):
                 "new_items": len(new_items),
                 "final_url": final_url,
                 "article_enqueue_failed": bool(changed_item_ids) and not article_enqueue_ok,
-                "notification_deliveries_reserved": len(reserved_notification_delivery_ids),
-                "notification_enqueue_failed": bool(reserved_notification_delivery_ids) and not notification_enqueue_ok,
-                "smtp_notifications_queued": len(smtp_new_item_ids),
-                "smtp_notification_enqueue_failed": bool(smtp_new_item_ids) and not smtp_enqueue_ok,
+                "notification_deliveries_reserved": len(integration_event_ids),
+                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+                "smtp_notifications_queued": len(integration_event_ids),
+                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
             }
     except CoordinationUnavailableError as exc:
         logger.warning(
@@ -2793,8 +3071,7 @@ def fetch_article(self, item_id: str, force: bool = False):
     reject_on_worker_lost=True,
 )
 def classify_item(item_id: str):
-    alert_delivery_ids: list[uuid.UUID] = []
-    smtp_alert_match = False
+    integration_event_ids: list[uuid.UUID] = []
     with db_session() as db:
         try:
             parsed_item_id = uuid.UUID(item_id)
@@ -2857,25 +3134,22 @@ def classify_item(item_id: str):
                 feed_url=feed_url,
                 feedback_adjustments=feedback_adjustments,
             )
-            if feed is not None:
-                alert_delivery_ids = reserve_alert_match_notification_deliveries(
-                    db,
-                    item=item,
-                    feed=feed,
-                ).delivery_ids
-                smtp_alert_match = smtp_notification_event_enabled(
-                    db,
-                    event_type="alert_match",
-                    feed=feed,
-                ) and build_alert_match_context_for_item(db, item=item) is not None
+            if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
+                integration_event_ids.append(
+                    _emit_item_integration_event(
+                        db,
+                        event_type="alert_match",
+                        item=item,
+                        feed=feed,
+                    )
+                )
             db.commit()
-            notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-            smtp_enqueue_ok = _enqueue_smtp_alert_match_notification(parsed_item_id) if smtp_alert_match else True
-            if alert_delivery_ids and not notification_enqueue_ok:
+            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
+            if integration_event_ids and not notification_enqueue_ok:
                 logger.warning(
-                    "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+                    "classification_notification_enqueue_failed item_id=%s event_count=%s",
                     parsed_item_id,
-                    len(alert_delivery_ids),
+                    len(integration_event_ids),
                 )
             ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
             if queue_ai_enrichment:
@@ -2900,8 +3174,8 @@ def classify_item(item_id: str):
                 "reason": "up_to_date",
                 "item_id": item_id,
                 "category": row.primary_category,
-                "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
-                "smtp_notification_enqueue_failed": smtp_alert_match and not smtp_enqueue_ok,
+                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
                 "ioc_enqueue_failed": not ioc_enqueue_ok,
                 "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
             }
@@ -2937,26 +3211,23 @@ def classify_item(item_id: str):
             feed_url=feed_url,
             feedback_adjustments=feedback_adjustments,
         )
-        if feed is not None:
-            alert_delivery_ids = reserve_alert_match_notification_deliveries(
-                db,
-                item=item,
-                feed=feed,
-            ).delivery_ids
-            smtp_alert_match = smtp_notification_event_enabled(
-                db,
-                event_type="alert_match",
-                feed=feed,
-            ) and build_alert_match_context_for_item(db, item=item) is not None
+        if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
+            integration_event_ids.append(
+                _emit_item_integration_event(
+                    db,
+                    event_type="alert_match",
+                    item=item,
+                    feed=feed,
+                )
+            )
         db.commit()
 
-    notification_enqueue_ok = enqueue_notification_webhook_delivery_processing(alert_delivery_ids)
-    smtp_enqueue_ok = _enqueue_smtp_alert_match_notification(parsed_item_id) if smtp_alert_match else True
-    if alert_delivery_ids and not notification_enqueue_ok:
+    notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
+    if integration_event_ids and not notification_enqueue_ok:
         logger.warning(
-            "classification_notification_enqueue_failed item_id=%s delivery_count=%s",
+            "classification_notification_enqueue_failed item_id=%s event_count=%s",
             parsed_item_id,
-            len(alert_delivery_ids),
+            len(integration_event_ids),
         )
     ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
     if queue_ai_enrichment:
@@ -2980,8 +3251,8 @@ def classify_item(item_id: str):
         "status": "ok",
         "item_id": item_id,
         "category": result.primary_category,
-        "notification_enqueue_failed": bool(alert_delivery_ids) and not notification_enqueue_ok,
-        "smtp_notification_enqueue_failed": smtp_alert_match and not smtp_enqueue_ok,
+        "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
+        "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
         "ioc_enqueue_failed": not ioc_enqueue_ok,
         "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
     }
@@ -3686,16 +3957,21 @@ def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
 
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
     _mark_feed_failure(db, feed, error)
-    reservation = reserve_feed_failing_notification_deliveries(db, feed=feed)
-    smtp_feed_failing = (
-        int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD
-        and smtp_notification_event_enabled(
+    integration_event_ids: list[uuid.UUID] = []
+    if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
+        event = emit_integration_event(
             db,
             event_type="feed_failing",
-            feed=feed,
+            source_type="feed",
+            source_id=feed.id,
+            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
+            payload={
+                "feed_id": str(feed.id),
+                "scope_key": scope_key,
+                "error_count": int(feed.error_count or 0),
+            },
         )
-    )
+        integration_event_ids.append(event.id)
     db.commit()
-    webhook_enqueue_ok = enqueue_notification_webhook_delivery_processing(reservation.delivery_ids)
-    smtp_enqueue_ok = _enqueue_smtp_feed_failing_notification(feed.id) if smtp_feed_failing else True
-    return webhook_enqueue_ok and smtp_enqueue_ok
+    return enqueue_integration_event_routing(integration_event_ids)

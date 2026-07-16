@@ -9,7 +9,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.integration import IntegrationInstance, IntegrationRun
+from app.models.feed import Feed
+from app.models.integration import (
+    IntegrationInstance,
+    IntegrationRun,
+    IntegrationSubscription,
+    IntegrationSubscriptionFeed,
+)
 from app.schemas.integration import (
     DEFAULT_SMTP_EVENT_TYPES,
     DEFAULT_SMTP_HTML_TEMPLATE,
@@ -20,7 +26,7 @@ from app.schemas.integration import (
     SMTPTestResponse,
 )
 from app.schemas.notification import NotificationEventType
-from app.services.integration_registry import SMTP_CONFIG_SCHEMA_VERSION
+from app.services.integration_registry_constants import SMTP_CONFIG_SCHEMA_VERSION
 from app.services.secret_storage import decrypt_json, encrypt_json
 
 SMTP_SYSTEM_KEY = "smtp.default"
@@ -89,12 +95,44 @@ def get_or_create_smtp_integration(db: Session) -> IntegrationInstance:
     return instance
 
 
+def get_or_create_persisted_smtp_integration(db: Session) -> IntegrationInstance:
+    instance = db.scalar(select(IntegrationInstance).where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY))
+    if instance is not None:
+        return instance
+    instance = get_or_create_smtp_integration(db)
+    db.commit()
+    db.refresh(instance)
+    return instance
+
+
+def lock_smtp_configuration(db: Session) -> IntegrationInstance:
+    instance = get_or_create_smtp_integration(db)
+    db.flush()
+    locked = db.scalar(
+        select(IntegrationInstance)
+        .where(IntegrationInstance.system_key == SMTP_SYSTEM_KEY)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return locked or instance
+
+
 def list_integration_summaries(db: Session) -> list[IntegrationSummaryResponse]:
     instances = db.scalars(select(IntegrationInstance).order_by(IntegrationInstance.name.asc())).all()
     summaries: list[IntegrationSummaryResponse] = []
     for instance in instances:
-        if instance.integration_type == SMTP_INTEGRATION_TYPE:
-            smtp = smtp_settings_response_from_model(instance)
+        if instance.integration_type == SMTP_INTEGRATION_TYPE and not smtp_instance_is_archived(instance):
+            try:
+                credential_source = get_smtp_credential_source(db, instance)
+                smtp = smtp_settings_response_from_model(instance, credential_source=credential_source)
+            except SMTPSecretError as exc:
+                smtp = smtp_settings_response_from_model(instance).model_copy(
+                    update={
+                        "configured": False,
+                        "health_status": INTEGRATION_HEALTH_ERROR,
+                        "last_error": str(exc),
+                    }
+                )
             summaries.append(
                 IntegrationSummaryResponse(
                     id=instance.id,
@@ -114,7 +152,6 @@ def list_integration_summaries(db: Session) -> list[IntegrationSummaryResponse]:
 
 
 def apply_smtp_settings_update(instance: IntegrationInstance, payload: SMTPSettingsUpdate) -> None:
-    instance.name = "SMTP"
     instance.integration_type = SMTP_INTEGRATION_TYPE
     instance.direction = INTEGRATION_DIRECTION_DESTINATION
     instance.enabled = payload.enabled
@@ -134,9 +171,73 @@ def apply_smtp_settings_update(instance: IntegrationInstance, payload: SMTPSetti
     instance.last_test_duration_ms = None
 
 
-def smtp_settings_response_from_model(instance: IntegrationInstance) -> SMTPSettingsResponse:
+def apply_smtp_hook_settings_update(
+    instance: IntegrationInstance,
+    payload: SMTPSettingsUpdate,
+    *,
+    name: str,
+    credential_source: IntegrationInstance | None,
+) -> None:
+    apply_smtp_settings_update(instance, payload)
+    instance.name = name
+    instance.credential_source_integration_id = credential_source.id if credential_source is not None else None
+    if credential_source is not None:
+        config = dict(instance.config_json)
+        config["host"] = None
+        config["username"] = None
+        instance.config_json = config
+        instance.secret_json = None
+
+
+def sync_smtp_subscriptions(db: Session, instance: IntegrationInstance) -> list[IntegrationSubscription]:
+    """Synchronize SMTP routing rows while retaining disabled rows for delivery history."""
     config = _normalize_smtp_config(instance.config_json)
-    secrets, secret_error = read_smtp_secret_config(instance)
+    configured_event_types = set(config["event_types"])
+    subscriptions = {
+        subscription.event_type: subscription
+        for subscription in db.scalars(
+            select(IntegrationSubscription).where(IntegrationSubscription.integration_id == instance.id)
+        ).all()
+    }
+    active_subscriptions: list[IntegrationSubscription] = []
+    for event_type in sorted(configured_event_types):
+        subscription = subscriptions.get(event_type)
+        if subscription is None:
+            subscription = IntegrationSubscription(
+                integration_id=instance.id,
+                subscription_key=f"event:{event_type}",
+                event_type=event_type,
+            )
+            db.add(subscription)
+        subscription.subscription_key = f"event:{event_type}"
+        subscription.enabled = bool(instance.enabled)
+        subscription.feed_scope = config["feed_scope"]
+        subscription.filter_json = {
+            "feed_scope": config["feed_scope"],
+            "feed_ids": [str(feed_id) for feed_id in config["feed_ids"]],
+        }
+        subscription.transform_json = {}
+        db.flush()
+        _sync_smtp_subscription_feeds(db, subscription=subscription, feed_ids=set(config["feed_ids"]))
+        active_subscriptions.append(subscription)
+
+    for event_type, subscription in subscriptions.items():
+        if event_type not in configured_event_types:
+            subscription.enabled = False
+            db.add(subscription)
+    db.flush()
+    return active_subscriptions
+
+
+def smtp_settings_response_from_model(
+    instance: IntegrationInstance,
+    *,
+    credential_source: IntegrationInstance | None = None,
+) -> SMTPSettingsResponse:
+    config = _normalize_smtp_config(instance.config_json)
+    credential_instance = credential_source or instance
+    credential_config = _normalize_smtp_config(credential_instance.config_json)
+    secrets, secret_error = read_smtp_secret_config(credential_instance)
     health_status = instance.health_status
     last_error = instance.last_error
     if secret_error:
@@ -149,12 +250,16 @@ def smtp_settings_response_from_model(instance: IntegrationInstance) -> SMTPSett
         integration_type="smtp",
         direction="destination",
         enabled=bool(instance.enabled),
-        configured=_smtp_configured(config),
+        configured=_smtp_configured(
+            config,
+            credential_config=credential_config,
+            password_configured=bool(secrets.get("password")),
+        ),
         schema_version=int(instance.schema_version or SMTP_CONFIG_SCHEMA_VERSION),
-        host=config["host"],
-        port=config["port"],
-        security=config["security"],
-        username=config["username"],
+        host=credential_config["host"],
+        port=credential_config["port"],
+        security=credential_config["security"],
+        username=credential_config["username"],
         password_configured=bool(secrets.get("password")) if not secret_error else False,
         has_unreadable_secret=bool(secret_error),
         from_email=config["from_email"],
@@ -181,17 +286,27 @@ def build_active_smtp_settings(
     instance: IntegrationInstance,
     *,
     override: SMTPSettingsUpdate | None = None,
+    credential_source: IntegrationInstance | None = None,
 ) -> ActiveSMTPSettings:
+    credential_instance = credential_source or instance
+    credential_config = _normalize_smtp_config(credential_instance.config_json)
     if override is not None:
         config = _smtp_config_from_payload(override)
-        password = _resolve_override_password(instance, override)
+        if credential_source is None:
+            credential_config = config
+            password = _resolve_override_password(instance, override)
+        else:
+            secrets, secret_error = read_smtp_secret_config(credential_source)
+            if secret_error:
+                raise SMTPSecretError(secret_error)
+            password = secrets.get("password")
         return ActiveSMTPSettings(
             id=instance.id,
             enabled=override.enabled,
-            host=config["host"],
-            port=config["port"],
-            security=config["security"],
-            username=config["username"],
+            host=credential_config["host"],
+            port=credential_config["port"],
+            security=credential_config["security"],
+            username=credential_config["username"],
             password=password,
             from_email=config["from_email"],
             from_name=config["from_name"],
@@ -205,16 +320,16 @@ def build_active_smtp_settings(
         )
 
     config = _normalize_smtp_config(instance.config_json)
-    secrets, secret_error = read_smtp_secret_config(instance)
+    secrets, secret_error = read_smtp_secret_config(credential_instance)
     if secret_error:
         raise SMTPSecretError(secret_error)
     return ActiveSMTPSettings(
         id=instance.id,
         enabled=bool(instance.enabled),
-        host=config["host"],
-        port=config["port"],
-        security=config["security"],
-        username=config["username"],
+        host=credential_config["host"],
+        port=credential_config["port"],
+        security=credential_config["security"],
+        username=credential_config["username"],
         password=secrets.get("password"),
         from_email=config["from_email"],
         from_name=config["from_name"],
@@ -246,6 +361,23 @@ def read_smtp_secret_config(instance: IntegrationInstance) -> tuple[dict[str, st
     return {"password": password}, None
 
 
+def get_smtp_credential_source(db: Session, instance: IntegrationInstance) -> IntegrationInstance | None:
+    source_id = instance.credential_source_integration_id
+    if source_id is None:
+        return None
+    source = db.get(IntegrationInstance, source_id)
+    if source is None or source.integration_type != SMTP_INTEGRATION_TYPE or smtp_instance_is_archived(source):
+        raise SMTPSecretError("The shared SMTP credential source is no longer available. Choose another source or enter new credentials.")
+    if source.credential_source_integration_id is not None:
+        raise SMTPSecretError("The shared SMTP credential source is invalid because credential chains are not supported.")
+    return source
+
+
+def smtp_instance_is_archived(instance: IntegrationInstance) -> bool:
+    config = instance.config_json if isinstance(instance.config_json, dict) else {}
+    return bool(config.get("archived_at"))
+
+
 def record_smtp_test_result(
     db: Session,
     *,
@@ -266,6 +398,7 @@ def record_smtp_test_result(
             "action": result.action,
             "recipient_email": str(result.recipient_email) if result.recipient_email else None,
             "used_unsaved_settings": used_unsaved_settings,
+            "server_message": result.server_message[:4000] if result.server_message else None,
         },
     )
     db.add(run)
@@ -283,6 +416,7 @@ def record_smtp_test_result(
             instance.last_error = result.error
         db.add(instance)
 
+    db.flush()
     return run
 
 
@@ -364,8 +498,46 @@ def _default_smtp_config() -> dict:
     }
 
 
-def _smtp_configured(config: dict) -> bool:
-    return bool(config.get("host") and config.get("from_email") and config.get("to_emails"))
+def _smtp_configured(
+    config: dict,
+    *,
+    credential_config: dict | None = None,
+    password_configured: bool = False,
+) -> bool:
+    credentials = credential_config or config
+    authentication_configured = not credentials.get("username") or password_configured
+    return bool(
+        credentials.get("host")
+        and authentication_configured
+        and config.get("from_email")
+        and config.get("to_emails")
+    )
+
+
+def _sync_smtp_subscription_feeds(
+    db: Session,
+    *,
+    subscription: IntegrationSubscription,
+    feed_ids: set[uuid.UUID],
+) -> None:
+    valid_feed_ids = (
+        set(db.scalars(select(Feed.id).where(Feed.id.in_(feed_ids))).all())
+        if feed_ids
+        else set()
+    )
+    existing = {
+        row.feed_id: row
+        for row in db.scalars(
+            select(IntegrationSubscriptionFeed).where(
+                IntegrationSubscriptionFeed.subscription_id == subscription.id
+            )
+        ).all()
+    }
+    for feed_id, row in existing.items():
+        if feed_id not in valid_feed_ids:
+            db.delete(row)
+    for feed_id in valid_feed_ids - set(existing):
+        db.add(IntegrationSubscriptionFeed(subscription_id=subscription.id, feed_id=feed_id))
 
 
 def _normalize_optional_text(value) -> str | None:

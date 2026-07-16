@@ -30,6 +30,7 @@ export function AlertsPage() {
   const [keywordsText, setKeywordsText] = useState('')
   const [showDisabled, setShowDisabled] = useState(false)
   const [pendingDeleteAlert, setPendingDeleteAlert] = useState<AlertInterest | null>(null)
+  const [deleteAlertError, setDeleteAlertError] = useState<string | null>(null)
 
   const parsedKeywords = useMemo(
     () =>
@@ -117,7 +118,12 @@ export function AlertsPage() {
       if (editingAlertId === deletedId) {
         resetForm(true)
       }
+      setPendingDeleteAlert((current) => (current?.id === deletedId ? null : current))
+      setDeleteAlertError(null)
       void queryClient.invalidateQueries({ queryKey: ['alerts'] })
+    },
+    onError: (error) => {
+      setDeleteAlertError(resolveAlertDeleteError(error))
     },
   })
 
@@ -197,6 +203,7 @@ export function AlertsPage() {
 
   const onRequestDeleteAlert = (alert: AlertInterest) => {
     confirmDiscardUnsavedAlertChanges(() => {
+      setDeleteAlertError(null)
       setPendingDeleteAlert(alert)
     })
   }
@@ -207,7 +214,7 @@ export function AlertsPage() {
     }
 
     const alertId = pendingDeleteAlert.id
-    setPendingDeleteAlert(null)
+    setDeleteAlertError(null)
     deleteAlert.mutate(alertId)
   }
 
@@ -483,7 +490,10 @@ export function AlertsPage() {
         title="Delete alert interest?"
         description="This permanently removes the alert interest and stops future item matching for these keywords."
         confirmLabel="Delete alert"
-        onCancel={() => setPendingDeleteAlert(null)}
+        onCancel={() => {
+          setPendingDeleteAlert(null)
+          setDeleteAlertError(null)
+        }}
         onConfirm={confirmDeleteAlert}
         confirmDisabled={!pendingDeleteAlert}
         isConfirming={deleteAlert.isPending}
@@ -512,6 +522,11 @@ export function AlertsPage() {
                 Your current unsaved edits for this alert will be discarded too.
               </p>
             )}
+            {deleteAlertError && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+                {deleteAlertError}
+              </p>
+            )}
           </div>
         )}
       </ConfirmDialog>
@@ -522,6 +537,13 @@ export function AlertsPage() {
 
 function describeAlertCategory(category: string): string {
   return ALERT_CATEGORIES.find((entry) => entry.value === category)?.label ?? category
+}
+
+function resolveAlertDeleteError(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Failed to delete alert interest.'
 }
 
 function formatTimestamp(value: string | null): string {

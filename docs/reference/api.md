@@ -4,8 +4,8 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Published Contract
 
-- Schema version: `1.0.0`
-- OpenAPI contract anchor: `openapi-sha256:c7476f28ec2b40a5b7b7749e07a55036478f3f1847898d3196475fafc175a61f`
+- Schema version: `1.2.0`
+- OpenAPI contract anchor: `openapi-sha256:445fe5801c7b5a43b7d4811b6dc21f71e8ae51bac1c03a1fcdc15d57eac51102`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -313,10 +313,12 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/beat`
 - Summary: Beat
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/encrypted-data`
 - Summary: Encrypted Data
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> EncryptedDataInventoryResponse
 ### `GET /v1/health/live`
 - Summary: Live
@@ -325,6 +327,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/notifications`
 - Summary: Notifications
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 ### `GET /v1/health/ready`
 - Summary: Ready
@@ -333,6 +336,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ### `GET /v1/health/worker`
 - Summary: Worker
 - Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:health`
 - Responses: `200` `application/json` -> unspecified
 
 ## Integrations
@@ -347,6 +351,76 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `read:integrations`
 - Responses: `200` `application/json` -> array[IntegrationConnectorResponse]
+### `POST /v1/integrations/deliveries/{delivery_id}/replay`
+- Summary: Replay Integration Delivery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `delivery_id` (path, required): string
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/analytics`
+- Summary: Get Smtp Analytics
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> SMTPAnalyticsResponse
+### `GET /v1/integrations/smtp/hooks`
+- Summary: Get Smtp Hooks
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[SMTPHookResponse]
+### `POST /v1/integrations/smtp/hooks`
+- Summary: Create Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPHookWrite
+- Responses: `201` `application/json` -> SMTPHookResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/integrations/smtp/hooks/test`
+- Summary: Test Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Request body: `application/json` -> SMTPHookTestRequest
+- Responses: `200` `application/json` -> SMTPTestResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/integrations/smtp/hooks/{hook_id}`
+- Summary: Delete Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `PATCH /v1/integrations/smtp/hooks/{hook_id}`
+- Summary: Update Smtp Hook
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+- Request body: `application/json` -> SMTPHookWrite
+- Responses: `200` `application/json` -> SMTPHookResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/hooks/{hook_id}/deliveries`
+- Summary: Get Smtp Hook Deliveries
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> SMTPDeliveryListResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
+- Summary: Replay Smtp Hook Delivery
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+  - `delivery_id` (path, required): string
+- Responses: `200` `application/json` -> IntegrationDeliveryReplayResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/hooks/{hook_id}/test-runs`
+- Summary: Get Smtp Hook Test Runs
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Parameters:
+  - `hook_id` (path, required): string
+  - `page` (query, optional): integer
+  - `page_size` (query, optional): integer
+- Responses: `200` `application/json` -> SMTPTestRunListResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/integrations/smtp/settings`
 - Summary: Get Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -358,6 +432,11 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Token scopes: `write:integrations`
 - Request body: `application/json` -> SMTPSettingsUpdate
 - Responses: `200` `application/json` -> SMTPSettingsResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/integrations/smtp/template-defaults`
+- Summary: Get Smtp Template Defaults
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:integrations`
+- Responses: `200` `application/json` -> array[SMTPTemplateDefaultResponse]
 ### `POST /v1/integrations/smtp/test`
 - Summary: Test Smtp Settings
 - Auth: ApiTokenBearer or SessionCookieAuth

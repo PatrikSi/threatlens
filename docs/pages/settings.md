@@ -48,6 +48,7 @@ Legacy route behavior:
 - Saved webhook list with create/edit/delete
 - Create, update, test, retry, and delete actions are available to `admin` and `analyst` users with write notification access.
 - Viewers can still see their own notification analytics and delivery history when scopes permit.
+- Viewer-role reads and read-only API tokens receive redacted URL, header, query, and body configuration values.
 - Webhook targets are validated before create/update/test/retry and again before delivery. Public targets must use `https`; private-network or internal-only targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - Cross-origin redirects are blocked during delivery, and redirect depth is capped by `OUTBOUND_MAX_REDIRECTS`.
 - Webhook configuration fields:
@@ -82,14 +83,30 @@ Legacy route behavior:
 
 ## Integrations: SMTP (Admin)
 
-- Configurable outbound SMTP destination for notification email.
+- Multiple configurable outbound SMTP hooks with per-hook delivery statistics and history.
 - Supports enabling/disabling, host, port, security mode, credentials, sender identity, recipient emails, timeout, event types, feed scope, subject template, and HTML template.
+- New hooks can store their own authentication or reuse credentials from an existing SMTP hook.
+- Changing the `Send for` event loads an event-specific default subject and body template.
 - Test tooling can run a connection/authentication check or send a rendered test email to a chosen recipient.
+- Per-hook history separates event deliveries from SMTP tests. Test history retains result, action, recipient, saved-versus-draft settings, duration, normalized error details, SMTP server response, timestamps, and run ID.
+- Tests against a saved hook are retained even when they use unsaved draft values. A brand-new unsaved hook has no persistent integration ID, so its result is available only in the immediate test response until the hook is saved.
+- Test runs do not affect delivery analytics, retries, circuit breaking, or dead-letter counts.
+- SMTP test audit entries include the retained run ID when available, duration, normalized error details, and a bounded server response without storing SMTP credentials.
+- Dead-letter deliveries can be replayed without rewriting their historical attempt records.
 - API calls:
   - `GET /integrations/connectors`
-  - `GET /integrations/smtp/settings`
-  - `PUT /integrations/smtp/settings`
-  - `POST /integrations/smtp/test`
+  - `GET /integrations`
+  - `GET /integrations/smtp/hooks`
+  - `POST /integrations/smtp/hooks`
+  - `PATCH /integrations/smtp/hooks/{hook_id}`
+  - `DELETE /integrations/smtp/hooks/{hook_id}`
+  - `GET /integrations/smtp/template-defaults`
+  - `GET /integrations/smtp/analytics`
+  - `GET /integrations/smtp/hooks/{hook_id}/deliveries`
+  - `GET /integrations/smtp/hooks/{hook_id}/test-runs`
+  - `POST /integrations/smtp/hooks/{hook_id}/deliveries/{delivery_id}/replay`
+  - `POST /integrations/smtp/hooks/test`
+- Legacy-compatible SMTP settings endpoints remain available: `GET /integrations/smtp/settings`, `PUT /integrations/smtp/settings`, and `POST /integrations/smtp/test`.
 
 ## Tagging Page (Admin)
 

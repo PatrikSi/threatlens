@@ -232,6 +232,7 @@ export function DashboardPage() {
   const [mobileWindowControlsOpenById, setMobileWindowControlsOpenById] = useState<Record<string, boolean>>({})
   const [isEditMode, setIsEditMode] = useState(false)
   const [viewSaveError, setViewSaveError] = useState('')
+  const [viewDeleteError, setViewDeleteError] = useState('')
 
   const [showAddWindowMenu, setShowAddWindowMenu] = useState(false)
   const [showSaveAsNew, setShowSaveAsNew] = useState(false)
@@ -721,7 +722,12 @@ export function DashboardPage() {
         }
       })
       setPendingSavedViewLoad((current) => (current?.id === deletedViewId ? null : current))
+      setPendingViewDelete((current) => (current?.id === deletedViewId ? null : current))
+      setViewDeleteError('')
       queryClient.invalidateQueries({ queryKey: ['views'] })
+    },
+    onError: (error) => {
+      setViewDeleteError(resolveItemActionError(error, 'Unable to delete the saved view.'))
     },
   })
 
@@ -731,7 +737,7 @@ export function DashboardPage() {
     }
 
     const viewId = pendingViewDelete.id
-    setPendingViewDelete(null)
+    setViewDeleteError('')
     deleteView.mutate(viewId)
   }
 
@@ -856,10 +862,16 @@ export function DashboardPage() {
     },
     onSuccess: (_data, variables) => {
       savedNoteValuesByItemIdRef.current[variables.itemId] = variables.note ?? ''
-      setNoteDraftsByItemId((current) => ({
-        ...current,
-        [variables.itemId]: variables.note ?? '',
-      }))
+      setNoteDraftsByItemId((current) => {
+        const savedNote = variables.note ?? ''
+        if ((current[variables.itemId] ?? '') !== savedNote) {
+          return current
+        }
+        return {
+          ...current,
+          [variables.itemId]: savedNote,
+        }
+      })
       syncItemStateInCache(queryClient, variables.itemId, {
         note: variables.note,
       })
@@ -1089,6 +1101,56 @@ export function DashboardPage() {
       >,
     [alertWindowQueries, alertWindows],
   )
+
+  useEffect(() => {
+    setWindows((current) => {
+      let changed = false
+      const next = current.map((windowLayout) => {
+        if (windowLayout.type === 'rss') {
+          const filters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
+          const query = rssQueriesByWindowId[windowLayout.id]
+          if (!query?.data || query.isPlaceholderData || query.data.page !== filters.page) {
+            return windowLayout
+          }
+          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, filters.page_size)))
+          if (filters.page <= totalPages) {
+            return windowLayout
+          }
+          changed = true
+          return {
+            ...windowLayout,
+            rss_filters: {
+              ...filters,
+              page: totalPages,
+            },
+          }
+        }
+
+        if (windowLayout.type === 'alerts') {
+          const filters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
+          const query = alertQueriesByWindowId[windowLayout.id]
+          if (!query?.data || query.isPlaceholderData || query.data.page !== filters.page) {
+            return windowLayout
+          }
+          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, filters.page_size)))
+          if (filters.page <= totalPages) {
+            return windowLayout
+          }
+          changed = true
+          return {
+            ...windowLayout,
+            alert_filters: {
+              ...filters,
+              page: totalPages,
+            },
+          }
+        }
+
+        return windowLayout
+      })
+      return changed ? next : current
+    })
+  }, [alertQueriesByWindowId, rssQueriesByWindowId])
 
   useEffect(() => {
     const rssWindowIds = new Set(rssWindows.map((windowLayout) => windowLayout.id))
@@ -3744,7 +3806,10 @@ export function DashboardPage() {
                   <button
                     type="button"
                     className="rounded border border-slate/20 px-2 py-1 text-xs text-red-600 dark:border-cyan-900/40"
-                    onClick={() => setPendingViewDelete(view)}
+                    onClick={() => {
+                      setViewDeleteError('')
+                      setPendingViewDelete(view)
+                    }}
                     disabled={deleteView.isPending || Boolean(pendingViewDelete)}
                     aria-label={`Delete saved view ${view.name}`}
                   >
@@ -3792,7 +3857,10 @@ export function DashboardPage() {
         title="Delete saved view?"
         description="This permanently removes the saved dashboard layout and filters."
         confirmLabel="Delete view"
-        onCancel={() => setPendingViewDelete(null)}
+        onCancel={() => {
+          setPendingViewDelete(null)
+          setViewDeleteError('')
+        }}
         onConfirm={onConfirmDeleteView}
         confirmDisabled={deleteView.isPending}
         isConfirming={deleteView.isPending}
@@ -3803,6 +3871,11 @@ export function DashboardPage() {
             <p className="text-xs text-slate dark:text-white/70">
               Saved on {formatDateTime(pendingViewDelete.created_at)}
             </p>
+            {viewDeleteError && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-300">
+                {viewDeleteError}
+              </p>
+            )}
           </div>
         )}
       </ConfirmDialog>

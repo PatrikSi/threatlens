@@ -1,13 +1,15 @@
 from datetime import datetime, timezone
 
 import redis
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_admin_user, get_optional_current_user
+from app.api.deps import get_admin_user, get_optional_current_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.rbac import ROLE_ADMIN
+from app.core.token_scopes import SCOPE_READ_HEALTH, has_required_scope
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.health import EncryptedDataInventoryResponse
@@ -19,13 +21,21 @@ router = APIRouter(prefix="/health", tags=["health"])
 
 
 @router.get("")
-def health(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
-    return _readiness_response(db, detailed=_is_admin_user(user))
+def health(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_current_user),
+):
+    return _readiness_response(db, detailed=_can_view_detailed_health(request, user))
 
 
 @router.get("/ready")
-def ready(db: Session = Depends(get_db), user: User | None = Depends(get_optional_current_user)):
-    return _readiness_response(db, detailed=_is_admin_user(user))
+def ready(
+    request: Request,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_optional_current_user),
+):
+    return _readiness_response(db, detailed=_can_view_detailed_health(request, user))
 
 
 @router.get("/live")
@@ -34,24 +44,38 @@ def live():
 
 
 @router.get("/worker")
-def worker(_admin: User = Depends(get_admin_user)):
+def worker(
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_HEALTH)),
+):
     return _worker_health_response(detailed=True)
 
 
 @router.get("/beat")
-def beat(_admin: User = Depends(get_admin_user)):
+def beat(
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_HEALTH)),
+):
     return _beat_health_response(detailed=True)
 
 
 @router.get("/notifications")
-def notifications(db: Session = Depends(get_db), _admin: User = Depends(get_admin_user)):
+def notifications(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_HEALTH)),
+):
     snapshot = get_notification_delivery_queue_snapshot(db)
     status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=status_code, content=snapshot.model_dump())
 
 
 @router.get("/encrypted-data", response_model=EncryptedDataInventoryResponse)
-def encrypted_data(db: Session = Depends(get_db), _admin: User = Depends(get_admin_user)):
+def encrypted_data(
+    db: Session = Depends(get_db),
+    _admin: User = Depends(get_admin_user),
+    _scope_user: User = Depends(require_token_scopes(SCOPE_READ_HEALTH)),
+):
     snapshot = scan_encrypted_data_inventory(db)
     status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=status_code, content=snapshot.model_dump(mode="json"))
@@ -112,8 +136,11 @@ def _beat_health_response(*, detailed: bool):
     return JSONResponse(status_code=status_code, content=payload)
 
 
-def _is_admin_user(user: User | None) -> bool:
-    return user is not None and user.role == "admin"
+def _can_view_detailed_health(request: Request, user: User | None) -> bool:
+    if user is None or user.role != ROLE_ADMIN:
+        return False
+    token_scopes = getattr(request.state, "token_scopes", None)
+    return token_scopes is None or has_required_scope(set(token_scopes), SCOPE_READ_HEALTH)
 
 
 def _database_health_ok(db: Session) -> bool:

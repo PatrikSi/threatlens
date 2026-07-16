@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   buildDashboardSavedViewState,
+  createDefaultAlertWindowFilters,
   createDefaultRssWindowFilters,
   type DashboardWindow,
 } from './dashboardSavedViews'
@@ -34,6 +35,10 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
     setQueryData: vi.fn(),
   },
   deleteMutate: vi.fn(),
+  deleteShouldFail: false,
+  noteMutate: vi.fn(),
+  deferNoteSuccess: false,
+  pendingNoteSuccess: null as null | (() => void),
   readMutate: vi.fn(),
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
@@ -80,6 +85,8 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
       matched_keywords: string[]
     }>
   }>,
+  itemsTotal: null as number | null,
+  alertMatchesTotal: null as number | null,
   unsavedChangesWarning: vi.fn(),
 }))
 
@@ -135,6 +142,22 @@ function createRssWindow(id: string, title: string): DashboardWindow {
   }
 }
 
+function createAlertWindow(id: string, title: string): DashboardWindow {
+  return {
+    id,
+    type: 'alerts',
+    title,
+    snap: 'full',
+    rect: { x: 0, y: 0, width: 1380, height: 760 },
+    controls_collapsed: false,
+    scratch_note: '',
+    time_override: null,
+    rss_filters: null,
+    alert_filters: createDefaultAlertWindowFilters(),
+    selected_daily_brief_id: null,
+  }
+}
+
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => dashboardPageDomMocks.queryClient,
   useQuery: ({ queryKey }: { queryKey: unknown }) => {
@@ -164,18 +187,27 @@ vi.mock('@tanstack/react-query', () => ({
     queries.map((query) => {
       const key = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey
       if (key === 'items' || key === 'alert-matches') {
+        const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
+        const rssQueryParams = key === 'items' && typeof queryKey[1] === 'object' ? queryKey[1] as { page?: number } : null
+        const page = key === 'items' ? rssQueryParams?.page ?? 1 : typeof queryKey[7] === 'number' ? queryKey[7] : 1
         return {
           data:
             key === 'items'
-              ? { items: dashboardPageDomMocks.itemsData, total: dashboardPageDomMocks.itemsData.length, page: 1, page_size: 25 }
+              ? {
+                  items: dashboardPageDomMocks.itemsData,
+                  total: dashboardPageDomMocks.itemsTotal ?? dashboardPageDomMocks.itemsData.length,
+                  page,
+                  page_size: 25,
+                }
               : {
                   items: dashboardPageDomMocks.alertMatchesData,
-                  total: dashboardPageDomMocks.alertMatchesData.length,
-                  page: 1,
+                  total: dashboardPageDomMocks.alertMatchesTotal ?? dashboardPageDomMocks.alertMatchesData.length,
+                  page,
                   page_size: 25,
                 },
           isLoading: false,
           isFetching: false,
+          isPlaceholderData: false,
           isError: false,
           error: null,
         }
@@ -201,12 +233,21 @@ vi.mock('@tanstack/react-query', () => ({
         error: null,
       }
     }),
-  useMutation: (options: { mutationKey?: unknown; onSuccess?: (data: unknown, variables: unknown) => void }) => {
+  useMutation: (options: {
+    mutationKey?: unknown
+    onMutate?: (variables: { itemId: string; note: string | null }) => void
+    onSuccess?: (data: unknown, variables: unknown) => void
+    onError?: (error: unknown, variables: unknown) => void
+  }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'dashboard-saved-views:delete') {
       return {
         mutate: vi.fn((viewId: string) => {
           dashboardPageDomMocks.deleteMutate(viewId)
+          if (dashboardPageDomMocks.deleteShouldFail) {
+            options.onError?.(new Error('Saved view deletion failed.'), viewId)
+            return
+          }
           options.onSuccess?.(undefined, viewId)
         }),
         mutateAsync: vi.fn(),
@@ -242,6 +283,26 @@ vi.mock('@tanstack/react-query', () => ({
     if (mutationKey === 'items:read') {
       return {
         mutate: dashboardPageDomMocks.readMutate,
+        mutateAsync: vi.fn(),
+        isPending: false,
+        isError: false,
+        error: null,
+        variables: null,
+      }
+    }
+
+    if (mutationKey === 'items:note') {
+      return {
+        mutate: vi.fn((payload: { itemId: string; note: string | null }) => {
+          options.onMutate?.(payload)
+          dashboardPageDomMocks.noteMutate(payload)
+          const complete = () => options.onSuccess?.(undefined, payload)
+          if (dashboardPageDomMocks.deferNoteSuccess) {
+            dashboardPageDomMocks.pendingNoteSuccess = complete
+            return
+          }
+          complete()
+        }),
         mutateAsync: vi.fn(),
         isPending: false,
         isError: false,
@@ -363,6 +424,8 @@ beforeEach(() => {
   dashboardPageDomMocks.itemsData = []
   dashboardPageDomMocks.itemDetailById = {}
   dashboardPageDomMocks.alertMatchesData = []
+  dashboardPageDomMocks.itemsTotal = null
+  dashboardPageDomMocks.alertMatchesTotal = null
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -382,6 +445,10 @@ afterEach(() => {
   document.body.innerHTML = ''
   window.localStorage.clear()
   dashboardPageDomMocks.deleteMutate.mockReset()
+  dashboardPageDomMocks.deleteShouldFail = false
+  dashboardPageDomMocks.noteMutate.mockReset()
+  dashboardPageDomMocks.deferNoteSuccess = false
+  dashboardPageDomMocks.pendingNoteSuccess = null
   dashboardPageDomMocks.readMutate.mockReset()
   dashboardPageDomMocks.saveMutate.mockReset()
   dashboardPageDomMocks.updateMutate.mockReset()
@@ -393,6 +460,45 @@ afterEach(() => {
 })
 
 describe('DashboardPage DOM workflows', () => {
+  it('keeps a failed saved-view deletion target open and renders the failure', () => {
+    dashboardPageDomMocks.deleteShouldFail = true
+    renderPage()
+
+    act(() => {
+      getButton('Views')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      document.querySelector<HTMLButtonElement>('[aria-label="Delete saved view RSS intel"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    act(() => {
+      getButton('Delete view')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(pageText()).toContain('Delete saved view?')
+    expect(pageText()).toContain('RSS intel')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Saved view deletion failed.')
+  })
+
+  it('clamps RSS and alert panel pages when result totals shrink', () => {
+    const rssWindow = createRssWindow('rss-paged', 'Paged RSS')
+    rssWindow.rss_filters = { ...rssWindow.rss_filters!, page: 3 }
+    const alertWindow = createAlertWindow('alerts-paged', 'Paged Alerts')
+    alertWindow.alert_filters = { ...alertWindow.alert_filters!, page: 4 }
+    dashboardPageDomMocks.views = [
+      createSavedView('view-paged', 'Paged panels', [rssWindow, alertWindow], '2026-04-21T09:00:00.000Z'),
+    ]
+    dashboardPageDomMocks.itemsTotal = 4
+    dashboardPageDomMocks.alertMatchesTotal = 3
+    renderPage()
+
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-paged')
+    })
+
+    expect(pageText().match(/Page 1 \/ 1/g)).toHaveLength(2)
+  })
+
   it('uses the create saved-view mutation through the shared dashboard seam', () => {
     renderPage()
 
@@ -962,6 +1068,69 @@ describe('DashboardPage DOM workflows', () => {
     const lastUnsavedWarningCall = dashboardPageDomMocks.unsavedChangesWarning.mock.calls.at(-1)
     expect(lastUnsavedWarningCall?.[0]).toBe(true)
     expect(lastUnsavedWarningCall?.[1]).toContain('unsaved dashboard note drafts')
+  })
+
+  it('does not overwrite newer note edits when an earlier save response resolves', () => {
+    dashboardPageDomMocks.deferNoteSuccess = true
+    dashboardPageDomMocks.itemsData = [
+      {
+        id: 'item-1',
+        feed_id: 'feed-1',
+        feed_name: 'Vendor Advisories',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        canonical_url: null,
+        summary: 'Summary text',
+        published_at: '2026-04-21T11:00:00Z',
+        first_seen_at: '2026-04-21T11:00:00Z',
+        status: 'content_fetched',
+        is_read: true,
+        is_starred: false,
+        tags: [],
+        ai_relevance_label: null,
+      },
+    ]
+    dashboardPageDomMocks.itemDetailById = {
+      'item-1': {
+        id: 'item-1',
+        title: 'Critical vendor bulletin',
+        url: 'https://example.com/items/1',
+        summary: 'Summary text',
+        state: {
+          is_read: true,
+          is_starred: false,
+          note: '',
+          updated_at: '2026-04-21T11:00:00Z',
+        },
+        article: null,
+        classification: null,
+        ai_insight: null,
+      },
+    }
+
+    const view = renderPage()
+    act(() => {
+      view.querySelector<HTMLButtonElement>('[aria-controls="rss-item-detail-item-1"]')
+        ?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const notesTextarea = view.querySelector<HTMLTextAreaElement>('[aria-label="Analyst notes for Critical vendor bulletin"]')!
+
+    act(() => {
+      setInputValue(notesTextarea, 'Submitted note')
+    })
+    act(() => {
+      getButton('Save Notes')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(dashboardPageDomMocks.noteMutate).toHaveBeenCalledWith({ itemId: 'item-1', note: 'Submitted note' })
+
+    act(() => {
+      setInputValue(notesTextarea, 'Newer unsaved edit')
+      dashboardPageDomMocks.pendingNoteSuccess?.()
+    })
+
+    expect(notesTextarea.value).toBe('Newer unsaved edit')
+    const lastUnsavedWarningCall = dashboardPageDomMocks.unsavedChangesWarning.mock.calls.at(-1)
+    expect(lastUnsavedWarningCall?.[0]).toBe(true)
   })
 
   it('opens a right-side original article preview from the RSS row source action', () => {
