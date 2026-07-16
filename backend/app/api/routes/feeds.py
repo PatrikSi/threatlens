@@ -134,7 +134,6 @@ def import_feeds(
     created = 0
     updated = 0
     skipped = 0
-    metadata_backfill_enqueued = 0
     errors: list[str] = []
     metadata_backfill_ids: list[str] = []
 
@@ -186,7 +185,7 @@ def import_feeds(
         },
     )
     db.commit()
-    metadata_backfill_enqueued = _enqueue_metadata_backfills(
+    _enqueue_metadata_backfills(
         metadata_backfill_ids,
         settings.max_metadata_backfill_tasks_per_request,
         errors=errors,

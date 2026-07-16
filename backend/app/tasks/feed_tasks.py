@@ -14,7 +14,6 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.ai_daily_brief import AIDailyBrief
 from app.models.article import Article
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
@@ -24,30 +23,21 @@ from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
-from app.models.user import User
 from app.services.ai_config import load_active_ai_settings
-from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
-from app.services.ai_integration import is_stale_daily_brief_pending
+from app.services.ai_integration import run_item_ai_enrichment
 from app.services.ai_ops import (
-    AI_DAILY_BRIEF_BACKFILL_SCOPE,
-    AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY,
     AI_STATUS_ERROR,
     AI_STATUS_QUEUED,
     AI_STATUS_READY,
     AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
-    AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
-    AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_AUTO,
     AI_TRIGGER_MANUAL,
-    AI_TRIGGER_SCHEDULED,
     ai_task_run_stop_reason,
     finish_ai_task_run,
     get_ai_task_run_stop_reason,
-    is_ai_task_run_cancel_requested,
     queue_ai_task_run,
-    reconcile_daily_brief_backfill_parent_progress,
     record_ai_task_event,
     _reconcile_stale_ai_runs,
     start_ai_task_run,
@@ -79,8 +69,6 @@ from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
     build_alert_match_context_for_item,
-    get_matching_notification_webhooks,
-    get_matching_notification_webhooks_for_feed,
     list_recoverable_notification_delivery_ids,
     process_notification_webhook_delivery,
     reserve_retryable_notification_webhook_delivery,
@@ -152,6 +140,45 @@ from app.tasks.task_session import db_session
 settings = get_settings()
 redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "CoordinationUnavailableError",
+    "DAILY_BRIEF_STALE_RETRY_WINDOW",
+    "DOMAIN_SLOT_TTL_SECONDS",
+    "DOMAIN_SLOT_WAIT_INTERVAL_SECONDS",
+    "TAGGING_REAPPLY_LOCK_KEY",
+    "_best_effort_release_lease",
+    "_daily_brief_backfill_attempt_is_settled",
+    "_daily_brief_backfill_attempt_number",
+    "_daily_brief_backfill_attempts",
+    "_daily_brief_backfill_reference_times",
+    "_domain_slot_key",
+    "_is_stale_daily_brief_task_run",
+    "_lease_heartbeat_is_stale",
+    "_lease_heartbeat_key",
+    "_lease_heartbeat_value",
+    "_lease_remaining_ttl_ms",
+    "_lease_renewal_interval_seconds",
+    "_lease_takeover_stale_after_seconds",
+    "_parse_lease_heartbeat",
+    "_redis_lease_heartbeat",
+    "_scheduled_daily_ai_brief_due",
+    "_try_take_stale_lease",
+    "_write_lease_heartbeat",
+    "backfill_daily_ai_briefs",
+    "claim_tagging_reapply_dispatch",
+    "daily_ai_brief_lock",
+    "dispatch_daily_ai_brief_generation",
+    "dispatch_pending_integration_deliveries",
+    "dispatch_pending_integration_events",
+    "enqueue_integration_delivery_processing",
+    "maintain_integration_delivery_history",
+    "process_integration_deliveries",
+    "reconcile_ai_task_runs",
+    "release_tagging_reapply_dispatch",
+    "reserve_notification_webhook_delivery",
+    "route_integration_event",
+]
 
 IOC_EXTRACTION_STATE_COMPLETED = "completed"
 IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
@@ -587,7 +614,7 @@ def _queue_item_ai_enrichment_run(
         run_id = run.id
     try:
         task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
-    except Exception as exc:
+    except Exception:
         with db_session() as db:
             finish_ai_task_run(
                 db,
@@ -2169,7 +2196,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
 
         try:
             result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)
-        except Exception as exc:
+        except Exception:
             db.rollback()
             if parsed_run_id:
                 finish_ai_task_run(
