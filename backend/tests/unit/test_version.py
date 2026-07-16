@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from app.version import get_app_version
 
 
@@ -5,7 +7,8 @@ def test_get_app_version_reads_repository_version(monkeypatch):
     monkeypatch.delenv("APP_VERSION", raising=False)
     get_app_version.cache_clear()
 
-    assert get_app_version() == "1.1.0"
+    repository_version = (Path(__file__).resolve().parents[3] / "VERSION").read_text(encoding="utf-8").strip()
+    assert get_app_version() == repository_version
 
 
 def test_get_app_version_prefers_environment_override(monkeypatch):

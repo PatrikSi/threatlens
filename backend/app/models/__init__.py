@@ -10,7 +10,16 @@ from app.models.article import Article
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.ioc import IOC, ItemIOC
-from app.models.integration import IntegrationInstance, IntegrationRun
+from app.models.integration import (
+    IntegrationAttempt,
+    IntegrationDelivery,
+    IntegrationDeliveryMetric,
+    IntegrationEvent,
+    IntegrationInstance,
+    IntegrationRun,
+    IntegrationSubscription,
+    IntegrationSubscriptionFeed,
+)
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
@@ -36,8 +45,14 @@ __all__ = [
     "AuditLog",
     "Feed",
     "IOC",
+    "IntegrationAttempt",
+    "IntegrationDelivery",
+    "IntegrationDeliveryMetric",
+    "IntegrationEvent",
     "IntegrationInstance",
     "IntegrationRun",
+    "IntegrationSubscription",
+    "IntegrationSubscriptionFeed",
     "Item",
     "ItemAIEnrichment",
     "ItemIOC",

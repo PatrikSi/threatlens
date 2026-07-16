@@ -69,6 +69,22 @@ x-backend-environment: &backend-environment
   BEAT_HEARTBEAT_TTL_SECONDS: "${BEAT_HEARTBEAT_TTL_SECONDS:-180}"
   BEAT_HEARTBEAT_STALE_AFTER_SECONDS: "${BEAT_HEARTBEAT_STALE_AFTER_SECONDS:-180}"
   BEAT_HEARTBEAT_INTERVAL_SECONDS: "${BEAT_HEARTBEAT_INTERVAL_SECONDS:-60}"
+  INTEGRATION_EVENT_ROUTING_BATCH_SIZE: "${INTEGRATION_EVENT_ROUTING_BATCH_SIZE:-200}"
+  INTEGRATION_EVENT_ROUTING_STALE_AFTER_SECONDS: "${INTEGRATION_EVENT_ROUTING_STALE_AFTER_SECONDS:-120}"
+  INTEGRATION_EVENT_ROUTING_MAX_ATTEMPTS: "${INTEGRATION_EVENT_ROUTING_MAX_ATTEMPTS:-10}"
+  INTEGRATION_EVENT_ROUTING_BACKOFF_SECONDS: "${INTEGRATION_EVENT_ROUTING_BACKOFF_SECONDS:-10}"
+  INTEGRATION_DELIVERY_RECOVERY_BATCH_SIZE: "${INTEGRATION_DELIVERY_RECOVERY_BATCH_SIZE:-200}"
+  INTEGRATION_DELIVERY_RETRY_MAX_ATTEMPTS: "${INTEGRATION_DELIVERY_RETRY_MAX_ATTEMPTS:-5}"
+  INTEGRATION_DELIVERY_RETRY_BACKOFF_SECONDS: "${INTEGRATION_DELIVERY_RETRY_BACKOFF_SECONDS:-30}"
+  INTEGRATION_DELIVERY_RETRY_MAX_BACKOFF_SECONDS: "${INTEGRATION_DELIVERY_RETRY_MAX_BACKOFF_SECONDS:-3600}"
+  INTEGRATION_DELIVERY_CONCURRENCY_DEFER_SECONDS: "${INTEGRATION_DELIVERY_CONCURRENCY_DEFER_SECONDS:-5}"
+  INTEGRATION_DELIVERY_CIRCUIT_FAILURE_THRESHOLD: "${INTEGRATION_DELIVERY_CIRCUIT_FAILURE_THRESHOLD:-5}"
+  INTEGRATION_DELIVERY_CIRCUIT_OPEN_SECONDS: "${INTEGRATION_DELIVERY_CIRCUIT_OPEN_SECONDS:-300}"
+  INTEGRATION_DELIVERY_METRICS_DELAY_SECONDS: "${INTEGRATION_DELIVERY_METRICS_DELAY_SECONDS:-60}"
+  INTEGRATION_DELIVERY_MAINTENANCE_BATCH_SIZE: "${INTEGRATION_DELIVERY_MAINTENANCE_BATCH_SIZE:-1000}"
+  INTEGRATION_DELIVERY_RETENTION_DAYS: "${INTEGRATION_DELIVERY_RETENTION_DAYS:-90}"
+  INTEGRATION_EVENT_RETENTION_DAYS: "${INTEGRATION_EVENT_RETENTION_DAYS:-30}"
+  INTEGRATION_METRICS_RETENTION_DAYS: "${INTEGRATION_METRICS_RETENTION_DAYS:-730}"
 
 services:
   db:
@@ -160,7 +176,7 @@ services:
         "worker",
         "--loglevel=INFO",
         "--concurrency=${WORKER_CONCURRENCY:-4}",
-        "--queues=default,ingest,processing,notifications,maintenance,ai",
+        "--queues=default,ingest,processing,maintenance,ai",
         "-n",
         "worker@%h",
       ]
@@ -169,6 +185,46 @@ services:
         [
           "CMD-SHELL",
           "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backplane
+
+  worker-notifications:
+    image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+      SEED_ADMIN_ON_STARTUP: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=${NOTIFICATION_WORKER_CONCURRENCY:-4}",
+        "--queues=notifications",
+        "-n",
+        "notifications@%h",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'notifications@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
         ]
       interval: 30s
       timeout: 10s

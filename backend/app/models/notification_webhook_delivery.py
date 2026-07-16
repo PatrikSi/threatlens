@@ -11,6 +11,12 @@ class NotificationWebhookDelivery(Base):
     __tablename__ = "notification_webhook_deliveries"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    integration_delivery_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("integration_deliveries.id", ondelete="CASCADE"),
+        nullable=True,
+        unique=True,
+    )
     webhook_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("notification_webhooks.id", ondelete="CASCADE"),

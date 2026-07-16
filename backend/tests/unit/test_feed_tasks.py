@@ -17,6 +17,7 @@ from app.models.ioc import IOC, ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
+from app.models.integration import IntegrationDelivery, IntegrationEvent
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -28,8 +29,12 @@ from app.services.safe_fetch import RedirectError
 from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
+from app.services.integration_delivery import ensure_webhook_delivery
 from app.tasks.feed_tasks import (
     _feed_url_digest_still_current,
+    _emit_failed_webhook_integration_event,
+    _mark_failed_webhook_delivery_dead_letter,
+    _mark_feed_failure_and_enqueue_notifications,
     _process_reserved_notification_deliveries,
     _rss_summary_fallback_text,
     _scheduled_daily_ai_brief_due,
@@ -1106,7 +1111,7 @@ def test_fetch_feed_marks_non_feed_http_200_response_as_failure(db_session, monk
     assert feed.last_error == "invalid_feed_content"
 
 
-def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+def test_fetch_feed_persists_new_item_event_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -1201,20 +1206,53 @@ def test_fetch_feed_reserves_new_item_notification_deliveries_when_enqueue_fails
     monkeypatch.setattr("app.tasks.feed_tasks._upsert_item_from_parsed", _upsert_item)
     monkeypatch.setattr("app.tasks.feed_tasks.fetch_article.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        "app.tasks.feed_tasks.route_integration_event.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
     )
 
     result = fetch_feed.run(str(feed.id), force=True)
 
-    delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "rss_item_new",
+            IntegrationEvent.source_type == "item",
+        )
+    )
 
     assert result["status"] == "ok"
     assert result["notification_deliveries_reserved"] == 1
     assert result["notification_enqueue_failed"] is True
-    assert delivery is not None
-    assert delivery.delivery_state == "pending"
-    assert delivery.event_type_snapshot == "rss_item_new"
+    assert event is not None
+    assert event.routing_state == "pending"
+
+
+def test_feed_failure_persists_threshold_event_when_enqueue_fails(db_session, monkeypatch):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Failing feed",
+        url="https://example.com/failing.xml",
+        enabled=True,
+        error_count=2,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.route_integration_event.delay",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
+    )
+
+    enqueued = _mark_feed_failure_and_enqueue_notifications(db_session, feed, "network_timeout")
+
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "feed_failing",
+            IntegrationEvent.source_id == str(feed.id),
+        )
+    )
+    assert enqueued is False
+    assert feed.error_count == 3
+    assert event is not None
+    assert event.routing_state == "pending"
 
 
 def test_enqueue_notification_webhook_delivery_processing_chunks_large_batches(monkeypatch):
@@ -3311,7 +3349,7 @@ def test_classify_item_continues_when_ai_enqueue_fails(db_session, monkeypatch):
     assert child_runs[0].reason == "enqueue_failed"
 
 
-def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue_fails(db_session, monkeypatch):
+def test_classify_item_persists_alert_match_event_when_enqueue_fails(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -3394,20 +3432,23 @@ def test_classify_item_reserves_alert_match_notification_deliveries_when_enqueue
     )
     monkeypatch.setattr("app.tasks.feed_tasks.extract_item_iocs.delay", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.process_notification_webhook_deliveries.delay",
+        "app.tasks.feed_tasks.route_integration_event.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
     )
 
     result = classify_item.run(str(item.id))
 
-    delivery = db_session.scalar(
-        select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id)
+    event = db_session.scalar(
+        select(IntegrationEvent).where(
+            IntegrationEvent.event_type == "alert_match",
+            IntegrationEvent.source_id == str(item.id),
+        )
     )
 
     assert result["status"] == "ok"
-    assert delivery is not None
-    assert delivery.delivery_state == "pending"
-    assert delivery.event_type_snapshot == "alert_match"
+    assert result["notification_enqueue_failed"] is True
+    assert event is not None
+    assert event.routing_state == "pending"
 
 
 def test_reprocess_recent_ai_items_tracks_parent_progress(db_session, monkeypatch):
@@ -3762,6 +3803,319 @@ def test_backfill_daily_ai_briefs_continues_after_unexpected_day_failure(db_sess
     assert refreshed_parent.error_count == 1
     assert refreshed_parent.status == "error"
     assert refreshed_parent.reason == "partial_failures"
+    get_settings.cache_clear()
+
+
+def test_backfill_daily_ai_briefs_redelivery_retries_only_interrupted_dates(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_history_limit=7,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    reference_times = [
+        datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
+        datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
+        datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
+    ]
+    generation_attempts: dict[str, int] = {}
+
+    def _run_daily_brief_generation(
+        db,
+        *,
+        force: bool = False,
+        reference_time: datetime | None = None,
+        task_run_id: uuid.UUID | None = None,
+    ):
+        _ = task_run_id
+        assert force is True
+        assert reference_time is not None
+        brief_date = reference_time.date().isoformat()
+        generation_attempts[brief_date] = generation_attempts.get(brief_date, 0) + 1
+        if brief_date == "2026-07-02" and generation_attempts[brief_date] == 1:
+            raise SystemExit("worker lost")
+
+        brief = AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=reference_time.date(),
+            status="ready",
+            window_start=reference_time - timedelta(hours=24),
+            window_end=reference_time,
+            title=f"Brief {brief_date}",
+            brief_text="Backfilled brief.",
+            item_count=1,
+            model="local-threat-model",
+            generated_at=reference_time,
+        )
+        db.add(brief)
+        db.flush()
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="ready",
+            reason=None,
+            items_considered=1,
+            items_selected=1,
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.feed_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"scope": "daily_brief_backfill", "days": 3},
+        target_count=3,
+    )
+    db_session.commit()
+
+    with pytest.raises(SystemExit, match="worker lost"):
+        backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+
+    db_session.expire_all()
+    interrupted_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    assert interrupted_parent is not None
+    assert interrupted_parent.status == "running"
+    assert interrupted_parent.processed_count == 1
+    assert interrupted_parent.finished_at is None
+
+    result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+
+    child_runs = db_session.scalars(
+        select(AITaskRun)
+        .where(AITaskRun.parent_run_id == parent_run.id, AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF)
+        .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+    ).all()
+    attempts_by_date: dict[str, list[AITaskRun]] = {}
+    for child_run in child_runs:
+        attempts_by_date.setdefault(child_run.metadata_json["brief_date"], []).append(child_run)
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert result["status"] == "ready"
+    assert result["processed_dates"] == ["2026-07-03", "2026-07-02", "2026-07-01"]
+    assert generation_attempts == {"2026-07-03": 1, "2026-07-02": 2, "2026-07-01": 1}
+    assert len(attempts_by_date["2026-07-03"]) == 1
+    assert [attempt.status for attempt in attempts_by_date["2026-07-02"]] == ["skipped", "ready"]
+    assert attempts_by_date["2026-07-02"][0].reason == "superseded_by_redelivery"
+    assert attempts_by_date["2026-07-02"][0].metadata_json["parent_progress_eligible"] is False
+    assert len(attempts_by_date["2026-07-01"]) == 1
+    assert refreshed_parent is not None
+    assert refreshed_parent.processed_count == 3
+    assert refreshed_parent.success_count == 3
+    assert refreshed_parent.status == "ready"
+    get_settings.cache_clear()
+
+
+def test_backfill_daily_ai_briefs_repairs_legacy_duplicate_date_progress(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_history_limit=7,
+        ),
+    )
+    db_session.add(settings)
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"scope": "daily_brief_backfill", "days": 3},
+        target_count=3,
+    )
+    now = datetime.now(timezone.utc)
+    for brief_date in ["2026-07-03", "2026-07-03", "2026-07-02"]:
+        child_run = queue_ai_task_run(
+            db_session,
+            task_type=AI_TASK_TYPE_DAILY_BRIEF,
+            trigger_source=AI_TRIGGER_MANUAL,
+            parent_run_id=parent_run.id,
+            metadata={"scope": "daily_brief_backfill", "brief_date": brief_date},
+        )
+        child_run.status = "ready"
+        child_run.started_at = now
+        child_run.finished_at = now
+        db_session.add(child_run)
+    parent_run.status = "ready"
+    parent_run.processed_count = 3
+    parent_run.success_count = 3
+    parent_run.started_at = now
+    parent_run.finished_at = now
+    db_session.add(parent_run)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _brief_lock_override(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield True
+
+    reference_times = [
+        datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
+        datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
+        datetime(2026, 7, 1, 23, 59, 59, tzinfo=timezone.utc),
+    ]
+    generated_dates: list[str] = []
+
+    def _run_daily_brief_generation(
+        db,
+        *,
+        force: bool = False,
+        reference_time: datetime | None = None,
+        task_run_id: uuid.UUID | None = None,
+    ):
+        _ = task_run_id
+        assert force is True
+        assert reference_time is not None
+        generated_dates.append(reference_time.date().isoformat())
+        brief = AIDailyBrief(
+            id=uuid.uuid4(),
+            brief_date=reference_time.date(),
+            status="ready",
+            window_start=reference_time - timedelta(hours=24),
+            window_end=reference_time,
+            title=f"Brief {reference_time.date().isoformat()}",
+            brief_text="Backfilled brief.",
+            item_count=1,
+            model="local-threat-model",
+            generated_at=reference_time,
+        )
+        db.add(brief)
+        db.flush()
+        return AIDailyBriefGenerationResult(
+            brief=brief,
+            status="ready",
+            reason=None,
+            items_considered=1,
+            items_selected=1,
+        )
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.feed_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+
+    result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    child_runs = db_session.scalars(
+        select(AITaskRun).where(
+            AITaskRun.parent_run_id == parent_run.id,
+            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
+        )
+    ).all()
+
+    assert result["status"] == "ready"
+    assert generated_dates == ["2026-07-01"]
+    assert len(child_runs) == 4
+    assert refreshed_parent is not None
+    assert refreshed_parent.processed_count == 3
+    assert refreshed_parent.success_count == 3
+    assert refreshed_parent.status == "ready"
+    assert refreshed_parent.metadata_json["progress_repaired"] is True
+    get_settings.cache_clear()
+
+
+def test_backfill_daily_ai_briefs_duplicate_lock_delivery_keeps_active_parent_running(db_session, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_API_KEY", "")
+    get_settings.cache_clear()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            daily_brief_enabled=True,
+            daily_brief_history_limit=7,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    @contextmanager
+    def _busy_brief_lock(ttl_seconds: int = 900):
+        _ = ttl_seconds
+        yield False
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _busy_brief_lock)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.run_daily_brief_generation",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate delivery must not generate work")),
+    )
+
+    parent_run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPROCESS,
+        trigger_source=AI_TRIGGER_MANUAL,
+        metadata={"scope": "daily_brief_backfill", "days": 3},
+        target_count=3,
+    )
+    start_ai_task_run(
+        db_session,
+        run_id=parent_run.id,
+        worker_name="celery@worker-a",
+        celery_task_id="backfill-task",
+    )
+    db_session.commit()
+
+    result = backfill_daily_ai_briefs.apply(
+        args=[3, str(parent_run.id)],
+        task_id="backfill-task",
+    ).get()
+
+    db_session.expire_all()
+    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+
+    assert result["status"] == "skipped"
+    assert result["reason"] == "already_running"
+    assert refreshed_parent is not None
+    assert refreshed_parent.status == "running"
+    assert refreshed_parent.reason is None
+    assert refreshed_parent.finished_at is None
+    assert refreshed_parent.processed_count == 0
+    assert refreshed_parent.metadata_json["duplicate_lock_observed_at"]
     get_settings.cache_clear()
 
 
@@ -4817,11 +5171,91 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     assert captured["countdown"] == max(1, int(get_settings().notification_delivery_retry_backoff_seconds))
 
 
+def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, monkeypatch):
+    user = User(
+        id=uuid.uuid4(),
+        email="atomic-retry@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Atomic retry webhook",
+        url_template="https://hooks.example.com/retry",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="pending",
+        attempt_count=0,
+        success=False,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/retry",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add_all([webhook, delivery])
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.notification_webhooks._send_rendered_notification_request",
+        lambda _rendered: NotificationWebhookTestResponse(
+            success=False,
+            status_code=503,
+            duration_ms=25,
+            rendered_url="https://hooks.example.com/retry",
+            rendered_method="POST",
+            rendered_headers=[],
+            rendered_query_params=[],
+            rendered_body=None,
+            response_body_preview="busy",
+            error="HTTP 503",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.reserve_retryable_notification_webhook_delivery",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("retry reservation failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="retry reservation failed"):
+        _process_reserved_notification_deliveries(db_session, [delivery.id])
+    db_session.rollback()
+    db_session.expire_all()
+
+    persisted = db_session.get(NotificationWebhookDelivery, delivery.id)
+    generic = db_session.get(IntegrationDelivery, persisted.integration_delivery_id)
+    assert persisted.delivery_state == "sending"
+    assert generic is not None and generic.state == "sending"
+    assert db_session.scalar(
+        select(NotificationWebhookDelivery.id).where(
+            NotificationWebhookDelivery.source_delivery_id == delivery.id
+        )
+    ) is None
+
+
 def test_process_reserved_notification_deliveries_skips_missing_rows(db_session, monkeypatch):
     missing_delivery_id = uuid.uuid4()
     existing_delivery_id = uuid.uuid4()
 
-    def _fake_process(_db, *, delivery_id: uuid.UUID):
+    def _fake_process(_db, *, delivery_id: uuid.UUID, commit_outcome: bool = True):
+        assert commit_outcome is False
         if delivery_id == missing_delivery_id:
             raise ValueError("Webhook delivery not found")
         return SimpleNamespace(
@@ -4843,6 +5277,69 @@ def test_process_reserved_notification_deliveries_skips_missing_rows(db_session,
 
     assert delivered == 1
     assert failed == 0
+
+
+def test_exhausted_webhook_delivery_emits_event_and_dead_letters_generic_source(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email="failed-webhook@example.com",
+        password_hash="hashed",
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    webhook = NotificationWebhook(
+        id=uuid.uuid4(),
+        user_id=user.id,
+        name="Failing webhook",
+        event_type="rss_item_new",
+        url_template="https://hooks.example.com/fail",
+        method="POST",
+        feed_scope="all",
+        feed_ids_json=[],
+        query_params_json=[],
+        headers_json=[],
+        body_mode="none",
+        body_fields_json=[],
+        timeout_seconds=10,
+    )
+    delivery = NotificationWebhookDelivery(
+        id=uuid.uuid4(),
+        webhook_id=webhook.id,
+        user_id=user.id,
+        event_type_snapshot="rss_item_new",
+        delivery_kind="live",
+        delivery_state="failed",
+        attempt_count=3,
+        success=False,
+        status_code=503,
+        duration_ms=10,
+        timeout_seconds=10,
+        rendered_url="https://hooks.example.com/fail",
+        rendered_method="POST",
+        rendered_headers_json=[],
+        rendered_query_params_json=[],
+        error="HTTP 503",
+        attempted_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add_all([webhook, delivery])
+    db_session.flush()
+    generic = ensure_webhook_delivery(db_session, webhook=webhook, legacy_delivery=delivery)
+    assert delivery.integration_delivery_id == generic.id
+
+    _mark_failed_webhook_delivery_dead_letter(db_session, delivery)
+    event_id = _emit_failed_webhook_integration_event(db_session, delivery)
+    db_session.flush()
+
+    event = db_session.get(IntegrationEvent, event_id)
+    generic = db_session.get(IntegrationDelivery, generic.id)
+    assert event is not None
+    assert event.event_type == "webhook_failed"
+    assert event.payload_json["source_delivery_id"] == str(delivery.id)
+    assert generic is not None
+    assert generic.state == "dead_letter"
 
 
 def test_extract_item_iocs_skips_stale_article_after_refetch(db_session, monkeypatch):

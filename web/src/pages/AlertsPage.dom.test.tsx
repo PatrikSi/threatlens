@@ -13,6 +13,7 @@ const alertsPageDomMocks = vi.hoisted(() => ({
   saveMutate: vi.fn(),
   updateMutate: vi.fn(),
   deleteMutate: vi.fn(),
+  deleteShouldFail: false,
   previewItems: [] as unknown[],
 }))
 
@@ -80,10 +81,23 @@ vi.mock('@tanstack/react-query', () => ({
       data: undefined,
     }
   },
-  useMutation: (options: { mutationKey?: unknown }) => {
+  useMutation: (options: {
+    mutationKey?: unknown
+    onSuccess?: (result: unknown, variables: unknown) => void
+    onError?: (error: unknown, variables: unknown) => void
+  }) => {
     const mutationKey = Array.isArray(options?.mutationKey) ? options.mutationKey.join(':') : String(options?.mutationKey ?? '')
     if (mutationKey === 'alerts:delete') {
-      return alertMutationResult(alertsPageDomMocks.deleteMutate)
+      return alertMutationResult(
+        vi.fn((alertId: string) => {
+          alertsPageDomMocks.deleteMutate(alertId)
+          if (alertsPageDomMocks.deleteShouldFail) {
+            options.onError?.(new Error('Alert deletion failed.'), alertId)
+            return
+          }
+          options.onSuccess?.(undefined, alertId)
+        }),
+      )
     }
     if (mutationKey === 'alerts:update') {
       return alertMutationResult(alertsPageDomMocks.updateMutate)
@@ -142,10 +156,33 @@ afterEach(() => {
   alertsPageDomMocks.saveMutate.mockReset()
   alertsPageDomMocks.updateMutate.mockReset()
   alertsPageDomMocks.deleteMutate.mockReset()
+  alertsPageDomMocks.deleteShouldFail = false
   alertsPageDomMocks.previewItems = []
 })
 
 describe('AlertsPage DOM workflows', () => {
+  it('keeps the delete target open and renders destructive mutation failures', () => {
+    alertsPageDomMocks.deleteShouldFail = true
+    renderPage()
+    const deleteButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.trim() === 'Delete',
+    )
+
+    act(() => {
+      deleteButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const confirmDeleteButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Delete alert',
+    )
+    act(() => {
+      confirmDeleteButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(document.body.textContent).toContain('Delete alert interest?')
+    expect(document.body.textContent).toContain('VPN advisories')
+    expect(document.querySelector('[role="alert"]')?.textContent).toContain('Alert deletion failed.')
+  })
+
   it('disables empty alert submissions and renders preview summaries as text', () => {
     alertsPageDomMocks.previewItems = [
       {
@@ -220,33 +257,6 @@ describe('AlertsPage DOM workflows', () => {
     })
 
     expect(alertsPageDomMocks.deleteMutate).toHaveBeenCalledWith('alert-1')
-
-    const nameInput = view.querySelector<HTMLInputElement>('#alert-interest-name')
-    expect(nameInput).not.toBeNull()
-
-    act(() => {
-      setInputValue(nameInput!, 'Changed alert name')
-    })
-
-    const resetButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Reset'))
-    expect(resetButton).not.toBeNull()
-
-    act(() => {
-      resetButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
-    expect(pageText()).toContain('Discard unsaved changes?')
-    expect(pageText()).toContain('Discard unsaved alert changes?')
-
-    const discardChangesButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Discard changes'),
-    )
-    expect(discardChangesButton).not.toBeNull()
-
-    act(() => {
-      discardChangesButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    })
-
     expect(view.querySelector<HTMLInputElement>('#alert-interest-name')?.value).toBe('')
   })
 

@@ -223,6 +223,22 @@ class Settings(BaseSettings):
     notification_delivery_queue_degraded_after_seconds: int = 300
     notification_delivery_retry_max_attempts: int = 3
     notification_delivery_retry_backoff_seconds: int = 30
+    integration_event_routing_batch_size: int = 200
+    integration_event_routing_stale_after_seconds: int = 120
+    integration_event_routing_max_attempts: int = 10
+    integration_event_routing_backoff_seconds: int = 10
+    integration_delivery_recovery_batch_size: int = 200
+    integration_delivery_retry_max_attempts: int = 5
+    integration_delivery_retry_backoff_seconds: int = 30
+    integration_delivery_retry_max_backoff_seconds: int = 3600
+    integration_delivery_concurrency_defer_seconds: int = 5
+    integration_delivery_circuit_failure_threshold: int = 5
+    integration_delivery_circuit_open_seconds: int = 300
+    integration_delivery_metrics_delay_seconds: int = 60
+    integration_delivery_maintenance_batch_size: int = 1000
+    integration_delivery_retention_days: int = 90
+    integration_event_retention_days: int = 30
+    integration_metrics_retention_days: int = 730
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator(

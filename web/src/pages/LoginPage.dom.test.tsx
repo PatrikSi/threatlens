@@ -82,6 +82,22 @@ afterEach(async () => {
 })
 
 describe('LoginPage accessibility', () => {
+  it('shows an explicit error when registration settings cannot be loaded', async () => {
+    loginPageDomMocks.apiFetch.mockRejectedValue(new Error('registration settings unavailable'))
+
+    const view = renderPage()
+
+    await act(async () => {
+      await vi.waitFor(() => {
+        expect(view.querySelector('[role="alert"]')).not.toBeNull()
+      })
+    })
+
+    const alert = view.querySelector('[role="alert"]')
+    expect(alert?.textContent).toContain('Registration availability could not be loaded')
+    expect(view.querySelector<HTMLButtonElement>('button[type="submit"]')?.textContent).toContain('Sign in')
+  })
+
   it('connects labels to controls and supplies login autocomplete hints', async () => {
     loginPageDomMocks.apiFetch.mockResolvedValue({ allow_self_registration: false })
 

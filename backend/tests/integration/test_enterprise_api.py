@@ -1,11 +1,17 @@
 import uuid
+import threading
+import time
 from datetime import datetime, timedelta, timezone
+from queue import Queue
 from types import SimpleNamespace
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.orm import Session
 
+from app.api.routes.users import _acquire_active_admin_invariant_lock, _ensure_active_approved_admin_remains
 from app.core.security import generate_api_token
 from app.core.token_scopes import DEFAULT_API_TOKEN_SCOPES
 from app.models.api_token import ApiToken
@@ -20,6 +26,7 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
+from app.schemas.user import UserUpdateRequest
 from app.core.security import get_password_hash
 from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
@@ -1470,6 +1477,100 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
     }
 
 
+def test_health_ready_details_require_health_scope_for_api_tokens(
+    client: TestClient,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    admin = seed_users["admin"]
+    narrow_token = _issue_api_token(
+        db_session,
+        admin,
+        name="narrow-health-reader",
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    health_token = _issue_api_token(
+        db_session,
+        admin,
+        name="health-reader",
+        scopes=["read:health"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    monkeypatch.setattr("app.api.routes.health._database_health_ok", lambda _db: True)
+    monkeypatch.setattr("app.api.routes.health._redis_health_ok", lambda _settings: True)
+    monkeypatch.setattr(
+        "app.api.routes.health._worker_health_snapshot",
+        lambda _settings: (True, {"worker": "pong"}, {}),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.health._beat_health_snapshot",
+        lambda _settings: (True, datetime.now(timezone.utc).isoformat(), 0),
+    )
+
+    narrow_response = client.get(
+        "/health/ready",
+        headers={"Authorization": f"Bearer {narrow_token}"},
+    )
+    health_response = client.get(
+        "/health/ready",
+        headers={"Authorization": f"Bearer {health_token}"},
+    )
+
+    assert narrow_response.status_code == 200
+    assert narrow_response.json() == {"ok": True}
+    assert health_response.status_code == 200
+    assert health_response.json() == {
+        "ok": True,
+        "db": True,
+        "redis": True,
+        "worker": True,
+        "beat": True,
+    }
+
+
+def test_operational_health_endpoints_require_health_scope(
+    client: TestClient,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    admin = seed_users["admin"]
+    narrow_token = _issue_api_token(
+        db_session,
+        admin,
+        name="narrow-operational-health",
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    health_token = _issue_api_token(
+        db_session,
+        admin,
+        name="operational-health",
+        scopes=["read:health"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    monkeypatch.setattr(
+        "app.api.routes.health._worker_health_snapshot",
+        lambda _settings: (True, {"worker": "pong"}, {"missing": []}),
+    )
+
+    denied_response = client.get(
+        "/health/worker",
+        headers={"Authorization": f"Bearer {narrow_token}"},
+    )
+    allowed_response = client.get(
+        "/health/worker",
+        headers={"Authorization": f"Bearer {health_token}"},
+    )
+
+    assert denied_response.status_code == 403
+    assert denied_response.json()["detail"] == "Insufficient token scope"
+    assert allowed_response.status_code == 200
+    assert allowed_response.json()["workers"] == {"worker": "pong"}
+
+
 def test_health_encrypted_data_endpoint_requires_admin(client: TestClient, auth_headers):
     response = client.get("/health/encrypted-data", headers=auth_headers["viewer"])
 
@@ -2599,6 +2700,93 @@ def test_admin_can_remove_own_admin_role_when_another_active_approved_admin_exis
     assert stale_token_response.json()["detail"] == "Invalid credentials"
 
 
+def test_concurrent_admin_demotions_leave_one_active_approved_admin(database_engine):
+    first_admin = User(
+        id=uuid.uuid4(),
+        email=f"concurrent.first.{uuid.uuid4()}@example.com",
+        password_hash=get_password_hash("AdminPass987!"),
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    second_admin = User(
+        id=uuid.uuid4(),
+        email=f"concurrent.second.{uuid.uuid4()}@example.com",
+        password_hash=get_password_hash("AdminPass987!"),
+        role="admin",
+        is_active=True,
+        is_approved=True,
+    )
+    first_admin_id = first_admin.id
+    second_admin_id = second_admin.id
+    with Session(bind=database_engine) as seed_session:
+        seed_session.add_all([first_admin, second_admin])
+        seed_session.commit()
+    admin_ids = [first_admin_id, second_admin_id]
+    started = threading.Event()
+    outcomes: Queue[int | str] = Queue()
+
+    first_session = Session(bind=database_engine)
+    try:
+        _acquire_active_admin_invariant_lock(first_session)
+        locked_first = first_session.scalar(
+            select(User).where(User.id == first_admin_id).with_for_update()
+        )
+        _ensure_active_approved_admin_remains(
+            first_session,
+            locked_first,
+            UserUpdateRequest(role="viewer"),
+        )
+        locked_first.role = "viewer"
+        first_session.flush()
+
+        def _demote_second_admin() -> None:
+            with Session(bind=database_engine) as second_session:
+                started.set()
+                try:
+                    _acquire_active_admin_invariant_lock(second_session)
+                    locked_second = second_session.scalar(
+                        select(User).where(User.id == second_admin_id).with_for_update()
+                    )
+                    _ensure_active_approved_admin_remains(
+                        second_session,
+                        locked_second,
+                        UserUpdateRequest(role="viewer"),
+                    )
+                    locked_second.role = "viewer"
+                    second_session.commit()
+                    outcomes.put("committed")
+                except HTTPException as exc:
+                    second_session.rollback()
+                    outcomes.put(exc.status_code)
+
+        contender = threading.Thread(target=_demote_second_admin, daemon=True)
+        contender.start()
+        assert started.wait(timeout=2)
+        time.sleep(0.1)
+        assert contender.is_alive()
+        first_session.commit()
+        contender.join(timeout=5)
+        assert not contender.is_alive()
+    finally:
+        first_session.rollback()
+        first_session.close()
+
+    assert outcomes.get_nowait() == 400
+    with Session(bind=database_engine) as verify_session:
+        active_admin_count = verify_session.scalar(
+            select(func.count(User.id)).where(
+                User.id.in_(admin_ids),
+                User.role == "admin",
+                User.is_active.is_(True),
+                User.is_approved.is_(True),
+            )
+        )
+        assert active_admin_count == 1
+        verify_session.execute(delete(User).where(User.id.in_(admin_ids)))
+        verify_session.commit()
+
+
 def test_role_promotion_invalidates_existing_browser_session_and_api_token(client: TestClient, db_session, seed_users, auth_headers):
     viewer = db_session.scalar(select(User).where(User.email == "viewer@example.com"))
     assert viewer is not None
@@ -2711,6 +2899,36 @@ def test_api_token_flow(client: TestClient, auth_headers):
 
     denied_response = client.get("/feeds", headers={"Authorization": f"Bearer {token_payload['token']}"})
     assert denied_response.status_code == 401
+
+
+def test_token_revocation_hides_foreign_token_ids_from_non_admins(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    foreign_token = ApiToken(
+        id=uuid.uuid4(),
+        user_id=seed_users["analyst"].id,
+        name="foreign-token",
+        token_prefix=f"tl_{uuid.uuid4().hex[:12]}",
+        token_hash=uuid.uuid4().hex + uuid.uuid4().hex,
+        scopes=["read:feeds"],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    db_session.add(foreign_token)
+    db_session.commit()
+
+    foreign_response = client.delete(f"/tokens/{foreign_token.id}", headers=auth_headers["viewer"])
+    missing_response = client.delete(f"/tokens/{uuid.uuid4()}", headers=auth_headers["viewer"])
+
+    assert foreign_response.status_code == 404
+    assert foreign_response.json() == missing_response.json() == {"detail": "Token not found"}
+    db_session.refresh(foreign_token)
+    assert foreign_token.revoked_at is None
+
+    admin_response = client.delete(f"/tokens/{foreign_token.id}", headers=auth_headers["admin"])
+    assert admin_response.status_code == 204
 
 
 def test_api_token_scope_is_enforced(client: TestClient, auth_headers):
