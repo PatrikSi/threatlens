@@ -72,9 +72,9 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col text-ink dark:text-slate-100">
       <header className="tl-app-header">
-        <div className="px-3 py-3 sm:px-4 lg:hidden">
+        <div className="px-3 py-2 sm:px-4 sm:py-3 lg:hidden">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
+            <h1 className="font-display text-xl font-bold">ThreatLens</h1>
             <button
               type="button"
               className="tl-subtle-control rounded px-3 py-1.5 text-sm font-semibold"
@@ -195,7 +195,7 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
+      <main className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-3 sm:px-4 sm:py-4 lg:px-6'}`}>
         <Outlet />
       </main>
       <footer className="px-3 py-3 text-right text-[11px] text-slate/55 dark:text-slate-400/60 sm:px-4 lg:px-6">
