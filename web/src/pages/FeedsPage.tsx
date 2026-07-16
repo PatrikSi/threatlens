@@ -136,6 +136,7 @@ export function FeedsPage() {
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
   const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
   const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
+  const [mobileBulkActionsOpen, setMobileBulkActionsOpen] = useState(false)
   const [mobileScheduleFeedId, setMobileScheduleFeedId] = useState<string | null>(null)
   const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
   const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
@@ -1121,7 +1122,21 @@ export function FeedsPage() {
           </div>
         </div>
 
-        <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <button
+          type="button"
+          className="mt-2 flex w-full items-center justify-between rounded border border-slate/30 px-3 py-2 text-left text-sm font-semibold sm:hidden dark:border-cyan-900/40"
+          aria-expanded={mobileBulkActionsOpen}
+          aria-controls="feed-bulk-actions"
+          onClick={() => setMobileBulkActionsOpen((current) => !current)}
+        >
+          <span>Bulk actions</span>
+          <span className="text-xs font-normal text-slate dark:text-slate-300">Filtered feeds</span>
+        </button>
+
+        <div
+          id="feed-bulk-actions"
+          className={`${mobileDisclosureClass(mobileBulkActionsOpen)} mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center`}
+        >
           <button
             type="button"
             className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
