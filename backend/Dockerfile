@@ -1,4 +1,4 @@
-FROM python:3.12.11-slim-bookworm
+FROM python:3.12.13-slim-bookworm
 
 ARG BUILD_DATE=unknown
 ARG APP_VERSION=1.2.0
