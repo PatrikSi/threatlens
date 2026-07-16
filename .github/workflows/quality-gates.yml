@@ -88,9 +88,9 @@ jobs:
         working-directory: web
         run: npm run build
 
-      - name: Audit frontend runtime dependencies
+      - name: Audit frontend dependencies
         working-directory: web
-        run: npm audit --omit=dev --audit-level=high
+        run: npm audit --audit-level=high
 
   migrations:
     name: PostgreSQL migration round trip
