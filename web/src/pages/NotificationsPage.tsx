@@ -27,6 +27,14 @@ type NotificationWebhookDraft = Omit<NotificationWebhookWriteRequest, 'body_temp
 
 const DELIVERY_HISTORY_REFRESH_MS = 30_000
 
+function mobileVariablesToggleLabel(open: boolean, count: number) {
+  return open ? 'Hide' : `Show ${count}`
+}
+
+function mobileVariablesVisibilityClass(open: boolean) {
+  return open ? 'block' : 'hidden'
+}
+
 const EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string; description: string }> = [
   { value: 'rss_item_new', label: 'New RSS Item', description: 'Fire when a new RSS item is ingested from a feed.' },
   { value: 'alert_match', label: 'Alert Match', description: 'Fire when an item matches one or more of your alert interests.' },
@@ -78,6 +86,7 @@ export function NotificationWebhooksSettings() {
   const [testResult, setTestResult] = useState<NotificationWebhookTestResponse | null>(null)
   const [pendingWebhookDelete, setPendingWebhookDelete] = useState<NotificationWebhook | null>(null)
   const [pendingDeliveryRetry, setPendingDeliveryRetry] = useState<NotificationWebhookDelivery | null>(null)
+  const [mobileVariablesOpen, setMobileVariablesOpen] = useState(false)
   const currentUserRole = currentUserQuery.data?.role
   const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
   const canManageWebhooks = currentUserRole === 'admin' || currentUserRole === 'analyst'
@@ -352,7 +361,7 @@ export function NotificationWebhooksSettings() {
               </div>
             )}
 
-            <div className="grid gap-3 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-5">
               <MetricCard label="Total Deliveries" value={String(analytics.total_deliveries)} />
               <MetricCard label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />
               <MetricCard label="Failures 24h" value={String(analytics.failures_last_24h)} />
@@ -936,14 +945,30 @@ export function NotificationWebhooksSettings() {
             </div>
 
             <div className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-              <h3 className="font-display text-lg">Available Variables</h3>
-              <p className="mt-1 text-sm text-slate dark:text-white/75">Use these placeholders anywhere in the URL, headers, query parameters, or body.</p>
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-display text-lg">Available Variables</h3>
+                  <p className="mt-1 text-sm text-slate dark:text-white/75">Use these placeholders anywhere in the URL, headers, query parameters, or body.</p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40"
+                  aria-expanded={mobileVariablesOpen}
+                  aria-controls="webhook-template-variables"
+                  onClick={() => setMobileVariablesOpen((current) => !current)}
+                >
+                  {mobileVariablesToggleLabel(mobileVariablesOpen, variables.length)}
+                </button>
+              </div>
 
-              <div className="mt-3 space-y-2">
+              <div
+                id="webhook-template-variables"
+                className={`${mobileVariablesVisibilityClass(mobileVariablesOpen)} mt-3 space-y-0 overflow-hidden rounded border border-slate/20 sm:block sm:space-y-2 sm:overflow-visible sm:rounded-none sm:border-0 dark:border-cyan-900/40`}
+              >
                 {variables.map((variable) => (
-                  <div key={variable.key} className="rounded-lg border border-slate/20 p-3 dark:border-cyan-900/40">
+                  <div key={variable.key} className="border-b border-slate/15 p-2.5 last:border-b-0 sm:rounded-lg sm:border sm:border-slate/20 sm:p-3 dark:border-cyan-900/40">
                     <code className="text-xs font-semibold">{`{{ ${variable.key} }}`}</code>
-                    <p className="mt-1 text-sm">{variable.description}</p>
+                    <p className="mt-1 text-xs sm:text-sm">{variable.description}</p>
                     <p className="mt-1 text-xs text-slate dark:text-white/60">Example: {variable.example}</p>
                   </div>
                 ))}

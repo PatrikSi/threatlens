@@ -21,6 +21,10 @@ const ALERT_CATEGORIES = [
 
 const ALERT_PREVIEW_LIMIT = 5
 
+function shouldShowSaveGuidance(reason: string | null, dirty: boolean) {
+  return Boolean(reason) && dirty
+}
+
 export function AlertsPage() {
   const queryClient = useQueryClient()
 
@@ -306,7 +310,7 @@ export function AlertsPage() {
                 </button>
               )}
             </div>
-            {saveDisabledReason && (
+            {shouldShowSaveGuidance(saveDisabledReason, hasUnsavedAlertDraftChanges) && (
               <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-slate dark:text-white/70">
                 {saveDisabledReason}
               </p>
@@ -314,7 +318,7 @@ export function AlertsPage() {
             {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
           </form>
 
-        <section className="mt-5 rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+        <section className="mt-4 border-t border-slate/20 pt-4 sm:mt-5 sm:rounded-xl sm:border sm:bg-white/70 sm:p-4 dark:border-cyan-900/40 dark:sm:bg-white/[0.03]">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-display text-lg">Current Match Preview</h3>
