@@ -301,7 +301,6 @@ def database_engine(test_database_url: str):
 
     db_session_module.engine = engine
     db_session_module.SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, class_=Session)
-    feed_tasks.SessionLocal = db_session_module.SessionLocal
     try:
         yield engine
     finally:
