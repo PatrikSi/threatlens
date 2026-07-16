@@ -60,7 +60,7 @@ def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
             feed_uuid = uuid.UUID(candidate)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid feed id: {candidate}",
             ) from exc
 
@@ -557,7 +557,7 @@ def set_item_tags(
         missing_tag_ids = [str(tag_id) for tag_id in requested_tag_ids if tag_id not in valid_tag_set]
         if missing_tag_ids:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown tag IDs: {', '.join(missing_tag_ids)}",
             )
         requested_tag_names = [valid_tag_by_id[tag_id].name for tag_id in requested_tag_ids]

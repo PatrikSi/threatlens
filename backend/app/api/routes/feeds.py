@@ -52,7 +52,7 @@ def get_feed_metadata(
     try:
         metadata = probe_feed_metadata(payload.url)
     except FeedProbeError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     return FeedMetadataResponse(
         name=metadata.name,
@@ -208,7 +208,7 @@ def create_feed(
     settings = get_settings()
     feed_url = normalize_feed_url(payload.url)
     if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL is not allowed")
 
     existing = _get_feed_by_url(db, feed_url)
     if existing is not None:
@@ -284,16 +284,16 @@ def update_feed(
 
     updates = payload.model_dump(exclude_unset=True)
     if "name" in updates and not updates["name"]:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed name cannot be empty")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed name cannot be empty")
 
     settings = get_settings()
     audit_updates = dict(updates)
     if "url" in updates:
         feed_url = normalize_feed_url(updates.pop("url"))
         if not feed_url:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL cannot be empty")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL cannot be empty")
         if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Feed URL is not allowed")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Feed URL is not allowed")
 
         existing = _get_feed_by_url(db, feed_url)
         if existing is not None and existing.id != feed.id:
@@ -320,7 +320,7 @@ def update_feed(
     elif target_mode == "schedule":
         schedule_cron = updates.get("schedule_cron", feed.schedule_cron)
         if not schedule_cron:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="schedule_cron is required for schedule mode")
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="schedule_cron is required for schedule mode")
         updates["schedule_cron"] = schedule_cron
 
     for key, value in updates.items():

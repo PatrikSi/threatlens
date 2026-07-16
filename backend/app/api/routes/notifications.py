@@ -170,7 +170,7 @@ def delete_notification_webhook(
     response_model=NotificationWebhookDeliveryListResponse,
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "Webhook not found"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Validation error"},
     },
 )
 def list_notification_webhook_deliveries(
@@ -208,7 +208,7 @@ def list_notification_webhook_deliveries(
     responses={
         status.HTTP_404_NOT_FOUND: {"description": "Webhook or delivery not found"},
         status.HTTP_409_CONFLICT: {"description": "Webhook delivery cannot be retried right now"},
-        status.HTTP_422_UNPROCESSABLE_ENTITY: {"description": "Validation error"},
+        status.HTTP_422_UNPROCESSABLE_CONTENT: {"description": "Validation error"},
     },
 )
 def retry_notification_webhook_delivery_route(
@@ -307,7 +307,7 @@ def test_notification_webhook_route(
             sample_feed_id=payload.sample_feed_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     record_audit(
         db,
@@ -329,4 +329,4 @@ def _validate_payload(db: Session, payload: NotificationWebhookWrite, *, actor_u
     try:
         validate_notification_webhook_payload_for_actor(payload, available_feed_ids, actor_user=actor_user)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc

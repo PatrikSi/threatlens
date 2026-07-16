@@ -191,7 +191,7 @@ def _mount_api_routers(application: FastAPI, *, include_legacy_aliases: bool) ->
 _mount_api_routers(app, include_legacy_aliases=_should_mount_legacy_api_aliases(settings))
 
 
-def _collect_route_token_scopes(route: APIRoute) -> tuple[str, ...]:
+def _collect_route_token_scopes(route: Any) -> tuple[str, ...]:
     scopes: list[str] = []
     stack = [route.dependant]
     while stack:
@@ -205,11 +205,23 @@ def _collect_route_token_scopes(route: APIRoute) -> tuple[str, ...]:
     return tuple(scopes)
 
 
+def _iter_effective_api_routes(application: FastAPI):
+    for route in application.routes:
+        if isinstance(route, APIRoute):
+            yield route
+            continue
+
+        route_contexts = getattr(route, "effective_route_contexts", None)
+        if not callable(route_contexts):
+            continue
+        for route_context in route_contexts():
+            if isinstance(getattr(route_context, "original_route", None), APIRoute):
+                yield route_context
+
+
 def _route_required_token_scopes_by_operation(application: FastAPI) -> dict[tuple[str, str], tuple[str, ...]]:
     required_by_operation: dict[tuple[str, str], tuple[str, ...]] = {}
-    for route in application.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in _iter_effective_api_routes(application):
         scopes = _collect_route_token_scopes(route)
         if not scopes:
             continue

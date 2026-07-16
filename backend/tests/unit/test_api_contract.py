@@ -44,6 +44,13 @@ def test_generated_openapi_document_matches_live_schema():
     assert "contact" not in response.json()["info"]
 
 
+def test_openapi_operations_preserve_required_token_scope_extensions():
+    schema = app.openapi()
+
+    assert schema["paths"]["/v1/feeds"]["get"]["x-threatlens-required-token-scopes"] == ["read:feeds"]
+    assert schema["paths"]["/v1/feeds"]["post"]["x-threatlens-required-token-scopes"] == ["write:feeds"]
+
+
 def test_checked_in_api_reference_matches_generated_reference():
     generated = render_api_reference_markdown(
         app,

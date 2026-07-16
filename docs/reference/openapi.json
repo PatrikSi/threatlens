@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.2.0",
-    "x-threatlens-contract-sha256": "445fe5801c7b5a43b7d4811b6dc21f71e8ae51bac1c03a1fcdc15d57eac51102"
+    "x-threatlens-contract-sha256": "848ee8b644f0f7b3a3dd859127a9cd07d475085d5197e6b2b9a6538e8f545d18"
   },
   "servers": [
     {
@@ -14563,7 +14563,7 @@
             "title": "Name"
           },
           "query_json": {
-            "$ref": "#/components/schemas/SavedViewQueryPayload-Input"
+            "$ref": "#/components/schemas/SavedViewQueryPayload"
           }
         },
         "type": "object",
@@ -14658,48 +14658,7 @@
         ],
         "title": "SavedViewPanelRect"
       },
-      "SavedViewQueryPayload-Input": {
-        "properties": {
-          "schema_version": {
-            "type": "integer",
-            "const": 1,
-            "title": "Schema Version",
-            "default": 1
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Version",
-            "default": 6
-          },
-          "rss_filters": {
-            "$ref": "#/components/schemas/SavedViewRssFilters"
-          },
-          "alert_filters": {
-            "$ref": "#/components/schemas/SavedViewAlertFilters"
-          },
-          "windows": {
-            "items": {
-              "$ref": "#/components/schemas/SavedViewWindow"
-            },
-            "type": "array",
-            "minItems": 1,
-            "title": "Windows"
-          },
-          "ui": {
-            "$ref": "#/components/schemas/SavedViewUiState"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "rss_filters",
-          "alert_filters",
-          "windows"
-        ],
-        "title": "SavedViewQueryPayload"
-      },
-      "SavedViewQueryPayload-Output": {
+      "SavedViewQueryPayload": {
         "properties": {
           "schema_version": {
             "type": "integer",
@@ -14757,7 +14716,7 @@
             "title": "Name"
           },
           "query_json": {
-            "$ref": "#/components/schemas/SavedViewQueryPayload-Output"
+            "$ref": "#/components/schemas/SavedViewQueryPayload"
           },
           "created_at": {
             "type": "string",
@@ -14921,7 +14880,7 @@
           "query_json": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/SavedViewQueryPayload-Input"
+                "$ref": "#/components/schemas/SavedViewQueryPayload"
               },
               {
                 "type": "null"
@@ -16295,6 +16254,13 @@
           "type": {
             "type": "string",
             "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
           }
         },
         "type": "object",
