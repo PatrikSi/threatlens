@@ -253,6 +253,22 @@ afterEach(() => {
 })
 
 describe('NotificationsPage DOM workflows', () => {
+  it('keeps mobile template variables collapsed until requested', () => {
+    const view = renderPage()
+    const variables = view.querySelector<HTMLElement>('#webhook-template-variables')
+    const toggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Show 1')
+
+    expect(variables?.className).toContain('hidden')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(variables?.className).toContain('block')
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('renders viewer access as read-only and hides mutation controls', () => {
     notificationsPageDomMocks.currentUser.data.role = 'viewer'
     const view = renderPage()

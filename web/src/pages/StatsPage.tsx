@@ -27,6 +27,7 @@ export function StatsPage() {
   const [days, setDays] = useState(30)
   const [selectedFeedIds, setSelectedFeedIds] = useState<string[]>([])
   const [showAllFeedRows, setShowAllFeedRows] = useState(false)
+  const [mobileFeedFiltersOpen, setMobileFeedFiltersOpen] = useState(false)
 
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
@@ -167,7 +168,21 @@ export function StatsPage() {
           </div>
         </div>
 
-        <fieldset className="mt-4 rounded-lg border border-slate/20 bg-white/45 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+        <button
+          type="button"
+          className="mt-3 flex w-full items-center justify-between rounded border border-slate/20 px-3 py-2 text-left text-sm font-semibold sm:hidden dark:border-cyan-900/40"
+          aria-expanded={mobileFeedFiltersOpen}
+          aria-controls="stats-feed-filters"
+          onClick={() => setMobileFeedFiltersOpen((current) => !current)}
+        >
+          <span>Feed filter</span>
+          <span className="text-xs font-normal text-slate dark:text-slate-300">{selectedFeedLabel}</span>
+        </button>
+
+        <fieldset
+          id="stats-feed-filters"
+          className={`${mobileFeedFiltersOpen ? 'block' : 'hidden'} mt-2 rounded-lg border border-slate/20 bg-white/45 p-3 sm:mt-4 sm:block dark:border-cyan-900/40 dark:bg-white/[0.02]`}
+        >
           <legend className="px-1 text-xs font-bold uppercase text-slate dark:text-slate-300">Feeds</legend>
           <div className="mt-1 flex flex-wrap items-center justify-end gap-2 text-xs text-slate dark:text-slate-300">
             <span>{selectedFeedLabel}</span>
@@ -211,7 +226,7 @@ export function StatsPage() {
 
       {statsQuery.data && (
         <>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Total Items" value={statsQuery.data.totals.items_total} />
             <StatCard label="Articles Extracted" value={statsQuery.data.totals.articles_total} />
             <StatCard label="Feeds Enabled" value={statsQuery.data.totals.feeds_enabled} />
@@ -852,7 +867,7 @@ function SignalRadarChart({ data }: { data: StatsSignalRadarResponse }) {
           </div>
         )}
 
-        <svg viewBox={`0 0 ${size} ${size}`} className="mx-auto h-[420px] w-full max-w-[520px]">
+        <svg viewBox={`0 0 ${size} ${size}`} className="mx-auto h-[280px] w-full max-w-[520px] sm:h-[420px]">
           {rings.map((ring) => (
             <circle
               key={ring}
@@ -1044,9 +1059,9 @@ function positionTooltipNearCursor(
 
 function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
-    <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-      <p className="text-xs uppercase text-slate dark:text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-bold text-cyan dark:text-cyan-300">{value}</p>
+    <section className="rounded-lg border border-slate/20 bg-white/80 p-3 sm:rounded-xl sm:p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <p className="text-[11px] uppercase leading-4 text-slate sm:text-xs dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-lg font-bold text-cyan sm:mt-2 sm:text-2xl dark:text-cyan-300">{value}</p>
     </section>
   )
 }

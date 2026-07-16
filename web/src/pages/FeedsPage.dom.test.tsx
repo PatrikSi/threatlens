@@ -380,6 +380,29 @@ afterEach(() => {
 })
 
 describe('FeedsPage DOM workflows', () => {
+  it('progressively discloses mobile create and schedule controls', () => {
+    const view = renderPage()
+    const addForm = view.querySelector<HTMLElement>('#add-feed-form')
+    const addToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'New feed')
+    const schedule = view.querySelector<HTMLElement>('#feed-schedule-feed-1')
+    const scheduleToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Schedule')
+
+    expect(addForm?.className).toContain('hidden')
+    expect(addToggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(schedule?.className).toContain('hidden')
+    expect(scheduleToggle?.getAttribute('aria-expanded')).toBe('false')
+
+    act(() => {
+      addToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      scheduleToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(addForm?.className).toContain('block')
+    expect(addToggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(schedule?.className).toContain('block')
+    expect(scheduleToggle?.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('preserves user-scoped schedule drafts when feeds load before the current user id', () => {
     feedsPageDomMocks.currentUser = null
     const scopedKey = getFeedScheduleDraftStorageKey('admin-user')

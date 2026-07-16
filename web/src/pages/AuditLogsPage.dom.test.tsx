@@ -134,13 +134,21 @@ describe('AuditLogsPage DOM workflows', () => {
 
     const view = renderPage()
     const mobileRecords = view.querySelector('[aria-label="Audit log entries"]')
+    const mobileRecord = mobileRecords?.querySelector('details')
     const desktopTable = view.querySelector('table')?.parentElement
 
+    expect(mobileRecord?.open).toBe(false)
     expect(mobileRecords?.textContent).toContain('integrations.smtp.delivery_succeeded')
     expect(mobileRecords?.textContent).toContain('integration_delivery:delivery-1')
     expect(mobileRecords?.textContent).toContain('system')
     expect(desktopTable?.className).toContain('hidden')
     expect(desktopTable?.className).toContain('sm:block')
+
+    act(() => {
+      mobileRecord?.querySelector<HTMLElement>('summary')?.click()
+    })
+
+    expect(mobileRecord?.open).toBe(true)
   })
 
   it('announces audit export success and failure through live regions', () => {

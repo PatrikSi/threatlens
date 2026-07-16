@@ -79,6 +79,22 @@ const FEED_REFRESH_STATUS_POLL_MS = 45_000
 const FEED_STATUS_POLL_INTERVAL_MS = 3_000
 const FEED_REFRESH_FOLLOW_UP_DELAYS_MS = [2_000, 6_000, 12_000, 24_000] as const
 
+function shouldShowMobileFeedForm(open: boolean, feedCount: number) {
+  return open || feedCount === 0
+}
+
+function mobileDisclosureClass(open: boolean) {
+  return open ? 'block' : 'hidden'
+}
+
+function mobileFeedToggleLabel(open: boolean) {
+  return open ? 'Hide' : 'New feed'
+}
+
+function mobileFeedToggleVisibilityClass(feedCount: number) {
+  return feedCount === 0 ? 'hidden' : 'block'
+}
+
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -119,6 +135,8 @@ export function FeedsPage() {
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
   const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
+  const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
+  const [mobileScheduleFeedId, setMobileScheduleFeedId] = useState<string | null>(null)
   const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
   const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -783,13 +801,30 @@ export function FeedsPage() {
     updateFeedDetails.mutate({ feed: editingFeed, draft: feedEditDraft })
   }
 
+  const showMobileAddFeedForm = shouldShowMobileFeedForm(mobileAddFeedOpen, feedStats.total)
+
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h2 className="font-display text-xl">Add Feed</h2>
+      <section className="order-2 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display text-xl">Add Feed</h2>
+          <button
+            type="button"
+            className={`${mobileFeedToggleVisibilityClass(feedStats.total)} rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40`}
+            aria-expanded={showMobileAddFeedForm}
+            aria-controls="add-feed-form"
+            onClick={() => setMobileAddFeedOpen((current) => !current)}
+          >
+            {mobileFeedToggleLabel(mobileAddFeedOpen)}
+          </button>
+        </div>
         {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role cannot create or modify feeds.</p>}
 
-        <form className="mt-3 space-y-3" onSubmit={onSubmit}>
+        <form
+          id="add-feed-form"
+          className={`${mobileDisclosureClass(showMobileAddFeedForm)} mt-3 space-y-3 sm:block`}
+          onSubmit={onSubmit}
+        >
           <div>
             <label htmlFor="feed-rss-url" className="text-sm font-semibold">
               RSS URL
@@ -941,7 +976,7 @@ export function FeedsPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="order-1 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-xl">Configured Feeds ({feedStats.total})</h2>
           <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
@@ -1258,6 +1293,7 @@ export function FeedsPage() {
             const scheduleHint =
               !scheduleNotice && isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : null
             const displayUrl = feed.url.trim() || 'URL unavailable until the original encryption key is restored.'
+            const scheduleExpanded = mobileScheduleFeedId === feed.id || isDirty
             return (
             <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1279,7 +1315,7 @@ export function FeedsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate dark:text-slate-300">{displayUrl}</p>
-                  {feed.description && <p className="mt-1 text-xs text-slate dark:text-slate-300">{feed.description}</p>}
+                  {feed.description && <p className="mt-1 line-clamp-2 text-xs text-slate sm:line-clamp-none dark:text-slate-300">{feed.description}</p>}
                   <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate dark:text-slate-300">
                     {feed.site_url && <span>Site: {feed.site_url}</span>}
                     {feed.language && <span>Lang: {feed.language}</span>}
@@ -1287,12 +1323,21 @@ export function FeedsPage() {
                     <span>Last success: {formatDate(feed.last_success_at)}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
                   <button
                     className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
                     onClick={() => openFeedDetail(feed)}
                   >
                     {canManage ? 'Edit' : 'Details'}
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded border border-slate/30 px-2 py-1 text-xs sm:hidden dark:border-cyan-900/40"
+                    aria-expanded={scheduleExpanded}
+                    aria-controls={`feed-schedule-${feed.id}`}
+                    onClick={() => setMobileScheduleFeedId((current) => (current === feed.id ? null : feed.id))}
+                  >
+                    {scheduleExpanded ? 'Hide schedule' : 'Schedule'}
                   </button>
                   <button
                     className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
@@ -1320,6 +1365,7 @@ export function FeedsPage() {
                 </div>
               </div>
 
+              <div id={`feed-schedule-${feed.id}`} className={`${scheduleExpanded ? 'block' : 'hidden'} sm:block`}>
               <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr]">
                 <label htmlFor={`feed-fetch-mode-${feed.id}`} className="sr-only">
                   Fetch mode for {feed.name}
@@ -1430,6 +1476,7 @@ export function FeedsPage() {
                   {scheduleNotice}
                 </p>
               )}
+              </div>
 
               {feed.last_error && <p className="mt-2 text-xs text-red-600">Last error: {feed.last_error}</p>}
             </div>

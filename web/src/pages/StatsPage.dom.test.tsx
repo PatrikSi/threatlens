@@ -52,6 +52,22 @@ afterEach(() => {
 })
 
 describe('StatsPage filters', () => {
+  it('keeps the mobile feed filter collapsed until requested', () => {
+    const view = renderPage()
+    const toggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Feed filter'))
+    const filters = view.querySelector<HTMLElement>('#stats-feed-filters')
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(filters?.className).toContain('hidden')
+
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(toggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(filters?.className).toContain('block')
+  })
+
   it('labels the time window and removes deleted feeds from the selection', () => {
     const view = renderPage()
     const feedTwoCheckbox = Array.from(view.querySelectorAll('label'))

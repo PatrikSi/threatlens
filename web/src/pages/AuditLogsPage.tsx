@@ -148,17 +148,19 @@ export function AuditLogsPage() {
           </div>
         )}
         {logs.map((log) => (
-          <article key={log.id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-            <div className="flex items-start justify-between gap-3">
+          <details key={log.id} className="rounded border border-slate/20 bg-white/70 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+            <summary className="cursor-pointer p-2.5 marker:text-slate dark:marker:text-slate-400">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
               <div className="min-w-0">
-                <p className="break-words font-mono text-sm font-semibold text-ink dark:text-slate-100">{log.action}</p>
-                <p className="mt-1 text-xs text-slate dark:text-slate-400">{formatDateTime(log.created_at)}</p>
+                <p className="break-words font-mono text-xs font-semibold leading-5 text-ink dark:text-slate-100">{log.action}</p>
+                <p className="mt-0.5 text-[11px] text-slate dark:text-slate-400">{formatDateTime(log.created_at)}</p>
               </div>
               <span className={log.success ? 'tl-chip tl-chip-neutral' : 'tl-chip tl-chip-danger'}>
                 {log.success ? 'success' : 'failed'}
               </span>
             </div>
-            <dl className="mt-3 grid gap-2 text-xs">
+            </summary>
+            <dl className="grid gap-2 border-t border-slate/15 px-2.5 py-2 text-xs dark:border-cyan-900/30">
               <div>
                 <dt className="font-semibold uppercase text-slate dark:text-slate-400">Resource</dt>
                 <dd className="mt-0.5 break-all text-ink dark:text-slate-200">
@@ -170,7 +172,7 @@ export function AuditLogsPage() {
                 <dd className="mt-0.5 break-all font-mono text-ink dark:text-slate-200">{log.actor_user_id || 'system'}</dd>
               </div>
             </dl>
-          </article>
+          </details>
         ))}
       </div>
 
