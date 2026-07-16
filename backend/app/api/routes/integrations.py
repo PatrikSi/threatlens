@@ -340,7 +340,7 @@ def test_smtp_hook(
     except (SMTPHookConflictError, SMTPHookNotFoundError) as exc:
         raise _smtp_hook_http_error(exc) from exc
     except SMTPSecretError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     result = test_smtp_integration(
         active_settings,
         recipient_email=str(payload.recipient_email) if payload.send_email and payload.recipient_email else None,
@@ -423,7 +423,7 @@ def test_smtp_settings(
     try:
         active_settings = build_active_smtp_settings(instance, override=payload.settings)
     except SMTPSecretError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     result = test_smtp_integration(
         active_settings,
@@ -520,7 +520,7 @@ def _smtp_hook_http_error(
     if isinstance(exc, SMTPHookNotFoundError):
         status_code = status.HTTP_404_NOT_FOUND
     elif isinstance(exc, SMTPHookValidationError):
-        status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     else:
         status_code = status.HTTP_409_CONFLICT
     return HTTPException(status_code=status_code, detail=str(exc))
@@ -553,12 +553,12 @@ def _validate_smtp_notification_settings(
 ) -> None:
     if payload.enabled and not payload.host and not allow_shared_host:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="SMTP host is required when SMTP is enabled",
         )
     if require_recipients and not payload.to_emails:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="At least one recipient email is required when SMTP is enabled",
         )
 
@@ -567,7 +567,7 @@ def _validate_smtp_notification_settings(
         invalid_feed_ids = sorted(str(feed_id) for feed_id in payload.feed_ids if feed_id not in known_feed_ids)
         if invalid_feed_ids:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Unknown feed ids: {', '.join(invalid_feed_ids)}",
             )
 
@@ -576,6 +576,6 @@ def _validate_smtp_notification_settings(
     )
     if unknown_variables:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown template variable(s): {', '.join(unknown_variables)}",
         )

@@ -54,14 +54,14 @@ class _AlertMatchDefinition:
 def _normalize_name(value: str) -> str:
     normalized = value.strip()
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Alert name cannot be empty")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Alert name cannot be empty")
     return normalized
 
 
 def _normalize_category(value: str) -> str:
     normalized = "_".join(value.strip().lower().split())
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Alert category cannot be empty")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Alert category cannot be empty")
     return normalized
 
 
@@ -77,7 +77,7 @@ def _normalize_keywords(values: list[str]) -> list[str]:
         seen.add(keyword)
 
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="At least one keyword is required")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="At least one keyword is required")
 
     return normalized
 
@@ -95,7 +95,7 @@ def _parse_uuid_csv(raw_value: str | None, detail: str) -> list[uuid.UUID]:
         try:
             parsed_uuid = uuid.UUID(candidate)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail) from exc
         if parsed_uuid in seen:
             continue
         seen.add(parsed_uuid)
@@ -350,7 +350,7 @@ def _list_matches_for_alerts(
     if len(all_keywords) > settings.alert_matches_keyword_cap:
         alert_label = "alert" if len(alerts) == 1 else "alerts"
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
                 f"Alert matching selected {len(alerts)} {alert_label} with {len(all_keywords)} distinct keywords, "
                 f"exceeding ALERT_MATCHES_KEYWORD_CAP={settings.alert_matches_keyword_cap}. "

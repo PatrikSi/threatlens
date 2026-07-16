@@ -4,7 +4,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import Response
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
@@ -48,7 +49,7 @@ def decode_access_token_claims(token: str) -> dict[str, Any] | None:
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except JWTError:
+    except InvalidTokenError:
         return None
     if not isinstance(payload, dict):
         return None
