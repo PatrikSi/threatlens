@@ -33,6 +33,12 @@ jobs:
       - name: Compile backend
         run: python -m compileall -q backend/app backend/alembic
 
+      - name: Enforce source size and backend complexity
+        run: |
+          python scripts/check-source-size.py
+          cd backend
+          python -m ruff check app
+
       - name: Run backend tests
         working-directory: backend
         run: python -m pytest

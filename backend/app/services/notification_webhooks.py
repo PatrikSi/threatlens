@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -91,6 +91,25 @@ FEED_FAILING_NOTIFICATION_THRESHOLD = 3
 FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS = 12
 DAILY_DIGEST_WINDOW_HOURS = 24
 THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
+
+__all__ = [
+    "NotificationTemplateVariable",
+    "TEMPLATE_PATTERN",
+    "TEMPLATE_VARIABLES",
+    "_decrypt_notification_json",
+    "_isoformat",
+    "_redact_delivery_body_preview",
+    "_redact_notification_field_values",
+    "_redact_notification_query_params",
+    "apply_notification_webhook_updates",
+    "build_notification_webhook",
+    "find_unknown_template_variables_in_texts",
+    "list_template_variables",
+    "_notification_feed_ids_from_storage",
+    "notification_webhook_delivery_response_from_model",
+    "notification_webhook_response_from_model",
+    "render_notification_template_text",
+]
 
 
 class NotificationWebhookRetryInProgressError(RuntimeError):
