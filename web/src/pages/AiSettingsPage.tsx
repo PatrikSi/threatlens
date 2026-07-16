@@ -840,8 +840,21 @@ export function AiSettingsPage() {
           <p className="mt-1 text-sm text-slate dark:text-white/70">
             Review status, work with queued jobs, and manage provider settings without leaving the settings area.
           </p>
+          <label htmlFor="mobile-ai-settings-section" className="mt-3 block text-xs font-semibold uppercase text-slate lg:hidden dark:text-slate-400">
+            Section
+            <select
+              id="mobile-ai-settings-section"
+              className="mt-1 w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm font-semibold normal-case text-ink dark:border-cyan-900/40 dark:bg-[#041612] dark:text-slate-100"
+              value={activeTab}
+              onChange={(event) => setActiveTab(event.target.value as AiTab)}
+            >
+              {AI_TABS.map((tab) => (
+                <option key={tab.value} value={tab.value}>{tab.label}</option>
+              ))}
+            </select>
+          </label>
           <nav
-            className="mt-3 grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-1"
+            className="mt-3 hidden grid-cols-1 gap-1 lg:grid"
             role="tablist"
             aria-label="AI settings sections"
           >

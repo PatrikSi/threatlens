@@ -333,7 +333,37 @@ export function StatsPage() {
 
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <h3 className="font-display text-lg">Feed Contribution</h3>
-            <div className="mt-3 overflow-x-auto">
+            <div className="mt-3 space-y-2 sm:hidden" aria-label="Feed contribution records">
+              {visibleFeedBreakdown.map((feed) => (
+                <article key={feed.feed_id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+                  <div className="flex items-start justify-between gap-3">
+                    <h4 className="min-w-0 break-words text-sm font-semibold">{feed.feed_name}</h4>
+                    <span className="tl-chip tl-chip-neutral shrink-0">{feed.items_in_window} in window</span>
+                  </div>
+                  <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Total items</dt>
+                      <dd className="mt-0.5 text-ink dark:text-slate-200">{feed.total_items}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Fetched</dt>
+                      <dd className="mt-0.5 text-ink dark:text-slate-200">{feed.content_fetched_items}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Errors</dt>
+                      <dd className="mt-0.5 text-ink dark:text-slate-200">{feed.error_items}</dd>
+                    </div>
+                    <div>
+                      <dt className="font-semibold uppercase text-slate dark:text-slate-400">Last seen</dt>
+                      <dd className="mt-0.5 text-ink dark:text-slate-200">
+                        {feed.last_seen_at ? formatDateTime(feed.last_seen_at) : 'Never'}
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
+              ))}
+            </div>
+            <div className="mt-3 hidden overflow-x-auto sm:block">
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate/20 dark:border-cyan-950/40">
@@ -358,21 +388,19 @@ export function StatsPage() {
                   ))}
                 </tbody>
               </table>
-              {statsQuery.data.feed_breakdown.length > FEED_TABLE_PREVIEW_LIMIT && (
-                <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate dark:text-slate-300">
-                  <span>
-                    Showing {visibleFeedBreakdown.length} of {statsQuery.data.feed_breakdown.length} feeds
-                  </span>
-                  <button
-                    type="button"
-                    className="rounded border border-slate/30 px-3 py-1.5 font-semibold text-slate-700 dark:border-cyan-900/40 dark:text-slate-100"
-                    onClick={() => setShowAllFeedRows((current) => !current)}
-                  >
-                    {showAllFeedRows ? 'Show top feeds' : 'Show all feeds'}
-                  </button>
-                </div>
-              )}
             </div>
+            {statsQuery.data.feed_breakdown.length > FEED_TABLE_PREVIEW_LIMIT && (
+              <div className="mt-3 grid gap-2 text-sm text-slate sm:flex sm:items-center sm:justify-between dark:text-slate-300">
+                <span>Showing {visibleFeedBreakdown.length} of {statsQuery.data.feed_breakdown.length} feeds</span>
+                <button
+                  type="button"
+                  className="w-full rounded border border-slate/30 px-3 py-2 font-semibold text-slate-700 sm:w-auto sm:py-1.5 dark:border-cyan-900/40 dark:text-slate-100"
+                  onClick={() => setShowAllFeedRows((current) => !current)}
+                >
+                  {showAllFeedRows ? 'Show top feeds' : 'Show all feeds'}
+                </button>
+              </div>
+            )}
           </section>
         </>
       )}

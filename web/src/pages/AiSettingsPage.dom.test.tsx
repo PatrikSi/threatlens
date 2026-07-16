@@ -592,6 +592,21 @@ afterEach(() => {
 })
 
 describe('AiSettingsPage DOM workflows', () => {
+  it('provides a compact mobile section selector without removing desktop tabs', () => {
+    const view = renderPage()
+    const mobileSection = view.querySelector<HTMLSelectElement>('#mobile-ai-settings-section')
+    const desktopTabs = view.querySelector<HTMLElement>('[aria-label="AI settings sections"]')
+
+    expect(mobileSection).not.toBeNull()
+    expect(Array.from(mobileSection?.options ?? []).map((option) => option.textContent)).toEqual([
+      'Status',
+      'Jobs',
+      'Configuration',
+    ])
+    expect(desktopTabs?.className).toContain('hidden')
+    expect(desktopTabs?.className).toContain('lg:grid')
+  })
+
   it('blocks queued AI work when the saved endpoint is not configured', () => {
     aiSettingsPageDomMocks.settingsData.ai_configured = false
     renderPage()

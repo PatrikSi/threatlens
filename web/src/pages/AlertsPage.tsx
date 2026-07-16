@@ -287,9 +287,9 @@ export function AlertsPage() {
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 sm:flex sm:flex-wrap">
               <button
-                className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+                className="w-full rounded bg-ink px-3 py-2 text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
                 type="submit"
                 disabled={saveAlert.isPending || Boolean(saveDisabledReason)}
                 title={saveDisabledReason ?? undefined}
@@ -298,7 +298,7 @@ export function AlertsPage() {
               </button>
               {editingAlertId && (
                 <button
-                  className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                  className="w-full rounded border border-slate/30 px-3 py-2 text-sm font-semibold sm:w-auto dark:border-cyan-900/40"
                   type="button"
                   onClick={() => resetForm()}
                 >
@@ -315,7 +315,7 @@ export function AlertsPage() {
           </form>
 
         <section className="mt-5 rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-display text-lg">Current Match Preview</h3>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
@@ -428,12 +428,12 @@ export function AlertsPage() {
                             : 'border-slate/20 bg-white/75 dark:border-cyan-900/40 dark:bg-[#072019]/45'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                          <div className="min-w-0">
                             <p className="font-semibold">{alert.name}</p>
                             {!alert.enabled && <p className="mt-1 text-xs text-slate dark:text-white/60">Disabled</p>}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
                             <button
                               type="button"
                               className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
