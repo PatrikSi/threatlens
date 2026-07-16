@@ -243,6 +243,7 @@ export function DashboardPage() {
   const [importViewsError, setImportViewsError] = useState('')
   const [importViewsResult, setImportViewsResult] = useState('')
   const [mobileDashboardViewsOpen, setMobileDashboardViewsOpen] = useState(false)
+  const [mobileActiveWindowId, setMobileActiveWindowId] = useState<string | null>(null)
   const [mobileWindowControlsOpenById, setMobileWindowControlsOpenById] = useState<Record<string, boolean>>({})
   const [isEditMode, setIsEditMode] = useState(false)
   const [viewSaveError, setViewSaveError] = useState('')
@@ -432,6 +433,19 @@ export function DashboardPage() {
     window.addEventListener('resize', syncLayout)
     return () => window.removeEventListener('resize', syncLayout)
   }, [])
+
+  useEffect(() => {
+    if (isWideLayout) {
+      return
+    }
+
+    setMobileActiveWindowId((current) => {
+      if (current && windows.some((windowLayout) => windowLayout.id === current)) {
+        return current
+      }
+      return windows[0]?.id ?? null
+    })
+  }, [isWideLayout, windows])
 
   useEffect(() => () => articlePreviewResizeCleanupRef.current?.(), [])
 
@@ -2037,6 +2051,17 @@ export function DashboardPage() {
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
   const dailyBriefWindowCount = windows.filter((window) => window.type === 'daily_brief').length
+  const resolvedMobileWindowId =
+    mobileActiveWindowId && windows.some((windowLayout) => windowLayout.id === mobileActiveWindowId)
+      ? mobileActiveWindowId
+      : windows[0]?.id ?? null
+  const renderedWindows = isWideLayout
+    ? windows
+    : windows.filter((windowLayout) => windowLayout.id === resolvedMobileWindowId)
+  const mobileActiveWindowIndex = Math.max(
+    0,
+    windows.findIndex((windowLayout) => windowLayout.id === resolvedMobileWindowId),
+  )
   const containerDimensions = getWindowContainerDimensions(rootRef.current)
   const savedViewPreviews = useMemo(
     () =>
@@ -2428,6 +2453,28 @@ export function DashboardPage() {
         )}
       </div>
 
+      {!isWideLayout && windows.length > 1 && resolvedMobileWindowId && (
+        <div className="border-b border-slate/20 bg-slate-50 px-3 py-2.5 dark:border-cyan-900/40 dark:bg-[#03130f]">
+          <div className="flex items-end justify-between gap-3">
+            <label htmlFor="mobile-dashboard-panel" className="min-w-0 flex-1 text-xs font-semibold text-slate dark:text-slate-300">
+              <span className="mb-1 block uppercase">Panel {mobileActiveWindowIndex + 1} of {windows.length}</span>
+              <select
+                id="mobile-dashboard-panel"
+                className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm font-semibold text-ink dark:border-cyan-900/40 dark:bg-[#041612] dark:text-slate-100"
+                value={resolvedMobileWindowId}
+                onChange={(event) => setMobileActiveWindowId(event.target.value)}
+              >
+                {windows.map((windowLayout) => (
+                  <option key={windowLayout.id} value={windowLayout.id}>
+                    {windowLayout.title} ({WINDOW_TYPE_META[windowLayout.type].label})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      )}
+
       <div
         ref={rootRef}
         className={`relative ${isWideLayout ? 'h-[calc(100vh-126px)] min-h-[620px] w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-3 p-3'}`}
@@ -2439,7 +2486,7 @@ export function DashboardPage() {
             </div>
           </div>
         )}
-        {windows.map((windowLayout) => {
+        {renderedWindows.map((windowLayout) => {
           const resolvedRect = resolveWindowRect(windowLayout, containerDimensions.width, containerDimensions.height)
           const effectiveWindowTimeFilter = resolveWindowTimeFilter(windowLayout, dashboardTimeFilter)
           const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
@@ -2488,6 +2535,7 @@ export function DashboardPage() {
           return (
             <section
               key={windowLayout.id}
+              aria-label={`${windowLayout.title} dashboard panel`}
               className={sectionClass}
               style={
                 isWideLayout
