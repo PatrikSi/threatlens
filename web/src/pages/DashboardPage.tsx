@@ -1,10 +1,7 @@
 import {
   ChangeEvent,
-  Dispatch,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent as ReactPointerEvent,
-  ReactNode,
-  SetStateAction,
   useDeferredValue,
   useEffect,
   useId,
@@ -14,13 +11,50 @@ import {
 } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch, buildApiUrl } from '../api/client'
+import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
-import { formatDateOnly, formatDateTime } from '../utils/datetime'
-import { formatPlainTextPreview, looksLikeHtml, parseArticleBlocks, sanitizeHref, sanitizeHtmlFragment, stripHtml } from './dashboardContent'
+import { formatDateTime } from '../utils/datetime'
+import { formatPlainTextPreview, sanitizeHref } from './dashboardContent'
+import {
+  ArticlePreviewDrawer,
+  RichContent,
+  SavedViewThumbnail,
+  type ArticlePreviewState,
+} from './DashboardPageComponents'
+import {
+  ARTICLE_PREVIEW_MIN_WIDTH,
+  aiRelevanceTone,
+  applyDragMagnetSnap,
+  buildDashboardItemsQueryKey,
+  clamp,
+  clampArticlePreviewWidth,
+  clearItemFeedback,
+  countActiveWindowFilters,
+  countNewEntriesSince,
+  deriveTimeWindow,
+  formatAiRelevanceLabel,
+  formatClassificationLabel,
+  formatDailyBriefOptionLabel,
+  formatItemStatusLabel,
+  formatPublishedAt,
+  formatRollingWindowHint,
+  formatWindowSnapLabel,
+  formatWindowTimeSummary,
+  getArticlePreviewMaxWidth,
+  getRelativeTimeAnchorMs,
+  getWindowContainerDimensions,
+  itemStatusTone,
+  loadArticlePreviewWidth,
+  loadStoredTimestamp,
+  loadWindowSeenState,
+  persistArticlePreviewWidth,
+  resolveItemActionError,
+  resolveWindowTimeFilter,
+  syncItemStateInCache,
+} from './dashboardPageUtils'
 import { getDashboardStorageKeys, migrateLegacyDashboardStorage } from './dashboardStorage'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import {
@@ -54,7 +88,6 @@ import {
   type DashboardWindow,
   type DashboardWindowSnap,
   type DashboardWindowType,
-  type PanelRect,
   type ReadStatusFilter,
   type StarStatusFilter,
   type TimeRangeFilter,
@@ -78,23 +111,8 @@ interface DashboardEditSessionSnapshot {
   state: DashboardSavedViewState
 }
 
-interface ArticlePreviewState {
-  itemId: string
-  url: string
-  title: string
-  sourceLabel: string
-}
-
-const DRAG_EDGE_SNAP_THRESHOLD = 12
-const DRAG_MIDLINE_SNAP_THRESHOLD = 8
 const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
-const ARTICLE_PREVIEW_WIDTH_STORAGE_KEY = 'threatlens.article-preview.width.v1'
-const ARTICLE_PREVIEW_DEFAULT_WIDTH = 704
-const ARTICLE_PREVIEW_MIN_WIDTH = 420
-const ARTICLE_PREVIEW_MAX_WIDTH = 1120
-const SAVED_VIEW_THUMBNAIL_WIDTH = 148
-const SAVED_VIEW_THUMBNAIL_HEIGHT = 96
 const FEED_BOOTSTRAP_REFETCH_INTERVAL_MS = 5_000
 const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
 const ROLLING_WINDOW_FIELD_CLASS =
@@ -156,10 +174,6 @@ const WINDOW_TYPE_META: Record<
     shellClassName: 'border-slate/20 bg-white/95 dark:border-cyan-900/45 dark:bg-[#041612]/96',
     panelClassName: 'bg-white/90 dark:bg-[#03130f]/84',
   },
-}
-
-function getRelativeTimeAnchorMs() {
-  return Math.floor(Date.now() / 60_000) * 60_000
 }
 
 function isRelativeTimeRange(value: TimeRangeFilter) {
@@ -3037,7 +3051,7 @@ export function DashboardPage() {
                                         </p>
                                       )}
                                       <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
-                                        {renderRichContent(detail.summary || 'No summary.', detail.id, 'summary')}
+                                        <RichContent content={detail.summary || 'No summary.'} itemId={detail.id} section="summary" />
                                       </div>
                                     </div>
 
@@ -3065,7 +3079,11 @@ export function DashboardPage() {
                                         )}
                                         {aiSummaryEnabled && detail.ai_insight.summary_text && (
                                           <div className="tl-reader-surface mt-3 rounded p-3">
-                                            {renderArticleBlocks(detail.ai_insight.summary_text, `${detail.id}-ai-summary`)}
+                                            <RichContent
+                                              content={detail.ai_insight.summary_text}
+                                              itemId={detail.id}
+                                              section="ai-summary"
+                                            />
                                           </div>
                                         )}
                                         <p className="mt-2 text-xs text-slate dark:text-white/60">
@@ -3088,7 +3106,7 @@ export function DashboardPage() {
                                       )}
                                       {detail.article?.text ? (
                                         <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
-                                          {renderRichContent(detail.article.text, detail.id, 'article')}
+                                          <RichContent content={detail.article.text} itemId={detail.id} section="article" />
                                         </div>
                                       ) : (
                                         <p className="mt-2 text-sm text-slate dark:text-slate-300">No extracted article text available yet.</p>
@@ -3882,747 +3900,4 @@ export function DashboardPage() {
       {confirmDiscardUnsavedDashboardChanges.discardDialog}
     </div>
   )
-}
-
-function ArticlePreviewDrawer({
-  preview,
-  frameState,
-  width,
-  minWidth,
-  maxWidth,
-  onResizeStart,
-  onResizeBy,
-  isResizing,
-  onFrameLoad,
-  onClose,
-}: {
-  preview: ArticlePreviewState
-  frameState: 'loading' | 'loaded' | 'possibly_blocked'
-  width: number
-  minWidth: number
-  maxWidth: number
-  onResizeStart: (event: ReactPointerEvent<HTMLElement>) => void
-  onResizeBy: (delta: number) => void
-  isResizing: boolean
-  onFrameLoad: () => void
-  onClose: () => void
-}) {
-  const previewFrameUrl = buildApiUrl(`/items/${encodeURIComponent(preview.itemId)}/article-preview`)
-
-  return (
-    <aside
-      role="dialog"
-      aria-labelledby="article-preview-title"
-      className="fixed inset-y-0 right-0 z-50 flex max-w-full flex-col border-l border-slate/20 bg-white shadow-2xl dark:border-cyan-900/50 dark:bg-[#03130f]"
-      style={{ width: `${width}px` }}
-    >
-      <div
-        role="separator"
-        aria-label="Resize article preview width"
-        aria-orientation="vertical"
-        aria-valuemin={minWidth}
-        aria-valuemax={maxWidth}
-        aria-valuenow={width}
-        tabIndex={0}
-        className="absolute left-0 top-1/2 z-10 flex h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20 bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2 focus-visible:ring-cyan/50 dark:border-cyan-900/50 dark:bg-[#062019] dark:hover:border-cyan-500/60"
-        onPointerDown={onResizeStart}
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowLeft') {
-            event.preventDefault()
-            onResizeBy(32)
-          } else if (event.key === 'ArrowRight') {
-            event.preventDefault()
-            onResizeBy(-32)
-          } else if (event.key === 'Home') {
-            event.preventDefault()
-            onResizeBy(minWidth - width)
-          } else if (event.key === 'End') {
-            event.preventDefault()
-            onResizeBy(maxWidth - width)
-          }
-        }}
-      >
-        <span className="h-12 w-1 rounded-full bg-slate/35 dark:bg-cyan-700/70" />
-      </div>
-      <div className="flex items-start justify-between gap-3 border-b border-slate/20 px-4 py-3 dark:border-cyan-900/40">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold uppercase text-slate dark:text-slate-400">{preview.sourceLabel}</p>
-          <h2 id="article-preview-title" className="truncate font-display text-lg font-semibold text-ink dark:text-slate-100">
-            Original article
-          </h2>
-          <p className="mt-0.5 truncate text-sm text-slate dark:text-slate-300">{preview.title}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <a
-            href={preview.url}
-            target="_blank"
-            rel="noreferrer"
-            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold hover:border-cyan hover:text-cyan dark:border-cyan-900/40"
-          >
-            Open Original
-          </a>
-          <button
-            type="button"
-            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
-            onClick={onClose}
-            aria-label="Close original article preview"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-
-      {frameState !== 'loaded' && (
-        <div
-          role={frameState === 'possibly_blocked' ? 'status' : undefined}
-          className={`border-b px-4 py-2 text-xs ${
-            frameState === 'possibly_blocked'
-              ? 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-200'
-              : 'border-slate/20 bg-slate-50 text-slate dark:border-cyan-900/40 dark:bg-white/[0.03] dark:text-slate-300'
-          }`}
-        >
-          {frameState === 'possibly_blocked'
-            ? 'Preview is still loading. Open the original source if it does not render here.'
-            : 'Loading original site...'}
-        </div>
-      )}
-
-      <div className={`min-h-0 flex-1 bg-white dark:bg-[#020b09] ${isResizing ? 'cursor-ew-resize select-none' : ''}`}>
-        <iframe
-          key={preview.url}
-          title={`Original article preview: ${preview.title}`}
-          src={previewFrameUrl}
-          className={`h-full w-full border-0 bg-white ${isResizing ? 'pointer-events-none' : ''}`}
-          sandbox="allow-popups allow-popups-to-escape-sandbox"
-          referrerPolicy="no-referrer"
-          onLoad={onFrameLoad}
-        />
-      </div>
-    </aside>
-  )
-}
-
-function deriveTimeWindow(
-  timeRange: TimeRangeFilter,
-  customSinceDate: string,
-  customUntilDate: string,
-  rollingDays = DEFAULT_ROLLING_DAYS,
-  relativeTimeAnchorMs = getRelativeTimeAnchorMs(),
-) {
-  if (timeRange === 'all') {
-    return { sinceIso: '', untilIso: '' }
-  }
-
-  if (timeRange === 'days') {
-    const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
-    const now = new Date(relativeTimeAnchorMs)
-    const since = new Date(now)
-    since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
-    return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
-  }
-
-  if (timeRange === 'custom') {
-    const since = parseStartOfDay(customSinceDate)
-    const until = parseEndOfDay(customUntilDate)
-
-    if (since && until && since > until) {
-      return { sinceIso: until.toISOString(), untilIso: since.toISOString() }
-    }
-
-    return {
-      sinceIso: since ? since.toISOString() : '',
-      untilIso: until ? until.toISOString() : '',
-    }
-  }
-
-  const now = new Date(relativeTimeAnchorMs)
-  const since = new Date(now)
-
-  if (timeRange === '24h') {
-    since.setTime(now.getTime() - 24 * 60 * 60 * 1000)
-  }
-
-  if (timeRange === '7d') {
-    since.setTime(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  }
-
-  if (timeRange === '30d') {
-    since.setTime(now.getTime() - 30 * 24 * 60 * 60 * 1000)
-  }
-
-  return { sinceIso: since.toISOString(), untilIso: now.toISOString() }
-}
-
-function parseStartOfDay(date: string): Date | null {
-  if (!date) return null
-  const parsed = new Date(`${date}T00:00:00`)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function parseEndOfDay(date: string): Date | null {
-  if (!date) return null
-  const parsed = new Date(`${date}T23:59:59.999`)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
-}
-
-function resolveWindowTimeFilter(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter): WindowTimeFilter {
-  if (windowLayout.type === 'notes' || windowLayout.type === 'daily_brief') {
-    return dashboardTimeFilter
-  }
-  return windowLayout.time_override ?? dashboardTimeFilter
-}
-
-type ItemCachePatch = {
-  isRead?: boolean
-  isStarred?: boolean
-  note?: string | null
-}
-
-type DashboardItemsQueryKeyParams = {
-  selected_feed_ids: string
-  selected_tags: string
-  q: string
-  read_status: ReadStatusFilter
-  star_status: StarStatusFilter
-  ai_relevance: AIRelevanceFilter
-  since: string | null
-  until: string | null
-  sort: TimeSort
-  page: number
-  page_size: number
-}
-
-function buildDashboardItemsQueryKey(params: DashboardItemsQueryKeyParams) {
-  return ['items', params] as const
-}
-
-function resolveItemActionError(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.message.trim()) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return fallback
-}
-
-function clearItemFeedback(
-  setter: Dispatch<SetStateAction<Record<string, { tone: 'success' | 'error'; message: string }>>>,
-  itemId: string,
-) {
-  setter((current) => {
-    if (!(itemId in current)) {
-      return current
-    }
-    const next = { ...current }
-    delete next[itemId]
-    return next
-  })
-}
-
-function syncItemStateInCache(queryClient: ReturnType<typeof useQueryClient>, itemId: string, patch: ItemCachePatch) {
-  queryClient.setQueriesData<ItemListResponse>({ queryKey: ['items'] }, (current) => {
-    if (!current) {
-      return current
-    }
-
-    let changed = false
-    const items = current.items.map((item) => {
-      if (item.id !== itemId) {
-        return item
-      }
-
-      changed = true
-      return {
-        ...item,
-        is_read: patch.isRead ?? item.is_read,
-        is_starred: patch.isStarred ?? item.is_starred,
-      }
-    })
-
-    return changed ? { ...current, items } : current
-  })
-
-  queryClient.setQueryData<ItemDetail>(['item', itemId], (current) => {
-    if (!current) {
-      return current
-    }
-
-    return {
-      ...current,
-      state: {
-        ...current.state,
-        is_read: patch.isRead ?? current.state.is_read,
-        is_starred: patch.isStarred ?? current.state.is_starred,
-        note: patch.note !== undefined ? patch.note : current.state.note,
-        updated_at: new Date().toISOString(),
-      },
-    }
-  })
-
-  if (patch.isRead === undefined && patch.isStarred === undefined) {
-    return
-  }
-
-  queryClient.invalidateQueries({
-    predicate: (query) => shouldRefreshFilteredItemList(query.queryKey, patch),
-  })
-}
-
-function shouldRefreshFilteredItemList(queryKey: readonly unknown[], patch: ItemCachePatch) {
-  if (queryKey[0] !== 'items') {
-    return false
-  }
-
-  const params = queryKey[1]
-  if (!isDashboardItemsQueryKeyParams(params)) {
-    return false
-  }
-
-  return (
-    (patch.isRead !== undefined && params.read_status !== 'all') ||
-    (patch.isStarred !== undefined && params.star_status !== 'all')
-  )
-}
-
-function isDashboardItemsQueryKeyParams(value: unknown): value is DashboardItemsQueryKeyParams {
-  if (typeof value !== 'object' || value === null) {
-    return false
-  }
-
-  const params = value as Record<string, unknown>
-  const readStatus = params.read_status
-  const starStatus = params.star_status
-  const isDashboardReadStatus = readStatus === 'all' || readStatus === 'read' || readStatus === 'unread'
-  const isDashboardStarStatus = starStatus === 'all' || starStatus === 'starred' || starStatus === 'unstarred'
-
-  return (
-    typeof params.selected_feed_ids === 'string' &&
-    typeof params.selected_tags === 'string' &&
-    typeof params.q === 'string' &&
-    isDashboardReadStatus &&
-    isDashboardStarStatus &&
-    (params.ai_relevance === 'all' ||
-      params.ai_relevance === 'low' ||
-      params.ai_relevance === 'medium' ||
-      params.ai_relevance === 'high') &&
-    (params.since === null || typeof params.since === 'string') &&
-    (params.until === null || typeof params.until === 'string') &&
-    typeof params.sort === 'string' &&
-    typeof params.page === 'number' &&
-    typeof params.page_size === 'number'
-  )
-}
-
-function formatPublishedAt(value: string | null) {
-  return formatDateTime(value)
-}
-
-function formatDailyBriefOptionLabel(brief: AIDailyBrief) {
-  return `${formatDateOnly(brief.brief_date)} · ${brief.item_count} items`
-}
-
-function formatClassificationLabel(value: string): string {
-  return value
-    .split('_')
-    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
-    .join(' ')
-}
-
-function formatAiRelevanceLabel(value: 'low' | 'medium' | 'high'): string {
-  if (value === 'high') return 'High'
-  if (value === 'medium') return 'Medium'
-  return 'Low'
-}
-
-function aiRelevanceTone(value: 'low' | 'medium' | 'high'): string {
-  if (value === 'high') {
-    return 'tl-chip-ai-high'
-  }
-  if (value === 'medium') {
-    return 'tl-chip-ai-medium'
-  }
-  return 'tl-chip-ai-low'
-}
-
-function formatItemStatusLabel(value: string): string {
-  const normalized = value.trim().toLowerCase()
-  if (normalized === 'error') {
-    return 'content error'
-  }
-  if (normalized === 'new') {
-    return 'new item'
-  }
-  return normalized.replace(/_/g, ' ')
-}
-
-function itemStatusTone(value: string): string {
-  const normalized = value.trim().toLowerCase()
-  if (normalized.includes('error') || normalized.includes('failed')) {
-    return 'tl-chip-warning'
-  }
-  return 'tl-chip-neutral'
-}
-
-function SavedViewThumbnail({ windows }: { windows: DashboardWindow[] }) {
-  const previewContainerWidth = 1120
-  const previewContainerHeight = 680
-
-  return (
-    <div
-      className="relative shrink-0 overflow-hidden rounded border border-slate/20 bg-white/90 dark:border-cyan-900/40 dark:bg-[#041612]"
-      style={{ width: SAVED_VIEW_THUMBNAIL_WIDTH, height: SAVED_VIEW_THUMBNAIL_HEIGHT }}
-    >
-      {windows.slice(0, 14).map((windowLayout) => {
-        const rect = resolveWindowRect(windowLayout, previewContainerWidth, previewContainerHeight)
-        const left = Math.max(0, (rect.x / previewContainerWidth) * SAVED_VIEW_THUMBNAIL_WIDTH)
-        const top = Math.max(0, (rect.y / previewContainerHeight) * SAVED_VIEW_THUMBNAIL_HEIGHT)
-        const width = Math.max(6, (rect.width / previewContainerWidth) * SAVED_VIEW_THUMBNAIL_WIDTH)
-        const height = Math.max(6, (rect.height / previewContainerHeight) * SAVED_VIEW_THUMBNAIL_HEIGHT)
-
-        return (
-          <div
-            key={windowLayout.id}
-            className={`absolute overflow-hidden rounded-[3px] border ${thumbnailWindowTone(windowLayout.type)}`}
-            style={{ left, top, width, height }}
-            title={windowLayout.title}
-          />
-        )
-      })}
-      {windows.length > 14 && (
-        <div className="absolute bottom-1 right-1 rounded border border-slate/40 bg-white/85 px-1 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/90 dark:text-slate-200">
-          +{windows.length - 14}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function thumbnailWindowTone(type: DashboardWindowType): string {
-  if (type === 'rss') return 'border-cyan-500/40 bg-cyan-400/30 dark:bg-cyan-500/35'
-  if (type === 'alerts') return 'border-amber-500/40 bg-amber-300/35 dark:bg-amber-500/35'
-  if (type === 'daily_brief') return 'border-slate-400/45 bg-slate-200/70 dark:border-cyan-900/40 dark:bg-cyan-500/20'
-  return 'border-slate-400/40 bg-slate-300/45 dark:border-slate-600/45 dark:bg-slate-500/30'
-}
-
-function formatRollingWindowHint(rollingDays: string) {
-  const dayCount = clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)
-  const now = new Date()
-  const since = new Date(now)
-  since.setTime(now.getTime() - dayCount * 24 * 60 * 60 * 1000)
-  return `Since ${formatDateOnly(since)}`
-}
-
-function formatDashboardTimeRangeSummary(timeRange: TimeRangeFilter, customSinceDate: string, customUntilDate: string, rollingDays = DEFAULT_ROLLING_DAYS) {
-  if (timeRange === 'all') return 'All time'
-  if (timeRange === '24h') return 'Last 24h'
-  if (timeRange === '7d') return 'Last 7 days'
-  if (timeRange === '30d') return 'Last 30 days'
-  if (timeRange === 'days') return `Last ${clamp(Number(rollingDays) || Number(DEFAULT_ROLLING_DAYS), 1, 365)} days`
-  if (customSinceDate && customUntilDate) return `Custom ${formatDateOnly(customSinceDate)} to ${formatDateOnly(customUntilDate)}`
-  if (customSinceDate) return `Custom from ${formatDateOnly(customSinceDate)}`
-  if (customUntilDate) return `Custom until ${formatDateOnly(customUntilDate)}`
-  return 'Custom window'
-}
-
-function getArticlePreviewMaxWidth() {
-  if (typeof window === 'undefined') {
-    return ARTICLE_PREVIEW_MAX_WIDTH
-  }
-
-  return Math.max(ARTICLE_PREVIEW_MIN_WIDTH, Math.min(ARTICLE_PREVIEW_MAX_WIDTH, window.innerWidth - 48))
-}
-
-function clampArticlePreviewWidth(width: number) {
-  if (!Number.isFinite(width)) {
-    return ARTICLE_PREVIEW_DEFAULT_WIDTH
-  }
-
-  return Math.round(Math.min(Math.max(width, ARTICLE_PREVIEW_MIN_WIDTH), getArticlePreviewMaxWidth()))
-}
-
-function loadArticlePreviewWidth() {
-  if (typeof window === 'undefined') {
-    return ARTICLE_PREVIEW_DEFAULT_WIDTH
-  }
-
-  try {
-    const stored = window.localStorage.getItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY)
-    if (!stored) {
-      return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
-    }
-    return clampArticlePreviewWidth(Number(stored))
-  } catch {
-    return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
-  }
-}
-
-function persistArticlePreviewWidth(width: number) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  try {
-    window.localStorage.setItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY, String(width))
-  } catch {
-    // Ignore storage failures; the in-memory width still works for this session.
-  }
-}
-
-function countActiveWindowFilters(
-  windowLayout: DashboardWindow,
-  rssFilters: DashboardRssWindowFilters,
-  alertFilters: DashboardAlertWindowFilters,
-  aiRelevanceEnabled: boolean,
-) {
-  if (windowLayout.type === 'rss') {
-    return (
-      rssFilters.selected_feed_ids.length +
-      rssFilters.selected_tags.length +
-      (rssFilters.q.trim() ? 1 : 0) +
-      (rssFilters.read_status !== 'all' ? 1 : 0) +
-      (rssFilters.star_status !== 'all' ? 1 : 0) +
-      (aiRelevanceEnabled && rssFilters.ai_relevance !== 'all' ? 1 : 0)
-    )
-  }
-
-  if (windowLayout.type === 'alerts') {
-    return alertFilters.selected_alert_ids.length + alertFilters.selected_categories.length + (alertFilters.q.trim() ? 1 : 0)
-  }
-
-  return 0
-}
-
-function formatWindowSnapLabel(snap: DashboardWindowSnap) {
-  return WINDOW_SNAP_OPTIONS.find((option) => option.value === snap)?.label ?? 'Placement'
-}
-
-function formatWindowTimeSummary(windowLayout: DashboardWindow, dashboardTimeFilter: WindowTimeFilter) {
-  if (windowLayout.type === 'notes') {
-    return 'Saved with view'
-  }
-
-  if (windowLayout.type === 'daily_brief') {
-    return 'Brief snapshots'
-  }
-
-  if (!windowLayout.time_override) {
-    return `Scope: ${formatDashboardTimeRangeSummary(
-      dashboardTimeFilter.time_range,
-      dashboardTimeFilter.custom_since_date,
-      dashboardTimeFilter.custom_until_date,
-      dashboardTimeFilter.rolling_days,
-    )}`
-  }
-
-  return `Scope: ${formatDashboardTimeRangeSummary(
-    windowLayout.time_override.time_range,
-    windowLayout.time_override.custom_since_date,
-    windowLayout.time_override.custom_until_date,
-    windowLayout.time_override.rolling_days,
-  )}`
-}
-
-function loadWindowSeenState(storageKey: string): Record<string, string> {
-  return loadStoredTimestampMap(storageKey)
-}
-
-function loadStoredTimestampMap(storageKey: string): Record<string, string> {
-  if (typeof window === 'undefined') {
-    return {}
-  }
-
-  const raw = window.localStorage.getItem(storageKey)
-  if (!raw) {
-    return {}
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown
-    if (!isRecord(parsed)) return {}
-    const next: Record<string, string> = {}
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === 'string' && value.trim()) {
-        next[key] = value
-      }
-    }
-    return next
-  } catch {
-    return {}
-  }
-}
-
-function loadStoredTimestamp(storageKey: string): string {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  try {
-    const value = window.localStorage.getItem(storageKey)
-    return typeof value === 'string' ? value : ''
-  } catch {
-    return ''
-  }
-}
-
-function countNewEntriesSince<T extends { first_seen_at: string }>(entries: T[], lastSeenAtIso: string): number {
-  if (!lastSeenAtIso) {
-    return 0
-  }
-
-  const marker = Date.parse(lastSeenAtIso)
-  if (Number.isNaN(marker)) {
-    return 0
-  }
-
-  let count = 0
-  for (const entry of entries) {
-    const candidate = Date.parse(entry.first_seen_at)
-    if (!Number.isNaN(candidate) && candidate > marker) {
-      count += 1
-    }
-  }
-  return count
-}
-
-function renderRichContent(content: string, itemId: string, section: 'summary' | 'article'): ReactNode {
-  const trimmed = content.trim()
-  if (!trimmed) {
-    return <p>No content.</p>
-  }
-
-  if (!looksLikeHtml(trimmed)) {
-    return renderArticleBlocks(trimmed, `${itemId}-${section}`)
-  }
-
-  const sanitized = sanitizeHtmlFragment(trimmed)
-  if (!sanitized) {
-    return renderArticleBlocks(stripHtml(trimmed), `${itemId}-${section}`)
-  }
-
-  return <div className="rss-rich" dangerouslySetInnerHTML={{ __html: sanitized }} />
-}
-
-function renderArticleBlocks(text: string, itemId: string) {
-  const blocks = parseArticleBlocks(text)
-
-  return blocks.map((block, index) => {
-    if (block.kind === 'heading') {
-      return (
-        <h4 key={`${itemId}-heading-${index}`} className="rss-heading">
-          {block.text}
-        </h4>
-      )
-    }
-
-    if (block.kind === 'bullet-list') {
-      return (
-        <ul key={`${itemId}-ul-${index}`} className="rss-list">
-          {block.items.map((entry, entryIndex) => (
-            <li key={`${itemId}-ul-${index}-${entryIndex}`}>{entry}</li>
-          ))}
-        </ul>
-      )
-    }
-
-    if (block.kind === 'numbered-list') {
-      return (
-        <ol key={`${itemId}-ol-${index}`} className="rss-list rss-list-ordered">
-          {block.items.map((entry, entryIndex) => (
-            <li key={`${itemId}-ol-${index}-${entryIndex}`}>{entry}</li>
-          ))}
-        </ol>
-      )
-    }
-
-    if (block.kind === 'quote') {
-      return (
-        <blockquote key={`${itemId}-quote-${index}`} className="rss-quote">
-          {block.text}
-        </blockquote>
-      )
-    }
-
-    return <p key={`${itemId}-paragraph-${index}`}>{block.text}</p>
-  })
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-}
-
-function applyDragMagnetSnap(
-  movingRect: PanelRect,
-  otherRects: PanelRect[],
-  containerWidth: number,
-  containerHeight: number,
-  maxX: number,
-  maxY: number,
-): Pick<PanelRect, 'x' | 'y'> {
-  let snappedX = movingRect.x
-  let snappedY = movingRect.y
-  let bestXDistance = Number.POSITIVE_INFINITY
-  let bestYDistance = Number.POSITIVE_INFINITY
-
-  const maybeSnapX = (candidate: number, threshold: number) => {
-    const normalized = clamp(candidate, 0, maxX)
-    const distance = Math.abs(movingRect.x - normalized)
-    if (distance <= threshold && distance < bestXDistance) {
-      snappedX = normalized
-      bestXDistance = distance
-    }
-  }
-
-  const maybeSnapY = (candidate: number, threshold: number) => {
-    const normalized = clamp(candidate, 0, maxY)
-    const distance = Math.abs(movingRect.y - normalized)
-    if (distance <= threshold && distance < bestYDistance) {
-      snappedY = normalized
-      bestYDistance = distance
-    }
-  }
-
-  for (const rect of otherRects) {
-    const left = rect.x
-    const right = rect.x + rect.width
-    const top = rect.y
-    const bottom = rect.y + rect.height
-
-    maybeSnapX(left, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapX(right, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapX(left - movingRect.width, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapX(right - movingRect.width, DRAG_EDGE_SNAP_THRESHOLD)
-
-    maybeSnapY(top, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapY(bottom, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapY(top - movingRect.height, DRAG_EDGE_SNAP_THRESHOLD)
-    maybeSnapY(bottom - movingRect.height, DRAG_EDGE_SNAP_THRESHOLD)
-  }
-
-  const midX = containerWidth / 2
-  const midY = containerHeight / 2
-
-  maybeSnapX(midX, DRAG_MIDLINE_SNAP_THRESHOLD)
-  maybeSnapX(midX - movingRect.width, DRAG_MIDLINE_SNAP_THRESHOLD)
-  maybeSnapY(midY, DRAG_MIDLINE_SNAP_THRESHOLD)
-  maybeSnapY(midY - movingRect.height, DRAG_MIDLINE_SNAP_THRESHOLD)
-
-  return { x: snappedX, y: snappedY }
-}
-
-function getWindowContainerDimensions(rootElement: HTMLDivElement | null): { width: number; height: number } {
-  if (typeof window === 'undefined') {
-    return { width: 1380, height: 760 }
-  }
-
-  const rootBounds = rootElement?.getBoundingClientRect()
-  const width = Math.max(WINDOW_MIN_WIDTH, Math.floor(rootBounds?.width ?? window.innerWidth))
-  const height = Math.max(WINDOW_MIN_HEIGHT, Math.floor(rootBounds?.height ?? window.innerHeight - 140))
-  return { width, height }
-}
-
-function clamp(value: number, min: number, max: number) {
-  if (value < min) return min
-  if (value > max) return max
-  return value
 }
