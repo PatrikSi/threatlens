@@ -115,9 +115,10 @@ const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 const MAX_VIEWS_IMPORT_FILE_BYTES = 2_000_000
 const FEED_BOOTSTRAP_REFETCH_INTERVAL_MS = 5_000
 const RSS_WINDOW_REFETCH_INTERVAL_MS = 60_000
+const MOBILE_DASHBOARD_PAGE_SIZE = 10
 const ROLLING_WINDOW_FIELD_CLASS =
   'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
-const FILTER_SCROLLER_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1'
+const FILTER_SCROLLER_CLASS = 'tl-dashboard-filter-scroller flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1'
 const FILTER_CHIP_CLASS = 'inline-flex h-7 shrink-0 items-center whitespace-nowrap rounded border px-3 py-1 text-xs font-semibold'
 
 const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> = [
@@ -130,6 +131,38 @@ const WINDOW_SNAP_OPTIONS: Array<{ value: DashboardWindowSnap; label: string }> 
   { value: 'bottom_left', label: 'Bottom Left' },
   { value: 'bottom_right', label: 'Bottom Right' },
 ]
+
+function resolvePanelPageSize(queryPageSize: number | undefined, configuredPageSize: number) {
+  return queryPageSize ?? configuredPageSize
+}
+
+function selectVisibleItemTags(tags: string[], wideLayout: boolean) {
+  return tags.slice(0, wideLayout ? 3 : 1)
+}
+
+function resolveRssItemDetailClassName(wideLayout: boolean) {
+  return wideLayout
+    ? 'tl-rss-item-detail mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40'
+    : 'tl-mobile-rss-detail fixed inset-0 z-50 overflow-y-auto bg-white px-3 pb-6 dark:bg-[#03130f]'
+}
+
+function formatAlertMatchCount(count: number) {
+  return `${count} ${count === 1 ? 'alert' : 'alerts'}`
+}
+
+function calculateDashboardTotalPages(total: number | undefined, pageSize: number) {
+  return Math.max(1, Math.ceil((total ?? 0) / Math.max(1, pageSize)))
+}
+
+function resolvePanelRefreshing(
+  type: DashboardWindowType,
+  states: { rss: boolean; alerts: boolean; dailyBrief: boolean },
+) {
+  if (type === 'rss') return states.rss
+  if (type === 'alerts') return states.alerts
+  if (type === 'daily_brief') return states.dailyBrief
+  return false
+}
 
 const WINDOW_TYPE_META: Record<
   DashboardWindowType,
@@ -271,6 +304,7 @@ export function DashboardPage() {
   )
   const [articlePreviewWidth, setArticlePreviewWidth] = useState(() => loadArticlePreviewWidth())
   const [isArticlePreviewResizing, setIsArticlePreviewResizing] = useState(false)
+  const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
@@ -419,6 +453,7 @@ export function DashboardPage() {
     const syncLayout = () => {
       const nextWide = window.innerWidth >= 1024
       setIsWideLayout(nextWide)
+      setIsPhoneLayout(window.innerWidth < 640)
       setArticlePreviewWidth((current) => clampArticlePreviewWidth(current))
 
       if (!nextWide) {
@@ -448,6 +483,18 @@ export function DashboardPage() {
   }, [isWideLayout, windows])
 
   useEffect(() => () => articlePreviewResizeCleanupRef.current?.(), [])
+
+  useEffect(() => {
+    if (isWideLayout || Object.keys(expandedItemIdsByWindowId).length === 0) {
+      return
+    }
+
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [expandedItemIdsByWindowId, isWideLayout])
 
   useEffect(() => {
     if (!articlePreview) {
@@ -1006,6 +1053,7 @@ export function DashboardPage() {
   const rssWindowQueries = useQueries({
     queries: rssWindows.map((windowLayout) => {
       const rssFilters = windowLayout.rss_filters ?? createDefaultRssWindowFilters()
+      const effectivePageSize = isPhoneLayout ? MOBILE_DASHBOARD_PAGE_SIZE : rssFilters.page_size
       const deferredSearchQuery = rssDeferredSearchTermsByWindowId[windowLayout.id] ?? rssFilters.q
       const selectedFeedIdsParam = rssFilters.selected_feed_ids.slice().sort().join(',')
       const selectedTagsParam = rssFilters.selected_tags
@@ -1035,7 +1083,7 @@ export function DashboardPage() {
           until: timeWindow.untilIso,
           sort: rssFilters.sort,
           page: rssFilters.page,
-          page_size: rssFilters.page_size,
+          page_size: effectivePageSize,
         }),
         retry: 1,
         staleTime: 60_000,
@@ -1044,7 +1092,7 @@ export function DashboardPage() {
         queryFn: () => {
           const params = new URLSearchParams()
           params.set('page', String(rssFilters.page))
-          params.set('page_size', String(rssFilters.page_size))
+          params.set('page_size', String(effectivePageSize))
           params.set('sort', rssFilters.sort)
 
           if (selectedFeedIdsParam) params.set('feed_ids', selectedFeedIdsParam)
@@ -1068,6 +1116,7 @@ export function DashboardPage() {
   const alertWindowQueries = useQueries({
     queries: alertWindows.map((windowLayout) => {
       const alertFilters = windowLayout.alert_filters ?? createDefaultAlertWindowFilters()
+      const effectivePageSize = isPhoneLayout ? MOBILE_DASHBOARD_PAGE_SIZE : alertFilters.page_size
       const deferredSearchQuery = alertDeferredSearchTermsByWindowId[windowLayout.id] ?? alertFilters.q
       const selectedAlertIdsParam = alertFilters.selected_alert_ids.slice().sort().join(',')
       const selectedAlertCategoriesParam = alertFilters.selected_categories.slice().sort().join(',')
@@ -1090,14 +1139,14 @@ export function DashboardPage() {
           timeWindow.untilIso,
           alertFilters.sort,
           alertFilters.page,
-          alertFilters.page_size,
+          effectivePageSize,
         ],
         staleTime: 60_000,
         placeholderData: (previousData: AlertMatchListResponse | undefined) => previousData,
         queryFn: () => {
           const params = new URLSearchParams()
           params.set('page', String(alertFilters.page))
-          params.set('page_size', String(alertFilters.page_size))
+          params.set('page_size', String(effectivePageSize))
           params.set('sort', alertFilters.sort)
 
           if (selectedAlertIdsParam) params.set('alert_ids', selectedAlertIdsParam)
@@ -1140,7 +1189,7 @@ export function DashboardPage() {
           if (!query?.data || query.isPlaceholderData || query.data.page !== filters.page) {
             return windowLayout
           }
-          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, filters.page_size)))
+          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, query.data.page_size)))
           if (filters.page <= totalPages) {
             return windowLayout
           }
@@ -1160,7 +1209,7 @@ export function DashboardPage() {
           if (!query?.data || query.isPlaceholderData || query.data.page !== filters.page) {
             return windowLayout
           }
-          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, filters.page_size)))
+          const totalPages = Math.max(1, Math.ceil(query.data.total / Math.max(1, query.data.page_size)))
           if (filters.page <= totalPages) {
             return windowLayout
           }
@@ -2454,7 +2503,7 @@ export function DashboardPage() {
       </div>
 
       {!isWideLayout && windows.length > 1 && resolvedMobileWindowId && (
-        <div className="border-b border-slate/20 bg-slate-50 px-3 py-2.5 dark:border-cyan-900/40 dark:bg-[#03130f]">
+        <div className="tl-mobile-panel-switcher border-b border-slate/20 bg-slate-50 px-3 py-2 dark:border-cyan-900/40 dark:bg-[#03130f]">
           <div className="flex items-end justify-between gap-3">
             <label htmlFor="mobile-dashboard-panel" className="min-w-0 flex-1 text-xs font-semibold text-slate dark:text-slate-300">
               <span className="mb-1 block uppercase">Panel {mobileActiveWindowIndex + 1} of {windows.length}</span>
@@ -2477,7 +2526,7 @@ export function DashboardPage() {
 
       <div
         ref={rootRef}
-        className={`relative ${isWideLayout ? 'h-[calc(100vh-126px)] min-h-[620px] w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-3 p-3'}`}
+        className={`relative ${isWideLayout ? 'h-[calc(100vh-126px)] min-h-[620px] w-full overflow-hidden bg-slate-100/70 dark:bg-[#02100c]' : 'space-y-0 sm:p-3'}`}
       >
         {viewSavePending && (
           <div className="absolute inset-0 z-30 flex items-start justify-center bg-white/55 px-4 py-6 backdrop-blur-[1px] dark:bg-slate-950/45">
@@ -2504,31 +2553,28 @@ export function DashboardPage() {
           const lastSeenAtIso = windowSeenAt[windowLayout.id] ?? ''
           const rssChangedCount = windowLayout.type === 'rss' ? countNewEntriesSince(rssWindowItems, rssLastOpenedAt) : 0
           const alertChangedCount = windowLayout.type === 'alerts' ? countNewEntriesSince(alertWindowItems, lastSeenAtIso) : 0
-          const rssTotalPages =
-            windowLayout.type === 'rss'
-              ? Math.max(1, Math.ceil((rssQuery?.data?.total ?? 0) / Math.max(1, rssFilters.page_size)))
-              : 1
-          const alertTotalPages =
-            windowLayout.type === 'alerts'
-              ? Math.max(1, Math.ceil((alertQuery?.data?.total ?? 0) / Math.max(1, alertFilters.page_size)))
-              : 1
+          const rssTotalPages = calculateDashboardTotalPages(
+            rssQuery?.data?.total,
+            resolvePanelPageSize(rssQuery?.data?.page_size, rssFilters.page_size),
+          )
+          const alertTotalPages = calculateDashboardTotalPages(
+            alertQuery?.data?.total,
+            resolvePanelPageSize(alertQuery?.data?.page_size, alertFilters.page_size),
+          )
           const windowMeta = WINDOW_TYPE_META[windowLayout.type]
           const windowTimeSummary = formatWindowTimeSummary(windowLayout, dashboardTimeFilter)
           const activeLocalFilterCount = countActiveWindowFilters(windowLayout, rssFilters, alertFilters, aiRelevanceEnabled)
           const windowControlsVisible = isWideLayout
             ? !windowLayout.controls_collapsed
             : mobileWindowControlsOpenById[windowLayout.id] === true
-          const isPanelRefreshing =
-            windowLayout.type === 'rss'
-              ? Boolean(rssQuery?.isFetching && !rssQuery.isLoading)
-              : windowLayout.type === 'alerts'
-                ? Boolean(alertQuery?.isFetching && !alertQuery.isLoading)
-                : windowLayout.type === 'daily_brief'
-                  ? Boolean(dailyBriefHistoryQuery.isFetching && !dailyBriefHistoryQuery.isLoading)
-                  : false
+          const isPanelRefreshing = resolvePanelRefreshing(windowLayout.type, {
+            rss: Boolean(rssQuery?.isFetching && !rssQuery.isLoading),
+            alerts: Boolean(alertQuery?.isFetching && !alertQuery.isLoading),
+            dailyBrief: Boolean(dailyBriefHistoryQuery.isFetching && !dailyBriefHistoryQuery.isLoading),
+          })
 
           const snapped = isWideLayout && windowLayout.snap !== 'free'
-          const sectionClass = `${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border text-[13px] ${windowMeta.shellClassName} ${
+          const sectionClass = `tl-dashboard-panel ${isWideLayout ? 'absolute' : 'relative'} flex flex-col overflow-hidden border text-[13px] ${windowMeta.shellClassName} ${
             snapped ? 'rounded-none shadow-none' : 'rounded-xl shadow-lg shadow-slate-400/15 dark:shadow-cyan-950/40'
           }`
 
@@ -2550,38 +2596,38 @@ export function DashboardPage() {
               onMouseDown={() => bringWindowToFront(windowLayout.id)}
             >
               <div
-                className={`flex flex-col gap-2 border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:py-2.5`}
+                className={`tl-dashboard-panel-header flex flex-col gap-2 border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:py-2.5`}
                 onMouseDown={isEditMode ? (event) => startWindowDrag(event, windowLayout.id) : undefined}
                 style={isEditMode ? { cursor: 'grab' } : undefined}
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
+                    <span className={`tl-dashboard-panel-kind rounded border px-2 py-0.5 text-[10px] font-semibold ${windowMeta.badgeClassName}`}>
                       {windowMeta.label}
                     </span>
-                    <h2 className="text-base font-semibold leading-tight text-ink dark:text-white">{windowLayout.title}</h2>
+                    <h2 className="tl-dashboard-panel-title text-sm font-semibold leading-tight text-ink sm:text-base dark:text-white">{windowLayout.title}</h2>
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="tl-dashboard-panel-meta mt-1.5 flex flex-wrap items-center gap-2 sm:mt-2">
                     {isEditMode && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="tl-panel-context rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {formatWindowSnapLabel(windowLayout.snap)}
                       </span>
                     )}
-                    <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                    <span className="tl-panel-context rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                       {windowTimeSummary}
                     </span>
                     {(windowLayout.type === 'rss' || windowLayout.type === 'alerts') && activeLocalFilterCount > 0 && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="tl-panel-context rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         {activeLocalFilterCount} local filters
                       </span>
                     )}
                     {windowLayout.type === 'alerts' && (
-                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="tl-panel-context rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         {alertWindowItems.length} shown
                       </span>
                     )}
                     {windowLayout.type === 'notes' && (
-                      <span className="rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
+                      <span className="tl-panel-context rounded border border-slate/20 px-2 py-0.5 text-[10px] font-semibold text-slate dark:border-cyan-900/40 dark:text-slate-300">
                         Scratch pad
                       </span>
                     )}
@@ -2596,14 +2642,14 @@ export function DashboardPage() {
                       </span>
                     )}
                     {isPanelRefreshing && (
-                      <span className="rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
+                      <span className="tl-panel-context rounded border border-slate/20 bg-white/70 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:border-cyan-900/40 dark:bg-[#041612]/80 dark:text-white/65">
                         Updating...
                       </span>
                     )}
                   </div>
                 </div>
                 <div
-                  className="flex flex-wrap items-center gap-2 sm:shrink-0 sm:border-l sm:border-slate/15 sm:pl-3 dark:sm:border-cyan-900/30"
+                  className="tl-dashboard-panel-actions flex flex-wrap items-center gap-2 sm:shrink-0 sm:border-l sm:border-slate/15 sm:pl-3 dark:sm:border-cyan-900/30"
                   onMouseDown={(event) => event.stopPropagation()}
                 >
                     {windowLayout.type === 'alerts' && (
@@ -2637,9 +2683,9 @@ export function DashboardPage() {
                       </button>
                     )}
                     {isEditMode && (
-                      <>
+                      <div className="grid w-full grid-cols-2 gap-1.5 sm:contents">
                         <select
-                          className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                          className="hidden rounded border border-slate/20 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#072019]"
                           value={windowLayout.snap}
                           onChange={(event) => setWindowSnap(windowLayout.id, event.target.value as DashboardWindowSnap)}
                           onMouseDown={(event) => event.stopPropagation()}
@@ -2664,9 +2710,10 @@ export function DashboardPage() {
                           disabled={windows.length <= 1}
                           onClick={() => removeWindow(windowLayout.id)}
                         >
-                          Close
+                          <span className="sm:hidden">Remove panel</span>
+                          <span className="hidden sm:inline">Close</span>
                         </button>
-                      </>
+                      </div>
                     )}
                 </div>
               </div>
@@ -2674,7 +2721,20 @@ export function DashboardPage() {
               {windowLayout.type === 'rss' ? (
                 <>
                   {windowControlsVisible && (
-                    <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
+                    <div className={`tl-mobile-filter-sheet border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
+                      <div className="tl-mobile-filter-sheet-header -mx-3 -mt-2 mb-2 flex items-center justify-between border-b border-slate/20 bg-white px-3 py-2 sm:hidden dark:border-cyan-900/40 dark:bg-[#041612]">
+                        <div>
+                          <p className="text-sm font-semibold">RSS filters</p>
+                          <p className="text-xs text-slate dark:text-slate-300">{activeLocalFilterCount} active</p>
+                        </div>
+                        <button
+                          type="button"
+                          className="rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                          onClick={() => toggleMobileWindowControls(windowLayout.id)}
+                        >
+                          Done
+                        </button>
+                      </div>
                       <div className={FILTER_SCROLLER_CLASS} role="group" aria-label={`${windowLayout.title} feed filters`}>
                         <button
                           type="button"
@@ -2753,13 +2813,13 @@ export function DashboardPage() {
                       </div>
                       {tagsQuery.isError && <p className="mt-0.5 text-xs text-red-600">Failed to load tags.</p>}
 
-                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      <div className="tl-dashboard-filter-controls mt-1 grid grid-cols-2 items-center gap-1.5 sm:flex sm:flex-wrap">
                       <input
                         value={rssFilters.q}
                         onChange={(event) => updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         aria-label={`${windowLayout.title} search query`}
                         placeholder="Search title, summary, URL"
-                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="col-span-2 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -2893,7 +2953,7 @@ export function DashboardPage() {
                         <div className="flex flex-col gap-2 sm:flex-row">
                           <input
                             type="date"
-                            className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                            className="tl-custom-date-control w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                             value={effectiveWindowTimeFilter.custom_since_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -2901,7 +2961,7 @@ export function DashboardPage() {
                           />
                           <input
                             type="date"
-                            className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
+                            className="tl-custom-date-control w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 dark:border-cyan-900/40 dark:bg-[#041612]"
                             value={effectiveWindowTimeFilter.custom_until_date}
                             onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                             disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -2913,8 +2973,8 @@ export function DashboardPage() {
                     </div>
                   )}
 
-                  <div className="flex-1 overflow-auto p-3">
-                    <div className="space-y-2">
+                  <div className="tl-dashboard-panel-body flex-1 overflow-auto p-2 sm:p-3">
+                    <div className="tl-dashboard-rss-list space-y-1.5 sm:space-y-2">
                       {rssWindowItems.map((item) => {
                         const expanded = expandedItemIdsByWindowId[windowLayout.id] === item.id
                         const detailQuery = detailQueriesByWindowId[windowLayout.id]
@@ -2923,19 +2983,19 @@ export function DashboardPage() {
                         const itemHref = sanitizeHref(item.canonical_url || item.url)
                         const detailHref = sanitizeHref(detail?.article?.final_url || detail?.url || null)
                         const displayableItemTags = item.tags.filter((tagName) => !HIDDEN_TAGS.has(tagName))
-                        const visibleItemTags = displayableItemTags.slice(0, isWideLayout ? 3 : 2)
+                        const visibleItemTags = selectVisibleItemTags(displayableItemTags, isWideLayout)
                         const hiddenItemTagCount = Math.max(0, displayableItemTags.length - visibleItemTags.length)
 
                         return (
                           <article
                             key={item.id}
-                            className={`rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-3'} transition ${
+                            className={`tl-dashboard-rss-card rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-2.5 sm:p-3'} transition ${
                               expanded ? 'tl-row-selected' : 'tl-article-row'
                             } ${item.is_read ? 'tl-article-row-read' : ''}`}
                           >
                             <div className="w-full text-left">
                               <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                                <h3 className={`${compact ? 'text-[14px]' : 'text-[15px]'} font-semibold leading-snug`}>
+                                <h3 className={`${compact ? 'text-[14px]' : 'text-[14px] sm:text-[15px]'} line-clamp-2 font-semibold leading-snug`}>
                                   {itemHref ? (
                                     <a
                                       href={itemHref}
@@ -2950,12 +3010,19 @@ export function DashboardPage() {
                                     <span>{item.title}</span>
                                   )}
                                 </h3>
-                                <div className="flex w-full flex-wrap items-center justify-between gap-2 sm:relative sm:w-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
-                                  <span className="tl-source-text text-left text-xs font-semibold dark:text-slate-300 sm:text-right">{item.feed_name}</span>
+                                <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:relative sm:flex sm:w-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
+                                  <span className="hidden tl-source-text text-left text-xs font-semibold dark:text-slate-300 sm:inline sm:text-right">{item.feed_name}</span>
+                                  <div className="min-w-0 sm:hidden">
+                                    <p className="truncate text-[11px] leading-4">
+                                      <span className="tl-source-text font-semibold dark:text-slate-300">{item.feed_name}</span>
+                                      <span className="mx-1 text-slate/55" aria-hidden="true">·</span>
+                                      <span className="text-slate dark:text-slate-300">{formatPublishedAt(item.published_at)}</span>
+                                    </p>
+                                  </div>
                                   {itemHref && (
                                     <button
                                       type="button"
-                                      className="rounded border border-slate/20 bg-white px-2 py-1 text-xs hover:border-cyan hover:text-cyan dark:border-cyan-900/40 dark:bg-[#041612] sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap"
+                                      className="rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
                                       onClick={() =>
                                         handleOpenArticlePreview(
                                           {
@@ -2981,8 +3048,8 @@ export function DashboardPage() {
                                 aria-expanded={expanded}
                                 aria-controls={`rss-item-detail-${item.id}`}
                               >
-                                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate dark:text-slate-300">
-                                  <span>Published {formatPublishedAt(item.published_at)}</span>
+                                <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate sm:gap-2 dark:text-slate-300">
+                                  <span className="hidden sm:inline">Published {formatPublishedAt(item.published_at)}</span>
                                   {item.status !== 'content_fetched' && (
                                     <span className={`tl-chip ${itemStatusTone(item.status)}`}>{formatItemStatusLabel(item.status)}</span>
                                   )}
@@ -3006,7 +3073,7 @@ export function DashboardPage() {
                                   )}
                                 </div>
                                 {!compact && (
-                                  <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-slate dark:text-slate-300">
+                                  <p className="mt-1.5 line-clamp-2 text-xs leading-[1.45] text-slate sm:mt-2 sm:text-[13px] sm:leading-5 dark:text-slate-300">
                                     {item.summary || 'No summary available.'}
                                   </p>
                                 )}
@@ -3016,8 +3083,21 @@ export function DashboardPage() {
                             {expanded && (
                               <div
                                 id={`rss-item-detail-${item.id}`}
-                                className="mt-3 border-t border-slate/20 pt-3 dark:border-cyan-900/40"
+                                className={resolveRssItemDetailClassName(isWideLayout)}
                               >
+                                <div className="sticky top-0 z-10 -mx-3 mb-3 flex items-center gap-3 border-b border-slate/20 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#03130f] lg:hidden">
+                                    <button
+                                      type="button"
+                                      className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                                      onClick={() => handleToggleItem(windowLayout.id, item.id, true)}
+                                    >
+                                      Back
+                                    </button>
+                                    <div className="min-w-0">
+                                      <p className="text-[11px] font-semibold uppercase text-slate dark:text-slate-300">RSS item</p>
+                                      <p className="truncate text-sm font-semibold">{item.title}</p>
+                                    </div>
+                                  </div>
                                 {detailQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
                                 {detailQuery?.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
 
@@ -3087,7 +3167,7 @@ export function DashboardPage() {
                                       </p>
                                     )}
 
-                                    <div className="tl-surface-muted mt-3 rounded p-3">
+                                    <div className="tl-rss-detail-section tl-surface-muted mt-3 rounded p-3">
                                       <p className="text-xs font-semibold text-slate dark:text-slate-300">RSS summary</p>
                                       {detail.classification && (
                                         <p className="mt-1 text-xs text-slate dark:text-slate-300">
@@ -3098,13 +3178,13 @@ export function DashboardPage() {
                                           ({Math.round(detail.classification.confidence * 100)}% confidence)
                                         </p>
                                       )}
-                                      <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
+                                      <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                         <RichContent content={detail.summary || 'No summary.'} itemId={detail.id} section="summary" />
                                       </div>
                                     </div>
 
                                     {(aiSummaryEnabled || aiRelevanceEnabled) && detail.ai_insight?.status === 'ready' && (
-                                      <div className="tl-surface-muted mt-3 rounded p-3">
+                                      <div className="tl-rss-detail-section tl-surface-muted mt-3 rounded p-3">
                                         <p className="text-xs font-semibold text-slate dark:text-slate-300">AI insight</p>
                                         {aiRelevanceEnabled && detail.ai_insight.relevance_label && (
                                           <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -3126,7 +3206,7 @@ export function DashboardPage() {
                                           </ul>
                                         )}
                                         {aiSummaryEnabled && detail.ai_insight.summary_text && (
-                                          <div className="tl-reader-surface mt-3 rounded p-3">
+                                          <div className="tl-rss-detail-reader tl-reader-surface mt-3 rounded p-3">
                                             <RichContent
                                               content={detail.ai_insight.summary_text}
                                               itemId={detail.id}
@@ -3145,7 +3225,7 @@ export function DashboardPage() {
                                       </div>
                                     )}
 
-                                    <div className="tl-surface-muted mt-3 rounded p-3">
+                                    <div className="tl-rss-detail-section tl-surface-muted mt-3 rounded p-3">
                                       <p className="text-xs font-semibold text-slate dark:text-slate-300">Full article</p>
                                       {detail.article?.text && detail.article.extraction_method === 'rss_summary_fallback' && (
                                         <p className="mt-2 text-xs text-amber-700 dark:text-amber-200">
@@ -3153,7 +3233,7 @@ export function DashboardPage() {
                                         </p>
                                       )}
                                       {detail.article?.text ? (
-                                        <div className="rss-reader tl-reader-surface mt-2 rounded p-3">
+                                        <div className="tl-rss-detail-reader rss-reader tl-reader-surface mt-2 rounded p-3">
                                           <RichContent content={detail.article.text} itemId={detail.id} section="article" />
                                         </div>
                                       ) : (
@@ -3199,7 +3279,7 @@ export function DashboardPage() {
                                       )}
                                     </div>
 
-                                    <div className="tl-surface-muted mt-3 rounded p-3">
+                                    <div className="tl-rss-detail-section tl-surface-muted mt-3 rounded p-3">
                                       <label className="text-xs font-semibold text-slate dark:text-slate-300">Notes</label>
                                       <textarea
                                         className="mt-1 h-20 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -3252,9 +3332,9 @@ export function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
+                  <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-slate/20 px-2 py-2 text-xs sm:flex sm:flex-wrap sm:justify-between sm:px-3 dark:border-cyan-900/40">
                     <button
-                      className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                      className="min-w-11 rounded border border-slate/20 px-2 py-1 disabled:opacity-50 sm:min-w-0 dark:border-cyan-900/40"
                       disabled={rssFilters.page <= 1}
                       onClick={() =>
                         updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
@@ -3262,13 +3342,24 @@ export function DashboardPage() {
                     >
                       Prev
                     </button>
-                    <span className="w-full text-center sm:w-auto">
-                      Page {rssFilters.page} / {rssTotalPages}
+                    <span className="text-center sm:w-auto">
+                      <span className="sm:hidden">Page {rssFilters.page} of {rssTotalPages}</span>
+                      <span className="hidden sm:inline">Page {rssFilters.page} / {rssTotalPages}</span>
                     </span>
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="text-xs text-slate dark:text-slate-300">Per page</label>
+                    <button
+                      className="min-w-11 rounded border border-slate/20 px-2 py-1 disabled:opacity-50 sm:order-4 sm:min-w-0 dark:border-cyan-900/40"
+                      disabled={rssFilters.page >= rssTotalPages}
+                      onClick={() =>
+                        updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
+                      }
+                    >
+                      Next
+                    </button>
+                    <div className="col-span-3 flex items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:gap-2">
+                      <span className="text-slate sm:hidden dark:text-slate-300">{MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
+                      <label className="hidden text-xs text-slate sm:inline dark:text-slate-300">Per page</label>
                       <select
-                        className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="hidden rounded border border-slate/20 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={rssFilters.page_size}
                         onChange={(event) =>
                           updateWindowRssFilters(windowLayout.id, (current) => ({
@@ -3284,22 +3375,26 @@ export function DashboardPage() {
                           </option>
                         ))}
                       </select>
-                      <button
-                        className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                        disabled={rssFilters.page >= rssTotalPages}
-                        onClick={() =>
-                          updateWindowRssFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
-                        }
-                      >
-                        Next
-                      </button>
                     </div>
                   </div>
                 </>
               ) : windowLayout.type === 'alerts' ? (
                 <>
                   {windowControlsVisible && (
-                    <div className={`border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
+                    <div className={`tl-mobile-filter-sheet border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.panelClassName}`}>
+                    <div className="tl-mobile-filter-sheet-header -mx-3 -mt-2 mb-2 flex items-center justify-between border-b border-slate/20 bg-white px-3 py-2 sm:hidden dark:border-cyan-900/40 dark:bg-[#041612]">
+                      <div>
+                        <p className="text-sm font-semibold">Alert filters</p>
+                        <p className="text-xs text-slate dark:text-slate-300">{activeLocalFilterCount} active</p>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold dark:border-cyan-900/40"
+                        onClick={() => toggleMobileWindowControls(windowLayout.id)}
+                      >
+                        Done
+                      </button>
+                    </div>
                     <div
                       className="flex max-h-24 min-w-0 flex-wrap items-center gap-2 overflow-y-auto pb-1"
                       role="group"
@@ -3386,13 +3481,13 @@ export function DashboardPage() {
                       })}
                     </div>
 
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <div className="tl-dashboard-filter-controls mt-2 grid grid-cols-2 items-center gap-1.5 sm:flex sm:flex-wrap sm:gap-2">
                       <input
                         value={alertFilters.q}
                         onChange={(event) => updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, q: event.target.value }))}
                         aria-label={`${windowLayout.title} search query`}
                         placeholder="Search matched alert items"
-                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="col-span-2 w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:min-w-64 sm:flex-1 dark:border-cyan-900/40 dark:bg-[#072019]"
                       />
                       <select
                         className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -3460,7 +3555,7 @@ export function DashboardPage() {
                       </div>
                       <input
                         type="date"
-                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="tl-custom-date-control w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_since_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_since_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -3468,7 +3563,7 @@ export function DashboardPage() {
                       />
                       <input
                         type="date"
-                        className="w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="tl-custom-date-control w-full rounded border border-slate/20 bg-white px-2 py-1.5 text-sm disabled:opacity-50 sm:w-auto dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={effectiveWindowTimeFilter.custom_until_date}
                         onChange={(event) => updateWindowCustomTimeDate(windowLayout.id, 'custom_until_date', event.target.value)}
                         disabled={effectiveWindowTimeFilter.time_range !== 'custom'}
@@ -3478,15 +3573,15 @@ export function DashboardPage() {
                     </div>
                   )}
 
-                  <div className="flex-1 overflow-auto p-3">
-                    <div className="space-y-2">
+                  <div className="tl-dashboard-panel-body flex-1 overflow-auto p-2 sm:p-3">
+                    <div className="space-y-1.5 sm:space-y-2">
                       {alertWindowItems.map((item) => {
                         const compactAlerts = alertFilters.view_mode === 'compact'
                         const itemHref = sanitizeHref(item.canonical_url || item.url)
                         return (
-                        <article key={item.id} className={`rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-3'} dark:border-cyan-900/40`}>
+                        <article key={item.id} className={`tl-dashboard-alert-card rounded border border-slate/20 ${compactAlerts ? 'p-2' : 'p-2.5 sm:p-3'} dark:border-cyan-900/40`}>
                           <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <h3 className={`font-semibold leading-snug ${compactAlerts ? 'text-[13px]' : ''}`}>
                                 {itemHref ? (
                                   <a
@@ -3505,8 +3600,8 @@ export function DashboardPage() {
                                 {item.feed_name} • Published {formatPublishedAt(item.published_at)}
                               </p>
                             </div>
-                            <span className="rounded border border-slate/20 px-2 py-0.5 text-[11px] dark:border-cyan-900/40">
-                              {item.matches.length} alerts
+                            <span className="shrink-0 rounded border border-slate/20 px-2 py-0.5 text-[11px] dark:border-cyan-900/40">
+                              {formatAlertMatchCount(item.matches.length)}
                             </span>
                           </div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -3542,9 +3637,9 @@ export function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate/20 px-3 py-2 text-xs dark:border-cyan-900/40">
+                  <div className="grid grid-cols-[auto_1fr_auto] items-center gap-2 border-t border-slate/20 px-2 py-2 text-xs sm:flex sm:flex-wrap sm:justify-between sm:px-3 dark:border-cyan-900/40">
                     <button
-                      className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
+                      className="min-w-11 rounded border border-slate/20 px-2 py-1 disabled:opacity-50 sm:min-w-0 dark:border-cyan-900/40"
                       disabled={alertFilters.page <= 1}
                       onClick={() =>
                         updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page - 1 }), false)
@@ -3552,13 +3647,24 @@ export function DashboardPage() {
                     >
                       Prev
                     </button>
-                    <span className="w-full text-center sm:w-auto">
-                      Page {alertFilters.page} / {alertTotalPages}
+                    <span className="text-center sm:w-auto">
+                      <span className="sm:hidden">Page {alertFilters.page} of {alertTotalPages}</span>
+                      <span className="hidden sm:inline">Page {alertFilters.page} / {alertTotalPages}</span>
                     </span>
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="text-xs text-slate dark:text-slate-300">Per page</label>
+                    <button
+                      className="min-w-11 rounded border border-slate/20 px-2 py-1 disabled:opacity-50 sm:order-4 sm:min-w-0 dark:border-cyan-900/40"
+                      disabled={alertFilters.page >= alertTotalPages}
+                      onClick={() =>
+                        updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
+                      }
+                    >
+                      Next
+                    </button>
+                    <div className="col-span-3 flex items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:gap-2">
+                      <span className="text-slate sm:hidden dark:text-slate-300">{MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
+                      <label className="hidden text-xs text-slate sm:inline dark:text-slate-300">Per page</label>
                       <select
-                        className="rounded border border-slate/20 bg-white px-2 py-1 text-xs dark:border-cyan-900/40 dark:bg-[#072019]"
+                        className="hidden rounded border border-slate/20 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#072019]"
                         value={alertFilters.page_size}
                         onChange={(event) =>
                           updateWindowAlertFilters(windowLayout.id, (current) => ({
@@ -3574,20 +3680,11 @@ export function DashboardPage() {
                           </option>
                         ))}
                       </select>
-                      <button
-                        className="rounded border border-slate/20 px-2 py-1 disabled:opacity-50 dark:border-cyan-900/40"
-                        disabled={alertFilters.page >= alertTotalPages}
-                        onClick={() =>
-                          updateWindowAlertFilters(windowLayout.id, (current) => ({ ...current, page: current.page + 1 }), false)
-                        }
-                      >
-                        Next
-                      </button>
                     </div>
                   </div>
                 </>
               ) : windowLayout.type === 'daily_brief' ? (
-                <div className={`flex min-h-0 flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
+                <div className={`flex min-h-0 flex-1 flex-col p-2 sm:p-3 ${windowMeta.panelClassName}`}>
                   {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
                   {dailyBriefHistoryQuery.isError && (
                     <p className="text-sm text-red-600">
@@ -3610,9 +3707,9 @@ export function DashboardPage() {
 
                     return (
                     <div className="min-h-0 flex-1 space-y-3 overflow-auto">
-                      <div className="rounded border border-slate/20 bg-white/92 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                      <div className="rounded border border-slate/20 bg-white/92 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                         <div className="flex flex-wrap items-center justify-between gap-3">
-                          <label className="flex min-w-[220px] flex-1 items-center gap-2 text-sm">
+                          <label className="flex min-w-0 flex-1 flex-col items-stretch gap-1 text-sm sm:min-w-[220px] sm:flex-row sm:items-center sm:gap-2">
                             <span className="text-xs font-semibold text-slate dark:text-white/55">Briefing</span>
                             <select
                               className="w-full rounded border border-slate/20 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -3635,7 +3732,7 @@ export function DashboardPage() {
                       </div>
 
                       {selectedBrief.key_points.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Key points</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.key_points.map((point, index) => (
@@ -3646,7 +3743,7 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.recommended_actions.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Recommended actions</p>
                           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate dark:text-white/75">
                             {selectedBrief.recommended_actions.map((action, index) => (
@@ -3657,7 +3754,7 @@ export function DashboardPage() {
                       )}
 
                       {selectedBrief.items.length > 0 && (
-                        <div className="rounded border border-slate/20 bg-white/90 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
+                        <div className="rounded border border-slate/20 bg-white/90 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#041612]/92">
                           <p className="text-xs font-semibold text-slate dark:text-slate-300">Referenced items</p>
                           <div className="mt-2 space-y-2">
                             {selectedBrief.items.map((item) => (
@@ -3694,7 +3791,7 @@ export function DashboardPage() {
                   })()}
                 </div>
               ) : (
-                <div className={`flex flex-1 flex-col p-3 ${windowMeta.panelClassName}`}>
+                <div className={`flex flex-1 flex-col p-2.5 sm:p-3 ${windowMeta.panelClassName}`}>
                   <label className="text-xs font-semibold text-slate dark:text-slate-300">Scratch notes</label>
                   <textarea
                     className="mt-2 h-full min-h-[180px] w-full flex-1 rounded border border-slate/20 bg-white px-3 py-2 text-sm leading-6 dark:border-cyan-900/40 dark:bg-[#072019]"
