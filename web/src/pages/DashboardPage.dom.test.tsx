@@ -743,6 +743,66 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="RSS Panel 1 tag filters"]')).not.toBeNull()
   })
 
+  it('shows one saved-view panel at a time at phone width', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 390,
+      writable: true,
+    })
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-mobile-panels',
+        'Mobile panels',
+        [
+          createRssWindow('mobile-rss', 'Threat feed'),
+          createAlertWindow('mobile-alerts', 'Priority alerts'),
+          createNotesWindow('mobile-notes', 'Analyst notes'),
+        ],
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-mobile-panels')
+    })
+
+    const panelSelector = document.querySelector<HTMLSelectElement>('#mobile-dashboard-panel')
+    expect(panelSelector).not.toBeNull()
+    expect(panelSelector?.options).toHaveLength(3)
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).toBeNull()
+
+    act(() => {
+      setSelectValue(panelSelector!, 'mobile-notes')
+    })
+
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+  })
+
+  it('keeps every saved-view panel mounted in the desktop workspace', () => {
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-desktop-panels',
+        'Desktop panels',
+        [createRssWindow('desktop-rss', 'Threat feed'), createNotesWindow('desktop-notes', 'Analyst notes')],
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-desktop-panels')
+    })
+
+    expect(document.querySelector('#mobile-dashboard-panel')).toBeNull()
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+  })
+
   it('reports both completed imports and the exact saved view that failed during a partial import', async () => {
     renderPage()
 
