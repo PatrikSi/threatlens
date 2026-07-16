@@ -98,6 +98,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
+          pull: true
           build-args: |
             APP_VERSION=${{ env.APP_VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
