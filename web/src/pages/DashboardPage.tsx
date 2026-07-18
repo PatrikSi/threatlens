@@ -2044,19 +2044,7 @@ export function DashboardPage() {
   return (
     <div className="w-full">
       <div className="border-b border-slate/20 bg-white/85 px-3 py-1.5 shadow-sm dark:border-cyan-900/40 dark:bg-[#041612]/92">
-        <div className="mb-1.5 flex items-center justify-between gap-2 sm:hidden">
-          <p className="text-xs font-semibold text-slate dark:text-slate-300">Dashboard</p>
-          <button
-            type="button"
-            className="h-8 rounded border border-slate/20 px-2 text-xs dark:border-cyan-900/40"
-            onClick={() => setMobileDashboardViewsOpen((current) => !current)}
-            aria-expanded={mobileDashboardViewsOpen}
-            aria-controls="dashboard-view-toolbar"
-          >
-            {mobileDashboardViewsOpen ? 'Hide tools' : 'Tools'}
-          </button>
-        </div>
-        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-1.5 sm:hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_112px_auto] items-center gap-1.5 sm:hidden">
           <input
             value={globalSearchState.value}
             onChange={(event) => applyGlobalSearch(event.target.value)}
@@ -2081,8 +2069,17 @@ export function DashboardPage() {
             <option value="days">Last X days</option>
             <option value="custom">Custom</option>
           </select>
+          <button
+            type="button"
+            className="h-10 rounded border border-slate/20 px-2 text-xs dark:border-cyan-900/40"
+            onClick={() => setMobileDashboardViewsOpen((current) => !current)}
+            aria-expanded={mobileDashboardViewsOpen}
+            aria-controls="dashboard-view-toolbar"
+          >
+            {mobileDashboardViewsOpen ? 'Hide' : 'Tools'}
+          </button>
           {dashboardTimeRange === 'days' && (
-            <label className={`${ROLLING_WINDOW_FIELD_CLASS} col-span-2 h-10 text-sm dark:bg-[#041612]`}>
+            <label className={`${ROLLING_WINDOW_FIELD_CLASS} col-span-3 h-10 text-sm dark:bg-[#041612]`}>
               <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
               <input
                 type="number"
@@ -2097,7 +2094,7 @@ export function DashboardPage() {
             </label>
           )}
           {dashboardTimeRange === 'custom' && (
-            <div className="col-span-2 grid grid-cols-2 gap-1.5">
+            <div className="col-span-3 grid grid-cols-2 gap-1.5">
               <input
                 type="date"
                 className="h-10 w-full rounded border border-slate/20 bg-white px-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -2912,13 +2909,13 @@ export function DashboardPage() {
                         return (
                           <article
                             key={item.id}
-                            className={`tl-dashboard-rss-card rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-2.5 sm:p-3'} transition ${
+                            className={`tl-dashboard-rss-card relative rounded border text-slate-900 dark:text-slate-100 ${compact ? 'p-2' : 'p-2.5 sm:p-3'} transition ${
                               expanded ? 'tl-row-selected' : 'tl-article-row'
                             } ${item.is_read ? 'tl-article-row-read' : ''}`}
                           >
                             <div className="w-full text-left">
                               <div className="flex flex-col gap-1.5 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
-                                <h3 className={`${compact ? 'text-[14px]' : 'text-[14px] sm:text-[15px]'} line-clamp-2 font-semibold leading-snug`}>
+                                <h3 className={`${compact ? 'text-[14px]' : 'text-[14px] sm:text-[15px]'} line-clamp-2 pr-16 font-semibold leading-snug sm:pr-0`}>
                                   {itemHref ? (
                                     <a
                                       href={itemHref}
@@ -2935,7 +2932,7 @@ export function DashboardPage() {
                                 </h3>
                                 <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:relative sm:flex sm:w-auto sm:shrink-0 sm:flex-nowrap sm:justify-end">
                                   <span className="hidden tl-source-text text-left text-xs font-semibold dark:text-slate-300 sm:inline sm:text-right">{item.feed_name}</span>
-                                  <div className="min-w-0 sm:hidden">
+                                  <div className="min-w-0 pr-16 sm:hidden sm:pr-0">
                                     <p className="truncate text-[11px] leading-4">
                                       <span className="tl-source-text font-semibold dark:text-slate-300">{item.feed_name}</span>
                                       <span className="mx-1 text-slate/55" aria-hidden="true">·</span>
@@ -2945,7 +2942,7 @@ export function DashboardPage() {
                                   {itemHref && (
                                     <button
                                       type="button"
-                                      className="tl-dashboard-rss-preview rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
+                                      className="tl-dashboard-rss-preview absolute right-2 top-2 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
                                       onClick={() =>
                                         handleOpenArticlePreview(
                                           {
@@ -2996,7 +2993,7 @@ export function DashboardPage() {
                                   )}
                                 </div>
                                 {!compact && (
-                                  <p className="mt-1.5 line-clamp-2 text-xs leading-[1.45] text-slate sm:mt-2 sm:text-[13px] sm:leading-5 dark:text-slate-300">
+                                  <p className="mt-1 line-clamp-1 text-xs leading-[1.45] text-slate sm:mt-2 sm:line-clamp-2 sm:text-[13px] sm:leading-5 dark:text-slate-300">
                                     {item.summary || 'No summary available.'}
                                   </p>
                                 )}
@@ -3266,7 +3263,7 @@ export function DashboardPage() {
                       Prev
                     </button>
                     <span className="text-center sm:w-auto">
-                      <span className="sm:hidden">Page {rssFilters.page} of {rssTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE}/page</span>
+                      <span className="sm:hidden">Page {rssFilters.page} of {rssTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
                       <span className="hidden sm:inline">Page {rssFilters.page} / {rssTotalPages}</span>
                     </span>
                     <button
@@ -3570,7 +3567,7 @@ export function DashboardPage() {
                       Prev
                     </button>
                     <span className="text-center sm:w-auto">
-                      <span className="sm:hidden">Page {alertFilters.page} of {alertTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE}/page</span>
+                      <span className="sm:hidden">Page {alertFilters.page} of {alertTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
                       <span className="hidden sm:inline">Page {alertFilters.page} / {alertTotalPages}</span>
                     </span>
                     <button

@@ -221,7 +221,7 @@ textarea:disabled {
   button,
   select,
   input:not([type='checkbox']):not([type='radio']) {
-    min-height: 2.75rem;
+    min-height: var(--tl-control-min-height, 2.75rem);
   }
 }
 
@@ -247,25 +247,24 @@ textarea:disabled {
     backdrop-filter: none;
   }
 
-  .tl-app-content button,
-  .tl-app-content select,
-  .tl-app-content input:not([type='checkbox']):not([type='radio']) {
-    min-height: 2.5rem;
+  .tl-app-content {
+    --tl-control-min-height: 2.5rem;
   }
 
-  .tl-app-content .p-4 {
+  :where(.tl-app-content) .p-4 {
     padding: 0.75rem;
   }
 
-  .tl-app-content .space-y-4 > :not([hidden]) ~ :not([hidden]) {
-    margin-top: 0.75rem;
+  :where(.tl-app-content) .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
   }
 
-  .tl-app-content .gap-4 {
+  :where(.tl-app-content) .gap-4 {
     gap: 0.75rem;
   }
 
-  .tl-app-content .mt-4 {
+  :where(.tl-app-content) .mt-4 {
     margin-top: 0.75rem;
   }
 
@@ -367,12 +366,12 @@ textarea:disabled {
     margin-top: 0;
   }
 
-  .tl-app-content .tl-dashboard-rss-preview {
-    min-height: 2rem;
+  .tl-dashboard-rss-preview {
+    --tl-control-min-height: 2rem;
   }
 
-  .tl-app-content .tl-dashboard-rss-toggle {
-    min-height: 0;
+  .tl-dashboard-rss-toggle {
+    --tl-control-min-height: 0rem;
   }
 
   .tl-mobile-filter-sheet {
