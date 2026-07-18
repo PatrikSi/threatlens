@@ -143,7 +143,7 @@ export function StatsPage() {
             <h2 className="font-display text-2xl">Statistics</h2>
             <p className="text-sm text-slate dark:text-slate-300">Feed ingestion and article extraction analytics over time.</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-2">
             <label htmlFor="stats-time-window" className="sr-only">
               Statistics time window
             </label>

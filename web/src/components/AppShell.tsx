@@ -195,7 +195,7 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-3 sm:px-4 sm:py-4 lg:px-6'}`}>
+      <main className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-2 py-2 sm:px-4 sm:py-4 lg:px-6'}`}>
         <Outlet />
       </main>
       <footer className="px-3 py-3 text-right text-[11px] text-slate/55 dark:text-slate-400/60 sm:px-4 lg:px-6">
