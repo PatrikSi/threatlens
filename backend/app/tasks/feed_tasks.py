@@ -7,16 +7,14 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
-from croniter import croniter
 from sqlalchemy import and_, exists, func, or_, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.article import Article
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
-from app.models.ioc import IOC, ItemIOC
+from app.models.ioc import ItemIOC
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
@@ -43,7 +41,7 @@ from app.services.ai_ops import (
 from app.services.connectors.rss import RSSConnector, RSSFeedParseError
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
-from app.services.extraction import extract_canonical_url, extract_plain_text, extract_readable_text
+from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_metadata import (
     apply_probe_metadata as _apply_probe_metadata,
     backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
@@ -105,6 +103,21 @@ from app.tasks.feed_task_coordination import (
     release_tagging_reapply_dispatch,
     tagging_reapply_lock,
 )
+from app.tasks.feed_task_scheduling import (
+    is_feed_due as _is_feed_due,
+    is_scheduled_feed_due as _is_scheduled_feed_due,
+    next_feed_fetch_at as _next_feed_fetch_at,
+    next_scheduled_feed_fetch_at as _next_scheduled_feed_fetch_at,
+    refresh_feed_next_fetch_at as _refresh_feed_next_fetch_at,
+)
+from app.tasks.feed_task_storage import (
+    RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD,
+    apply_article_summary_fallback as _apply_article_summary_fallback,
+    article_fetch_error_result as _article_fetch_error_result,
+    get_or_create_ioc as _get_or_create_ioc,
+    rss_summary_fallback_text as _rss_summary_fallback_text,
+    store_article_error as _store_article_error,
+)
 from app.tasks.integration_tasks import (
     dispatch_pending_integration_deliveries,
     dispatch_pending_integration_events,
@@ -147,6 +160,7 @@ __all__ = [
     "DAILY_BRIEF_STALE_RETRY_WINDOW",
     "DOMAIN_SLOT_TTL_SECONDS",
     "DOMAIN_SLOT_WAIT_INTERVAL_SECONDS",
+    "RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD",
     "TAGGING_REAPPLY_LOCK_KEY",
     "_best_effort_release_lease",
     "_daily_brief_backfill_attempt_is_settled",
@@ -160,6 +174,7 @@ __all__ = [
     "_enqueue_smtp_new_item_notifications",
     "_feed_failing_smtp_scope_key",
     "_is_stale_daily_brief_task_run",
+    "_is_scheduled_feed_due",
     "_lease_heartbeat_is_stale",
     "_lease_heartbeat_key",
     "_lease_heartbeat_value",
@@ -167,9 +182,11 @@ __all__ = [
     "_lease_renewal_interval_seconds",
     "_lease_takeover_stale_after_seconds",
     "_mark_failed_webhook_delivery_dead_letter",
+    "_next_scheduled_feed_fetch_at",
     "_parse_lease_heartbeat",
     "_process_reserved_notification_deliveries",
     "_redis_lease_heartbeat",
+    "_rss_summary_fallback_text",
     "_scheduled_daily_ai_brief_due",
     "_try_take_stale_lease",
     "_write_lease_heartbeat",
@@ -205,14 +222,6 @@ IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
 ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
-RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD = "rss_summary_fallback"
-RSS_SUMMARY_FALLBACK_HTTP_STATUSES = {401, 403, 404, 405, 410, 451}
-RSS_SUMMARY_FALLBACK_EXACT_ERRORS = {
-    "non_html_response",
-    "no_extractor_succeeded",
-    "response_too_large",
-}
-RSS_SUMMARY_FALLBACK_PREFIXES = ("readability_error:",)
 
 
 class ResponseTooLargeError(Exception):
@@ -853,70 +862,6 @@ def backfill_feed_metadata(feed_id: str):
             _exception_type_name(exc),
         )
         return {"status": "error", "reason": "coordination_unavailable", "feed_id": feed_id}
-
-
-def _is_feed_due(feed: Feed, now: datetime) -> bool:
-    next_fetch_at = _next_feed_fetch_at(feed, now)
-    return next_fetch_at is not None and next_fetch_at <= now
-
-
-def _next_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
-    if not getattr(feed, "enabled", True):
-        return None
-
-    backoff_until = getattr(feed, "dispatch_backoff_until", None)
-    claimed_at = getattr(feed, "dispatch_claimed_at", None)
-    if backoff_until is not None and claimed_at is None:
-        if backoff_until.tzinfo is None:
-            backoff_until = backoff_until.replace(tzinfo=timezone.utc)
-        if backoff_until > now:
-            return backoff_until
-
-    if feed.fetch_mode == "schedule":
-        return _next_scheduled_feed_fetch_at(feed, now)
-
-    if feed.last_fetch_at is None:
-        return now
-
-    last_fetch_at = feed.last_fetch_at
-    if last_fetch_at.tzinfo is None:
-        last_fetch_at = last_fetch_at.replace(tzinfo=timezone.utc)
-
-    raw_interval = getattr(feed, "fetch_interval_seconds", 1800)
-    try:
-        interval_seconds = int(raw_interval)
-    except (TypeError, ValueError):
-        interval_seconds = 1800
-    interval_seconds = max(60, interval_seconds)
-
-    next_fetch_at = last_fetch_at + timedelta(seconds=interval_seconds)
-    return now if next_fetch_at <= now else next_fetch_at
-
-
-def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
-    next_run = _next_scheduled_feed_fetch_at(feed, now)
-    return next_run is not None and next_run <= now
-
-
-def _next_scheduled_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
-    if not feed.schedule_cron:
-        return None
-
-    base = feed.last_fetch_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if base.tzinfo is None:
-        base = base.replace(tzinfo=timezone.utc)
-
-    if not croniter.is_valid(feed.schedule_cron):
-        return None
-
-    next_run = croniter(feed.schedule_cron, base).get_next(datetime)
-    if next_run.tzinfo is None:
-        next_run = next_run.replace(tzinfo=timezone.utc)
-    return now if next_run <= now else next_run
-
-
-def _refresh_feed_next_fetch_at(feed: Feed, now: datetime) -> None:
-    feed.next_fetch_at = _next_feed_fetch_at(feed, now)
 
 
 @celery_app.task(
@@ -2291,135 +2236,6 @@ def reapply_recent_item_tags(days: int = 30, limit: int = 0, dispatch_token: str
         "limit": limit,
         "processed": processed,
     }
-
-
-def _get_or_create_ioc(
-    db: Session,
-    *,
-    ioc_type: str,
-    ioc_value_norm: str,
-    ioc_value_raw: str,
-    now: datetime,
-) -> IOC:
-    ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-    if ioc is None:
-        candidate = IOC(
-            type=ioc_type,
-            value_raw=ioc_value_raw,
-            value_norm=ioc_value_norm,
-            first_seen_at=now,
-            last_seen_at=now,
-        )
-        try:
-            with db.begin_nested():
-                db.add(candidate)
-                db.flush()
-            return candidate
-        except IntegrityError:
-            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-            if ioc is None:
-                raise
-
-    ioc.last_seen_at = now
-    db.add(ioc)
-    db.flush()
-    return ioc
-
-
-def _store_article_error(
-    db: Session,
-    item: Item,
-    final_url: str,
-    http_status: int,
-    content_type: str | None,
-    fetch_ms: int,
-    error: str,
-):
-    article = db.scalar(select(Article).where(Article.item_id == item.id))
-    if article is None:
-        article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
-
-    article.final_url = final_url
-    article.retrieved_at = datetime.now(timezone.utc)
-    article.http_status = http_status
-    article.content_type = content_type
-    article.title_extracted = None
-    article.language = None
-    article.fetch_ms = fetch_ms
-    article.error = error
-    if not _apply_article_summary_fallback(article, item, error):
-        article.text = None
-        article.extraction_method = "none"
-        article.word_count = None
-        item.status = "error"
-
-    item.last_error = error
-
-    db.add(article)
-    db.add(item)
-    db.commit()
-
-
-def _rss_summary_fallback_text(item: Item, error: str) -> str | None:
-    if not _article_error_allows_summary_fallback(error):
-        return None
-
-    raw_summary = (item.summary or "").strip()
-    if not raw_summary:
-        return None
-
-    text = extract_plain_text(raw_summary)
-    if not text:
-        return None
-
-    if item.title and text.strip().casefold() == item.title.strip().casefold():
-        return None
-
-    return text
-
-
-def _apply_article_summary_fallback(article: Article, item: Item, error: str) -> bool:
-    fallback_text = _rss_summary_fallback_text(item, error)
-    if not fallback_text:
-        return False
-
-    article.title_extracted = item.title
-    article.text = fallback_text
-    article.extraction_method = RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD
-    article.word_count = len(fallback_text.split())
-    item.status = "content_fetched"
-    item.ioc_extraction_state = None
-    item.last_error = error
-    return True
-
-
-def _article_error_allows_summary_fallback(error: str) -> bool:
-    if error in RSS_SUMMARY_FALLBACK_EXACT_ERRORS:
-        return True
-
-    if any(error.startswith(prefix) for prefix in RSS_SUMMARY_FALLBACK_PREFIXES):
-        return True
-
-    prefix, separator, raw_status = error.partition(":")
-    if prefix != "http_status" or not separator:
-        return False
-
-    try:
-        status_code = int(raw_status)
-    except ValueError:
-        return False
-
-    return status_code in RSS_SUMMARY_FALLBACK_HTTP_STATUSES
-
-
-def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
-    if item.status == "content_fetched":
-        return {
-            "status": "degraded",
-            "reason": RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD,
-            "item_id": item_id,
-        }
-    return {"status": "error", "item_id": item_id}
 
 
 def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
