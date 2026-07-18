@@ -75,6 +75,7 @@ describe('StatsPage filters', () => {
       ?.querySelector<HTMLInputElement>('input')
 
     expect(view.querySelector('label[for="stats-time-window"]')?.textContent).toContain('Statistics time window')
+    expect(view.querySelector('#stats-time-window')?.parentElement?.className).toContain('grid-cols-2')
 
     act(() => {
       feedTwoCheckbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

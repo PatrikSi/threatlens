@@ -817,6 +817,7 @@ describe('FeedsPage DOM workflows', () => {
 
     const runImportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Run Import')
     expect(runImportButton).not.toBeNull()
+    expect(runImportButton?.className).toContain('block')
 
     act(() => {
       runImportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))

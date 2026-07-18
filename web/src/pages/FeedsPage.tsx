@@ -95,6 +95,10 @@ function mobileFeedToggleVisibilityClass(feedCount: number) {
   return feedCount === 0 ? 'hidden' : 'block'
 }
 
+function mobileImportActionVisibilityClass(hasImportData: boolean) {
+  return hasImportData ? 'block' : 'hidden'
+}
+
 export function FeedsPage() {
   const queryClient = useQueryClient()
   const meQuery = useCurrentUser()
@@ -1009,7 +1013,7 @@ export function FeedsPage() {
             />
             <button
               type="button"
-              className="col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto dark:bg-cyan dark:text-[#053c2e]"
+              className={`${mobileImportActionVisibilityClass(Boolean(importData))} col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto sm:block dark:bg-cyan dark:text-[#053c2e]`}
               disabled={!canManage || !importData || importFeeds.isPending}
               onClick={onRequestImportReview}
             >
@@ -1064,8 +1068,8 @@ export function FeedsPage() {
         )}
 
         <div className="mt-2">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
-            <div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-1 sm:gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
+            <div className="col-span-2 sm:col-span-1">
               <label htmlFor="feed-search" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
                 Search
               </label>
@@ -1110,7 +1114,7 @@ export function FeedsPage() {
                 <option value="last_fetch_asc">Last fetched oldest</option>
               </select>
             </div>
-            <label className="flex items-end gap-2 text-xs text-slate dark:text-slate-300">
+            <label className="col-span-2 flex items-end gap-2 text-xs text-slate sm:col-span-1 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={overwriteExisting}
@@ -1338,7 +1342,7 @@ export function FeedsPage() {
                     <span>Last success: {formatDate(feed.last_success_at)}</span>
                   </div>
                 </div>
-                <div className="grid w-full grid-cols-2 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
+                <div className="grid w-full grid-cols-3 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
                   <button
                     className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
                     onClick={() => openFeedDetail(feed)}

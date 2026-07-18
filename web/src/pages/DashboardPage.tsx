@@ -2056,7 +2056,7 @@ export function DashboardPage() {
             {mobileDashboardViewsOpen ? 'Hide tools' : 'Tools'}
           </button>
         </div>
-        <div className="grid gap-1.5 sm:hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_112px] gap-1.5 sm:hidden">
           <input
             value={globalSearchState.value}
             onChange={(event) => applyGlobalSearch(event.target.value)}
@@ -2082,7 +2082,7 @@ export function DashboardPage() {
             <option value="custom">Custom</option>
           </select>
           {dashboardTimeRange === 'days' && (
-            <label className={`${ROLLING_WINDOW_FIELD_CLASS} h-10 text-sm dark:bg-[#041612]`}>
+            <label className={`${ROLLING_WINDOW_FIELD_CLASS} col-span-2 h-10 text-sm dark:bg-[#041612]`}>
               <span className="mr-2 text-xs text-slate dark:text-white/60">Last</span>
               <input
                 type="number"
@@ -2097,7 +2097,7 @@ export function DashboardPage() {
             </label>
           )}
           {dashboardTimeRange === 'custom' && (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="col-span-2 grid grid-cols-2 gap-1.5">
               <input
                 type="date"
                 className="h-10 w-full rounded border border-slate/20 bg-white px-2 text-sm dark:border-cyan-900/40 dark:bg-[#041612]"
@@ -2519,6 +2519,7 @@ export function DashboardPage() {
             >
               <div
                 className={`tl-dashboard-panel-header flex flex-col gap-2 border-b border-slate/20 px-3 py-2 dark:border-cyan-900/40 ${windowMeta.headerClassName} sm:flex-row sm:items-start sm:justify-between sm:gap-3 sm:py-2.5`}
+                data-editing={isEditMode}
                 onMouseDown={isEditMode ? (event) => startWindowDrag(event, windowLayout.id) : undefined}
                 style={isEditMode ? { cursor: 'grab' } : undefined}
               >
@@ -2944,7 +2945,7 @@ export function DashboardPage() {
                                   {itemHref && (
                                     <button
                                       type="button"
-                                      className="rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
+                                      className="tl-dashboard-rss-preview rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:absolute sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
                                       onClick={() =>
                                         handleOpenArticlePreview(
                                           {
@@ -2965,7 +2966,7 @@ export function DashboardPage() {
                               </div>
                               <button
                                 type="button"
-                                className="mt-1 w-full text-left text-slate-900 dark:text-slate-100"
+                                className="tl-dashboard-rss-toggle mt-1 w-full text-left text-slate-900 dark:text-slate-100"
                                 onClick={() => handleToggleItem(windowLayout.id, item.id, item.is_read)}
                                 aria-expanded={expanded}
                                 aria-controls={`rss-item-detail-${item.id}`}
@@ -3265,7 +3266,7 @@ export function DashboardPage() {
                       Prev
                     </button>
                     <span className="text-center sm:w-auto">
-                      <span className="sm:hidden">Page {rssFilters.page} of {rssTotalPages}</span>
+                      <span className="sm:hidden">Page {rssFilters.page} of {rssTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE}/page</span>
                       <span className="hidden sm:inline">Page {rssFilters.page} / {rssTotalPages}</span>
                     </span>
                     <button
@@ -3277,8 +3278,7 @@ export function DashboardPage() {
                     >
                       Next
                     </button>
-                    <div className="col-span-3 flex items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:gap-2">
-                      <span className="text-slate sm:hidden dark:text-slate-300">{MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
+                    <div className="hidden items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:flex sm:gap-2">
                       <label className="hidden text-xs text-slate sm:inline dark:text-slate-300">Per page</label>
                       <select
                         className="hidden rounded border border-slate/20 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#072019]"
@@ -3570,7 +3570,7 @@ export function DashboardPage() {
                       Prev
                     </button>
                     <span className="text-center sm:w-auto">
-                      <span className="sm:hidden">Page {alertFilters.page} of {alertTotalPages}</span>
+                      <span className="sm:hidden">Page {alertFilters.page} of {alertTotalPages} · {MOBILE_DASHBOARD_PAGE_SIZE}/page</span>
                       <span className="hidden sm:inline">Page {alertFilters.page} / {alertTotalPages}</span>
                     </span>
                     <button
@@ -3582,8 +3582,7 @@ export function DashboardPage() {
                     >
                       Next
                     </button>
-                    <div className="col-span-3 flex items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:gap-2">
-                      <span className="text-slate sm:hidden dark:text-slate-300">{MOBILE_DASHBOARD_PAGE_SIZE} per page</span>
+                    <div className="hidden items-center justify-center gap-1 sm:order-3 sm:ml-auto sm:flex sm:gap-2">
                       <label className="hidden text-xs text-slate sm:inline dark:text-slate-300">Per page</label>
                       <select
                         className="hidden rounded border border-slate/20 bg-white px-2 py-1 text-xs sm:block dark:border-cyan-900/40 dark:bg-[#072019]"
