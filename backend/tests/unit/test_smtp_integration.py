@@ -15,6 +15,7 @@ from app.models.item import Item
 from app.models.item_classification import ItemClassification
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
+from app.services.daily_brief_notifications import emit_daily_brief_ready_event
 from app.services.integration_storage import apply_smtp_settings_update, build_active_smtp_settings
 from app.services.smtp_integration import (
     SMTP_DELIVERY_AUDIT_ACTION,
@@ -543,6 +544,7 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     )
     db_session.add_all([instance, brief])
     db_session.flush()
+    brief_id = brief.id
     db_session.add(
         AIDailyBriefSourceItem(
             daily_brief_id=brief.id,
@@ -555,7 +557,12 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     )
     db_session.commit()
 
-    _use_feed_task_db_session(monkeypatch, db_session)
+    @contextmanager
+    def _detaching_db_session():
+        yield db_session
+        db_session.expunge_all()
+
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _detaching_db_session)
     queued_event_ids: list[str] = []
     monkeypatch.setattr(
         "app.tasks.feed_tasks.route_integration_event.delay",
@@ -578,10 +585,55 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     assert sent_messages == []
     assert event is not None
     assert event.source_type == "ai_daily_brief"
-    assert event.payload_json["daily_brief_id"] == str(brief.id)
+    assert event.payload_json["daily_brief_id"] == str(brief_id)
     assert event.payload_json["daily_brief"]["text"] == "A generated security briefing."
     assert event.routing_state == "pending"
     assert queued_event_ids == [str(event.id)]
+
+
+def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    brief = AIDailyBrief(
+        id=uuid.uuid4(),
+        brief_date=now.date(),
+        status="ready",
+        window_start=now.replace(hour=0, minute=0, second=0, microsecond=0),
+        window_end=now,
+        title="AI Daily Brief",
+        brief_text="A generated security briefing.",
+        key_points_json=[],
+        recommended_actions_json=[],
+        top_item_ids_json=[],
+        item_count=0,
+        generated_at=now,
+    )
+    db_session.add(brief)
+    db_session.flush()
+    event = emit_daily_brief_ready_event(db_session, brief=brief)
+    event.routing_state = "routed"
+    db_session.commit()
+
+    _use_feed_task_db_session(monkeypatch, db_session)
+    queued_event_ids: list[str] = []
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.route_integration_event.delay",
+        lambda event_id: queued_event_ids.append(event_id),
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "ActiveAISettings",
+            (),
+            {"ai_enabled": True, "ai_configured": True, "daily_brief_enabled": True},
+        )(),
+    )
+
+    result = dispatch_daily_digest_notification_webhooks()
+
+    assert result["status"] == "ok"
+    assert result["smtp_status"] == "already_routed"
+    assert result["enqueue_failed"] is False
+    assert queued_event_ids == []
 
 
 def test_daily_brief_notification_reconciler_skips_when_ai_is_disabled(db_session, monkeypatch):
