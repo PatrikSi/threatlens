@@ -219,7 +219,19 @@ jobs:
 
       - name: Verify running stack
         run: |
-          curl --fail --silent --show-error http://localhost:3000/api/v1/health
+          readiness_url="http://localhost:3000/api/v1/health"
+          for attempt in {1..24}; do
+            if readiness="$(curl --fail --silent --show-error "$readiness_url" 2>&1)"; then
+              printf '%s\n' "$readiness"
+              break
+            fi
+            if [[ "$attempt" -eq 24 ]]; then
+              echo "Stack readiness did not converge within 120 seconds: $readiness" >&2
+              docker compose ps
+              exit 1
+            fi
+            sleep 5
+          done
           test "$(curl --fail --silent http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
           docker compose exec -T api python -m alembic current | grep -F '(head)'
           docker compose ps
