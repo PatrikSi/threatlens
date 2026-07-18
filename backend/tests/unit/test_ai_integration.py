@@ -16,6 +16,7 @@ from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
+from app.models.integration import IntegrationEvent
 from app.services.ai_config import (
     DEFAULT_DAILY_BRIEF_SYSTEM_PROMPT,
     DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT,
@@ -1056,6 +1057,16 @@ def test_generate_daily_brief_persists_latest_brief_and_usage(db_session, ai_ena
     usage_events = db_session.scalars(select(AIUsageEvent)).all()
     assert len(usage_events) == 1
     assert usage_events[0].feature_type == "daily_brief"
+    notification_event = db_session.scalar(
+        select(IntegrationEvent).where(IntegrationEvent.source_id == str(brief.id))
+    )
+    assert notification_event is not None
+    assert notification_event.event_type == "daily_digest"
+    assert notification_event.source_type == "ai_daily_brief"
+    assert notification_event.payload_json["daily_brief"]["title"] == "ThreatLens Daily Brief"
+    assert notification_event.payload_json["daily_brief"]["key_points"] == [
+        "Exposed edge systems were mentioned."
+    ]
 
 
 def test_generate_daily_brief_extracts_text_from_object_lists(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):

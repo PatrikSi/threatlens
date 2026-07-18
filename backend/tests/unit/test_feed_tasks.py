@@ -3613,8 +3613,10 @@ def test_backfill_daily_ai_briefs_tracks_parent_progress_and_reference_dates(db_
         force: bool = False,
         reference_time: datetime | None = None,
         task_run_id: uuid.UUID | None = None,
+        emit_notification: bool = True,
     ):
         assert force is True
+        assert emit_notification is False
         assert reference_time is not None
         references.append(reference_time)
         brief = AIDailyBrief(
@@ -3720,8 +3722,10 @@ def test_backfill_daily_ai_briefs_continues_after_unexpected_day_failure(db_sess
         force: bool = False,
         reference_time: datetime | None = None,
         task_run_id: uuid.UUID | None = None,
+        emit_notification: bool = True,
     ):
         assert force is True
+        assert emit_notification is False
         assert reference_time is not None
         if reference_time.date().isoformat() == "2026-07-02":
             db.add(
@@ -3846,9 +3850,11 @@ def test_backfill_daily_ai_briefs_redelivery_retries_only_interrupted_dates(db_s
         force: bool = False,
         reference_time: datetime | None = None,
         task_run_id: uuid.UUID | None = None,
+        emit_notification: bool = True,
     ):
         _ = task_run_id
         assert force is True
+        assert emit_notification is False
         assert reference_time is not None
         brief_date = reference_time.date().isoformat()
         generation_attempts[brief_date] = generation_attempts.get(brief_date, 0) + 1
@@ -3997,9 +4003,11 @@ def test_backfill_daily_ai_briefs_repairs_legacy_duplicate_date_progress(db_sess
         force: bool = False,
         reference_time: datetime | None = None,
         task_run_id: uuid.UUID | None = None,
+        emit_notification: bool = True,
     ):
         _ = task_run_id
         assert force is True
+        assert emit_notification is False
         assert reference_time is not None
         generated_dates.append(reference_time.date().isoformat())
         brief = AIDailyBrief(

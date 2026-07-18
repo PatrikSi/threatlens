@@ -9,12 +9,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.ai_daily_brief import AIDailyBrief
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_delivery import mark_integration_delivery_dead_letter
 from app.services.integration_events import emit_integration_event
+from app.services.ai_config import load_active_ai_settings
+from app.services.daily_brief_notifications import emit_daily_brief_ready_event
 from app.services.feed_pipeline import mark_feed_failure
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
@@ -450,16 +453,23 @@ def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
 )
 def dispatch_daily_digest_notification_webhooks():
     with db_session() as db:
-        digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        digest_scope_key = digest_day_start.date().isoformat()
-        event = emit_integration_event(
-            db,
-            event_type="daily_digest",
-            source_type="digest_window",
-            source_id=digest_scope_key,
-            idempotency_key=f"daily_digest:{digest_scope_key}:v1",
-            payload={"scope_key": digest_scope_key},
+        now = datetime.now(timezone.utc)
+        active = load_active_ai_settings(db)
+        if not active.ai_enabled:
+            return {"status": "skipped", "reason": "ai_disabled"}
+        if not active.ai_configured:
+            return {"status": "skipped", "reason": "ai_not_configured"}
+        if not active.daily_brief_enabled:
+            return {"status": "skipped", "reason": "daily_brief_disabled"}
+        brief = db.scalar(
+            select(AIDailyBrief).where(
+                AIDailyBrief.brief_date == now.date(),
+                AIDailyBrief.status == "ready",
+            )
         )
+        if brief is None:
+            return {"status": "skipped", "reason": "daily_brief_not_ready"}
+        event = emit_daily_brief_ready_event(db, brief=brief)
         db.commit()
     enqueue_ok = enqueue_integration_event_routing([event.id])
     return {

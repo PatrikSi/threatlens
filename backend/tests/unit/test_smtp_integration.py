@@ -6,6 +6,8 @@ from email.message import EmailMessage
 from sqlalchemy import select
 
 from app.models.alert_interest import AlertInterest
+from app.models.ai_daily_brief import AIDailyBrief
+from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.integration import IntegrationEvent, IntegrationInstance
@@ -524,26 +526,33 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
             html_template="<p>{{ digest.top_titles }}</p>",
         ),
     )
-    feed = Feed(
+    now = datetime.now(timezone.utc)
+    brief = AIDailyBrief(
         id=uuid.uuid4(),
-        name="Unit42",
-        url="https://example.com/feed.xml",
-        enabled=True,
-        fetch_interval_seconds=1800,
+        brief_date=now.date(),
+        status="ready",
+        window_start=now.replace(hour=0, minute=0, second=0, microsecond=0),
+        window_end=now,
+        title="AI Daily Brief",
+        brief_text="A generated security briefing.",
+        key_points_json=["Review identity telemetry"],
+        recommended_actions_json=["Validate MFA coverage"],
+        top_item_ids_json=[],
+        item_count=1,
+        generated_at=now,
     )
-    item = Item(
-        id=uuid.uuid4(),
-        feed_id=feed.id,
-        url="https://example.com/articles/digest",
-        title="Digest item",
-        summary="summary",
-        first_seen_at=datetime.now(timezone.utc),
-        published_at=datetime.now(timezone.utc),
-        dedupe_key="dedupe:item:smtp-digest",
-        content_hash="f" * 64,
-        status="new",
+    db_session.add_all([instance, brief])
+    db_session.flush()
+    db_session.add(
+        AIDailyBriefSourceItem(
+            daily_brief_id=brief.id,
+            item_id=None,
+            included=True,
+            rank=1,
+            title_snapshot="Brief source item",
+            feed_name_snapshot="Unit42",
+        )
     )
-    db_session.add_all([instance, feed, item])
     db_session.commit()
 
     _use_feed_task_db_session(monkeypatch, db_session)
@@ -551,6 +560,14 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     monkeypatch.setattr(
         "app.tasks.feed_tasks.route_integration_event.delay",
         lambda event_id: queued_event_ids.append(event_id),
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "ActiveAISettings",
+            (),
+            {"ai_enabled": True, "ai_configured": True, "daily_brief_enabled": True},
+        )(),
     )
 
     result = dispatch_daily_digest_notification_webhooks()
@@ -560,8 +577,28 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     assert result["smtp_sent"] == 0
     assert sent_messages == []
     assert event is not None
+    assert event.source_type == "ai_daily_brief"
+    assert event.payload_json["daily_brief_id"] == str(brief.id)
+    assert event.payload_json["daily_brief"]["text"] == "A generated security briefing."
     assert event.routing_state == "pending"
     assert queued_event_ids == [str(event.id)]
+
+
+def test_daily_brief_notification_reconciler_skips_when_ai_is_disabled(db_session, monkeypatch):
+    _use_feed_task_db_session(monkeypatch, db_session)
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.load_active_ai_settings",
+        lambda _db: type(
+            "ActiveAISettings",
+            (),
+            {"ai_enabled": False, "ai_configured": False, "daily_brief_enabled": False},
+        )(),
+    )
+
+    result = dispatch_daily_digest_notification_webhooks()
+
+    assert result == {"status": "skipped", "reason": "ai_disabled"}
+    assert db_session.query(IntegrationEvent).count() == 0
 
 
 def _smtp_instance() -> IntegrationInstance:

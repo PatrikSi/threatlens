@@ -68,12 +68,14 @@ SMTP_TEMPLATE_DEFAULTS: dict[str, tuple[list[NotificationEventType], str, str]] 
     ),
     "daily_digest": (
         ["daily_digest"],
-        "[ThreatLens] Daily digest: {{ digest.total_items }} items",
-        """<h2>Threat intelligence daily digest</h2>
-<p>{{ digest.total_items }} items across {{ digest.total_feeds }} feeds.</p>
-<p>Feeds: {{ digest.feed_names }}</p>
-<p><strong>Top items</strong></p>
-<p>{{ digest.top_titles }}</p>""",
+        "[ThreatLens] AI Daily Brief: {{ brief.title }}",
+        """<h2>{{ brief.title_html }}</h2>
+<p>{{ brief.text_html }}</p>
+<p><strong>Key points</strong></p>
+<p>{{ brief.key_points_html }}</p>
+<p><strong>Recommended actions</strong></p>
+<p>{{ brief.recommended_actions_html }}</p>
+<p>Generated for {{ brief.date }} from {{ brief.item_count }} source items.</p>""",
     ),
     "all": (
         list(ALL_SMTP_EVENT_TYPES),
