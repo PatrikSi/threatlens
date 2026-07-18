@@ -148,6 +148,52 @@ export function resolveItemActionError(error: unknown, fallback: string) {
   return fallback
 }
 
+export function isRelativeTimeRange(value: TimeRangeFilter) {
+  return value === '24h' || value === '7d' || value === '30d' || value === 'days'
+}
+
+export function resolveDashboardViewSaveError(error: unknown) {
+  if (error instanceof ApiError && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Failed to save the dashboard view. Your edits are still open.'
+}
+
+function resolveSavedViewImportError(error: unknown) {
+  if (error instanceof ApiError && error.message.trim()) {
+    return error.message
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message
+  }
+  return 'Unable to import this saved view.'
+}
+
+function summarizeSavedViewNames(names: string[]) {
+  const quotedNames = names.map((name) => `"${name}"`)
+  if (quotedNames.length <= 3) {
+    return quotedNames.join(', ')
+  }
+  return `${quotedNames.slice(0, 3).join(', ')}, and ${quotedNames.length - 3} more`
+}
+
+export function formatSavedViewImportResult(importedNames: string[], partial = false) {
+  const count = importedNames.length
+  const label = `saved view${count === 1 ? '' : 's'}`
+  const namesSummary = summarizeSavedViewNames(importedNames)
+  if (partial) {
+    return `Imported ${count} ${label} before the import stopped: ${namesSummary}.`
+  }
+  return `Imported ${count} ${label}: ${namesSummary}.`
+}
+
+export function formatSavedViewImportFailure(viewName: string, error: unknown) {
+  return `Failed to import "${viewName}": ${resolveSavedViewImportError(error)}`
+}
+
 export function clearItemFeedback(
   setter: Dispatch<SetStateAction<Record<string, { tone: 'success' | 'error'; message: string }>>>,
   itemId: string,
@@ -567,4 +613,3 @@ export function clamp(value: number, min: number, max: number) {
   if (value > max) return max
   return value
 }
-
