@@ -15,6 +15,7 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_delivery import mark_integration_delivery_dead_letter
 from app.services.integration_events import emit_integration_event
+from app.services.feed_pipeline import mark_feed_failure
 from app.services.notification_webhooks import (
     FEED_FAILING_NOTIFICATION_THRESHOLD,
     FailedWebhookContext,
@@ -204,6 +205,28 @@ def _load_item_and_feed_for_notification(db: Session, item_id: str) -> tuple[Ite
 def _feed_failing_smtp_scope_key(now: datetime) -> str:
     current = _coerce_utc(now)
     return f"{current.date().isoformat()}:{current.hour // 12}"
+
+
+def mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
+    mark_feed_failure(db, feed, error)
+    integration_event_ids: list[uuid.UUID] = []
+    if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
+        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
+        event = emit_integration_event(
+            db,
+            event_type="feed_failing",
+            source_type="feed",
+            source_id=feed.id,
+            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
+            payload={
+                "feed_id": str(feed.id),
+                "scope_key": scope_key,
+                "error_count": int(feed.error_count or 0),
+            },
+        )
+        integration_event_ids.append(event.id)
+    db.commit()
+    return enqueue_integration_event_routing(integration_event_ids)
 
 
 def _coerce_utc(value: datetime) -> datetime:
@@ -491,6 +514,7 @@ __all__ = [
     "dispatch_smtp_webhook_failed_notification",
     "dispatch_webhook_failed_notification_webhooks",
     "enqueue_notification_webhook_delivery_processing",
+    "mark_feed_failure_and_enqueue_notifications",
     "process_notification_webhook_deliveries",
     "reserve_notification_webhook_delivery",
 ]

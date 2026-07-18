@@ -7,7 +7,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -16,15 +16,12 @@ from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.ioc import ItemIOC
 from app.models.item import Item
-from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_item_ai_enrichment
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
-    AI_STATUS_QUEUED,
     AI_STATUS_READY,
-    AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TRIGGER_AUTO,
@@ -51,7 +48,6 @@ from app.services.feed_pipeline import (
     clear_feed_dispatch_claim as _clear_feed_dispatch_claim,
     claim_feed_for_dispatch as _claim_feed_for_dispatch_impl,
     list_item_ids_missing_articles as _list_item_ids_missing_articles_impl,
-    mark_feed_failure as _mark_feed_failure,
     upsert_item_from_parsed as _upsert_item_from_parsed,
 )
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
@@ -59,10 +55,7 @@ from app.services.ioc_extraction import extract_iocs
 from app.services.integration_events import (
     emit_integration_event,
 )
-from app.services.notification_webhooks import (
-    FEED_FAILING_NOTIFICATION_THRESHOLD,
-    build_alert_match_context_for_item,
-)
+from app.services.notification_webhooks import build_alert_match_context_for_item
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
@@ -102,6 +95,28 @@ from app.tasks.feed_task_coordination import (
     feed_lock,
     release_tagging_reapply_dispatch,
     tagging_reapply_lock,
+)
+from app.tasks.feed_task_dispatchers import (
+    dispatch_due_feeds as _dispatch_due_feeds,
+    dispatch_feed_metadata_backfill as _dispatch_feed_metadata_backfill,
+    dispatch_items_missing_articles as _dispatch_items_missing_articles,
+    dispatch_items_missing_ai_enrichment as _dispatch_items_missing_ai_enrichment,
+    dispatch_items_missing_iocs as _dispatch_items_missing_iocs,
+    dispatch_unclassified_items as _dispatch_unclassified_items,
+)
+from app.tasks.feed_task_runtime import (
+    FeedResponseTooLargeError,
+    ResponseTooLargeError,
+    article_freshness_token as _article_freshness_token,
+    article_was_refetched as _article_was_refetched,
+    claim_item_processing_target as _claim_item_ai_enrichment_target,
+    claim_item_processing_target as _claim_item_article_processing_target,
+    exception_type_name as _exception_type_name,
+    feed_url_digest_still_current as _feed_url_digest_still_current,
+    load_article_freshness_token as _load_article_freshness_token,
+    resolve_feed_runtime_url as _resolve_feed_runtime_url,
+    safe_article_fetch_error_code as _safe_article_fetch_error_code,
+    safe_feed_fetch_error_code as _safe_feed_fetch_error_code,
 )
 from app.tasks.feed_task_scheduling import (
     is_feed_due as _is_feed_due,
@@ -146,6 +161,7 @@ from app.tasks.notification_tasks import (
     dispatch_smtp_webhook_failed_notification,
     dispatch_webhook_failed_notification_webhooks,
     enqueue_notification_webhook_delivery_processing,
+    mark_feed_failure_and_enqueue_notifications as _mark_feed_failure_and_enqueue_notifications,
     process_notification_webhook_deliveries,
     reserve_notification_webhook_delivery,
 )
@@ -163,6 +179,7 @@ __all__ = [
     "RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD",
     "TAGGING_REAPPLY_LOCK_KEY",
     "_best_effort_release_lease",
+    "_article_freshness_token",
     "_daily_brief_backfill_attempt_is_settled",
     "_daily_brief_backfill_attempt_number",
     "_daily_brief_backfill_attempts",
@@ -222,38 +239,6 @@ IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
 ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
-
-
-class ResponseTooLargeError(Exception):
-    pass
-
-
-class FeedResponseTooLargeError(Exception):
-    pass
-
-
-def _exception_type_name(exc: BaseException) -> str:
-    return exc.__class__.__name__
-
-
-def _safe_feed_fetch_error_code(exc: BaseException) -> str:
-    if isinstance(exc, CoordinationUnavailableError):
-        return "coordination_unavailable"
-    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
-        return "network_timeout"
-    if isinstance(exc, RedirectError):
-        return "redirect_error"
-    if isinstance(exc, SafeFetchError):
-        return "unsafe_fetch_error"
-    return "network_error"
-
-
-def _safe_article_fetch_error_code(exc: BaseException) -> str:
-    if isinstance(exc, CoordinationUnavailableError):
-        return "coordination_unavailable"
-    if isinstance(exc, ResponseTooLargeError):
-        return "response_too_large"
-    return "network_or_rate_limit_error"
 
 
 def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
@@ -333,56 +318,6 @@ def _needs_feed_metadata_backfill(feed: Feed) -> bool:
     return _needs_metadata_backfill(feed)
 
 
-def _resolve_feed_runtime_url(feed: Feed) -> tuple[str | None, str | None]:
-    if feed.url_decryption_error:
-        return None, feed.url_decryption_error
-    feed_url = feed.url.strip()
-    if not feed_url:
-        return None, "Feed URL is empty"
-    return feed_url, None
-
-
-def _feed_url_digest_still_current(db: Session, *, feed_id: uuid.UUID, expected_url_digest: str | None) -> bool:
-    current_url_digest = db.scalar(select(Feed.url_digest).where(Feed.id == feed_id))
-    return current_url_digest == expected_url_digest
-
-
-def _article_freshness_token_value(
-    article_id: uuid.UUID | None,
-    retrieved_at: datetime | None,
-) -> tuple[str | None, str | None]:
-    if article_id is None or retrieved_at is None:
-        return None, None
-
-    if retrieved_at.tzinfo is None:
-        retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
-    return str(article_id), retrieved_at.isoformat()
-
-
-def _article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
-    if article is None:
-        return None, None
-    return _article_freshness_token_value(article.id, article.retrieved_at)
-
-
-def _load_article_freshness_token(db: Session, *, item_id: uuid.UUID) -> tuple[str | None, str | None]:
-    row = db.execute(select(Article.id, Article.retrieved_at).where(Article.item_id == item_id)).one_or_none()
-    if row is None:
-        return None, None
-
-    article_id, retrieved_at = row
-    return _article_freshness_token_value(article_id, retrieved_at)
-
-
-def _article_was_refetched(
-    db: Session,
-    *,
-    item_id: uuid.UUID,
-    expected_token: tuple[str | None, str | None],
-) -> bool:
-    return _load_article_freshness_token(db, item_id=item_id) != expected_token
-
-
 def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) -> None:
     with db_session() as db:
         update_ai_task_run_celery(db, run_id=run_id, celery_task_id=celery_task_id)
@@ -395,36 +330,6 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
     if celery_task_id is None:
         return True
     return run.celery_task_id in (None, celery_task_id)
-
-
-def _claim_item_ai_enrichment_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(
-        select(Item)
-        .where(Item.id == item_id)
-        .with_for_update(skip_locked=True)
-    )
-    if item is not None:
-        return item, None
-
-    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
-    if unlocked_item is None:
-        return None, "not_found"
-    return None, "already_running"
-
-
-def _claim_item_article_processing_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(
-        select(Item)
-        .where(Item.id == item_id)
-        .with_for_update(skip_locked=True)
-    )
-    if item is not None:
-        return item, None
-
-    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
-    if unlocked_item is None:
-        return None, "not_found"
-    return None, "already_running"
 
 
 def _queue_item_ai_enrichment_run(
@@ -588,217 +493,71 @@ def _record_skipped_item_ai_enrichment_run(
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
 def dispatch_due_feeds():
-    now = datetime.now(timezone.utc)
-    queued = 0
-
-    with db_session() as db:
-        batch_size = max(0, int(settings.dispatch_due_feeds_batch_size))
-        if batch_size <= 0:
-            return {"queued": 0}
-        feed_ids = db.scalars(
-            select(Feed.id)
-            .where(
-                Feed.enabled.is_(True),
-                or_(Feed.next_fetch_at.is_(None), Feed.next_fetch_at <= now),
-                or_(Feed.dispatch_backoff_until.is_(None), Feed.dispatch_backoff_until <= now),
-            )
-            .order_by(Feed.next_fetch_at.asc(), Feed.created_at.asc())
-            .limit(batch_size * 5)
-        ).all()
-        for feed_id in feed_ids:
-            if queued >= batch_size:
-                break
-            if not _claim_feed_for_dispatch(db, feed_id=feed_id, now=now):
-                db.rollback()
-                continue
-            db.commit()
-            try:
-                fetch_feed.delay(str(feed_id))
-            except Exception as exc:
-                logger.exception("feed_dispatch_enqueue_failed feed_id=%s error=%s", feed_id, exc)
-                claimed_feed = db.scalar(select(Feed).where(Feed.id == feed_id))
-                if claimed_feed is not None:
-                    _clear_feed_dispatch_claim(claimed_feed)
-                    claimed_feed.next_fetch_at = _next_feed_fetch_at(claimed_feed, datetime.now(timezone.utc))
-                    db.add(claimed_feed)
-                db.commit()
-                continue
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_due_feeds(
+        db_session_factory=db_session,
+        settings=settings,
+        claim_feed_for_dispatch=_claim_feed_for_dispatch,
+        fetch_feed_task=fetch_feed,
+        clear_feed_dispatch_claim=_clear_feed_dispatch_claim,
+        next_feed_fetch_at=_next_feed_fetch_at,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_unclassified_items")
 def dispatch_unclassified_items():
-    queued = 0
-    with db_session() as db:
-        item_ids = db.scalars(
-            select(Item.id)
-            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-            .where(ItemClassification.item_id.is_(None))
-            .order_by(Item.first_seen_at.asc())
-            .limit(settings.dispatch_unclassified_items_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        if _enqueue_classification_task(str(item_id)):
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_unclassified_items(
+        db_session_factory=db_session,
+        settings=settings,
+        enqueue_classification_task=_enqueue_classification_task,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_articles")
 def dispatch_items_missing_articles():
-    with db_session() as db:
-        item_ids = _list_item_ids_missing_articles(
-            db,
-            limit=settings.dispatch_items_missing_articles_batch_size,
-        )
-
-    queued = 0
-    for item_id in item_ids:
-        try:
-            fetch_article.delay(str(item_id))
-        except Exception as exc:
-            logger.exception("article_fetch_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_articles(
+        db_session_factory=db_session,
+        settings=settings,
+        list_item_ids_missing_articles=_list_item_ids_missing_articles,
+        fetch_article_task=fetch_article,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_iocs")
 def dispatch_items_missing_iocs():
-    queued = 0
-    with db_session() as db:
-        missing_ioc_links = ~exists(select(ItemIOC.item_id).where(ItemIOC.item_id == Item.id))
-        item_ids = db.scalars(
-            select(Item.id)
-            .where(
-                or_(
-                    Item.ioc_extraction_state.is_(None),
-                    and_(
-                        Item.ioc_extraction_state == IOC_EXTRACTION_STATE_COMPLETED,
-                        missing_ioc_links,
-                    ),
-                )
-            )
-            .order_by(Item.first_seen_at.asc())
-            .limit(settings.dispatch_items_missing_iocs_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        try:
-            extract_item_iocs.delay(str(item_id))
-        except Exception as exc:
-            logger.exception("item_ioc_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_iocs(
+        db_session_factory=db_session,
+        settings=settings,
+        completed_state=IOC_EXTRACTION_STATE_COMPLETED,
+        extract_item_iocs_task=extract_item_iocs,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment")
 def dispatch_items_missing_ai_enrichment():
-    queued = 0
-    with db_session() as db:
-        active = load_active_ai_settings(db)
-        if not active.ai_enabled:
-            return {"queued": 0, "reason": "ai_disabled"}
-        if not active.ai_configured:
-            return {"queued": 0, "reason": "ai_not_configured"}
-        if not active.auto_enrich_new_items:
-            return {"queued": 0, "reason": "auto_enrich_disabled"}
-        _reconcile_stale_ai_runs(db)
-        now = datetime.now(timezone.utc)
-        auto_enrich_cutoff = _auto_ai_enrich_new_item_cutoff(now)
-        auto_enrich_window_hours = _auto_ai_enrich_new_item_window_hours()
-        error_recovery_cutoff = now - timedelta(
-            seconds=max(0, int(settings.dispatch_items_failed_ai_enrichment_after_seconds))
-        )
-
-        in_flight_enrichment_run = exists(
-            select(AITaskRun.id).where(
-                AITaskRun.item_id == Item.id,
-                AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
-                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
-            )
-        )
-        item_ids = db.scalars(
-            select(Item.id)
-            .join(ItemClassification, ItemClassification.item_id == Item.id)
-            .join(Article, Article.item_id == Item.id)
-            .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
-            .where(
-                Item.status == "content_fetched",
-                Item.published_at.is_not(None),
-                Item.published_at >= auto_enrich_cutoff,
-                Item.first_seen_at >= auto_enrich_cutoff,
-                ItemClassification.classified_at >= auto_enrich_cutoff,
-                Article.text.is_not(None),
-                Article.text != "",
-                or_(
-                    ItemAIEnrichment.item_id.is_(None),
-                    and_(
-                        ItemAIEnrichment.status == "error",
-                        ItemAIEnrichment.updated_at <= error_recovery_cutoff,
-                    ),
-                ),
-                ~in_flight_enrichment_run,
-            )
-            .order_by(ItemClassification.classified_at.asc(), Item.first_seen_at.asc())
-            .limit(settings.dispatch_items_missing_ai_enrichment_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        if _safe_queue_item_ai_enrichment_run(
-            item_id=item_id,
-            trigger_source=AI_TRIGGER_AUTO,
-            reason=None,
-            model=getattr(active, "model", None),
-            metadata={
-                "recovery": "recent_missing_or_failed_enrichment",
-                "force": False,
-                "auto_enrich_new_item_max_age_hours": auto_enrich_window_hours,
-            },
-        ):
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_ai_enrichment(
+        db_session_factory=db_session,
+        settings=settings,
+        load_active_ai_settings=load_active_ai_settings,
+        reconcile_stale_ai_runs=_reconcile_stale_ai_runs,
+        auto_enrich_cutoff=_auto_ai_enrich_new_item_cutoff,
+        auto_enrich_window_hours=_auto_ai_enrich_new_item_window_hours,
+        safe_queue_item_ai_enrichment_run=_safe_queue_item_ai_enrichment_run,
+        trigger_source=AI_TRIGGER_AUTO,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_feed_metadata_backfill")
 def dispatch_feed_metadata_backfill():
-    queued = 0
-    with db_session() as db:
-        feeds = db.scalars(
-            select(Feed)
-            .where(
-                Feed.enabled.is_(True),
-                or_(
-                    func.trim(Feed.name) == "",
-                    func.lower(func.trim(Feed.name)).like("http://%"),
-                    func.lower(func.trim(Feed.name)).like("https://%"),
-                    Feed.site_url.is_(None),
-                ),
-            )
-            .order_by(Feed.created_at.asc())
-            .limit(settings.dispatch_feed_metadata_scan_limit)
-        ).all()
-
-    for feed in feeds:
-        if queued >= settings.dispatch_feed_metadata_queue_limit:
-            break
-        if not _needs_feed_metadata_backfill(feed):
-            continue
-        try:
-            backfill_feed_metadata.delay(str(feed.id))
-        except Exception as exc:
-            logger.exception("feed_metadata_backfill_enqueue_failed feed_id=%s error=%s", feed.id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
+    return _dispatch_feed_metadata_backfill(
+        db_session_factory=db_session,
+        settings=settings,
+        needs_feed_metadata_backfill=_needs_feed_metadata_backfill,
+        backfill_feed_metadata_task=backfill_feed_metadata,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -2236,25 +1995,3 @@ def reapply_recent_item_tags(days: int = 30, limit: int = 0, dispatch_token: str
         "limit": limit,
         "processed": processed,
     }
-
-
-def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
-    _mark_feed_failure(db, feed, error)
-    integration_event_ids: list[uuid.UUID] = []
-    if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
-        event = emit_integration_event(
-            db,
-            event_type="feed_failing",
-            source_type="feed",
-            source_id=feed.id,
-            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
-            payload={
-                "feed_id": str(feed.id),
-                "scope_key": scope_key,
-                "error_count": int(feed.error_count or 0),
-            },
-        )
-        integration_event_ids.append(event.id)
-    db.commit()
-    return enqueue_integration_event_routing(integration_event_ids)
