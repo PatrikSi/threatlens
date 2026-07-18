@@ -209,9 +209,9 @@ Beat schedules:
 - `dispatch-unclassified-items`: every `300.0` seconds
 - `dispatch-items-missing-iocs`: every `300.0` seconds
 - `dispatch-feed-metadata-backfill`: every `600.0` seconds
-- `dispatch-daily-digest-notifications`: every `3600.0` seconds
+- `dispatch-daily-digest-notifications`: every `300.0` seconds as an idempotent AI Daily Brief notification reconciler
 - `dispatch-pending-integration-events`: every `10.0` seconds
 - `dispatch-pending-integration-deliveries`: every `10.0` seconds
 - `maintain-integration-delivery-history`: every `3600.0` seconds
-- `dispatch-daily-ai-brief-generation`: every `300.0` seconds
+- `dispatch-daily-ai-brief-generation`: every UTC minute boundary; the task checks the configured UTC hour and minute
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`

@@ -19,6 +19,27 @@ const integrationsPageDomMocks = vi.hoisted(() => ({
   deferReplaySuccess: false,
   pendingReplaySuccess: null as null | (() => void),
   queryData: {} as Record<string, unknown>,
+  currentUser: {
+    data: {
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: 'admin' as const,
+      is_active: true,
+      is_approved: true,
+      approved_at: '2026-04-21T10:00:00Z',
+      created_at: '2026-04-20T10:00:00Z',
+      features: {
+        ai_enabled: true,
+        ai_configured: true,
+        ai_summary_enabled: true,
+        ai_relevance_enabled: true,
+        ai_daily_brief_enabled: true,
+      },
+    },
+    isLoading: false,
+    isError: false,
+    error: null,
+  },
   smtpSettings: {
     id: 'smtp-1',
     name: 'SMTP',
@@ -356,27 +377,7 @@ vi.mock('react-router-dom', async () => {
 })
 
 vi.mock('../hooks/useCurrentUser', () => ({
-  useCurrentUser: () => ({
-    data: {
-      id: 'admin-1',
-      email: 'admin@example.com',
-      role: 'admin',
-      is_active: true,
-      is_approved: true,
-      approved_at: '2026-04-21T10:00:00Z',
-      created_at: '2026-04-20T10:00:00Z',
-      features: {
-        ai_enabled: true,
-        ai_configured: true,
-        ai_summary_enabled: true,
-        ai_relevance_enabled: true,
-        ai_daily_brief_enabled: true,
-      },
-    },
-    isLoading: false,
-    isError: false,
-    error: null,
-  }),
+  useCurrentUser: () => integrationsPageDomMocks.currentUser,
 }))
 
 import { IntegrationsSettingsPage } from './IntegrationsSettingsPage'
@@ -427,6 +428,7 @@ afterEach(() => {
   integrationsPageDomMocks.deleteShouldFail = false
   integrationsPageDomMocks.deferReplaySuccess = false
   integrationsPageDomMocks.pendingReplaySuccess = null
+  integrationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
   routerMocks.useBlocker.mockReset()
   routerMocks.useBlocker.mockImplementation(() => ({
     state: 'unblocked' as const,
@@ -436,6 +438,32 @@ afterEach(() => {
 })
 
 describe('IntegrationsSettingsPage DOM workflows', () => {
+  it('omits AI Daily Brief from SMTP events and all-events selection when AI is unavailable', () => {
+    integrationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
+    const view = renderPage()
+    const sendFor = view.querySelector<HTMLSelectElement>('#smtp-send-for')
+
+    expect(sendFor).not.toBeNull()
+    expect(Array.from(sendFor!.options).some((option) => option.value === 'daily_digest')).toBe(false)
+
+    act(() => {
+      setSelectValue(sendFor!, 'all')
+    })
+    act(() => {
+      getButton('Save hook')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(integrationsPageDomMocks.saveMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hook: expect.objectContaining({
+          settings: expect.objectContaining({
+            event_types: ['rss_item_new', 'alert_match', 'feed_failing', 'webhook_failed'],
+          }),
+        }),
+      }),
+    )
+  })
+
   it('keeps the SMTP delete confirmation open and renders failures', () => {
     integrationsPageDomMocks.deleteShouldFail = true
     renderPage()
