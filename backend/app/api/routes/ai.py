@@ -255,7 +255,7 @@ def test_ai_connection_route(
             model=settings.model,
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
     finish_ai_task_run(
         db,
@@ -387,7 +387,7 @@ def generate_daily_brief_route(
     )
     if result.brief is None:
         db.commit()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No items are available for a daily brief")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="No items are available for a daily brief")
 
     record_audit(
         db,
@@ -463,7 +463,7 @@ def queue_daily_brief_backfill_route(
     settings = get_or_create_ai_settings(db)
     if payload.days > settings.daily_brief_history_limit:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Increase retained daily briefings before backfilling more than {settings.daily_brief_history_limit} days",
         )
 
@@ -527,7 +527,7 @@ def reprocess_ai_for_recent_items_route(
     effective_limit = _effective_reprocess_limit(payload.limit)
     if payload.item_ids and len(payload.item_ids) > effective_limit:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"item_ids exceeds the effective batch limit of {effective_limit}",
         )
 

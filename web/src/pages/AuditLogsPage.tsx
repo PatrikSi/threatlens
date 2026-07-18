@@ -133,7 +133,50 @@ export function AuditLogsPage() {
         </p>
       )}
 
-      <div className="mt-3 max-w-full overflow-x-auto">
+      <div className="mt-3 space-y-2 sm:hidden" aria-label="Audit log entries">
+        {auditQueryEnabled && auditQuery.isLoading && (
+          <p className="py-4 text-center text-sm text-slate dark:text-slate-300">Loading audit logs...</p>
+        )}
+        {auditQueryEnabled && auditQuery.isError && (
+          <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
+            {(auditQuery.error as Error).message || 'Audit logs could not be loaded.'}
+          </div>
+        )}
+        {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
+          <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
+            No audit logs match the current filters.
+          </div>
+        )}
+        {logs.map((log) => (
+          <details key={log.id} className="rounded border border-slate/20 bg-white/70 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+            <summary className="cursor-pointer p-2.5 marker:text-slate dark:marker:text-slate-400">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2">
+              <div className="min-w-0">
+                <p className="break-words font-mono text-xs font-semibold leading-5 text-ink dark:text-slate-100">{log.action}</p>
+                <p className="mt-0.5 text-[11px] text-slate dark:text-slate-400">{formatDateTime(log.created_at)}</p>
+              </div>
+              <span className={log.success ? 'tl-chip tl-chip-neutral' : 'tl-chip tl-chip-danger'}>
+                {log.success ? 'success' : 'failed'}
+              </span>
+            </div>
+            </summary>
+            <dl className="grid gap-2 border-t border-slate/15 px-2.5 py-2 text-xs dark:border-cyan-900/30">
+              <div>
+                <dt className="font-semibold uppercase text-slate dark:text-slate-400">Resource</dt>
+                <dd className="mt-0.5 break-all text-ink dark:text-slate-200">
+                  {log.resource_type}{log.resource_id ? `:${log.resource_id}` : ''}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold uppercase text-slate dark:text-slate-400">Actor</dt>
+                <dd className="mt-0.5 break-all font-mono text-ink dark:text-slate-200">{log.actor_user_id || 'system'}</dd>
+              </div>
+            </dl>
+          </details>
+        ))}
+      </div>
+
+      <div className="mt-3 hidden max-w-full overflow-x-auto sm:block">
         <table className="min-w-[720px] text-left text-sm">
           <thead>
             <tr className="border-b border-slate/20 dark:border-cyan-900/40">
@@ -196,11 +239,11 @@ export function AuditLogsPage() {
         </table>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm">
+      <div className="mt-4 grid grid-cols-[auto_1fr_auto] items-center gap-2 text-sm sm:flex sm:flex-wrap sm:justify-between">
         <button className="rounded border border-slate/30 px-2 py-1 disabled:cursor-not-allowed disabled:opacity-60 dark:border-cyan-900/40" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
           Prev
         </button>
-        <span className="w-full text-center sm:w-auto">
+        <span className="text-center sm:w-auto">
           Page {page} / {totalPages}
         </span>
         <button

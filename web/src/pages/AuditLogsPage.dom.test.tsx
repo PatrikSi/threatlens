@@ -10,13 +10,26 @@ const auditLogsDomMocks = vi.hoisted(() => ({
   exportMutate: vi.fn(),
   exportShouldFail: false,
   queryOptions: [] as Array<{ queryKey: unknown[]; enabled?: boolean }>,
+  queryLogs: [] as Array<{
+    id: string
+    action: string
+    resource_type: string
+    resource_id: string | null
+    actor_user_id: string | null
+    success: boolean
+    metadata: Record<string, unknown>
+    created_at: string
+  }>,
 }))
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: (options: { queryKey: unknown[]; enabled?: boolean }) => {
     auditLogsDomMocks.queryOptions.push(options)
     return {
-      data: options.enabled === false ? undefined : { logs: [], total: 0, page: 1, page_size: 50 },
+      data:
+        options.enabled === false
+          ? undefined
+          : { logs: auditLogsDomMocks.queryLogs, total: auditLogsDomMocks.queryLogs.length, page: 1, page_size: 50 },
       isLoading: false,
       isError: false,
       error: null,
@@ -89,6 +102,7 @@ afterEach(() => {
   auditLogsDomMocks.exportMutate.mockReset()
   auditLogsDomMocks.exportShouldFail = false
   auditLogsDomMocks.queryOptions = []
+  auditLogsDomMocks.queryLogs = []
   vi.restoreAllMocks()
 })
 
@@ -102,6 +116,39 @@ describe('AuditLogsPage DOM workflows', () => {
     )
     expect(view.querySelector<HTMLInputElement>('#audit-log-action-filter')).not.toBeNull()
     expect(view.querySelector<HTMLInputElement>('#audit-log-actor-filter')).not.toBeNull()
+  })
+
+  it('renders labeled mobile records alongside the desktop audit table', () => {
+    auditLogsDomMocks.queryLogs = [
+      {
+        id: 'audit-mobile-1',
+        action: 'integrations.smtp.delivery_succeeded',
+        resource_type: 'integration_delivery',
+        resource_id: 'delivery-1',
+        actor_user_id: null,
+        success: true,
+        metadata: {},
+        created_at: '2026-04-21T10:00:00Z',
+      },
+    ]
+
+    const view = renderPage()
+    const mobileRecords = view.querySelector('[aria-label="Audit log entries"]')
+    const mobileRecord = mobileRecords?.querySelector('details')
+    const desktopTable = view.querySelector('table')?.parentElement
+
+    expect(mobileRecord?.open).toBe(false)
+    expect(mobileRecords?.textContent).toContain('integrations.smtp.delivery_succeeded')
+    expect(mobileRecords?.textContent).toContain('integration_delivery:delivery-1')
+    expect(mobileRecords?.textContent).toContain('system')
+    expect(desktopTable?.className).toContain('hidden')
+    expect(desktopTable?.className).toContain('sm:block')
+
+    act(() => {
+      mobileRecord?.querySelector<HTMLElement>('summary')?.click()
+    })
+
+    expect(mobileRecord?.open).toBe(true)
   })
 
   it('announces audit export success and failure through live regions', () => {

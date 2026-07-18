@@ -21,6 +21,10 @@ const ALERT_CATEGORIES = [
 
 const ALERT_PREVIEW_LIMIT = 5
 
+function shouldShowSaveGuidance(reason: string | null, dirty: boolean) {
+  return Boolean(reason) && dirty
+}
+
 export function AlertsPage() {
   const queryClient = useQueryClient()
 
@@ -287,9 +291,9 @@ export function AlertsPage() {
               />
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="grid gap-2 sm:flex sm:flex-wrap">
               <button
-                className="rounded bg-ink px-3 py-2 text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+                className="w-full rounded bg-ink px-3 py-2 text-white disabled:opacity-50 sm:w-auto dark:bg-cyan dark:text-[#053c2e]"
                 type="submit"
                 disabled={saveAlert.isPending || Boolean(saveDisabledReason)}
                 title={saveDisabledReason ?? undefined}
@@ -298,7 +302,7 @@ export function AlertsPage() {
               </button>
               {editingAlertId && (
                 <button
-                  className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold dark:border-cyan-900/40"
+                  className="w-full rounded border border-slate/30 px-3 py-2 text-sm font-semibold sm:w-auto dark:border-cyan-900/40"
                   type="button"
                   onClick={() => resetForm()}
                 >
@@ -306,7 +310,7 @@ export function AlertsPage() {
                 </button>
               )}
             </div>
-            {saveDisabledReason && (
+            {shouldShowSaveGuidance(saveDisabledReason, hasUnsavedAlertDraftChanges) && (
               <p role="status" aria-live="polite" aria-atomic="true" className="text-sm text-slate dark:text-white/70">
                 {saveDisabledReason}
               </p>
@@ -314,8 +318,8 @@ export function AlertsPage() {
             {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
           </form>
 
-        <section className="mt-5 rounded-xl border border-slate/20 bg-white/70 p-4 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-          <div className="flex items-center justify-between gap-3">
+        <section className="mt-4 border-t border-slate/20 pt-4 sm:mt-5 sm:rounded-xl sm:border sm:bg-white/70 sm:p-4 dark:border-cyan-900/40 dark:sm:bg-white/[0.03]">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-display text-lg">Current Match Preview</h3>
               <p className="mt-1 text-sm text-slate dark:text-white/70">
@@ -349,7 +353,7 @@ export function AlertsPage() {
                 previewQuery.data.items.map((item) => {
                   const previewMatch = item.matches[0]
                   return (
-                    <article key={item.id} className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                    <article key={item.id} className="rounded-lg border border-slate/20 bg-white/80 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="font-semibold">{item.title}</p>
@@ -416,7 +420,7 @@ export function AlertsPage() {
                 return null
               }
               return (
-                <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+                <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
                   <h3 className="text-sm font-semibold uppercase text-slate dark:text-slate-300">{categoryOption.label}</h3>
                   <div className="mt-2 space-y-2">
                     {entries.map((alert) => (
@@ -428,12 +432,12 @@ export function AlertsPage() {
                             : 'border-slate/20 bg-white/75 dark:border-cyan-900/40 dark:bg-[#072019]/45'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                          <div className="min-w-0">
                             <p className="font-semibold">{alert.name}</p>
                             {!alert.enabled && <p className="mt-1 text-xs text-slate dark:text-white/60">Disabled</p>}
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center">
                             <button
                               type="button"
                               className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"

@@ -68,6 +68,7 @@ export function UsersPage() {
   const settingsDraftBaselinesByUserIdRef = useRef<Record<string, UserSettingsDraft>>({})
   const [createForm, setCreateForm] = useState<UserCreateRequest>(DEFAULT_CREATE_USER_FORM)
   const [pendingCreateConfirmation, setPendingCreateConfirmation] = useState<CreateUserConfirmationState | null>(null)
+  const [mobileCreateUserOpen, setMobileCreateUserOpen] = useState(false)
 
   const usersQuery = useQuery({
     queryKey: ['users'],
@@ -194,9 +195,24 @@ export function UsersPage() {
   return (
     <>
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-          <h2 className="font-display text-xl">Create User</h2>
-          <form className="mt-3 space-y-3" onSubmit={onCreateSubmit}>
+        <section className="order-2 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="font-display text-xl">Create User</h2>
+            <button
+              type="button"
+              className={`${(usersQuery.data?.length ?? 0) === 0 ? 'hidden' : 'block'} rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40`}
+              aria-expanded={mobileCreateUserOpen || (usersQuery.data?.length ?? 0) === 0}
+              aria-controls="create-user-form"
+              onClick={() => setMobileCreateUserOpen((current) => !current)}
+            >
+              {mobileCreateUserOpen || (usersQuery.data?.length ?? 0) === 0 ? 'Hide' : 'New user'}
+            </button>
+          </div>
+          <form
+            id="create-user-form"
+            className={`${mobileCreateUserOpen || (usersQuery.data?.length ?? 0) === 0 ? 'block' : 'hidden'} mt-3 space-y-3 sm:block`}
+            onSubmit={onCreateSubmit}
+          >
             <div>
               <label htmlFor="create-user-email" className="text-sm font-semibold">
                 Email
@@ -270,7 +286,7 @@ export function UsersPage() {
           </form>
         </section>
 
-        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <section className="order-1 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-xl">User Directory</h2>
             <label htmlFor="user-directory-search" className="sr-only">
@@ -285,7 +301,7 @@ export function UsersPage() {
             />
           </div>
 
-          <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
+          <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
             <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
               <span className="inline-flex items-center gap-2">
                 <span>Role Definitions</span>
@@ -298,7 +314,7 @@ export function UsersPage() {
               {ROLE_DEFINITIONS.map((entry) => (
                 <section
                   key={entry.role}
-                  className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
+                  className="rounded-lg border border-slate/20 bg-white/80 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
                 >
                   <h3 className="text-sm font-semibold uppercase text-slate-900 dark:text-white">{entry.role}</h3>
                   <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
@@ -408,6 +424,7 @@ function UserRow({
   const settingsConfirmation = buildUserSettingsConfirmation(user, settingsDraft, actingUser)
   const passwordConfirmation = buildPasswordResetConfirmation(user, passwordDraft)
   const [pendingConfirmationAction, setPendingConfirmationAction] = useState<'settings' | 'password' | null>(null)
+  const [mobileExpanded, setMobileExpanded] = useState(false)
   const pendingConfirmation =
     pendingConfirmationAction === 'password'
       ? passwordConfirmation
@@ -433,10 +450,10 @@ function UserRow({
 
   return (
     <>
-      <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+      <div className="rounded border border-slate/20 p-2.5 sm:p-3 dark:border-cyan-900/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="font-semibold">{user.email}</p>
+          <div className="min-w-0 flex-1">
+            <p className="break-all font-semibold sm:break-normal">{user.email}</p>
             <p className="text-xs text-slate dark:text-slate-300">
               Created {formatDateTime(user.created_at)}
               {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}
@@ -446,8 +463,26 @@ function UserRow({
                 Pending approval
               </p>
             )}
+            <div className="mt-1.5 flex flex-wrap gap-1.5 sm:hidden">
+              <span className="tl-chip tl-chip-neutral">{user.role}</span>
+              <span className={`tl-chip ${user.is_active ? 'tl-chip-success' : 'tl-chip-neutral'}`}>
+                {user.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="shrink-0 rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40"
+            aria-expanded={mobileExpanded}
+            aria-controls={`user-settings-${user.id} user-management-${user.id}`}
+            onClick={() => setMobileExpanded((current) => !current)}
+          >
+            {mobileExpanded ? 'Done' : 'Manage'}
+          </button>
+          <div
+            id={`user-settings-${user.id}`}
+            className={`${mobileExpanded ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-2 sm:flex sm:w-auto`}
+          >
             <label htmlFor={roleInputId} className="sr-only">
               Role for {user.email}
             </label>
@@ -487,6 +522,7 @@ function UserRow({
           </div>
         </div>
 
+        <div id={`user-management-${user.id}`} className={`${mobileExpanded ? 'block' : 'hidden'} sm:block`}>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <label htmlFor={passwordInputId} className="sr-only">
             New password for {user.email}
@@ -527,6 +563,7 @@ function UserRow({
             {notice.message}
           </p>
         )}
+        </div>
       </div>
 
       <ConfirmDialog

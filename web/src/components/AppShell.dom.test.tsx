@@ -135,6 +135,24 @@ afterEach(async () => {
 })
 
 describe('AppShell logout', () => {
+  it('opens mobile navigation as a vertical list', () => {
+    const view = renderShell()
+    const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-primary-navigation"]')
+
+    expect(menuButton).not.toBeNull()
+    expect(view.querySelector('#mobile-primary-navigation')).toBeNull()
+
+    act(() => {
+      menuButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileNavigation = view.querySelector('#mobile-primary-navigation nav')
+    expect(mobileNavigation).not.toBeNull()
+    expect(mobileNavigation?.className).toContain('divide-y')
+    expect(mobileNavigation?.className).not.toContain('grid-cols-2')
+    expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('shows a subtle app version in the footer', () => {
     const view = renderShell()
 

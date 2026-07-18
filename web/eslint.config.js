@@ -33,6 +33,48 @@ export default tseslint.config(
           allowExportNames: ['useAuth', 'useTheme', 'getDashboardStorageKeys', 'migrateLegacyDashboardStorage'],
         },
       ],
+      complexity: ['error', 35],
+      'max-lines': ['error', { max: 2000, skipBlankLines: true, skipComments: true }],
     },
+  },
+  {
+    files: ['src/pages/AiSettingsActivityTab.tsx'],
+    rules: { complexity: ['error', 79] },
+  },
+  {
+    files: ['src/pages/AiSettingsConfigurationTab.tsx'],
+    rules: { complexity: ['error', 39] },
+  },
+  {
+    files: ['src/pages/AiSettingsPage.tsx'],
+    rules: { complexity: ['error', 96] },
+  },
+  {
+    files: ['src/pages/AlertsPage.tsx'],
+    rules: { complexity: ['error', 42] },
+  },
+  {
+    files: ['src/pages/DashboardPageView.tsx'],
+    rules: { complexity: ['error', 117] },
+  },
+  {
+    files: ['src/pages/FeedsPage.tsx'],
+    rules: { complexity: ['error', 140] },
+  },
+  {
+    files: ['src/pages/IntegrationsSettingsPage.tsx'],
+    rules: { complexity: ['error', 77] },
+  },
+  {
+    files: ['src/pages/NotificationsPage.tsx'],
+    rules: { complexity: ['error', 106] },
+  },
+  {
+    files: ['src/pages/TaggingSettingsPage.tsx'],
+    rules: { complexity: ['error', 56] },
+  },
+  {
+    files: ['src/pages/dashboardSavedViews.ts'],
+    rules: { complexity: ['error', 43] },
   },
 )

@@ -1,11 +1,11 @@
-FROM node:22.20.0-alpine AS build
+FROM node:22.23.1-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN test -f package-lock.json && npm ci
 
 COPY . .
-ARG APP_VERSION=1.2.0
+ARG APP_VERSION=1.3.0
 ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL} \
     VITE_APP_VERSION=${APP_VERSION}
@@ -40,9 +40,9 @@ RUN mkdir -p /tmp/frontend-docs \
       --legal-output-dir /tmp/frontend-docs/frontend-runtime-package-legal
 RUN npm run build
 
-FROM nginx:1.27-alpine
+FROM nginx:1.31.3-alpine
 ARG BUILD_DATE=unknown
-ARG APP_VERSION=1.2.0
+ARG APP_VERSION=1.3.0
 ARG VCS_REF=unknown
 ENV THREATLENS_CSP_CONNECT_SRC="'self'" \
     THREATLENS_CSP_FRAME_SRC="'self'" \

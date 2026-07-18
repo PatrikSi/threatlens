@@ -65,7 +65,7 @@ def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
             feed_uuid = uuid.UUID(candidate)
         except ValueError as exc:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail=f"Invalid feed id: {candidate}",
             ) from exc
         if feed_uuid not in seen:

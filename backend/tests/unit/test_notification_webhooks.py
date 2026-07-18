@@ -54,7 +54,7 @@ def _persist_rows(db_session, *rows):
 
 @pytest.fixture
 def stub_smtp_enqueue(monkeypatch):
-    monkeypatch.setattr("app.tasks.feed_tasks._safe_enqueue_smtp_task", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr("app.tasks.notification_tasks._safe_enqueue_smtp_task", lambda *_args, **_kwargs: True)
 
 
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
@@ -1895,8 +1895,8 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
         yield db_session
 
     monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
-    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _process)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
 
@@ -1987,10 +1987,10 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
         yield db_session
 
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
+        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate rss_item_new delivery should have been skipped")),
     )
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
 
@@ -2053,7 +2053,7 @@ def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_una
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.services.notification_webhooks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
     monkeypatch.setattr(
         "app.services.notification_webhooks.reserve_notification_webhook_delivery",
@@ -2250,8 +2250,8 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
         yield db_session
 
     monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
-    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _process)
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _process)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_alert_match_notification_webhooks(str(item.id))
 
@@ -2330,7 +2330,7 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_feed_failing_notification_webhooks(str(feed.id))
 
@@ -2441,9 +2441,9 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.reserve_notification_webhook_delivery",
+        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate failure notice should be skipped")),
     )
 
@@ -2522,7 +2522,7 @@ def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows
         yield db_session
 
     monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_pending_notification_webhook_deliveries()
     db_session.refresh(pending_delivery)

@@ -69,11 +69,29 @@ afterEach(() => {
 })
 
 describe('SettingsLayout navigation', () => {
+  it('keeps the mobile settings navigation compact until requested', () => {
+    const view = renderLayout('/settings/account')
+    const menuButton = view.querySelector<HTMLButtonElement>('[aria-controls="mobile-settings-navigation"]')
+
+    expect(menuButton).not.toBeNull()
+    expect(menuButton?.textContent).toContain('Account')
+    expect(view.querySelector('#mobile-settings-navigation')).toBeNull()
+
+    act(() => {
+      menuButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const mobileNavigation = view.querySelector('#mobile-settings-navigation nav')
+    expect(mobileNavigation).not.toBeNull()
+    expect(mobileNavigation?.className).toContain('divide-y')
+    expect(mobileNavigation?.className).not.toContain('grid-cols-2')
+  })
+
   it('expands the integrations section when clicked', () => {
     renderLayout('/settings/account')
 
-    const integrationsButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Integrations'),
+    const integrationsButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Integrations',
     )
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('false')
@@ -93,8 +111,8 @@ describe('SettingsLayout navigation', () => {
   it('keeps integrations expanded while an integration route is active', () => {
     renderLayout('/settings/integrations/smtp')
 
-    const integrationsButton = Array.from(document.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Integrations'),
+    const integrationsButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Integrations',
     )
     expect(integrationsButton).not.toBeNull()
     expect(integrationsButton?.getAttribute('aria-expanded')).toBe('true')

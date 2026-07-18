@@ -13,8 +13,17 @@ env:
   IMAGE_NAMESPACE: patriksi
 
 jobs:
+  quality:
+    name: Required quality gates
+    uses: ./.github/workflows/quality-gates.yml
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+
   publish:
     name: Build and publish ${{ matrix.name }}
+    needs: quality
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -49,9 +58,11 @@ jobs:
             echo "Release tag ${GITHUB_REF_NAME} does not match VERSION ${app_version}" >&2
             exit 1
           fi
-          echo "APP_VERSION=${app_version}" >> "$GITHUB_ENV"
-          echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
-          echo "VCS_REF=${GITHUB_SHA}" >> "$GITHUB_ENV"
+          {
+            echo "APP_VERSION=${app_version}"
+            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "VCS_REF=${GITHUB_SHA}"
+          } >> "$GITHUB_ENV"
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
@@ -87,6 +98,7 @@ jobs:
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64,linux/arm64
           push: true
+          pull: true
           build-args: |
             APP_VERSION=${{ env.APP_VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
