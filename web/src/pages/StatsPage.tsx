@@ -350,7 +350,7 @@ export function StatsPage() {
             <h3 className="font-display text-lg">Feed Contribution</h3>
             <div className="mt-3 space-y-2 sm:hidden" aria-label="Feed contribution records">
               {visibleFeedBreakdown.map((feed) => (
-                <article key={feed.feed_id} className="rounded-lg border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
+                <article key={feed.feed_id} className="rounded-lg border border-slate/20 bg-white/70 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
                   <div className="flex items-start justify-between gap-3">
                     <h4 className="min-w-0 break-words text-sm font-semibold">{feed.feed_name}</h4>
                     <span className="tl-chip tl-chip-neutral shrink-0">{feed.items_in_window} in window</span>
@@ -508,7 +508,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
 
   return (
     <div className="mt-3">
-      <div className="mb-2 flex flex-wrap gap-2">
+      <div className="tl-stats-feed-legend mb-2 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
         {data.series.map((series, index) => {
           const hidden = hiddenFeedIds.includes(series.feed_id)
           const color = FEED_CHART_COLORS[index % FEED_CHART_COLORS.length]
@@ -516,7 +516,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
             <button
               key={series.feed_id}
               type="button"
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 ${
+              className={`tl-stats-feed-toggle inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs text-slate-700 dark:text-slate-200 ${
                 hidden ? 'border-slate/30 opacity-60 dark:border-cyan-900/40' : 'border-slate/25 dark:border-white/10'
               }`}
               style={hidden ? undefined : { borderColor: `color-mix(in srgb, ${color} 48%, transparent)` }}
@@ -541,7 +541,7 @@ function FeedTimeSeriesChart({ data }: { data: StatsFeedTimeSeriesResponse }) {
       >
         <svg
           viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-          className="h-[320px] w-full"
+          className="h-[240px] w-full sm:h-[320px]"
           onMouseMove={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect()
             const relativeX = event.clientX - bounds.left
