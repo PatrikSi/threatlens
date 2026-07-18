@@ -453,7 +453,7 @@ function UserRow({
       <div className="rounded border border-slate/20 p-2.5 sm:p-3 dark:border-cyan-900/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="font-semibold">{user.email}</p>
+            <p className="break-all font-semibold sm:break-normal">{user.email}</p>
             <p className="text-xs text-slate dark:text-slate-300">
               Created {formatDateTime(user.created_at)}
               {user.approved_at ? ` · Approved ${formatDateTime(user.approved_at)}` : ''}

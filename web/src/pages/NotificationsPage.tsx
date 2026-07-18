@@ -431,8 +431,8 @@ export function NotificationWebhooksSettings() {
         )}
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[320px_1fr]">
-        <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-[320px_1fr]">
+        <section className="min-w-0 rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-display text-lg">Saved Webhooks</h3>
             {canManageWebhooks && (
@@ -490,7 +490,7 @@ export function NotificationWebhooksSettings() {
           )}
         </section>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           {showWebhookEditor ? (
           <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
             <div className="flex flex-wrap items-center justify-between gap-3">

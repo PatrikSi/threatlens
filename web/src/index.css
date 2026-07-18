@@ -251,6 +251,13 @@ textarea:disabled {
     --tl-control-min-height: 2.5rem;
   }
 
+  :where(.tl-app-content) select,
+  :where(.tl-app-content) input,
+  :where(.tl-app-content) textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
   :where(.tl-app-content) .p-4 {
     padding: 0.75rem;
   }
