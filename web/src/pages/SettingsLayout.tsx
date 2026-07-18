@@ -43,7 +43,7 @@ export function SettingsLayout() {
           aria-controls="mobile-settings-navigation"
           onClick={() => setMobileSettingsOpen((current) => !current)}
         >
-          <span className="min-w-0">
+          <span className="min-w-0 flex-1">
             <span className="block text-xs font-semibold uppercase text-slate dark:text-slate-400">Settings</span>
             <span className="mt-0.5 block truncate font-semibold text-ink dark:text-slate-100">{activeSettingsLabel}</span>
           </span>
