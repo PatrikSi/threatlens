@@ -1314,7 +1314,7 @@ export function FeedsPage() {
             const displayUrl = feed.url.trim() || 'URL unavailable until the original encryption key is restored.'
             const scheduleExpanded = mobileScheduleFeedId === feed.id || isDirty
             return (
-            <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+            <div key={feed.id} className="rounded border border-slate/20 p-2.5 sm:p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -1342,16 +1342,16 @@ export function FeedsPage() {
                     <span>Last success: {formatDate(feed.last_success_at)}</span>
                   </div>
                 </div>
-                <div className="grid w-full grid-cols-3 gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
+                <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(3.5rem,1fr))] gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => openFeedDetail(feed)}
                   >
                     {canManage ? 'Edit' : 'Details'}
                   </button>
                   <button
                     type="button"
-                    className="rounded border border-slate/30 px-2 py-1 text-xs sm:hidden dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:hidden sm:px-2 dark:border-cyan-900/40"
                     aria-expanded={scheduleExpanded}
                     aria-controls={`feed-schedule-${feed.id}`}
                     onClick={() => setMobileScheduleFeedId((current) => (current === feed.id ? null : feed.id))}
@@ -1359,14 +1359,14 @@ export function FeedsPage() {
                     {scheduleExpanded ? 'Hide schedule' : 'Schedule'}
                   </button>
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => refreshFeed.mutate(feed.id)}
                     disabled={!canManage || feed.has_unreadable_url}
                   >
                     Refresh
                   </button>
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => updateFeed.mutate({ id: feed.id, body: { enabled: !feed.enabled } })}
                     disabled={!canManage}
                   >
@@ -1374,7 +1374,7 @@ export function FeedsPage() {
                   </button>
                   {canDelete && (
                     <button
-                      className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+                      className="rounded border border-red-300 px-1 py-1 text-xs text-red-700 sm:px-2 dark:border-red-800 dark:text-red-300"
                       onClick={() => onRequestDeleteFeed(feed)}
                       disabled={deleteFeed.isPending || Boolean(pendingDeleteFeed) || Boolean(pendingBulkDeleteFeeds)}
                     >

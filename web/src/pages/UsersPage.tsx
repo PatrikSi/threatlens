@@ -301,7 +301,7 @@ export function UsersPage() {
             />
           </div>
 
-          <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
+          <details className="mt-3 rounded-lg border border-slate/20 bg-slate/5 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.04]">
             <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900 dark:text-white">
               <span className="inline-flex items-center gap-2">
                 <span>Role Definitions</span>
@@ -314,7 +314,7 @@ export function UsersPage() {
               {ROLE_DEFINITIONS.map((entry) => (
                 <section
                   key={entry.role}
-                  className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
+                  className="rounded-lg border border-slate/20 bg-white/80 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70"
                 >
                   <h3 className="text-sm font-semibold uppercase text-slate-900 dark:text-white">{entry.role}</h3>
                   <p className="mt-1 text-sm text-slate dark:text-slate-300">{entry.summary}</p>
@@ -450,7 +450,7 @@ function UserRow({
 
   return (
     <>
-      <div className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+      <div className="rounded border border-slate/20 p-2.5 sm:p-3 dark:border-cyan-900/40">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <p className="font-semibold">{user.email}</p>

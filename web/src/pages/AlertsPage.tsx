@@ -353,7 +353,7 @@ export function AlertsPage() {
                 previewQuery.data.items.map((item) => {
                   const previewMatch = item.matches[0]
                   return (
-                    <article key={item.id} className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
+                    <article key={item.id} className="rounded-lg border border-slate/20 bg-white/80 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-[#072019]/70">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
                           <p className="font-semibold">{item.title}</p>
@@ -420,7 +420,7 @@ export function AlertsPage() {
                 return null
               }
               return (
-                <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
+                <div key={categoryOption.value} className="rounded border border-slate/20 bg-white/70 p-2.5 sm:p-3 dark:border-cyan-900/40 dark:bg-white/[0.02]">
                   <h3 className="text-sm font-semibold uppercase text-slate dark:text-slate-300">{categoryOption.label}</h3>
                   <div className="mt-2 space-y-2">
                     {entries.map((alert) => (

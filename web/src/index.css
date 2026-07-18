@@ -374,6 +374,10 @@ textarea:disabled {
     --tl-control-min-height: 0rem;
   }
 
+  .tl-stats-feed-toggle {
+    --tl-control-min-height: 2rem;
+  }
+
   .tl-mobile-filter-sheet {
     position: fixed;
     z-index: 30;
