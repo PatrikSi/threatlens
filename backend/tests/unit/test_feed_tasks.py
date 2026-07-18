@@ -5152,7 +5152,7 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
         captured["countdown"] = countdown
         return True
 
-    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", _fake_enqueue)
+    monkeypatch.setattr("app.tasks.notification_tasks.enqueue_notification_webhook_delivery_processing", _fake_enqueue)
 
     delivered, failed = _process_reserved_notification_deliveries(db_session, [delivery.id])
 
@@ -5230,7 +5230,7 @@ def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, mo
         ),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.reserve_retryable_notification_webhook_delivery",
+        "app.tasks.notification_tasks.reserve_retryable_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("retry reservation failed")),
     )
 
@@ -5268,7 +5268,7 @@ def test_process_reserved_notification_deliveries_skips_missing_rows(db_session,
             ),
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _fake_process)
+    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _fake_process)
 
     delivered, failed = _process_reserved_notification_deliveries(
         db_session,
