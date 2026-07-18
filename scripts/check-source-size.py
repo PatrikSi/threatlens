@@ -10,7 +10,6 @@ SOURCE_ROOTS = (ROOT / "backend" / "app", ROOT / "web" / "src")
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx"}
 DEFAULT_MAX_LINES = 2_000
 FILE_MAX_LINES = {
-    "backend/app/tasks/feed_tasks.py": 2_900,
     "web/src/pages/DashboardPage.tsx": 4_000,
 }
 
