@@ -664,4 +664,3 @@ def backfill_daily_ai_briefs(
             )
             db.commit()
             return {"status": "error", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}
-
