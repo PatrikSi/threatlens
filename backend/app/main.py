@@ -3,6 +3,7 @@ import json
 import logging
 import time
 import uuid
+from copy import deepcopy
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -48,6 +49,9 @@ API_TOKEN_SECURITY_SCHEME_NAME = "ApiTokenBearer"
 SESSION_COOKIE_SECURITY_SCHEME_NAME = "SessionCookieAuth"
 OPENAPI_CONTRACT_ANCHOR_FIELD = "x-threatlens-contract-sha256"
 OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD = "x-threatlens-required-token-scopes"
+SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
+SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
+SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
     feeds.router,
@@ -286,6 +290,43 @@ def _apply_published_security_contract(
     return schema
 
 
+def _replace_schema_ref(node: Any, *, source: str, target: str) -> None:
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if key == "$ref" and value == source:
+                node[key] = target
+            else:
+                _replace_schema_ref(value, source=source, target=target)
+    elif isinstance(node, list):
+        for value in node:
+            _replace_schema_ref(value, source=source, target=target)
+
+
+def _preserve_saved_view_query_schema_names(schema: dict[str, Any]) -> dict[str, Any]:
+    schemas = schema.get("components", {}).get("schemas", {})
+    merged_schema = schemas.pop(SAVED_VIEW_QUERY_SCHEMA, None)
+    if not isinstance(merged_schema, dict):
+        return schema
+
+    schemas[SAVED_VIEW_QUERY_INPUT_SCHEMA] = deepcopy(merged_schema)
+    schemas[SAVED_VIEW_QUERY_OUTPUT_SCHEMA] = deepcopy(merged_schema)
+
+    source_ref = f"#/components/schemas/{SAVED_VIEW_QUERY_SCHEMA}"
+    for component_name, target_name in (
+        ("SavedViewCreate", SAVED_VIEW_QUERY_INPUT_SCHEMA),
+        ("SavedViewUpdate", SAVED_VIEW_QUERY_INPUT_SCHEMA),
+        ("SavedViewResponse", SAVED_VIEW_QUERY_OUTPUT_SCHEMA),
+    ):
+        component = schemas.get(component_name)
+        if isinstance(component, dict):
+            _replace_schema_ref(
+                component,
+                source=source_ref,
+                target=f"#/components/schemas/{target_name}",
+            )
+    return schema
+
+
 def _apply_contract_anchor(schema: dict[str, Any]) -> dict[str, Any]:
     info = schema.setdefault("info", {})
     info.pop(OPENAPI_CONTRACT_ANCHOR_FIELD, None)
@@ -310,6 +351,7 @@ def custom_openapi() -> dict[str, Any]:
         contact=app.contact,
         license_info=app.license_info,
     )
+    schema = _preserve_saved_view_query_schema_names(schema)
     schema = _apply_published_security_contract(
         schema,
         required_scopes_by_operation=_route_required_token_scopes_by_operation(app),

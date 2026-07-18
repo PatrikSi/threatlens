@@ -24,7 +24,7 @@ def test_api_reference_markdown_describes_published_auth_contract():
 
     assert f"- API service base path: `{API_SERVICE_PREFIX}`" in reference
     assert f"- Web proxy base path: `{WEB_PROXY_API_PREFIX}`" in reference
-    assert f"- Machine-readable OpenAPI schema on the API service: `/openapi.json`" in reference
+    assert "- Machine-readable OpenAPI schema on the API service: `/openapi.json`" in reference
     assert f"- Machine-readable OpenAPI schema through the web proxy: `{OPENAPI_PROXY_PATH}`" in reference
     assert "`ApiTokenBearer`: `http`" in reference
     assert "`SessionCookieAuth`: `apiKey`" in reference
@@ -49,6 +49,22 @@ def test_openapi_operations_preserve_required_token_scope_extensions():
 
     assert schema["paths"]["/v1/feeds"]["get"]["x-threatlens-required-token-scopes"] == ["read:feeds"]
     assert schema["paths"]["/v1/feeds"]["post"]["x-threatlens-required-token-scopes"] == ["write:feeds"]
+
+
+def test_openapi_preserves_saved_view_query_component_names():
+    schemas = app.openapi()["components"]["schemas"]
+
+    assert "SavedViewQueryPayload" not in schemas
+    assert schemas["SavedViewQueryPayload-Input"] == schemas["SavedViewQueryPayload-Output"]
+    assert schemas["SavedViewCreate"]["properties"]["query_json"]["$ref"].endswith(
+        "/SavedViewQueryPayload-Input"
+    )
+    assert schemas["SavedViewUpdate"]["properties"]["query_json"]["anyOf"][0]["$ref"].endswith(
+        "/SavedViewQueryPayload-Input"
+    )
+    assert schemas["SavedViewResponse"]["properties"]["query_json"]["$ref"].endswith(
+        "/SavedViewQueryPayload-Output"
+    )
 
 
 def test_checked_in_api_reference_matches_generated_reference():
