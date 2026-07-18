@@ -250,9 +250,19 @@ afterEach(() => {
   notificationsPageDomMocks.retryMutate.mockReset()
   notificationsPageDomMocks.retryReset.mockReset()
   notificationsPageDomMocks.currentUser.data.role = 'admin'
+  notificationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = true
 })
 
 describe('NotificationsPage DOM workflows', () => {
+  it('omits AI Daily Brief from webhook event choices when AI is unavailable', () => {
+    notificationsPageDomMocks.currentUser.data.features.ai_daily_brief_enabled = false
+    const view = renderPage()
+    const eventType = view.querySelector<HTMLSelectElement>('#notification-webhook-event-type')
+
+    expect(eventType).not.toBeNull()
+    expect(Array.from(eventType!.options).some((option) => option.value === 'daily_digest')).toBe(false)
+  })
+
   it('keeps mobile template variables collapsed until requested', () => {
     const view = renderPage()
     const variables = view.querySelector<HTMLElement>('#webhook-template-variables')

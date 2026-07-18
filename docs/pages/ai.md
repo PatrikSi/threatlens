@@ -74,6 +74,10 @@ All API paths on this page are relative to the published `/api/v1` base.
   - last `N` items
   - exact item selection
 - Automatic item enrichment is limited to items recently published and recently first seen; older feed backlog is handled through the scoped reprocess action.
+- The scheduler evaluates the configured daily-brief time on each UTC minute boundary and creates at most one ready brief row for a UTC date.
+- When a normal scheduled or manual brief becomes ready, its integration event is written in the same database transaction. SMTP and webhook delivery is queued immediately after commit and uses an immutable snapshot of the generated brief.
+- A five-minute reconciliation task recovers a ready current-day brief if immediate queue publication fails. Integration delivery retries can make a failed destination receive the brief later than its generation time.
+- Historical backfill runs populate brief history without sending notifications.
 
 ## Dashboard Integration
 

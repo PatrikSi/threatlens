@@ -44,7 +44,9 @@ Legacy route behavior:
   - `alert_match`
   - `feed_failing`
   - `webhook_failed`
-  - `daily_digest`
+  - `daily_digest` (backward-compatible API identifier for the AI Daily Brief)
+- The AI Daily Brief event is only offered when AI is enabled, configured, and daily briefing is enabled.
+- AI Daily Brief delivery uses the persisted system-wide brief; a hook's RSS feed scope does not rebuild or filter the generated brief.
 - Saved webhook list with create/edit/delete
 - Create, update, test, retry, and delete actions are available to `admin` and `analyst` users with write notification access.
 - Viewers can still see their own notification analytics and delivery history when scopes permit.
@@ -87,6 +89,9 @@ Legacy route behavior:
 - Supports enabling/disabling, host, port, security mode, credentials, sender identity, recipient emails, timeout, event types, feed scope, subject template, and HTML template.
 - New hooks can store their own authentication or reuse credentials from an existing SMTP hook.
 - Changing the `Send for` event loads an event-specific default subject and body template.
+- `AI Daily Brief` sends the persisted generated brief immediately after it is ready. Its stable API event identifier remains `daily_digest` for compatibility with existing hooks and delivery history.
+- The AI Daily Brief choice, including its membership in `All notification events`, is omitted unless AI daily briefing is available. Historical hooks retain their stored selection without being silently rewritten.
+- Historical daily-brief backfills do not send notification emails. Normal scheduled or manual generation for the current brief emits one idempotent event per brief.
 - Test tooling can run a connection/authentication check or send a rendered test email to a chosen recipient.
 - Per-hook history separates event deliveries from SMTP tests. Test history retains result, action, recipient, saved-versus-draft settings, duration, normalized error details, SMTP server response, timestamps, and run ID.
 - Tests against a saved hook are retained even when they use unsaved draft values. A brand-new unsaved hook has no persistent integration ID, so its result is available only in the immediate test response until the hook is saved.

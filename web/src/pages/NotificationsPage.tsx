@@ -40,7 +40,7 @@ const EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string; descri
   { value: 'alert_match', label: 'Alert Match', description: 'Fire when an item matches one or more of your alert interests.' },
   { value: 'feed_failing', label: 'Feed Failing', description: 'Fire when a feed hits repeated fetch failures.' },
   { value: 'webhook_failed', label: 'Webhook Failed', description: 'Fire when one of your other webhook deliveries fails.' },
-  { value: 'daily_digest', label: 'Daily Digest', description: 'Send a once-per-day digest of the last 24 hours of matching items.' },
+  { value: 'daily_digest', label: 'AI Daily Brief', description: 'Send the generated AI Daily Brief as soon as it is ready.' },
 ]
 
 const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {
@@ -70,9 +70,12 @@ const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebho
   ],
   daily_digest: [
     { key: 'event.type', value: '{{ event.type }}' },
-    { key: 'digest.total_items', value: '{{ digest.total_items }}' },
-    { key: 'digest.total_feeds', value: '{{ digest.total_feeds }}' },
-    { key: 'digest.feed_names', value: '{{ digest.feed_names }}' },
+    { key: 'brief.date', value: '{{ brief.date }}' },
+    { key: 'brief.title', value: '{{ brief.title }}' },
+    { key: 'brief.text', value: '{{ brief.text }}' },
+    { key: 'brief.item_count', value: '{{ brief.item_count }}' },
+    { key: 'brief.key_points', value: '{{ brief.key_points }}' },
+    { key: 'brief.recommended_actions', value: '{{ brief.recommended_actions }}' },
   ],
 }
 
@@ -90,6 +93,11 @@ export function NotificationWebhooksSettings() {
   const currentUserRole = currentUserQuery.data?.role
   const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
   const canManageWebhooks = currentUserRole === 'admin' || currentUserRole === 'analyst'
+  const eventAvailability = resolveNotificationEventAvailability(
+    aiDailyBriefIsAvailable(currentUserQuery.data),
+    draft.event_type,
+  )
+  const { availableEventOptions, unavailableDailyBriefSelected } = eventAvailability
   const accessNotice = isReadOnlyViewer ? 'Viewer access is read-only. Webhook settings can only be changed by operators.' : null
 
   const webhooksQuery = useQuery({
@@ -314,7 +322,7 @@ export function NotificationWebhooksSettings() {
         <p className="text-xs font-semibold uppercase text-slate dark:text-white/55">Automation</p>
         <h2 className="mt-1 font-display text-xl">Webhook Notifications</h2>
         <p className="mt-1 text-sm text-slate dark:text-white/75">
-          Configure outbound webhooks for new RSS items, alert matches, feed failures, failed deliveries, and daily digests.
+          Configure outbound webhooks for new RSS items, alert matches, feed failures, failed deliveries, and AI Daily Briefs.
         </p>
         <p className="mt-2 text-xs text-slate dark:text-white/60">
           Variables use `{'{{ item.title }}'}` style placeholders, similar to Grafana-style notification templates.
@@ -542,13 +550,14 @@ export function NotificationWebhooksSettings() {
                     setDraft((current) => applyEventType(current, event.target.value as NotificationEventType))
                   }
                 >
-                  {EVENT_OPTIONS.map((option) => (
+                  {availableEventOptions.map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-slate dark:text-white/60">{describeEventDescription(draft.event_type)}</p>
+                <UnavailableDailyBriefNotice visible={unavailableDailyBriefSelected} />
               </div>
               <div>
                 <label htmlFor="notification-webhook-method" className="text-sm font-semibold">
@@ -1572,6 +1581,31 @@ function describeEventType(eventType: NotificationEventType): string {
 
 function describeEventDescription(eventType: NotificationEventType): string {
   return EVENT_OPTIONS.find((option) => option.value === eventType)?.description ?? eventType
+}
+
+function resolveNotificationEventAvailability(
+  aiDailyBriefAvailable: boolean,
+  selectedEventType: NotificationEventType,
+) {
+  return {
+    availableEventOptions: EVENT_OPTIONS.filter(
+      (option) => option.value !== 'daily_digest' || aiDailyBriefAvailable,
+    ),
+    unavailableDailyBriefSelected: !aiDailyBriefAvailable && selectedEventType === 'daily_digest',
+  }
+}
+
+function aiDailyBriefIsAvailable(currentUser: { features: { ai_daily_brief_enabled: boolean } } | undefined) {
+  return currentUser?.features.ai_daily_brief_enabled === true
+}
+
+function UnavailableDailyBriefNotice({ visible }: { visible: boolean }) {
+  if (!visible) return null
+  return (
+    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+      This existing selection is inactive until AI Daily Brief generation is enabled and configured.
+    </p>
+  )
 }
 
 function describeFeedScope(scope: NotificationWebhook['feed_scope'], count: number): string {
