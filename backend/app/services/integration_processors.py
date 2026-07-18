@@ -3,15 +3,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationInstance,
-    IntegrationSubscription,
-    IntegrationSubscriptionFeed,
 )
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
@@ -21,10 +18,13 @@ from app.services.integration_delivery import (
     claim_integration_delivery,
     finalize_integration_delivery,
 )
+from app.services.daily_brief_notifications import (
+    DailyBriefNotificationContextError,
+    daily_brief_context_from_payload,
+)
 from app.services.notification_webhooks import (
     FailedWebhookContext,
     build_alert_match_context_for_item,
-    build_daily_digest_context,
 )
 from app.services.smtp_integration import attempt_smtp_integration_delivery
 
@@ -223,10 +223,10 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
             attempted_at=source_delivery.attempted_at,
         )
     elif delivery.event_type == "daily_digest":
-        feed_ids = _subscription_feed_ids(db, subscription_id=delivery.subscription_id)
-        digest_context = build_daily_digest_context(db, user_id=None, feed_ids=feed_ids)
-        if digest_context is None or digest_context.total_items <= 0:
-            skip_reason = "no_digest_items"
+        try:
+            digest_context = daily_brief_context_from_payload(payload)
+        except DailyBriefNotificationContextError as exc:
+            raise IntegrationDeliveryContextError(str(exc)) from exc
     else:
         raise IntegrationDeliveryContextError(f"Unsupported SMTP event type: {delivery.event_type}")
 
@@ -240,21 +240,6 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
         "scope_key": scope_key,
         "skip_reason": skip_reason,
     }
-
-
-def _subscription_feed_ids(db: Session, *, subscription_id: uuid.UUID | None) -> list[uuid.UUID] | None:
-    if subscription_id is None:
-        return None
-    subscription = db.get(IntegrationSubscription, subscription_id)
-    if subscription is None or subscription.feed_scope != "selected":
-        return None
-    return list(
-        db.scalars(
-            select(IntegrationSubscriptionFeed.feed_id).where(
-                IntegrationSubscriptionFeed.subscription_id == subscription_id
-            )
-        ).all()
-    )
 
 
 def _load_optional_model(db: Session, model, value, *, label: str):

@@ -6,8 +6,8 @@ import ssl
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from html import unescape
-from datetime import datetime, timezone
 from email.message import EmailMessage
 from email.utils import formataddr
 from re import compile as compile_regex
@@ -814,12 +814,19 @@ def _render_test_message_content(active: ActiveSMTPSettings) -> tuple[str, str]:
     )
     digest_context = (
         DailyDigestContext(
-            window_start=triggered_at,
+            window_start=triggered_at - timedelta(hours=24),
             window_end=triggered_at,
             total_items=2,
             total_feeds=1,
             feed_names=["Example Threat Feed"],
             top_titles=["Example intrusion activity observed", "Example vulnerable product advisory"],
+            brief_id=uuid.UUID("00000000-0000-4000-8000-000000000005"),
+            brief_date=triggered_at.date().isoformat(),
+            generated_at=triggered_at,
+            title="Example AI Daily Brief",
+            brief_text="Identity abuse and exposed services are the highest-priority developments.",
+            key_points=["Review identity telemetry", "Track exposed edge services"],
+            recommended_actions=["Validate MFA coverage", "Confirm edge patch status"],
         )
         if event_type == "daily_digest"
         else None

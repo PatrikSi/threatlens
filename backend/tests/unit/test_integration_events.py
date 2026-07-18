@@ -268,6 +268,78 @@ def test_route_event_fans_out_to_smtp_generic_delivery(db_session):
     assert deliveries[0].state == "pending"
 
 
+def test_route_daily_digest_event_renders_immutable_ai_brief_context_for_webhook(db_session):
+    user = _persist_user(db_session)
+    selected_feed = _persist_feed(db_session, "Selected but ignored for AI brief")
+    webhook = _persist_webhook(
+        db_session,
+        user,
+        name="AI brief webhook",
+        feed_scope="selected",
+        feed_ids=[selected_feed.id],
+    )
+    webhook.event_type = "daily_digest"
+    db_session.add(webhook)
+    db_session.flush()
+    generated_at = datetime(2026, 7, 18, 9, 0, 8, tzinfo=timezone.utc)
+    brief_id = uuid.uuid4()
+    event = emit_integration_event(
+        db_session,
+        event_type="daily_digest",
+        source_type="ai_daily_brief",
+        source_id=brief_id,
+        idempotency_key=f"ai-daily-brief:{brief_id}",
+        payload={
+            "daily_brief_id": str(brief_id),
+            "brief_date": "2026-07-18",
+            "scope_key": "ai_daily_brief:2026-07-18",
+            "daily_brief": {
+                "schema_version": 1,
+                "id": str(brief_id),
+                "date": "2026-07-18",
+                "generated_at": generated_at.isoformat(),
+                "window_start": (generated_at - timedelta(hours=24)).isoformat(),
+                "window_end": generated_at.isoformat(),
+                "title": "AI brief title",
+                "text": "Persisted AI brief body",
+                "key_points": ["First point"],
+                "recommended_actions": ["First action"],
+                "item_count": 6,
+                "feed_names": ["CISA"],
+                "top_titles": ["Source title"],
+            },
+        },
+    )
+
+    result = route_integration_event(db_session, event_id=event.id)
+
+    assert len(result.webhook_delivery_ids) == 1
+    delivery = db_session.get(NotificationWebhookDelivery, result.webhook_delivery_ids[0])
+    assert delivery is not None
+    assert delivery.item_title_snapshot == "AI brief title"
+    assert delivery.feed_name_snapshot == "AI Daily Brief"
+    assert delivery.scope_key == "ai_daily_brief:2026-07-18"
+
+
+def test_route_legacy_rolling_digest_event_fails_with_clear_context_error(db_session):
+    user = _persist_user(db_session)
+    webhook = _persist_webhook(db_session, user, name="Legacy digest webhook", feed_scope="all")
+    webhook.event_type = "daily_digest"
+    db_session.add(webhook)
+    db_session.flush()
+    event = emit_integration_event(
+        db_session,
+        event_type="daily_digest",
+        source_type="digest_window",
+        source_id="2026-07-18",
+        idempotency_key=f"legacy-digest:{uuid.uuid4()}",
+        payload={"scope_key": "2026-07-18"},
+    )
+
+    with pytest.raises(IntegrationEventContextError, match="Legacy rolling daily digest events"):
+        route_integration_event(db_session, event_id=event.id)
+
+
 def test_route_event_creates_smtp_delivery_for_selected_feed_subscription(db_session):
     feed = _persist_feed(db_session, "SMTP selected feed")
     item = _persist_item(db_session, feed)

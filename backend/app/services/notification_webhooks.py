@@ -18,6 +18,7 @@ from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_classification import ItemClassification
+from app.models.integration import IntegrationDelivery, IntegrationEvent
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -33,6 +34,11 @@ from app.schemas.notification import (
     NotificationWebhookWrite,
 )
 from app.services import notification_webhook_http
+from app.services.daily_brief_notifications import (
+    DailyBriefNotificationContextError,
+    daily_brief_context_from_payload,
+    get_latest_daily_brief_notification_context,
+)
 from app.services.notification_webhook_http import (
     THREATLENS_DELIVERY_ID_HEADER,
     canonicalize_headers,
@@ -89,7 +95,6 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 FEED_FAILING_NOTIFICATION_THRESHOLD = 3
 FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS = 12
-DAILY_DIGEST_WINDOW_HOURS = 24
 THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
 
 __all__ = [
@@ -345,20 +350,23 @@ def test_notification_webhook(
             attempted_at=datetime.now(timezone.utc),
         )
     elif payload.event_type == "daily_digest":
-        digest_context = build_daily_digest_context(
-            db,
-            user_id=user.id,
-            feed_ids=_feed_ids_for_webhook_payload(payload),
-        )
+        digest_context = get_latest_daily_brief_notification_context(db)
         if digest_context is None:
             now = datetime.now(timezone.utc)
             digest_context = DailyDigestContext(
-                window_start=now.replace(hour=0, minute=0, second=0, microsecond=0),
+                window_start=now - timedelta(hours=24),
                 window_end=now,
                 total_items=7,
                 total_feeds=2,
                 feed_names=["Example Feed", "CISA"],
-                top_titles=["ThreatLens sample digest item", "Second sample digest item"],
+                top_titles=["ThreatLens sample brief item", "Second sample brief item"],
+                brief_id=uuid.uuid4(),
+                brief_date=now.date().isoformat(),
+                generated_at=now,
+                title="Example AI Daily Brief",
+                brief_text="The latest intelligence highlights identity threats and exposed edge services.",
+                key_points=["Prioritize identity telemetry", "Review exposed edge services"],
+                recommended_actions=["Validate MFA coverage", "Confirm edge patch status"],
             )
 
     rendered = render_notification_request(
@@ -808,7 +816,6 @@ def _reserve_notification_webhook_delivery_from_current_context(
     delivery: NotificationWebhookDelivery,
     not_before: datetime | None = None,
 ) -> NotificationWebhookDelivery | None:
-    payload = notification_webhook_write_from_model(webhook)
     user = db.scalar(select(User).where(User.id == webhook.user_id))
     if user is None or not user.is_active or not user.is_approved:
         return None
@@ -838,11 +845,7 @@ def _reserve_notification_webhook_delivery_from_current_context(
         if failed_webhook_context is None:
             return None
     if event_type == "daily_digest":
-        digest_context = build_daily_digest_context(
-            db,
-            user_id=webhook.user_id,
-            feed_ids=_feed_ids_for_webhook_payload(payload),
-        )
+        digest_context = _daily_brief_context_for_webhook_delivery(db, delivery=delivery)
         if digest_context is None:
             return None
 
@@ -863,6 +866,25 @@ def _reserve_notification_webhook_delivery_from_current_context(
         scope_key=delivery.scope_key,
         not_before=not_before,
     )
+
+
+def _daily_brief_context_for_webhook_delivery(
+    db: Session,
+    *,
+    delivery: NotificationWebhookDelivery,
+) -> DailyDigestContext | None:
+    if delivery.integration_delivery_id is None:
+        return None
+    generic_delivery = db.get(IntegrationDelivery, delivery.integration_delivery_id)
+    if generic_delivery is None or generic_delivery.event_id is None:
+        return None
+    event = db.get(IntegrationEvent, generic_delivery.event_id)
+    if event is None:
+        return None
+    try:
+        return daily_brief_context_from_payload(event.payload_json)
+    except DailyBriefNotificationContextError:
+        return None
 
 
 def _build_failed_webhook_retry_context(
@@ -1259,68 +1281,6 @@ def build_alert_match_context_for_item(
         names=matched_names,
         categories=matched_categories,
         matched_keywords=matched_keywords,
-    )
-
-
-def build_daily_digest_context(
-    db: Session,
-    *,
-    user_id: uuid.UUID | None = None,
-    feed_ids: list[uuid.UUID] | None,
-    now: datetime | None = None,
-) -> DailyDigestContext | None:
-    _ = user_id
-    if feed_ids == []:
-        return None
-
-    window_end = now or datetime.now(timezone.utc)
-    window_start = window_end - timedelta(hours=DAILY_DIGEST_WINDOW_HOURS)
-
-    query = (
-        select(Item.title, Feed.name)
-        .join(Feed, Feed.id == Item.feed_id)
-        .where(Item.first_seen_at >= window_start, Item.first_seen_at <= window_end)
-        .order_by(Item.first_seen_at.desc())
-    )
-    if feed_ids is not None:
-        query = query.where(Item.feed_id.in_(feed_ids))
-
-    rows = db.execute(query.limit(50)).all()
-    if not rows:
-        return None
-
-    feed_names: list[str] = []
-    top_titles: list[str] = []
-    for title, feed_name in rows:
-        if feed_name and feed_name not in feed_names:
-            feed_names.append(feed_name)
-        if title and title not in top_titles:
-            top_titles.append(title)
-        if len(top_titles) >= 5 and len(feed_names) >= 10:
-            break
-
-    total_items_query = select(func.count()).select_from(Item).where(
-        Item.first_seen_at >= window_start,
-        Item.first_seen_at <= window_end,
-    )
-    if feed_ids is not None:
-        total_items_query = total_items_query.where(Item.feed_id.in_(feed_ids))
-    total_items = int(db.scalar(total_items_query) or 0)
-    total_feeds_query = select(func.count(func.distinct(Item.feed_id))).where(
-        Item.first_seen_at >= window_start,
-        Item.first_seen_at <= window_end,
-    )
-    if feed_ids is not None:
-        total_feeds_query = total_feeds_query.where(Item.feed_id.in_(feed_ids))
-    total_feeds = int(db.scalar(total_feeds_query) or 0)
-
-    return DailyDigestContext(
-        window_start=window_start,
-        window_end=window_end,
-        total_items=total_items,
-        total_feeds=total_feeds,
-        feed_names=feed_names,
-        top_titles=top_titles[:5],
     )
 
 

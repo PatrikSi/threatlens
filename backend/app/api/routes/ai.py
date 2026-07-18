@@ -71,6 +71,7 @@ from app.services.ai_ops import (
 from app.services.audit import record_audit
 from app.tasks.feed_tasks import CoordinationUnavailableError, daily_ai_brief_lock
 from app.tasks.feed_tasks import backfill_daily_ai_briefs, dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
+from app.tasks.integration_tasks import enqueue_integration_event_routing
 
 router = APIRouter(prefix="/ai", tags=["ai"])
 
@@ -402,10 +403,13 @@ def generate_daily_brief_route(
             "run_id": str(run.id),
             "items_considered": result.items_considered,
             "items_selected": result.items_selected,
+            "integration_event_id": str(result.integration_event_id) if result.integration_event_id else None,
         },
     )
     db.commit()
     db.refresh(result.brief)
+    if result.integration_event_id is not None:
+        enqueue_integration_event_routing([result.integration_event_id])
     return daily_brief_response_from_model(db, result.brief)
 
 
