@@ -54,11 +54,8 @@ export default tseslint.config(
     rules: { complexity: ['error', 42] },
   },
   {
-    files: ['src/pages/DashboardPage.tsx'],
-    rules: {
-      complexity: ['error', 120],
-      'max-lines': ['error', { max: 4000, skipBlankLines: true, skipComments: true }],
-    },
+    files: ['src/pages/DashboardPageView.tsx'],
+    rules: { complexity: ['error', 117] },
   },
   {
     files: ['src/pages/FeedsPage.tsx'],

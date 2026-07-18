@@ -9,9 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "backend" / "app", ROOT / "web" / "src")
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx"}
 DEFAULT_MAX_LINES = 2_000
-FILE_MAX_LINES = {
-    "web/src/pages/DashboardPage.tsx": 4_000,
-}
+FILE_MAX_LINES: dict[str, int] = {}
 
 
 def is_production_source(path: Path) -> bool:
