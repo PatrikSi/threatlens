@@ -87,6 +87,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   }>,
   itemsTotal: null as number | null,
   alertMatchesTotal: null as number | null,
+  queryKeys: [] as unknown[][],
   unsavedChangesWarning: vi.fn(),
 }))
 
@@ -185,11 +186,17 @@ vi.mock('@tanstack/react-query', () => ({
   },
   useQueries: ({ queries }: { queries: Array<{ queryKey: unknown }> }) =>
     queries.map((query) => {
-      const key = Array.isArray(query.queryKey) ? query.queryKey[0] : query.queryKey
+      const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
+      dashboardPageDomMocks.queryKeys.push(queryKey)
+      const key = queryKey[0]
       if (key === 'items' || key === 'alert-matches') {
-        const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
-        const rssQueryParams = key === 'items' && typeof queryKey[1] === 'object' ? queryKey[1] as { page?: number } : null
+        const rssQueryParams = key === 'items' && typeof queryKey[1] === 'object'
+          ? queryKey[1] as { page?: number; page_size?: number }
+          : null
         const page = key === 'items' ? rssQueryParams?.page ?? 1 : typeof queryKey[7] === 'number' ? queryKey[7] : 1
+        const pageSize = key === 'items'
+          ? rssQueryParams?.page_size ?? 25
+          : typeof queryKey[8] === 'number' ? queryKey[8] : 25
         return {
           data:
             key === 'items'
@@ -197,13 +204,13 @@ vi.mock('@tanstack/react-query', () => ({
                   items: dashboardPageDomMocks.itemsData,
                   total: dashboardPageDomMocks.itemsTotal ?? dashboardPageDomMocks.itemsData.length,
                   page,
-                  page_size: 25,
+                  page_size: pageSize,
                 }
               : {
                   items: dashboardPageDomMocks.alertMatchesData,
                   total: dashboardPageDomMocks.alertMatchesTotal ?? dashboardPageDomMocks.alertMatchesData.length,
                   page,
-                  page_size: 25,
+                  page_size: pageSize,
                 },
           isLoading: false,
           isFetching: false,
@@ -426,6 +433,7 @@ beforeEach(() => {
   dashboardPageDomMocks.alertMatchesData = []
   dashboardPageDomMocks.itemsTotal = null
   dashboardPageDomMocks.alertMatchesTotal = null
+  dashboardPageDomMocks.queryKeys = []
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -452,6 +460,7 @@ afterEach(() => {
   dashboardPageDomMocks.readMutate.mockReset()
   dashboardPageDomMocks.saveMutate.mockReset()
   dashboardPageDomMocks.updateMutate.mockReset()
+  dashboardPageDomMocks.queryKeys = []
   dashboardPageDomMocks.unsavedChangesWarning.mockClear()
   dashboardPageDomMocks.queryClient.invalidateQueries.mockReset()
   dashboardPageDomMocks.queryClient.setQueriesData.mockReset()
@@ -743,6 +752,81 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="RSS Panel 1 tag filters"]')).not.toBeNull()
   })
 
+  it('uses a fixed ten-item page on phones without changing the saved page-size control', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 390,
+      writable: true,
+    })
+
+    renderPage()
+
+    const itemsQueryKey = dashboardPageDomMocks.queryKeys.find((queryKey) => queryKey[0] === 'items')
+    expect(itemsQueryKey?.[1]).toEqual(expect.objectContaining({ page_size: 10 }))
+    expect(getSelect('RSS Panel 1 results per page')?.value).toBe('25')
+    expect(pageText()).toContain('10 per page')
+  })
+
+  it('shows one saved-view panel at a time at phone width', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 390,
+      writable: true,
+    })
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-mobile-panels',
+        'Mobile panels',
+        [
+          createRssWindow('mobile-rss', 'Threat feed'),
+          createAlertWindow('mobile-alerts', 'Priority alerts'),
+          createNotesWindow('mobile-notes', 'Analyst notes'),
+        ],
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-mobile-panels')
+    })
+
+    const panelSelector = document.querySelector<HTMLSelectElement>('#mobile-dashboard-panel')
+    expect(panelSelector).not.toBeNull()
+    expect(panelSelector?.options).toHaveLength(3)
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).toBeNull()
+
+    act(() => {
+      setSelectValue(panelSelector!, 'mobile-notes')
+    })
+
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+  })
+
+  it('keeps every saved-view panel mounted in the desktop workspace', () => {
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-desktop-panels',
+        'Desktop panels',
+        [createRssWindow('desktop-rss', 'Threat feed'), createNotesWindow('desktop-notes', 'Analyst notes')],
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-desktop-panels')
+    })
+
+    expect(document.querySelector('#mobile-dashboard-panel')).toBeNull()
+    expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
+    expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+  })
+
   it('reports both completed imports and the exact saved view that failed during a partial import', async () => {
     renderPage()
 
@@ -1009,6 +1093,11 @@ describe('DashboardPage DOM workflows', () => {
   })
 
   it('auto-marks unread items as read on expansion and tracks dirty note drafts', () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      value: 390,
+      writable: true,
+    })
     dashboardPageDomMocks.itemsData = [
       {
         id: 'item-1',
@@ -1052,6 +1141,10 @@ describe('DashboardPage DOM workflows', () => {
     act(() => {
       itemToggleButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
+
+    const itemDetail = view.querySelector<HTMLElement>('#rss-item-detail-item-1')
+    expect(itemDetail?.className).toContain('fixed')
+    expect(itemDetail?.textContent).toContain('Back')
 
     expect(dashboardPageDomMocks.readMutate).toHaveBeenCalledWith({
       itemId: 'item-1',

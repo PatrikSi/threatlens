@@ -72,14 +72,15 @@ export function AppShell() {
   return (
     <div className="flex min-h-screen flex-col text-ink dark:text-slate-100">
       <header className="tl-app-header">
-        <div className="px-3 py-3 sm:px-4 lg:hidden">
+        <div className="px-3 py-2 sm:px-4 sm:py-3 lg:hidden">
           <div className="flex items-center justify-between gap-3">
-            <h1 className="font-display text-2xl font-bold">ThreatLens</h1>
+            <h1 className="font-display text-xl font-bold">ThreatLens</h1>
             <button
               type="button"
-              className="tl-subtle-control rounded px-3 py-1.5 text-sm"
+              className="tl-subtle-control rounded px-3 py-1.5 text-sm font-semibold"
               onClick={() => setMobileNavOpen((current) => !current)}
               aria-expanded={mobileNavOpen}
+              aria-controls="mobile-primary-navigation"
               aria-label="Toggle navigation menu"
             >
               {mobileNavOpen ? 'Close' : 'Menu'}
@@ -87,8 +88,8 @@ export function AppShell() {
           </div>
 
           {mobileNavOpen && (
-            <div className="mt-3 space-y-3 border-t border-slate/20 pt-3 dark:border-white/10">
-              <nav className="grid grid-cols-2 gap-2 text-sm font-semibold text-slate dark:text-slate-200">
+            <div id="mobile-primary-navigation" className="mt-3 border-t border-slate/20 pt-2 dark:border-white/10">
+              <nav className="divide-y divide-slate/15 text-sm font-semibold text-slate dark:divide-white/10 dark:text-slate-200">
                 {navLinks.map((link) => {
                   const active = isNavLinkActive(location.pathname, link.to)
                   return (
@@ -96,10 +97,10 @@ export function AppShell() {
                       key={link.to}
                       to={link.to}
                       aria-current={active ? 'page' : undefined}
-                      className={`rounded border px-3 py-1.5 text-center transition ${
+                      className={`block border-l-2 px-3 py-3 text-left transition ${
                         active
-                          ? 'tl-nav-link-active font-bold'
-                          : 'border-slate/20 hover:bg-cyan/10 hover:text-cyan dark:border-white/10 dark:hover:border-cyan-500/35 dark:hover:bg-white/[0.06] dark:hover:text-cyan-100'
+                          ? 'border-l-cyan bg-cyan/10 font-bold text-cyan dark:bg-cyan/10 dark:text-cyan-100'
+                          : 'border-l-transparent hover:bg-cyan/10 hover:text-cyan dark:hover:bg-white/[0.06] dark:hover:text-cyan-100'
                       }`}
                     >
                       {link.label}
@@ -108,24 +109,24 @@ export function AppShell() {
                 })}
               </nav>
 
-              {meQuery.data && (
-                <div className="rounded border border-slate/20 px-2.5 py-1.5 text-sm text-slate dark:border-white/10 dark:bg-white/[0.03] dark:text-slate-200">
-                  {meQuery.data.email} ({meQuery.data.role})
-                </div>
-              )}
-
-              <div className="flex items-center gap-2">
+              <div className="mt-3 space-y-2 border-t border-slate/20 pt-3 dark:border-white/10">
+                {meQuery.data && (
+                  <div className="min-w-0 px-1 text-sm text-slate dark:text-slate-200">
+                    <p className="break-all font-semibold text-ink dark:text-slate-100">{meQuery.data.email}</p>
+                    <p className="mt-0.5 text-xs capitalize text-slate dark:text-slate-400">{meQuery.data.role}</p>
+                  </div>
+                )}
                 <button
                   type="button"
-                  className="tl-subtle-control flex-1 rounded px-2.5 py-1.5 text-sm transition"
+                  className="tl-subtle-control w-full rounded px-3 py-2 text-left text-sm transition"
                   onClick={() => setMode(isDark ? 'light' : 'dark')}
                   aria-pressed={isDark}
                   aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
                 >
-                  {isDark ? 'Dark mode' : 'Light mode'}
+                  Appearance: {isDark ? 'Dark mode' : 'Light mode'}
                 </button>
                 <button
-                  className="rounded border border-slate/20 px-3 py-1.5 text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:border-red-800 dark:hover:text-red-300"
+                  className="w-full rounded border border-slate/20 px-3 py-2 text-left text-sm text-slate-700 hover:border-ember hover:text-ember dark:border-white/10 dark:bg-white/[0.04] dark:text-slate-100 dark:hover:border-red-800 dark:hover:text-red-300"
                   onClick={() => {
                     logout.mutate()
                   }}
@@ -134,7 +135,6 @@ export function AppShell() {
                   {logout.isPending ? 'Logging out...' : 'Logout'}
                 </button>
               </div>
-
             </div>
           )}
         </div>
@@ -195,7 +195,7 @@ export function AppShell() {
           </div>
         )}
       </header>
-      <main className={`w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-3 py-4 sm:px-4 lg:px-6'}`}>
+      <main className={`tl-app-content w-full flex-1 ${isDashboardRoute ? 'px-0 py-0' : 'px-2 py-2 sm:px-4 sm:py-4 lg:px-6'}`}>
         <Outlet />
       </main>
       <footer className="px-3 py-3 text-right text-[11px] text-slate/55 dark:text-slate-400/60 sm:px-4 lg:px-6">

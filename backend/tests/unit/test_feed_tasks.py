@@ -205,8 +205,8 @@ class _HeartbeatRedis:
 
 def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.MonkeyPatch):
     redis_client = _HeartbeatRedis()
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
-    monkeypatch.setattr("app.tasks.feed_tasks._lease_renewal_interval_seconds", lambda _ttl: 0.01)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination._lease_renewal_interval_seconds", lambda _ttl: 0.01)
 
     feed_key = "threatlens:feed:lock:feed-1"
     brief_key = "threatlens:ai:daily_brief:lock"
@@ -233,7 +233,7 @@ def test_feed_lock_does_not_take_over_before_lock_ttl_expires(monkeypatch: pytes
     stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
     redis_client.set(stale_feed_key, "dead-token", ex=900)
     redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
         assert acquired is False
@@ -246,7 +246,7 @@ def test_feed_lock_can_take_over_stale_lease_without_ttl(monkeypatch: pytest.Mon
     stale_heartbeat_key = f"{stale_feed_key}:heartbeat"
     redis_client.set(stale_feed_key, "dead-token")
     redis_client.set(stale_heartbeat_key, f"dead-token|{time.time() - 901:.6f}", ex=900)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
         assert acquired is True
@@ -259,8 +259,8 @@ def test_domain_slot_uses_open_slot_instead_of_preempting_live_ttl_slot(monkeypa
     open_slot_key = "threatlens:domain:example.com:slot:2"
     redis_client.set(stale_slot_key, "dead-token", ex=30)
     redis_client.set(f"{stale_slot_key}:heartbeat", f"dead-token|{time.time() - 31:.6f}", ex=30)
-    monkeypatch.setattr("app.tasks.feed_tasks.redis_client", redis_client)
-    monkeypatch.setattr("app.tasks.feed_tasks.settings", SimpleNamespace(per_domain_concurrency=2))
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.settings", SimpleNamespace(per_domain_concurrency=2))
 
     with domain_slot("example.com", max_wait_seconds=0.1):
         assert redis_client.get(stale_slot_key) == "dead-token"
@@ -474,10 +474,10 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
         _ = ttl_seconds
         yield True
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.load_active_ai_settings",
+        "app.tasks.ai_brief_tasks.load_active_ai_settings",
         lambda _db: SimpleNamespace(ai_enabled=True, ai_configured=True, daily_brief_enabled=True, model="local-threat-model"),
     )
 
@@ -498,7 +498,7 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
         called.append(task_run_id)
         return ready_result
 
-    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
 
     first = dispatch_daily_ai_brief_generation.apply(
         kwargs={"force": True, "task_run_id": str(run.id), "actor_user_id": None},
@@ -530,7 +530,7 @@ def test_dispatch_daily_ai_brief_generation_claims_api_started_run_and_skips_dup
     db_session.commit()
 
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_daily_brief_generation",
+        "app.tasks.ai_brief_tasks.run_daily_brief_generation",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate redelivery should not execute the body")),
     )
 
@@ -565,10 +565,10 @@ def test_dispatch_daily_ai_brief_marks_manual_run_skipped_when_lock_is_busy(db_s
     )
     db_session.commit()
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_daily_brief_generation",
+        "app.tasks.ai_brief_tasks.run_daily_brief_generation",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("busy lock should skip execution")),
     )
 
@@ -3641,11 +3641,11 @@ def test_backfill_daily_ai_briefs_tracks_parent_progress_and_reference_dates(db_
             response_char_count=50,
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._daily_brief_backfill_reference_times",
+        "app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times",
         lambda days: [
             datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
             datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
@@ -3761,11 +3761,11 @@ def test_backfill_daily_ai_briefs_continues_after_unexpected_day_failure(db_sess
             items_selected=1,
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks._daily_brief_backfill_reference_times",
+        "app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times",
         lambda days: [
             datetime(2026, 7, 3, 8, 30, tzinfo=timezone.utc),
             datetime(2026, 7, 2, 23, 59, 59, tzinfo=timezone.utc),
@@ -3877,10 +3877,10 @@ def test_backfill_daily_ai_briefs_redelivery_retries_only_interrupted_dates(db_s
             items_selected=1,
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
-    monkeypatch.setattr("app.tasks.feed_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
 
     parent_run = queue_ai_task_run(
         db_session,
@@ -4024,10 +4024,10 @@ def test_backfill_daily_ai_briefs_repairs_legacy_duplicate_date_progress(db_sess
             items_selected=1,
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _brief_lock_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.run_daily_brief_generation", _run_daily_brief_generation)
-    monkeypatch.setattr("app.tasks.feed_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _brief_lock_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.run_daily_brief_generation", _run_daily_brief_generation)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks._daily_brief_backfill_reference_times", lambda days: reference_times[:days])
 
     result = backfill_daily_ai_briefs.run(3, task_run_id=str(parent_run.id))
 
@@ -4078,10 +4078,10 @@ def test_backfill_daily_ai_briefs_duplicate_lock_delivery_keeps_active_parent_ru
         _ = ttl_seconds
         yield False
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.tasks.feed_tasks.daily_ai_brief_lock", _busy_brief_lock)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.daily_ai_brief_lock", _busy_brief_lock)
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.run_daily_brief_generation",
+        "app.tasks.ai_brief_tasks.run_daily_brief_generation",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate delivery must not generate work")),
     )
 
@@ -5067,7 +5067,7 @@ def test_reconcile_ai_task_runs_repairs_stale_runs_without_ops_page_access(db_se
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.ai_brief_tasks.db_session", _db_session_override)
     monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
 
     result = reconcile_ai_task_runs.run()
@@ -5152,7 +5152,7 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
         captured["countdown"] = countdown
         return True
 
-    monkeypatch.setattr("app.tasks.feed_tasks.enqueue_notification_webhook_delivery_processing", _fake_enqueue)
+    monkeypatch.setattr("app.tasks.notification_tasks.enqueue_notification_webhook_delivery_processing", _fake_enqueue)
 
     delivered, failed = _process_reserved_notification_deliveries(db_session, [delivery.id])
 
@@ -5230,7 +5230,7 @@ def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, mo
         ),
     )
     monkeypatch.setattr(
-        "app.tasks.feed_tasks.reserve_retryable_notification_webhook_delivery",
+        "app.tasks.notification_tasks.reserve_retryable_notification_webhook_delivery",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("retry reservation failed")),
     )
 
@@ -5268,7 +5268,7 @@ def test_process_reserved_notification_deliveries_skips_missing_rows(db_session,
             ),
         )
 
-    monkeypatch.setattr("app.tasks.feed_tasks.process_notification_webhook_delivery", _fake_process)
+    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _fake_process)
 
     delivered, failed = _process_reserved_notification_deliveries(
         db_session,

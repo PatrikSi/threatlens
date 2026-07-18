@@ -60,6 +60,7 @@ def _use_feed_task_db_session(monkeypatch, db_session) -> None:
         yield db_session
 
     monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
 
 def test_dispatch_smtp_notification_sends_and_records_audit(db_session, monkeypatch):

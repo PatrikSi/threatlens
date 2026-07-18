@@ -268,13 +268,13 @@ def queue_tagging_reapply(
 def _validate_rule_payload(db: Session, payload: TaggingRuleWrite) -> str:
     normalized_tag_name = normalize_tag_name(payload.tag_name)
     if not normalized_tag_name:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="tag_name is invalid")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="tag_name is invalid")
 
     available_feed_ids = set(db.scalars(select(Feed.id)).all())
     invalid_feed_ids = [str(feed_id) for feed_id in payload.feed_ids if feed_id not in available_feed_ids]
     if invalid_feed_ids:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unknown feed ids: {', '.join(sorted(invalid_feed_ids))}",
         )
 
@@ -283,7 +283,7 @@ def _validate_rule_payload(db: Session, payload: TaggingRuleWrite) -> str:
             flags = 0 if payload.case_sensitive else re.IGNORECASE
             re.compile(payload.pattern, flags)
         except re.error as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid regex: {exc}") from exc
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=f"Invalid regex: {exc}") from exc
 
     return normalized_tag_name
 

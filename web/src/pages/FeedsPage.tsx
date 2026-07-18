@@ -14,7 +14,6 @@ import {
   FeedMetadataResponse,
   ItemListResponse,
 } from '../types/api'
-import { formatDateTime } from '../utils/datetime'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
 import {
   FeedEditDraft,
@@ -35,17 +34,27 @@ import {
   readPersistedFeedScheduleDrafts,
   validateFeedScheduleDraft,
 } from './feedScheduleDraft'
+import {
+  buildFeedImportPreviewSummary,
+  downloadFeedExport,
+  feedSaveStatusClass,
+  feedSaveStatusText,
+  findDuplicateUrls,
+  formatBulkResultNotice,
+  formatDate,
+  formatFeedExportNotice,
+  isNewFeedFormDirty,
+  parseImportEntries,
+  resolveMutationError,
+  summarizeBulkResults,
+  timestamp,
+  type FeedImportPreviewSummary,
+  type FeedSaveState,
+} from './feedPageUtils'
 
 type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
 type FeedFetchMode = FeedScheduleDraft['fetchMode']
 type FeedStatusFilter = 'all' | 'enabled' | 'disabled' | 'broken'
-type FeedSaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-
-type FeedSaveState = {
-  status: FeedSaveStatus
-  message?: string
-}
-
 type PendingBulkSetEnabledAction = {
   enabled: boolean
   feeds: Feed[]
@@ -54,16 +63,6 @@ type PendingBulkSetEnabledAction = {
 type PendingBulkDeleteAction = {
   feeds: Feed[]
   kind: 'disabled' | 'broken'
-}
-
-type FeedImportPreviewSummary = {
-  totalEntries: number
-  uniqueEntries: number
-  duplicateEntries: number
-  createCount: number
-  overwriteCount: number
-  skipCount: number
-  matchingExistingFeeds: Feed[]
 }
 
 type DetectedFeedMetadata = {
@@ -79,6 +78,26 @@ const FEED_STATUS_BOOTSTRAP_POLL_MS = 60_000
 const FEED_REFRESH_STATUS_POLL_MS = 45_000
 const FEED_STATUS_POLL_INTERVAL_MS = 3_000
 const FEED_REFRESH_FOLLOW_UP_DELAYS_MS = [2_000, 6_000, 12_000, 24_000] as const
+
+function shouldShowMobileFeedForm(open: boolean, feedCount: number) {
+  return open || feedCount === 0
+}
+
+function mobileDisclosureClass(open: boolean) {
+  return open ? 'block' : 'hidden'
+}
+
+function mobileFeedToggleLabel(open: boolean) {
+  return open ? 'Hide' : 'New feed'
+}
+
+function mobileFeedToggleVisibilityClass(feedCount: number) {
+  return feedCount === 0 ? 'hidden' : 'block'
+}
+
+function mobileImportActionVisibilityClass(hasImportData: boolean) {
+  return hasImportData ? 'block' : 'hidden'
+}
 
 export function FeedsPage() {
   const queryClient = useQueryClient()
@@ -120,6 +139,9 @@ export function FeedsPage() {
   const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
   const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
   const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
+  const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
+  const [mobileBulkActionsOpen, setMobileBulkActionsOpen] = useState(false)
+  const [mobileScheduleFeedId, setMobileScheduleFeedId] = useState<string | null>(null)
   const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
   const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
   const importFileInputRef = useRef<HTMLInputElement | null>(null)
@@ -784,13 +806,30 @@ export function FeedsPage() {
     updateFeedDetails.mutate({ feed: editingFeed, draft: feedEditDraft })
   }
 
+  const showMobileAddFeedForm = shouldShowMobileFeedForm(mobileAddFeedOpen, feedStats.total)
+
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
-        <h2 className="font-display text-xl">Add Feed</h2>
+      <section className="order-2 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="font-display text-xl">Add Feed</h2>
+          <button
+            type="button"
+            className={`${mobileFeedToggleVisibilityClass(feedStats.total)} rounded border border-slate/20 px-3 py-1.5 text-xs font-semibold sm:hidden dark:border-cyan-900/40`}
+            aria-expanded={showMobileAddFeedForm}
+            aria-controls="add-feed-form"
+            onClick={() => setMobileAddFeedOpen((current) => !current)}
+          >
+            {mobileFeedToggleLabel(mobileAddFeedOpen)}
+          </button>
+        </div>
         {!canManage && <p className="mt-2 text-sm text-amber-600">Viewer role cannot create or modify feeds.</p>}
 
-        <form className="mt-3 space-y-3" onSubmit={onSubmit}>
+        <form
+          id="add-feed-form"
+          className={`${mobileDisclosureClass(showMobileAddFeedForm)} mt-3 space-y-3 sm:block`}
+          onSubmit={onSubmit}
+        >
           <div>
             <label htmlFor="feed-rss-url" className="text-sm font-semibold">
               RSS URL
@@ -942,10 +981,10 @@ export function FeedsPage() {
         </form>
       </section>
 
-      <section className="rounded-xl border border-slate/20 bg-white/80 p-4 dark:border-cyan-900/40 dark:bg-[#041612]/90">
+      <section className="order-1 rounded-xl border border-slate/20 bg-white/80 p-4 sm:order-none dark:border-cyan-900/40 dark:bg-[#041612]/90">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-xl">Configured Feeds ({feedStats.total})</h2>
-          <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
             <button
               type="button"
               className="rounded border border-slate/30 px-3 py-1.5 text-xs disabled:opacity-50 dark:border-cyan-900/40"
@@ -974,7 +1013,7 @@ export function FeedsPage() {
             />
             <button
               type="button"
-              className="col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto dark:bg-cyan dark:text-[#053c2e]"
+              className={`${mobileImportActionVisibilityClass(Boolean(importData))} col-span-2 rounded bg-ink px-3 py-1.5 text-xs text-white disabled:opacity-50 sm:col-auto sm:block dark:bg-cyan dark:text-[#053c2e]`}
               disabled={!canManage || !importData || importFeeds.isPending}
               onClick={onRequestImportReview}
             >
@@ -1029,8 +1068,8 @@ export function FeedsPage() {
         )}
 
         <div className="mt-2">
-          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
-            <div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-1 sm:gap-3 md:grid-cols-[minmax(0,1fr)_180px_180px_auto]">
+            <div className="col-span-2 sm:col-span-1">
               <label htmlFor="feed-search" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
                 Search
               </label>
@@ -1075,7 +1114,7 @@ export function FeedsPage() {
                 <option value="last_fetch_asc">Last fetched oldest</option>
               </select>
             </div>
-            <label className="flex items-end gap-2 text-xs text-slate dark:text-slate-300">
+            <label className="col-span-2 flex items-end gap-2 text-xs text-slate sm:col-span-1 dark:text-slate-300">
               <input
                 type="checkbox"
                 checked={overwriteExisting}
@@ -1087,7 +1126,21 @@ export function FeedsPage() {
           </div>
         </div>
 
-        <div className="mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
+        <button
+          type="button"
+          className="mt-2 flex w-full items-center justify-between rounded border border-slate/30 px-3 py-2 text-left text-sm font-semibold sm:hidden dark:border-cyan-900/40"
+          aria-expanded={mobileBulkActionsOpen}
+          aria-controls="feed-bulk-actions"
+          onClick={() => setMobileBulkActionsOpen((current) => !current)}
+        >
+          <span>Bulk actions</span>
+          <span className="text-xs font-normal text-slate dark:text-slate-300">Filtered feeds</span>
+        </button>
+
+        <div
+          id="feed-bulk-actions"
+          className={`${mobileDisclosureClass(mobileBulkActionsOpen)} mt-2 grid gap-2 sm:flex sm:flex-wrap sm:items-center`}
+        >
           <button
             type="button"
             className="rounded border border-slate/30 px-3 py-1.5 text-xs dark:border-cyan-900/40"
@@ -1259,8 +1312,9 @@ export function FeedsPage() {
             const scheduleHint =
               !scheduleNotice && isDirty ? 'Unsaved schedule changes. Save or reset before leaving this page.' : null
             const displayUrl = feed.url.trim() || 'URL unavailable until the original encryption key is restored.'
+            const scheduleExpanded = mobileScheduleFeedId === feed.id || isDirty
             return (
-            <div key={feed.id} className="rounded border border-slate/20 p-3 dark:border-cyan-900/40">
+            <div key={feed.id} className="rounded border border-slate/20 p-2.5 sm:p-3 dark:border-cyan-900/40">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
@@ -1280,7 +1334,7 @@ export function FeedsPage() {
                     </span>
                   </div>
                   <p className="text-xs text-slate dark:text-slate-300">{displayUrl}</p>
-                  {feed.description && <p className="mt-1 text-xs text-slate dark:text-slate-300">{feed.description}</p>}
+                  {feed.description && <p className="mt-1 line-clamp-2 text-xs text-slate sm:line-clamp-none dark:text-slate-300">{feed.description}</p>}
                   <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-slate dark:text-slate-300">
                     {feed.site_url && <span>Site: {feed.site_url}</span>}
                     {feed.language && <span>Lang: {feed.language}</span>}
@@ -1288,22 +1342,31 @@ export function FeedsPage() {
                     <span>Last success: {formatDate(feed.last_success_at)}</span>
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(3.5rem,1fr))] gap-1.5 sm:flex sm:w-auto sm:flex-wrap sm:gap-2">
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => openFeedDetail(feed)}
                   >
                     {canManage ? 'Edit' : 'Details'}
                   </button>
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    type="button"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:hidden sm:px-2 dark:border-cyan-900/40"
+                    aria-expanded={scheduleExpanded}
+                    aria-controls={`feed-schedule-${feed.id}`}
+                    onClick={() => setMobileScheduleFeedId((current) => (current === feed.id ? null : feed.id))}
+                  >
+                    {scheduleExpanded ? 'Hide schedule' : 'Schedule'}
+                  </button>
+                  <button
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => refreshFeed.mutate(feed.id)}
                     disabled={!canManage || feed.has_unreadable_url}
                   >
                     Refresh
                   </button>
                   <button
-                    className="rounded border border-slate/30 px-2 py-1 text-xs dark:border-cyan-900/40"
+                    className="rounded border border-slate/30 px-1 py-1 text-xs sm:px-2 dark:border-cyan-900/40"
                     onClick={() => updateFeed.mutate({ id: feed.id, body: { enabled: !feed.enabled } })}
                     disabled={!canManage}
                   >
@@ -1311,7 +1374,7 @@ export function FeedsPage() {
                   </button>
                   {canDelete && (
                     <button
-                      className="rounded border border-red-300 px-2 py-1 text-xs text-red-700 dark:border-red-800 dark:text-red-300"
+                      className="rounded border border-red-300 px-1 py-1 text-xs text-red-700 sm:px-2 dark:border-red-800 dark:text-red-300"
                       onClick={() => onRequestDeleteFeed(feed)}
                       disabled={deleteFeed.isPending || Boolean(pendingDeleteFeed) || Boolean(pendingBulkDeleteFeeds)}
                     >
@@ -1321,6 +1384,7 @@ export function FeedsPage() {
                 </div>
               </div>
 
+              <div id={`feed-schedule-${feed.id}`} className={`${scheduleExpanded ? 'block' : 'hidden'} sm:block`}>
               <div className="mt-3 grid gap-2 md:grid-cols-[180px_1fr]">
                 <label htmlFor={`feed-fetch-mode-${feed.id}`} className="sr-only">
                   Fetch mode for {feed.name}
@@ -1431,6 +1495,7 @@ export function FeedsPage() {
                   {scheduleNotice}
                 </p>
               )}
+              </div>
 
               {feed.last_error && <p className="mt-2 text-xs text-red-600">Last error: {feed.last_error}</p>}
             </div>
@@ -1852,215 +1917,4 @@ export function FeedsPage() {
       {confirmDiscardUnsavedFeedScheduleChanges.discardDialog}
     </div>
   )
-}
-
-type BulkSummary = {
-  attempted: number
-  succeeded: number
-  failed: number
-  failedFeedNames: string[]
-}
-
-function feedSaveStatusText(status: FeedSaveStatus): string {
-  if (status === 'saving') return 'Saving...'
-  if (status === 'saved') return 'Saved.'
-  return 'Save failed.'
-}
-
-function feedSaveStatusClass(status: FeedSaveStatus, isDirty: boolean): string {
-  if (status === 'error') return 'text-red-600'
-  if (status === 'saved') return 'text-emerald-700 dark:text-emerald-300'
-  if (isDirty) return 'text-amber-700 dark:text-amber-300'
-  return 'text-slate dark:text-slate-300'
-}
-
-function summarizeBulkResults(feeds: Feed[], results: PromiseSettledResult<unknown>[]): BulkSummary {
-  const attempted = results.length
-  const failedFeedNames = results.flatMap((result, index) =>
-    result.status === 'rejected' ? [feeds[index]?.name ?? `Feed ${index + 1}`] : [],
-  )
-  const failed = failedFeedNames.length
-  return {
-    attempted,
-    failed,
-    succeeded: attempted - failed,
-    failedFeedNames,
-  }
-}
-
-function formatBulkResultNotice(actionLabel: string, result: BulkSummary): string {
-  const feedLabel = result.attempted === 1 ? 'feed' : 'feeds'
-  const failureSuffix = result.failedFeedNames.length ? ` Failed: ${result.failedFeedNames.join(', ')}.` : ''
-  return `${actionLabel} ${result.succeeded}/${result.attempted} ${feedLabel}.${failureSuffix}`
-}
-
-function timestamp(value: string | null): number {
-  if (!value) return 0
-  const parsed = new Date(value).getTime()
-  return Number.isNaN(parsed) ? 0 : parsed
-}
-
-function formatDate(value: string | null): string {
-  return value ? formatDateTime(value) : 'Never'
-}
-
-function isNewFeedFormDirty(form: {
-  name: string
-  url: string
-  description: string
-  siteUrl: string
-  language: string
-  fetchMode: FeedFetchMode
-  interval: number
-  scheduleCron: string
-}) {
-  return (
-    form.name !== '' ||
-    form.url !== '' ||
-    form.description !== '' ||
-    form.siteUrl !== '' ||
-    form.language !== '' ||
-    form.fetchMode !== 'interval' ||
-    form.interval !== 1800 ||
-    form.scheduleCron !== '0 * * * *'
-  )
-}
-
-function parseImportEntries(payload: unknown): FeedImportEntry[] {
-  const entries = Array.isArray(payload)
-    ? payload
-    : typeof payload === 'object' && payload !== null && Array.isArray((payload as { feeds?: unknown }).feeds)
-      ? (payload as { feeds: unknown[] }).feeds
-      : null
-
-  if (!entries) {
-    throw new Error('JSON must be an array of feeds or an object with a feeds array')
-  }
-
-  return entries.map((rawEntry, index) => {
-    if (typeof rawEntry !== 'object' || rawEntry === null) {
-      throw new Error(`Entry ${index + 1} must be an object`)
-    }
-    const entry = rawEntry as Record<string, unknown>
-    const url = typeof entry.url === 'string' ? entry.url.trim() : ''
-    if (!url) {
-      throw new Error(`Entry ${index + 1} is missing a valid url`)
-    }
-
-    const fetchMode = entry.fetch_mode === 'schedule' ? 'schedule' : 'interval'
-    const fetchInterval = Number(entry.fetch_interval_seconds)
-    const parsedInterval = Number.isFinite(fetchInterval) && fetchInterval >= 60 ? Math.floor(fetchInterval) : 1800
-    const scheduleCron = typeof entry.schedule_cron === 'string' && entry.schedule_cron.trim() ? entry.schedule_cron.trim() : null
-
-    return {
-      name: stringOrNull(entry.name),
-      url,
-      description: stringOrNull(entry.description),
-      site_url: stringOrNull(entry.site_url),
-      language: stringOrNull(entry.language),
-      enabled: typeof entry.enabled === 'boolean' ? entry.enabled : true,
-      fetch_mode: fetchMode,
-      fetch_interval_seconds: fetchMode === 'interval' ? parsedInterval : null,
-      schedule_cron: fetchMode === 'schedule' ? scheduleCron || '0 * * * *' : null,
-    }
-  })
-}
-
-function stringOrNull(value: unknown): string | null {
-  if (typeof value !== 'string') return null
-  const trimmed = value.trim()
-  return trimmed ? trimmed : null
-}
-
-function findDuplicateUrls(entries: FeedImportEntry[]): string[] {
-  const counts = new Map<string, number>()
-  for (const entry of entries) {
-    const key = entry.url.toLowerCase()
-    counts.set(key, (counts.get(key) || 0) + 1)
-  }
-  return Array.from(counts.entries())
-    .filter(([, count]) => count > 1)
-    .map(([url]) => url)
-}
-
-function buildFeedImportPreviewSummary(
-  entries: FeedImportEntry[] | null,
-  existingFeeds: Feed[],
-  overwriteExisting: boolean,
-): FeedImportPreviewSummary | null {
-  if (!entries?.length) {
-    return null
-  }
-
-  const existingByUrl = new Map(
-    existingFeeds
-      .filter((feed) => feed.url.trim())
-      .map((feed) => [feed.url.trim().toLowerCase(), feed] as const),
-  )
-  const uniqueUrls = new Set<string>()
-  const matchingExistingFeeds: Feed[] = []
-  let duplicateEntries = 0
-  let createCount = 0
-
-  for (const entry of entries) {
-    const normalizedUrl = entry.url.trim().toLowerCase()
-    if (uniqueUrls.has(normalizedUrl)) {
-      duplicateEntries += 1
-      continue
-    }
-
-    uniqueUrls.add(normalizedUrl)
-    const existingFeed = existingByUrl.get(normalizedUrl)
-    if (existingFeed) {
-      matchingExistingFeeds.push(existingFeed)
-    } else {
-      createCount += 1
-    }
-  }
-
-  const overwriteCount = overwriteExisting ? matchingExistingFeeds.length : 0
-  const skipCount = overwriteExisting ? 0 : matchingExistingFeeds.length
-
-  return {
-    totalEntries: entries.length,
-    uniqueEntries: uniqueUrls.size,
-    duplicateEntries,
-    createCount,
-    overwriteCount,
-    skipCount,
-    matchingExistingFeeds,
-  }
-}
-
-function downloadFeedExport(payload: FeedExportResponse) {
-  const body = JSON.stringify(payload, null, 2)
-  const blob = new Blob([body], { type: 'application/json' })
-  const objectUrl = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  const dateSuffix = new Date().toISOString().slice(0, 10)
-  anchor.href = objectUrl
-  anchor.download = `threatlens-feeds-${dateSuffix}.json`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(objectUrl)
-}
-
-function formatFeedExportNotice(payload: FeedExportResponse) {
-  const feedCount = `${payload.feeds.length} feed${payload.feeds.length === 1 ? '' : 's'}`
-  if (!payload.warnings.length) {
-    return `Feed export downloaded with ${feedCount}.`
-  }
-  const warningCount = `${payload.warnings.length} warning${payload.warnings.length === 1 ? '' : 's'}`
-  return `Feed export downloaded with ${feedCount} and ${warningCount}: ${payload.warnings[0]}`
-}
-
-function resolveMutationError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Unknown error'
 }

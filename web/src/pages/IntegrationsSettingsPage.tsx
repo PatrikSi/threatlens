@@ -724,7 +724,7 @@ function SMTPAnalyticsPanel({ analytics, loading, error }: { analytics?: SMTPAna
       {Boolean(error) && <p className="mt-3 text-sm text-red-600">{resolveApiMessage(error, 'Failed to load SMTP analytics.')}</p>}
       {analytics && (
         <div className="mt-4 space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-5">
             <Metric label="Enabled Hooks" value={`${analytics.enabled_hook_count} / ${analytics.hook_count}`} />
             <Metric label="Total Deliveries" value={String(analytics.total_deliveries)} />
             <Metric label="Success Rate" value={`${analytics.success_rate_pct.toFixed(1)}%`} />

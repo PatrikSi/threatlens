@@ -1,58 +1,35 @@
 import time
 import uuid
-import secrets
 import logging
-import threading
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from typing import Any
 from urllib.parse import urljoin, urlsplit
 
 import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
-from croniter import croniter
-from sqlalchemy import and_, exists, func, or_, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.db.session import SessionLocal
-from app.models.ai_daily_brief import AIDailyBrief
 from app.models.article import Article
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
-from app.models.ioc import IOC, ItemIOC
+from app.models.ioc import ItemIOC
 from app.models.item import Item
-from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationDelivery
-from app.models.notification_webhook import NotificationWebhook
-from app.models.notification_webhook_delivery import NotificationWebhookDelivery
-from app.models.user import User
 from app.services.ai_config import load_active_ai_settings
-from app.services.ai_integration import run_daily_brief_generation, run_item_ai_enrichment
-from app.services.ai_integration import is_stale_daily_brief_pending
+from app.services.ai_integration import run_item_ai_enrichment
 from app.services.ai_ops import (
-    AI_DAILY_BRIEF_BACKFILL_SCOPE,
-    AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY,
     AI_STATUS_ERROR,
-    AI_STATUS_QUEUED,
     AI_STATUS_READY,
-    AI_STATUS_RUNNING,
     AI_STATUS_SKIPPED,
-    AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
-    AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_AUTO,
     AI_TRIGGER_MANUAL,
-    AI_TRIGGER_SCHEDULED,
     ai_task_run_stop_reason,
     finish_ai_task_run,
     get_ai_task_run_stop_reason,
-    is_ai_task_run_cancel_requested,
     queue_ai_task_run,
-    reconcile_daily_brief_backfill_parent_progress,
     record_ai_task_event,
     _reconcile_stale_ai_runs,
     start_ai_task_run,
@@ -61,7 +38,7 @@ from app.services.ai_ops import (
 from app.services.connectors.rss import RSSConnector, RSSFeedParseError
 from app.services.algorithm_tags import sync_item_algorithm_tags
 from app.services.classification import classify_item_content
-from app.services.extraction import extract_canonical_url, extract_plain_text, extract_readable_text
+from app.services.extraction import extract_canonical_url, extract_readable_text
 from app.services.feed_metadata import (
     apply_probe_metadata as _apply_probe_metadata,
     backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
@@ -71,113 +48,197 @@ from app.services.feed_pipeline import (
     clear_feed_dispatch_claim as _clear_feed_dispatch_claim,
     claim_feed_for_dispatch as _claim_feed_for_dispatch_impl,
     list_item_ids_missing_articles as _list_item_ids_missing_articles_impl,
-    mark_feed_failure as _mark_feed_failure,
     upsert_item_from_parsed as _upsert_item_from_parsed,
 )
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.ioc_extraction import extract_iocs
 from app.services.integration_events import (
-    IntegrationEventContextError,
     emit_integration_event,
-    list_recoverable_integration_event_ids,
-    record_integration_event_failure,
-    route_integration_event as route_pending_integration_event,
 )
-from app.services.integration_delivery import (
-    defer_integration_delivery,
-    list_recoverable_integration_delivery_ids,
-    mark_integration_delivery_dead_letter,
-)
-from app.services.integration_maintenance import run_integration_delivery_maintenance
-from app.services.integration_registry import get_integration_connector
-from app.services.notification_webhooks import (
-    FEED_FAILING_NOTIFICATION_THRESHOLD,
-    FailedWebhookContext,
-    build_alert_match_context_for_item,
-    get_matching_notification_webhooks,
-    get_matching_notification_webhooks_for_feed,
-    list_recoverable_notification_delivery_ids,
-    process_notification_webhook_delivery,
-    reserve_retryable_notification_webhook_delivery,
-    reserve_alert_match_notification_deliveries,
-    reserve_feed_failing_notification_deliveries,
-    reserve_new_item_notification_deliveries,
-    reserve_notification_webhook_delivery,
-    reserve_webhook_failed_notification_deliveries,
-)
-from app.services.smtp_integration import SMTPDispatchResult, dispatch_smtp_notification
+from app.services.notification_webhooks import build_alert_match_context_for_item
 from app.services.tag_feedback import load_feedback_adjustments
 from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
-from app.tasks.feed_task_notifications import (
-    dispatch_feed_failing_notification_batch as _dispatch_feed_failing_notification_batch,
-    dispatch_item_notification_batch as _dispatch_item_notification_batch,
-    dispatch_webhook_failed_notification_batch as _dispatch_webhook_failed_notification_batch,
-    enqueue_notification_delivery_batches as _enqueue_notification_delivery_batches,
-    process_reserved_notification_deliveries as _process_reserved_notification_deliveries_impl,
+from app.tasks.ai_brief_tasks import (
+    DAILY_BRIEF_STALE_RETRY_WINDOW,
+    _daily_brief_backfill_attempt_is_settled,
+    _daily_brief_backfill_attempt_number,
+    _daily_brief_backfill_attempts,
+    _daily_brief_backfill_reference_times,
+    _is_stale_daily_brief_task_run,
+    _scheduled_daily_ai_brief_due,
+    backfill_daily_ai_briefs,
+    dispatch_daily_ai_brief_generation,
+    reconcile_ai_task_runs,
 )
+from app.tasks.feed_task_coordination import (
+    CoordinationUnavailableError,
+    DOMAIN_SLOT_TTL_SECONDS,
+    DOMAIN_SLOT_WAIT_INTERVAL_SECONDS,
+    TAGGING_REAPPLY_LOCK_KEY,
+    _best_effort_release_lease,
+    _domain_slot_key,
+    _lease_heartbeat_is_stale,
+    _lease_heartbeat_key,
+    _lease_heartbeat_value,
+    _lease_remaining_ttl_ms,
+    _lease_renewal_interval_seconds,
+    _lease_takeover_stale_after_seconds,
+    _parse_lease_heartbeat,
+    _redis_lease_heartbeat,
+    _try_take_stale_lease,
+    _write_lease_heartbeat,
+    claim_tagging_reapply_dispatch,
+    daily_ai_brief_lock,
+    domain_slot,
+    feed_lock,
+    release_tagging_reapply_dispatch,
+    tagging_reapply_lock,
+)
+from app.tasks.feed_task_dispatchers import (
+    dispatch_due_feeds as _dispatch_due_feeds,
+    dispatch_feed_metadata_backfill as _dispatch_feed_metadata_backfill,
+    dispatch_items_missing_articles as _dispatch_items_missing_articles,
+    dispatch_items_missing_ai_enrichment as _dispatch_items_missing_ai_enrichment,
+    dispatch_items_missing_iocs as _dispatch_items_missing_iocs,
+    dispatch_unclassified_items as _dispatch_unclassified_items,
+)
+from app.tasks.feed_task_runtime import (
+    FeedResponseTooLargeError,
+    ResponseTooLargeError,
+    article_freshness_token as _article_freshness_token,
+    article_was_refetched as _article_was_refetched,
+    claim_item_processing_target as _claim_item_ai_enrichment_target,
+    claim_item_processing_target as _claim_item_article_processing_target,
+    exception_type_name as _exception_type_name,
+    feed_url_digest_still_current as _feed_url_digest_still_current,
+    load_article_freshness_token as _load_article_freshness_token,
+    resolve_feed_runtime_url as _resolve_feed_runtime_url,
+    safe_article_fetch_error_code as _safe_article_fetch_error_code,
+    safe_feed_fetch_error_code as _safe_feed_fetch_error_code,
+)
+from app.tasks.feed_task_scheduling import (
+    is_feed_due as _is_feed_due,
+    is_scheduled_feed_due as _is_scheduled_feed_due,
+    next_feed_fetch_at as _next_feed_fetch_at,
+    next_scheduled_feed_fetch_at as _next_scheduled_feed_fetch_at,
+    refresh_feed_next_fetch_at as _refresh_feed_next_fetch_at,
+)
+from app.tasks.feed_task_storage import (
+    RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD,
+    apply_article_summary_fallback as _apply_article_summary_fallback,
+    article_fetch_error_result as _article_fetch_error_result,
+    get_or_create_ioc as _get_or_create_ioc,
+    rss_summary_fallback_text as _rss_summary_fallback_text,
+    store_article_error as _store_article_error,
+)
+from app.tasks.integration_tasks import (
+    dispatch_pending_integration_deliveries,
+    dispatch_pending_integration_events,
+    enqueue_integration_delivery_processing,
+    enqueue_integration_event_routing,
+    maintain_integration_delivery_history,
+    process_integration_deliveries,
+    route_integration_event,
+)
+from app.tasks.notification_tasks import (
+    _emit_failed_webhook_integration_event,
+    _enqueue_smtp_alert_match_notification,
+    _enqueue_smtp_feed_failing_notification,
+    _enqueue_smtp_new_item_notifications,
+    _feed_failing_smtp_scope_key,
+    _mark_failed_webhook_delivery_dead_letter,
+    _process_reserved_notification_deliveries,
+    dispatch_alert_match_notification_webhooks,
+    dispatch_daily_digest_notification_webhooks,
+    dispatch_feed_failing_notification_webhooks,
+    dispatch_new_item_notification_webhooks,
+    dispatch_pending_notification_webhook_deliveries,
+    dispatch_smtp_alert_match_notification,
+    dispatch_smtp_feed_failing_notification,
+    dispatch_smtp_new_item_notification,
+    dispatch_smtp_webhook_failed_notification,
+    dispatch_webhook_failed_notification_webhooks,
+    enqueue_notification_webhook_delivery_processing,
+    mark_feed_failure_and_enqueue_notifications as _mark_feed_failure_and_enqueue_notifications,
+    process_notification_webhook_deliveries,
+    reserve_notification_webhook_delivery,
+)
+from app.tasks.task_session import db_session
 
 settings = get_settings()
 redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
 logger = logging.getLogger(__name__)
 
-DOMAIN_SLOT_TTL_SECONDS = 30
-DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
+__all__ = [
+    "CoordinationUnavailableError",
+    "DAILY_BRIEF_STALE_RETRY_WINDOW",
+    "DOMAIN_SLOT_TTL_SECONDS",
+    "DOMAIN_SLOT_WAIT_INTERVAL_SECONDS",
+    "RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD",
+    "TAGGING_REAPPLY_LOCK_KEY",
+    "_best_effort_release_lease",
+    "_article_freshness_token",
+    "_daily_brief_backfill_attempt_is_settled",
+    "_daily_brief_backfill_attempt_number",
+    "_daily_brief_backfill_attempts",
+    "_daily_brief_backfill_reference_times",
+    "_domain_slot_key",
+    "_emit_failed_webhook_integration_event",
+    "_enqueue_smtp_alert_match_notification",
+    "_enqueue_smtp_feed_failing_notification",
+    "_enqueue_smtp_new_item_notifications",
+    "_feed_failing_smtp_scope_key",
+    "_is_stale_daily_brief_task_run",
+    "_is_scheduled_feed_due",
+    "_lease_heartbeat_is_stale",
+    "_lease_heartbeat_key",
+    "_lease_heartbeat_value",
+    "_lease_remaining_ttl_ms",
+    "_lease_renewal_interval_seconds",
+    "_lease_takeover_stale_after_seconds",
+    "_mark_failed_webhook_delivery_dead_letter",
+    "_next_scheduled_feed_fetch_at",
+    "_parse_lease_heartbeat",
+    "_process_reserved_notification_deliveries",
+    "_redis_lease_heartbeat",
+    "_rss_summary_fallback_text",
+    "_scheduled_daily_ai_brief_due",
+    "_try_take_stale_lease",
+    "_write_lease_heartbeat",
+    "backfill_daily_ai_briefs",
+    "claim_tagging_reapply_dispatch",
+    "daily_ai_brief_lock",
+    "dispatch_daily_ai_brief_generation",
+    "dispatch_alert_match_notification_webhooks",
+    "dispatch_daily_digest_notification_webhooks",
+    "dispatch_feed_failing_notification_webhooks",
+    "dispatch_new_item_notification_webhooks",
+    "dispatch_pending_notification_webhook_deliveries",
+    "dispatch_pending_integration_deliveries",
+    "dispatch_pending_integration_events",
+    "dispatch_smtp_alert_match_notification",
+    "dispatch_smtp_feed_failing_notification",
+    "dispatch_smtp_new_item_notification",
+    "dispatch_smtp_webhook_failed_notification",
+    "dispatch_webhook_failed_notification_webhooks",
+    "enqueue_integration_delivery_processing",
+    "enqueue_notification_webhook_delivery_processing",
+    "maintain_integration_delivery_history",
+    "process_integration_deliveries",
+    "process_notification_webhook_deliveries",
+    "reconcile_ai_task_runs",
+    "release_tagging_reapply_dispatch",
+    "reserve_notification_webhook_delivery",
+    "route_integration_event",
+]
+
 IOC_EXTRACTION_STATE_COMPLETED = "completed"
 IOC_EXTRACTION_STATE_COMPLETED_EMPTY = "completed_empty"
 ARTICLE_REFRESHED_SKIP_REASON = "article_refetched"
 TAGGING_REAPPLY_COMMIT_INTERVAL = 50
-TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
-RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD = "rss_summary_fallback"
-RSS_SUMMARY_FALLBACK_HTTP_STATUSES = {401, 403, 404, 405, 410, 451}
-RSS_SUMMARY_FALLBACK_EXACT_ERRORS = {
-    "non_html_response",
-    "no_extractor_succeeded",
-    "response_too_large",
-}
-RSS_SUMMARY_FALLBACK_PREFIXES = ("readability_error:",)
-
-
-class ResponseTooLargeError(Exception):
-    pass
-
-
-class FeedResponseTooLargeError(Exception):
-    pass
-
-
-class CoordinationUnavailableError(RuntimeError):
-    pass
-
-
-DAILY_BRIEF_STALE_RETRY_WINDOW = timedelta(minutes=15)
-LEASE_HEARTBEAT_SUFFIX = ":heartbeat"
-
-
-def _exception_type_name(exc: BaseException) -> str:
-    return exc.__class__.__name__
-
-
-def _safe_feed_fetch_error_code(exc: BaseException) -> str:
-    if isinstance(exc, CoordinationUnavailableError):
-        return "coordination_unavailable"
-    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
-        return "network_timeout"
-    if isinstance(exc, RedirectError):
-        return "redirect_error"
-    if isinstance(exc, SafeFetchError):
-        return "unsafe_fetch_error"
-    return "network_error"
-
-
-def _safe_article_fetch_error_code(exc: BaseException) -> str:
-    if isinstance(exc, CoordinationUnavailableError):
-        return "coordination_unavailable"
-    if isinstance(exc, ResponseTooLargeError):
-        return "response_too_large"
-    return "network_or_rate_limit_error"
 
 
 def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
@@ -190,231 +251,6 @@ def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None
     db.commit()
 
 
-@contextmanager
-def db_session() -> Session:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def _lease_renewal_interval_seconds(ttl_seconds: int) -> float:
-    ttl_seconds = max(1, int(ttl_seconds))
-    return max(0.5, min(15.0, ttl_seconds / 3.0))
-
-
-def _lease_heartbeat_key(key: str) -> str:
-    return f"{key}{LEASE_HEARTBEAT_SUFFIX}"
-
-
-def _lease_heartbeat_value(token: str, *, at: float | None = None) -> str:
-    heartbeat_at = time.time() if at is None else float(at)
-    return f"{token}|{heartbeat_at:.6f}"
-
-
-def _parse_lease_heartbeat(raw_value: str | None) -> tuple[str, float] | None:
-    if not raw_value:
-        return None
-
-    token, separator, raw_timestamp = raw_value.partition("|")
-    if not separator or not token:
-        return None
-    try:
-        return token, float(raw_timestamp)
-    except ValueError:
-        return None
-
-
-def _lease_takeover_stale_after_seconds(ttl_seconds: int) -> float:
-    return float(max(1, int(ttl_seconds)))
-
-
-def _lease_remaining_ttl_ms(key: str) -> int | None:
-    get_pttl = getattr(redis_client, "pttl", None)
-    if callable(get_pttl):
-        return int(get_pttl(key))
-
-    get_ttl = getattr(redis_client, "ttl", None)
-    if callable(get_ttl):
-        ttl_seconds = get_ttl(key)
-        if ttl_seconds is None:
-            return None
-        ttl_seconds = int(ttl_seconds)
-        return ttl_seconds * 1000 if ttl_seconds >= 0 else ttl_seconds
-
-    return None
-
-
-def _lease_heartbeat_is_stale(raw_value: str | None, *, ttl_seconds: int, now: float | None = None) -> bool:
-    parsed = _parse_lease_heartbeat(raw_value)
-    if parsed is None:
-        return False
-
-    _token, heartbeat_at = parsed
-    observed_at = time.time() if now is None else float(now)
-    return observed_at - heartbeat_at >= _lease_takeover_stale_after_seconds(ttl_seconds)
-
-
-def _write_lease_heartbeat(key: str, ttl_seconds: int, token: str, *, at: float | None = None) -> None:
-    redis_client.set(_lease_heartbeat_key(key), _lease_heartbeat_value(token, at=at), ex=ttl_seconds)
-
-
-def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_message: str) -> bool:
-    heartbeat_key = _lease_heartbeat_key(key)
-
-    try:
-        observed_token = redis_client.get(key)
-        if not observed_token:
-            acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-            if acquired:
-                try:
-                    _write_lease_heartbeat(key, ttl_seconds, token)
-                except redis.RedisError:
-                    pass
-            return acquired
-
-        remaining_ttl_ms = _lease_remaining_ttl_ms(key)
-        if remaining_ttl_ms == -2:
-            acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-            if acquired:
-                try:
-                    _write_lease_heartbeat(key, ttl_seconds, token)
-                except redis.RedisError:
-                    pass
-            return acquired
-
-        if remaining_ttl_ms is None or remaining_ttl_ms >= 0:
-            return False
-
-        observed_heartbeat = redis_client.get(heartbeat_key)
-        if not _lease_heartbeat_is_stale(observed_heartbeat, ttl_seconds=ttl_seconds):
-            return False
-
-        new_heartbeat = _lease_heartbeat_value(token)
-        replaced = redis_client.eval(
-            (
-                "local current = redis.call('get', KEYS[1]) "
-                "local current_hb = redis.call('get', KEYS[2]) "
-                "if current ~= ARGV[1] then return 0 end "
-                "if redis.call('pttl', KEYS[1]) ~= -1 then return 0 end "
-                "if ARGV[2] == '__missing__' then "
-                "  if current_hb then return 0 end "
-                "else "
-                "  if current_hb ~= ARGV[2] then return 0 end "
-                "end "
-                "redis.call('set', KEYS[1], ARGV[3], 'EX', ARGV[5]) "
-                "redis.call('set', KEYS[2], ARGV[4], 'EX', ARGV[5]) "
-                "return 1"
-            ),
-            2,
-            key,
-            heartbeat_key,
-            observed_token,
-            observed_heartbeat if observed_heartbeat is not None else "__missing__",
-            token,
-            new_heartbeat,
-            ttl_seconds,
-        )
-        return bool(replaced)
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError(error_message) from exc
-
-
-@contextmanager
-def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None):
-    stop_event = threading.Event()
-    renew_interval_seconds = _lease_renewal_interval_seconds(ttl_seconds)
-
-    def _renew() -> None:
-        while not stop_event.wait(renew_interval_seconds):
-            try:
-                if token is not None:
-                    current_token = None
-                    get_redis_value = getattr(redis_client, "get", None)
-                    if callable(get_redis_value):
-                        current_token = get_redis_value(key)
-                    if current_token != token:
-                        return
-                redis_client.expire(key, ttl_seconds)
-                if token is not None:
-                    _write_lease_heartbeat(key, ttl_seconds, token)
-            except redis.RedisError:
-                continue
-
-    _renewal_thread = threading.Thread(
-        target=_renew,
-        name=f"threatlens-lease-renewal:{key}",
-        daemon=True,
-    )
-    _renewal_thread.start()
-    try:
-        if token is not None:
-            try:
-                _write_lease_heartbeat(key, ttl_seconds, token)
-            except redis.RedisError:
-                pass
-        yield
-    finally:
-        stop_event.set()
-        _renewal_thread.join(timeout=0.1)
-
-
-def _process_reserved_notification_deliveries(
-    db: Session,
-    delivery_ids: list[uuid.UUID],
-) -> tuple[int, int]:
-    return _process_reserved_notification_deliveries_impl(
-        db,
-        delivery_ids,
-        process_delivery=lambda session, *, delivery_id: process_notification_webhook_delivery(
-            session,
-            delivery_id=delivery_id,
-            commit_outcome=False,
-        ),
-        reserve_retryable_delivery=reserve_retryable_notification_webhook_delivery,
-        reserve_failed_delivery_notifications=None,
-        enqueue_delivery_processing=enqueue_notification_webhook_delivery_processing,
-        logger=logger,
-        emit_failed_delivery_event=_emit_failed_webhook_integration_event,
-        enqueue_event_routing=enqueue_integration_event_routing,
-        mark_dead_letter=_mark_failed_webhook_delivery_dead_letter,
-    )
-
-
-def _mark_failed_webhook_delivery_dead_letter(
-    db: Session,
-    failed_delivery: NotificationWebhookDelivery,
-) -> None:
-    if failed_delivery.integration_delivery_id is None:
-        return
-    mark_integration_delivery_dead_letter(
-        db,
-        delivery_id=failed_delivery.integration_delivery_id,
-        error_code="attempts_exhausted",
-        error_message=failed_delivery.error or "Webhook delivery attempts were exhausted.",
-    )
-
-
-def _emit_failed_webhook_integration_event(
-    db: Session,
-    failed_delivery: NotificationWebhookDelivery,
-) -> uuid.UUID:
-    event = emit_integration_event(
-        db,
-        event_type="webhook_failed",
-        source_type="notification_webhook_delivery",
-        source_id=failed_delivery.id,
-        idempotency_key=f"webhook_delivery:{failed_delivery.id}:webhook_failed:v1",
-        payload={
-            "source_delivery_id": str(failed_delivery.id),
-            "feed_id": str(failed_delivery.feed_id) if failed_delivery.feed_id else None,
-            "owner_user_id": str(failed_delivery.user_id),
-        },
-    )
-    return event.id
-
-
 def _enqueue_classification_task(item_id: str) -> bool:
     try:
         classify_item.delay(item_id)
@@ -422,44 +258,6 @@ def _enqueue_classification_task(item_id: str) -> bool:
         logger.exception("item_classification_enqueue_failed item_id=%s error=%s", item_id, exc)
         return False
     return True
-
-
-def enqueue_notification_webhook_delivery_processing(
-    delivery_ids: list[uuid.UUID],
-    *,
-    countdown: int | None = None,
-) -> bool:
-    return _enqueue_notification_delivery_batches(
-        delivery_ids,
-        batch_size=settings.notification_delivery_enqueue_batch_size,
-        delivery_task=process_notification_webhook_deliveries,
-        logger=logger,
-        countdown=countdown,
-    )
-
-
-def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
-    all_enqueued = True
-    for event_id in event_ids:
-        try:
-            route_integration_event.delay(str(event_id))
-        except Exception as exc:
-            all_enqueued = False
-            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
-    return all_enqueued
-
-
-def enqueue_integration_delivery_processing(
-    delivery_ids: list[uuid.UUID],
-    countdown: int | None = None,
-) -> bool:
-    return _enqueue_notification_delivery_batches(
-        delivery_ids,
-        batch_size=settings.notification_delivery_enqueue_batch_size,
-        delivery_task=process_integration_deliveries,
-        logger=logger,
-        countdown=countdown,
-    )
 
 
 def _emit_item_integration_event(
@@ -478,98 +276,6 @@ def _emit_item_integration_event(
         payload={"item_id": str(item.id), "feed_id": str(feed.id)},
     )
     return event.id
-
-
-def _enqueue_smtp_notification_items(item_ids: list[uuid.UUID], *, task) -> bool:
-    all_enqueued = True
-    for item_id in item_ids:
-        try:
-            task.delay(str(item_id))
-        except Exception as exc:
-            all_enqueued = False
-            logger.exception(
-                "smtp_notification_enqueue_failed task=%s item_id=%s error=%s",
-                getattr(task, "name", "unknown"),
-                item_id,
-                exc,
-            )
-    return all_enqueued
-
-
-def _enqueue_smtp_new_item_notifications(item_ids: list[uuid.UUID]) -> bool:
-    return _enqueue_smtp_notification_items(item_ids, task=dispatch_smtp_new_item_notification)
-
-
-def _enqueue_smtp_alert_match_notification(item_id: uuid.UUID) -> bool:
-    return _enqueue_smtp_notification_items([item_id], task=dispatch_smtp_alert_match_notification)
-
-
-def _enqueue_smtp_feed_failing_notification(feed_id: uuid.UUID) -> bool:
-    try:
-        dispatch_smtp_feed_failing_notification.delay(str(feed_id))
-    except Exception as exc:
-        logger.exception("smtp_feed_failing_notification_enqueue_failed feed_id=%s error=%s", feed_id, exc)
-        return False
-    return True
-
-
-def _smtp_task_response(result: SMTPDispatchResult, **identifiers: str) -> dict[str, Any]:
-    response = {
-        "status": result.status,
-        **identifiers,
-        "reason": result.reason,
-        "sent": 1 if result.sent else 0,
-        "failed": 1 if result.failed else 0,
-        "skipped": 1 if result.skipped else 0,
-    }
-    if result.delivery is not None:
-        response.update(
-            {
-                "recipient_count": result.delivery.recipient_count,
-                "accepted_count": result.delivery.accepted_count,
-                "error_code": result.delivery.error_code,
-            }
-        )
-    return response
-
-
-def _smtp_skipped_task_response(reason: str | None, **identifiers: str) -> dict[str, Any]:
-    return _smtp_task_response(SMTPDispatchResult(status="skipped", reason=reason), **identifiers)
-
-
-def _safe_enqueue_smtp_task(task, value: str) -> bool:
-    try:
-        task.delay(value)
-    except Exception as exc:
-        logger.exception(
-            "smtp_notification_enqueue_failed task=%s value=%s error=%s",
-            getattr(task, "name", "unknown"),
-            value,
-            exc,
-        )
-        return False
-    return True
-
-
-def _load_item_and_feed_for_notification(db: Session, item_id: str) -> tuple[Item | None, Feed | None, str | None]:
-    try:
-        parsed_item_id = uuid.UUID(item_id)
-    except ValueError:
-        return None, None, "invalid_item_id"
-
-    item = db.scalar(select(Item).where(Item.id == parsed_item_id))
-    if item is None:
-        return None, None, "item_not_found"
-
-    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-    if feed is None:
-        return item, None, "feed_not_found"
-    return item, feed, None
-
-
-def _feed_failing_smtp_scope_key(now: datetime) -> str:
-    current = _coerce_utc(now) or datetime.now(timezone.utc)
-    return f"{current.date().isoformat()}:{current.hour // 12}"
 
 
 def enqueue_article_fetch_processing(item_ids: list[uuid.UUID]) -> bool:
@@ -612,144 +318,6 @@ def _needs_feed_metadata_backfill(feed: Feed) -> bool:
     return _needs_metadata_backfill(feed)
 
 
-def _resolve_feed_runtime_url(feed: Feed) -> tuple[str | None, str | None]:
-    if feed.url_decryption_error:
-        return None, feed.url_decryption_error
-    feed_url = feed.url.strip()
-    if not feed_url:
-        return None, "Feed URL is empty"
-    return feed_url, None
-
-
-def _feed_url_digest_still_current(db: Session, *, feed_id: uuid.UUID, expected_url_digest: str | None) -> bool:
-    current_url_digest = db.scalar(select(Feed.url_digest).where(Feed.id == feed_id))
-    return current_url_digest == expected_url_digest
-
-
-def _article_freshness_token_value(
-    article_id: uuid.UUID | None,
-    retrieved_at: datetime | None,
-) -> tuple[str | None, str | None]:
-    if article_id is None or retrieved_at is None:
-        return None, None
-
-    if retrieved_at.tzinfo is None:
-        retrieved_at = retrieved_at.replace(tzinfo=timezone.utc)
-    return str(article_id), retrieved_at.isoformat()
-
-
-def _article_freshness_token(article: Article | None) -> tuple[str | None, str | None]:
-    if article is None:
-        return None, None
-    return _article_freshness_token_value(article.id, article.retrieved_at)
-
-
-def _load_article_freshness_token(db: Session, *, item_id: uuid.UUID) -> tuple[str | None, str | None]:
-    row = db.execute(select(Article.id, Article.retrieved_at).where(Article.item_id == item_id)).one_or_none()
-    if row is None:
-        return None, None
-
-    article_id, retrieved_at = row
-    return _article_freshness_token_value(article_id, retrieved_at)
-
-
-def _article_was_refetched(
-    db: Session,
-    *,
-    item_id: uuid.UUID,
-    expected_token: tuple[str | None, str | None],
-) -> bool:
-    return _load_article_freshness_token(db, item_id=item_id) != expected_token
-
-
-def _domain_slot_key(domain: str, slot_number: int) -> str:
-    return f"threatlens:domain:{domain}:slot:{slot_number}"
-
-
-def _best_effort_release_lease(key: str, token: str) -> None:
-    try:
-        redis_client.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            1,
-            key,
-            token,
-        )
-        redis_client.delete(_lease_heartbeat_key(key))
-    except redis.RedisError:
-        pass
-
-
-@contextmanager
-def domain_slot(domain: str, max_wait_seconds: int = 30):
-    if not domain:
-        yield
-        return
-
-    concurrency_limit = max(1, int(getattr(settings, "per_domain_concurrency", 1) or 1))
-    deadline = time.monotonic() + max_wait_seconds
-    token = secrets.token_hex(16)
-    acquired_key: str | None = None
-
-    while time.monotonic() < deadline and acquired_key is None:
-        for slot_number in range(1, concurrency_limit + 1):
-            key = _domain_slot_key(domain, slot_number)
-            try:
-                acquired = bool(redis_client.set(key, token, nx=True, ex=DOMAIN_SLOT_TTL_SECONDS))
-                if not acquired:
-                    acquired = _try_take_stale_lease(
-                        key,
-                        DOMAIN_SLOT_TTL_SECONDS,
-                        token,
-                        error_message="domain slot unavailable",
-                    )
-            except redis.RedisError as exc:
-                raise CoordinationUnavailableError("domain slot unavailable") from exc
-
-            if acquired:
-                acquired_key = key
-                break
-
-        if acquired_key is None:
-            time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
-
-    if acquired_key is None:
-        raise TimeoutError(f"domain slot timeout for {domain}")
-
-    try:
-        with _redis_lease_heartbeat(acquired_key, DOMAIN_SLOT_TTL_SECONDS, token):
-            yield
-    finally:
-        _best_effort_release_lease(acquired_key, token)
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.process_notification_webhook_deliveries",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def process_notification_webhook_deliveries(delivery_ids: list[str]):
-    parsed_delivery_ids: list[uuid.UUID] = []
-    skipped = 0
-    for delivery_id in delivery_ids:
-        try:
-            parsed_delivery_ids.append(uuid.UUID(delivery_id))
-        except ValueError:
-            skipped += 1
-
-    if not parsed_delivery_ids:
-        return {"status": "skipped", "reason": "no_valid_delivery_ids", "skipped": skipped}
-
-    with db_session() as db:
-        delivered, failed = _process_reserved_notification_deliveries(db, parsed_delivery_ids)
-        return {
-            "status": "ok",
-            "scanned": len(parsed_delivery_ids),
-            "delivered": delivered,
-            "failed": failed,
-            "skipped": skipped,
-        }
-
-
 def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) -> None:
     with db_session() as db:
         update_ai_task_run_celery(db, run_id=run_id, celery_task_id=celery_task_id)
@@ -762,36 +330,6 @@ def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id
     if celery_task_id is None:
         return True
     return run.celery_task_id in (None, celery_task_id)
-
-
-def _claim_item_ai_enrichment_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(
-        select(Item)
-        .where(Item.id == item_id)
-        .with_for_update(skip_locked=True)
-    )
-    if item is not None:
-        return item, None
-
-    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
-    if unlocked_item is None:
-        return None, "not_found"
-    return None, "already_running"
-
-
-def _claim_item_article_processing_target(db: Session, *, item_id: uuid.UUID) -> tuple[Item | None, str | None]:
-    item = db.scalar(
-        select(Item)
-        .where(Item.id == item_id)
-        .with_for_update(skip_locked=True)
-    )
-    if item is not None:
-        return item, None
-
-    unlocked_item = db.scalar(select(Item).where(Item.id == item_id))
-    if unlocked_item is None:
-        return None, "not_found"
-    return None, "already_running"
 
 
 def _queue_item_ai_enrichment_run(
@@ -821,7 +359,7 @@ def _queue_item_ai_enrichment_run(
         run_id = run.id
     try:
         task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
-    except Exception as exc:
+    except Exception:
         with db_session() as db:
             finish_ai_task_run(
                 db,
@@ -951,1378 +489,75 @@ def _record_skipped_item_ai_enrichment_run(
         return run.id
 
 
-@contextmanager
-def feed_lock(feed_id: str, ttl_seconds: int = 900):
-    key = f"threatlens:feed:lock:{feed_id}"
-    token = secrets.token_hex(16)
-
-    acquired = False
-    try:
-        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-        if not acquired:
-            acquired = _try_take_stale_lease(key, ttl_seconds, token, error_message="feed lock unavailable")
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError("feed lock unavailable") from exc
-
-    if not acquired:
-        yield False
-        return
-
-    try:
-        with _redis_lease_heartbeat(key, ttl_seconds, token):
-            yield True
-    finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
-
-
-@contextmanager
-def daily_ai_brief_lock(ttl_seconds: int = 900):
-    key = "threatlens:ai:daily_brief:lock"
-    token = secrets.token_hex(16)
-
-    acquired = False
-    try:
-        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-        if not acquired:
-            acquired = _try_take_stale_lease(
-                key,
-                ttl_seconds,
-                token,
-                error_message="daily brief lock unavailable",
-            )
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError("daily brief lock unavailable") from exc
-
-    if not acquired:
-        yield False
-        return
-
-    try:
-        with _redis_lease_heartbeat(key, ttl_seconds, token):
-            yield True
-    finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
-
-
-def claim_tagging_reapply_dispatch(ttl_seconds: int = 900) -> str | None:
-    key = TAGGING_REAPPLY_LOCK_KEY
-    token = secrets.token_hex(16)
-
-    try:
-        acquired = bool(redis_client.set(key, token, nx=True, ex=ttl_seconds))
-        if not acquired:
-            acquired = _try_take_stale_lease(
-                key,
-                ttl_seconds,
-                token,
-                error_message="tagging reapply lock unavailable",
-            )
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError("tagging reapply lock unavailable") from exc
-    return token if acquired else None
-
-
-def release_tagging_reapply_dispatch(token: str) -> None:
-    try:
-        redis_client.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            1,
-            TAGGING_REAPPLY_LOCK_KEY,
-            token,
-        )
-        redis_client.delete(_lease_heartbeat_key(TAGGING_REAPPLY_LOCK_KEY))
-    except redis.RedisError:
-        return
-
-
-@contextmanager
-def tagging_reapply_lock(ttl_seconds: int = 900, token: str | None = None):
-    key = TAGGING_REAPPLY_LOCK_KEY
-    resolved_token = token or secrets.token_hex(16)
-
-    acquired = False
-    try:
-        if token and redis_client.get(key) == token:
-            acquired = True
-        else:
-            acquired = bool(redis_client.set(key, resolved_token, nx=True, ex=ttl_seconds))
-        if not acquired:
-            acquired = _try_take_stale_lease(
-                key,
-                ttl_seconds,
-                resolved_token,
-                error_message="tagging reapply lock unavailable",
-            )
-    except redis.RedisError as exc:
-        raise CoordinationUnavailableError("tagging reapply lock unavailable") from exc
-
-    if not acquired:
-        yield False
-        return
-
-    try:
-        with _redis_lease_heartbeat(key, ttl_seconds, resolved_token):
-            yield True
-    finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                resolved_token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
-
-
-def _scheduled_daily_ai_brief_due(db: Session, *, now: datetime) -> tuple[bool, str | None]:
-    active = load_active_ai_settings(db)
-    if not active.ai_enabled:
-        return False, "ai_disabled"
-    if not active.ai_configured:
-        return False, "ai_not_configured"
-    if not active.daily_brief_enabled:
-        return False, "daily_brief_disabled"
-
-    scheduled_at = now.replace(
-        hour=active.daily_brief_schedule_hour_utc,
-        minute=active.daily_brief_schedule_minute_utc,
-        second=0,
-        microsecond=0,
-    )
-    if now < scheduled_at:
-        return False, "scheduled_time_not_reached"
-
-    existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == now.date()))
-    if existing is not None:
-        if existing.status == "ready":
-            return False, "already_generated"
-        if existing.status == "pending" and not is_stale_daily_brief_pending(existing, now=now):
-            return False, "already_running"
-
-    in_flight_run = db.scalar(
-        select(AITaskRun.id)
-        .where(
-            AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
-            AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
-            AITaskRun.queued_at >= scheduled_at,
-            AITaskRun.queued_at < scheduled_at + timedelta(days=1),
-        )
-        .order_by(AITaskRun.queued_at.desc())
-        .limit(1)
-    )
-    if in_flight_run is not None:
-        task_run = db.scalar(select(AITaskRun).where(AITaskRun.id == in_flight_run))
-        if task_run is not None and not _is_stale_daily_brief_task_run(task_run, now=now):
-            return False, "already_running"
-
-    return True, None
-
-
-def _is_stale_daily_brief_task_run(run: AITaskRun, *, now: datetime) -> bool:
-    reference = run.updated_at or run.started_at or run.queued_at or run.created_at
-    if reference is None:
-        return True
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
-    return now - reference >= DAILY_BRIEF_STALE_RETRY_WINDOW
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
 def dispatch_due_feeds():
-    now = datetime.now(timezone.utc)
-    queued = 0
-
-    with db_session() as db:
-        batch_size = max(0, int(settings.dispatch_due_feeds_batch_size))
-        if batch_size <= 0:
-            return {"queued": 0}
-        feed_ids = db.scalars(
-            select(Feed.id)
-            .where(
-                Feed.enabled.is_(True),
-                or_(Feed.next_fetch_at.is_(None), Feed.next_fetch_at <= now),
-                or_(Feed.dispatch_backoff_until.is_(None), Feed.dispatch_backoff_until <= now),
-            )
-            .order_by(Feed.next_fetch_at.asc(), Feed.created_at.asc())
-            .limit(batch_size * 5)
-        ).all()
-        for feed_id in feed_ids:
-            if queued >= batch_size:
-                break
-            if not _claim_feed_for_dispatch(db, feed_id=feed_id, now=now):
-                db.rollback()
-                continue
-            db.commit()
-            try:
-                fetch_feed.delay(str(feed_id))
-            except Exception as exc:
-                logger.exception("feed_dispatch_enqueue_failed feed_id=%s error=%s", feed_id, exc)
-                claimed_feed = db.scalar(select(Feed).where(Feed.id == feed_id))
-                if claimed_feed is not None:
-                    _clear_feed_dispatch_claim(claimed_feed)
-                    claimed_feed.next_fetch_at = _next_feed_fetch_at(claimed_feed, datetime.now(timezone.utc))
-                    db.add(claimed_feed)
-                db.commit()
-                continue
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_due_feeds(
+        db_session_factory=db_session,
+        settings=settings,
+        claim_feed_for_dispatch=_claim_feed_for_dispatch,
+        fetch_feed_task=fetch_feed,
+        clear_feed_dispatch_claim=_clear_feed_dispatch_claim,
+        next_feed_fetch_at=_next_feed_fetch_at,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_unclassified_items")
 def dispatch_unclassified_items():
-    queued = 0
-    with db_session() as db:
-        item_ids = db.scalars(
-            select(Item.id)
-            .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-            .where(ItemClassification.item_id.is_(None))
-            .order_by(Item.first_seen_at.asc())
-            .limit(settings.dispatch_unclassified_items_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        if _enqueue_classification_task(str(item_id)):
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_unclassified_items(
+        db_session_factory=db_session,
+        settings=settings,
+        enqueue_classification_task=_enqueue_classification_task,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_articles")
 def dispatch_items_missing_articles():
-    with db_session() as db:
-        item_ids = _list_item_ids_missing_articles(
-            db,
-            limit=settings.dispatch_items_missing_articles_batch_size,
-        )
-
-    queued = 0
-    for item_id in item_ids:
-        try:
-            fetch_article.delay(str(item_id))
-        except Exception as exc:
-            logger.exception("article_fetch_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_articles(
+        db_session_factory=db_session,
+        settings=settings,
+        list_item_ids_missing_articles=_list_item_ids_missing_articles,
+        fetch_article_task=fetch_article,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_iocs")
 def dispatch_items_missing_iocs():
-    queued = 0
-    with db_session() as db:
-        missing_ioc_links = ~exists(select(ItemIOC.item_id).where(ItemIOC.item_id == Item.id))
-        item_ids = db.scalars(
-            select(Item.id)
-            .where(
-                or_(
-                    Item.ioc_extraction_state.is_(None),
-                    and_(
-                        Item.ioc_extraction_state == IOC_EXTRACTION_STATE_COMPLETED,
-                        missing_ioc_links,
-                    ),
-                )
-            )
-            .order_by(Item.first_seen_at.asc())
-            .limit(settings.dispatch_items_missing_iocs_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        try:
-            extract_item_iocs.delay(str(item_id))
-        except Exception as exc:
-            logger.exception("item_ioc_repair_enqueue_failed item_id=%s error=%s", item_id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_iocs(
+        db_session_factory=db_session,
+        settings=settings,
+        completed_state=IOC_EXTRACTION_STATE_COMPLETED,
+        extract_item_iocs_task=extract_item_iocs,
+        logger=logger,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_items_missing_ai_enrichment")
 def dispatch_items_missing_ai_enrichment():
-    queued = 0
-    with db_session() as db:
-        active = load_active_ai_settings(db)
-        if not active.ai_enabled:
-            return {"queued": 0, "reason": "ai_disabled"}
-        if not active.ai_configured:
-            return {"queued": 0, "reason": "ai_not_configured"}
-        if not active.auto_enrich_new_items:
-            return {"queued": 0, "reason": "auto_enrich_disabled"}
-        _reconcile_stale_ai_runs(db)
-        now = datetime.now(timezone.utc)
-        auto_enrich_cutoff = _auto_ai_enrich_new_item_cutoff(now)
-        auto_enrich_window_hours = _auto_ai_enrich_new_item_window_hours()
-        error_recovery_cutoff = now - timedelta(
-            seconds=max(0, int(settings.dispatch_items_failed_ai_enrichment_after_seconds))
-        )
-
-        in_flight_enrichment_run = exists(
-            select(AITaskRun.id).where(
-                AITaskRun.item_id == Item.id,
-                AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,
-                AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),
-            )
-        )
-        item_ids = db.scalars(
-            select(Item.id)
-            .join(ItemClassification, ItemClassification.item_id == Item.id)
-            .join(Article, Article.item_id == Item.id)
-            .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
-            .where(
-                Item.status == "content_fetched",
-                Item.published_at.is_not(None),
-                Item.published_at >= auto_enrich_cutoff,
-                Item.first_seen_at >= auto_enrich_cutoff,
-                ItemClassification.classified_at >= auto_enrich_cutoff,
-                Article.text.is_not(None),
-                Article.text != "",
-                or_(
-                    ItemAIEnrichment.item_id.is_(None),
-                    and_(
-                        ItemAIEnrichment.status == "error",
-                        ItemAIEnrichment.updated_at <= error_recovery_cutoff,
-                    ),
-                ),
-                ~in_flight_enrichment_run,
-            )
-            .order_by(ItemClassification.classified_at.asc(), Item.first_seen_at.asc())
-            .limit(settings.dispatch_items_missing_ai_enrichment_batch_size)
-        ).all()
-
-    for item_id in item_ids:
-        if _safe_queue_item_ai_enrichment_run(
-            item_id=item_id,
-            trigger_source=AI_TRIGGER_AUTO,
-            reason=None,
-            model=getattr(active, "model", None),
-            metadata={
-                "recovery": "recent_missing_or_failed_enrichment",
-                "force": False,
-                "auto_enrich_new_item_max_age_hours": auto_enrich_window_hours,
-            },
-        ):
-            queued += 1
-
-    return {"queued": queued}
+    return _dispatch_items_missing_ai_enrichment(
+        db_session_factory=db_session,
+        settings=settings,
+        load_active_ai_settings=load_active_ai_settings,
+        reconcile_stale_ai_runs=_reconcile_stale_ai_runs,
+        auto_enrich_cutoff=_auto_ai_enrich_new_item_cutoff,
+        auto_enrich_window_hours=_auto_ai_enrich_new_item_window_hours,
+        safe_queue_item_ai_enrichment_run=_safe_queue_item_ai_enrichment_run,
+        trigger_source=AI_TRIGGER_AUTO,
+    )
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_feed_metadata_backfill")
 def dispatch_feed_metadata_backfill():
-    queued = 0
-    with db_session() as db:
-        feeds = db.scalars(
-            select(Feed)
-            .where(
-                Feed.enabled.is_(True),
-                or_(
-                    func.trim(Feed.name) == "",
-                    func.lower(func.trim(Feed.name)).like("http://%"),
-                    func.lower(func.trim(Feed.name)).like("https://%"),
-                    Feed.site_url.is_(None),
-                ),
-            )
-            .order_by(Feed.created_at.asc())
-            .limit(settings.dispatch_feed_metadata_scan_limit)
-        ).all()
-
-    for feed in feeds:
-        if queued >= settings.dispatch_feed_metadata_queue_limit:
-            break
-        if not _needs_feed_metadata_backfill(feed):
-            continue
-        try:
-            backfill_feed_metadata.delay(str(feed.id))
-        except Exception as exc:
-            logger.exception("feed_metadata_backfill_enqueue_failed feed_id=%s error=%s", feed.id, exc)
-            continue
-        queued += 1
-
-    return {"queued": queued}
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_smtp_new_item_notification",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_smtp_new_item_notification(item_id: str):
-    with db_session() as db:
-        item, feed, reason = _load_item_and_feed_for_notification(db, item_id)
-        if item is None or feed is None:
-            return _smtp_skipped_task_response(reason, item_id=item_id)
-        result = dispatch_smtp_notification(db, event_type="rss_item_new", feed=feed, item=item)
-        db.commit()
-        return _smtp_task_response(result, item_id=item_id)
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_smtp_alert_match_notification",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_smtp_alert_match_notification(item_id: str):
-    with db_session() as db:
-        item, feed, reason = _load_item_and_feed_for_notification(db, item_id)
-        if item is None or feed is None:
-            return _smtp_skipped_task_response(reason, item_id=item_id)
-
-        alert_context = build_alert_match_context_for_item(db, item=item)
-        if alert_context is None:
-            return _smtp_skipped_task_response("no_alert_match", item_id=item_id)
-
-        result = dispatch_smtp_notification(
-            db,
-            event_type="alert_match",
-            feed=feed,
-            item=item,
-            alert_context=alert_context,
-        )
-        db.commit()
-        return _smtp_task_response(result, item_id=item_id)
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_smtp_feed_failing_notification",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_smtp_feed_failing_notification(feed_id: str):
-    try:
-        parsed_feed_id = uuid.UUID(feed_id)
-    except ValueError:
-        return _smtp_skipped_task_response("invalid_feed_id", feed_id=feed_id)
-
-    with db_session() as db:
-        feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-        if feed is None:
-            return _smtp_skipped_task_response("feed_not_found", feed_id=feed_id)
-        if int(feed.error_count or 0) < FEED_FAILING_NOTIFICATION_THRESHOLD:
-            return _smtp_skipped_task_response("below_failure_threshold", feed_id=feed_id)
-
-        result = dispatch_smtp_notification(
-            db,
-            event_type="feed_failing",
-            feed=feed,
-            scope_key=_feed_failing_smtp_scope_key(datetime.now(timezone.utc)),
-        )
-        db.commit()
-        return _smtp_task_response(result, feed_id=feed_id)
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_smtp_webhook_failed_notification",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_smtp_webhook_failed_notification(delivery_id: str):
-    try:
-        parsed_delivery_id = uuid.UUID(delivery_id)
-    except ValueError:
-        return _smtp_skipped_task_response("invalid_delivery_id", delivery_id=delivery_id)
-
-    with db_session() as db:
-        failed_delivery = db.scalar(
-            select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == parsed_delivery_id)
-        )
-        if failed_delivery is None:
-            return _smtp_skipped_task_response("delivery_not_found", delivery_id=delivery_id)
-        if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
-            return _smtp_skipped_task_response("not_eligible", delivery_id=delivery_id)
-
-        source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id))
-        if source_webhook is None:
-            return _smtp_skipped_task_response("source_webhook_not_found", delivery_id=delivery_id)
-
-        feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id)) if failed_delivery.feed_id else None
-        failed_context = FailedWebhookContext(
-            id=source_webhook.id,
-            name=source_webhook.name,
-            event_type=failed_delivery.event_type_snapshot,
-            status_code=failed_delivery.status_code,
-            error=failed_delivery.error,
-            attempted_at=failed_delivery.attempted_at,
-        )
-        result = dispatch_smtp_notification(
-            db,
-            event_type="webhook_failed",
-            feed=feed,
-            failed_webhook_context=failed_context,
-            source_delivery_id=failed_delivery.id,
-        )
-        db.commit()
-        return _smtp_task_response(result, delivery_id=delivery_id)
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_new_item_notification_webhooks",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_new_item_notification_webhooks(item_id: str):
-    with db_session() as db:
-        webhook_result = _dispatch_item_notification_batch(
-            db,
-            item_id,
-            reserve_deliveries=reserve_new_item_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_new_item_notification, item_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_alert_match_notification_webhooks",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_alert_match_notification_webhooks(item_id: str):
-    with db_session() as db:
-        webhook_result = _dispatch_item_notification_batch(
-            db,
-            item_id,
-            reserve_deliveries=reserve_alert_match_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_alert_match_notification, item_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_feed_failing_notification_webhooks",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_feed_failing_notification_webhooks(feed_id: str):
-    with db_session() as db:
-        webhook_result = _dispatch_feed_failing_notification_batch(
-            db,
-            feed_id,
-            failure_threshold=FEED_FAILING_NOTIFICATION_THRESHOLD,
-            reserve_deliveries=reserve_feed_failing_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-    smtp_enqueue_ok = _safe_enqueue_smtp_task(dispatch_smtp_feed_failing_notification, feed_id)
-    return {**webhook_result, "smtp_enqueue_failed": not smtp_enqueue_ok}
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_webhook_failed_notification_webhooks",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_webhook_failed_notification_webhooks(delivery_id: str):
-    with db_session() as db:
-        return _dispatch_webhook_failed_notification_batch(
-            db,
-            delivery_id,
-            reserve_deliveries=reserve_webhook_failed_notification_deliveries,
-            process_reserved_deliveries=_process_reserved_notification_deliveries,
-        )
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_daily_digest_notification_webhooks():
-    with db_session() as db:
-        digest_day_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        digest_scope_key = digest_day_start.date().isoformat()
-        event = emit_integration_event(
-            db,
-            event_type="daily_digest",
-            source_type="digest_window",
-            source_id=digest_scope_key,
-            idempotency_key=f"daily_digest:{digest_scope_key}:v1",
-            payload={"scope_key": digest_scope_key},
-        )
-        db.commit()
-    enqueue_ok = enqueue_integration_event_routing([event.id])
-    return {
-        "status": "ok",
-        "matched_webhooks": 0,
-        "delivered": 0,
-        "failed": 0,
-        "skipped": 0,
-        "smtp_status": "queued" if enqueue_ok else "pending",
-        "smtp_reason": None if enqueue_ok else "event_enqueue_failed",
-        "smtp_sent": 0,
-        "smtp_failed": 0,
-        "smtp_skipped": 0,
-        "integration_event_id": str(event.id),
-        "enqueue_failed": not enqueue_ok,
-    }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_pending_notification_webhook_deliveries():
-    with db_session() as db:
-        delivery_ids = list_recoverable_notification_delivery_ids(db)
-        delivered, failed = _process_reserved_notification_deliveries(db, delivery_ids)
-        return {
-            "status": "ok",
-            "scanned": len(delivery_ids),
-            "delivered": delivered,
-            "failed": failed,
-        }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.process_integration_deliveries",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def process_integration_deliveries(delivery_ids: list[str]):
-    delivered = 0
-    failed = 0
-    deferred = 0
-    skipped = 0
-    with db_session() as db:
-        for raw_delivery_id in delivery_ids:
-            try:
-                delivery_id = uuid.UUID(raw_delivery_id)
-            except (AttributeError, TypeError, ValueError):
-                skipped += 1
-                continue
-            delivery = db.get(IntegrationDelivery, delivery_id)
-            if delivery is None:
-                skipped += 1
-                continue
-            connector = get_integration_connector(delivery.connector_type)
-            if connector is None:
-                defer_integration_delivery(
-                    db,
-                    delivery_id=delivery.id,
-                    error_code="unsupported_connector",
-                    error_message=(
-                        f"Connector {delivery.connector_type!r} is not available on this worker; "
-                        "delivery will be retried after the worker is upgraded."
-                    ),
-                )
-                db.commit()
-                deferred += 1
-                continue
-            result = connector.process_delivery(
-                db,
-                delivery=delivery,
-            )
-            for followup in result.followup_deliveries:
-                enqueue_integration_delivery_processing(
-                    [followup.delivery_id],
-                    countdown=followup.countdown_seconds,
-                )
-            if result.followup_event_ids:
-                enqueue_integration_event_routing(list(result.followup_event_ids))
-            if result.status == "succeeded":
-                delivered += 1
-            elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
-                deferred += 1
-            elif result.status in {"terminal", "missing"}:
-                skipped += 1
-            else:
-                failed += 1
-    return {
-        "status": "ok",
-        "scanned": len(delivery_ids),
-        "delivered": delivered,
-        "failed": failed,
-        "deferred": deferred,
-        "skipped": skipped,
-    }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_pending_integration_deliveries",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_pending_integration_deliveries():
-    with db_session() as db:
-        delivery_ids = list_recoverable_integration_delivery_ids(db)
-    enqueue_ok = enqueue_integration_delivery_processing(delivery_ids)
-    return {
-        "status": "ok",
-        "scanned": len(delivery_ids),
-        "queued": len(delivery_ids) if enqueue_ok else 0,
-        "enqueue_failed": bool(delivery_ids) and not enqueue_ok,
-    }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.maintain_integration_delivery_history",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def maintain_integration_delivery_history():
-    with db_session() as db:
-        result = run_integration_delivery_maintenance(db)
-    return {
-        "status": "ok",
-        "rolled_up": result.rolled_up,
-        "webhook_deliveries_deleted": result.webhook_deliveries_deleted,
-        "deliveries_deleted": result.deliveries_deleted,
-        "events_deleted": result.events_deleted,
-        "metrics_deleted": result.metrics_deleted,
-    }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.route_integration_event",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def route_integration_event(event_id: str):
-    try:
-        parsed_event_id = uuid.UUID(event_id)
-    except (AttributeError, TypeError, ValueError):
-        return {"status": "skipped", "reason": "invalid_event_id", "event_id": event_id}
-
-    with db_session() as db:
-        try:
-            result = route_pending_integration_event(db, event_id=parsed_event_id)
-            db.commit()
-        except IntegrationEventContextError as exc:
-            db.rollback()
-            record_integration_event_failure(
-                db,
-                event_id=parsed_event_id,
-                error=str(exc),
-                terminal=True,
-            )
-            db.commit()
-            logger.warning("integration_event_dead_lettered event_id=%s error=%s", parsed_event_id, exc)
-            return {"status": "dead_letter", "event_id": event_id, "error": str(exc)}
-        except Exception as exc:
-            db.rollback()
-            failed_event = record_integration_event_failure(
-                db,
-                event_id=parsed_event_id,
-                error=f"{type(exc).__name__}: {exc}",
-                terminal=False,
-            )
-            db.commit()
-            logger.exception("integration_event_routing_failed event_id=%s error=%s", parsed_event_id, exc)
-            return {
-                "status": failed_event.routing_state if failed_event is not None else "missing",
-                "event_id": event_id,
-            }
-
-    enqueue_ok = enqueue_integration_delivery_processing(result.integration_delivery_ids)
-    return {
-        "status": result.status,
-        "event_id": event_id,
-        "integration_deliveries": len(result.integration_delivery_ids),
-        "webhook_deliveries": len(result.webhook_delivery_ids),
-        "enqueue_failed": bool(result.integration_delivery_ids) and not enqueue_ok,
-    }
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.dispatch_pending_integration_events",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_pending_integration_events():
-    with db_session() as db:
-        event_ids = list_recoverable_integration_event_ids(db)
-
-    queued = 0
-    for event_id in event_ids:
-        try:
-            route_integration_event.delay(str(event_id))
-        except Exception as exc:
-            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
-            continue
-        queued += 1
-    return {"status": "ok", "scanned": len(event_ids), "queued": queued}
-
-
-@celery_app.task(
-    name="app.tasks.feed_tasks.reconcile_ai_task_runs",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def reconcile_ai_task_runs():
-    with db_session() as db:
-        reconciled = _reconcile_stale_ai_runs(db)
-        return {"status": "ok", "reconciled": reconciled}
-
-
-@celery_app.task(
-    bind=True,
-    name="app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def dispatch_daily_ai_brief_generation(
-    self,
-    force: bool = False,
-    task_run_id: str | None = None,
-    actor_user_id: str | None = None,
-):
-    with db_session() as db:
-        parsed_run_id = None
-        parsed_actor_user_id = None
-        if task_run_id:
-            try:
-                parsed_run_id = uuid.UUID(task_run_id)
-            except ValueError:
-                parsed_run_id = None
-        if actor_user_id:
-            try:
-                parsed_actor_user_id = uuid.UUID(actor_user_id)
-            except ValueError:
-                parsed_actor_user_id = None
-        is_scheduled_dispatch = parsed_run_id is None and parsed_actor_user_id is None
-        if is_scheduled_dispatch and not force:
-            due, reason = _scheduled_daily_ai_brief_due(db, now=datetime.now(timezone.utc))
-            if not due:
-                return {"status": "skipped", "reason": reason}
-        run: AITaskRun | None = None
-        try:
-            with daily_ai_brief_lock() as acquired:
-                if not acquired:
-                    if parsed_run_id is not None:
-                        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-                        if run is not None:
-                            finish_ai_task_run(
-                                db,
-                                run_id=run.id,
-                                status=AI_STATUS_SKIPPED,
-                                reason="already_running",
-                                worker_name=getattr(self.request, "hostname", None),
-                                metadata_updates={
-                                    "force": bool(force),
-                                    "lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                                },
-                            )
-                            db.commit()
-                    result = {"status": "skipped", "reason": "already_running"}
-                    if parsed_run_id is not None:
-                        result["run_id"] = str(parsed_run_id)
-                    return result
-                if parsed_run_id:
-                    run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-                    if run is None:
-                        run = queue_ai_task_run(
-                            db,
-                            task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                            trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                            actor_user_id=parsed_actor_user_id,
-                            model=None,
-                            metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-                        )
-                else:
-                    run = queue_ai_task_run(
-                        db,
-                        task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                        trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                        actor_user_id=parsed_actor_user_id,
-                        model=None,
-                        metadata={"force": bool(force), "scheduled": parsed_actor_user_id is None},
-                    )
-                started_run = start_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    worker_name=getattr(self.request, "hostname", None),
-                    celery_task_id=getattr(self.request, "id", None),
-                    metadata_updates={"force": bool(force)},
-                )
-                db.commit()
-                if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
-                    return {"status": "skipped", "reason": "already_running", "run_id": task_run_id}
-                stop_reason = ai_task_run_stop_reason(started_run)
-                if stop_reason is not None:
-                    if stop_reason == "canceled":
-                        finish_ai_task_run(
-                            db,
-                            run_id=run.id,
-                            status=AI_STATUS_SKIPPED,
-                            reason="canceled",
-                            worker_name=getattr(self.request, "hostname", None),
-                            metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
-                        )
-                        db.commit()
-                    return {"status": "skipped", "reason": stop_reason}
-                active_ai_settings = load_active_ai_settings(db)
-                if not active_ai_settings.ai_enabled:
-                    finish_ai_task_run(
-                        db,
-                        run_id=run.id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="ai_disabled",
-                        worker_name=getattr(self.request, "hostname", None),
-                    )
-                    db.commit()
-                    return {"status": "skipped", "reason": "ai_disabled"}
-                if not active_ai_settings.ai_configured:
-                    finish_ai_task_run(
-                        db,
-                        run_id=run.id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="ai_not_configured",
-                        worker_name=getattr(self.request, "hostname", None),
-                    )
-                    db.commit()
-                    return {"status": "skipped", "reason": "ai_not_configured"}
-                if not active_ai_settings.daily_brief_enabled:
-                    finish_ai_task_run(
-                        db,
-                        run_id=run.id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="daily_brief_disabled",
-                        worker_name=getattr(self.request, "hostname", None),
-                    )
-                    db.commit()
-                    return {"status": "skipped", "reason": "daily_brief_disabled"}
-
-                result = run_daily_brief_generation(db, force=force, task_run_id=run.id)
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
-                    reason=result.reason,
-                    error=result.brief.error if result.brief is not None and result.status == "error" else None,
-                    worker_name=getattr(self.request, "hostname", None),
-                    model=result.brief.model if result.brief is not None else active_ai_settings.model,
-                    prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
-                    completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
-                    total_tokens=result.brief.total_tokens if result.brief is not None else None,
-                    latency_ms=result.brief.latency_ms if result.brief is not None else None,
-                    prompt_char_count=result.prompt_char_count,
-                    response_char_count=result.response_char_count,
-                    metadata_updates={"items_considered": result.items_considered, "items_selected": result.items_selected},
-                    daily_brief_id=result.brief.id if result.brief is not None else None,
-                )
-                db.commit()
-                if result.brief is None:
-                    return {"status": result.status, "reason": result.reason}
-                return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
-        except CoordinationUnavailableError as exc:
-            logger.warning("daily_brief_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            if run is not None:
-                finish_ai_task_run(
-                    db,
-                    run_id=run.id,
-                    status=AI_STATUS_ERROR,
-                    reason="coordination_unavailable",
-                    error="coordination_unavailable",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            return {"status": "error", "reason": "coordination_unavailable"}
-
-
-def _daily_brief_backfill_reference_times(days: int, *, now: datetime | None = None) -> list[datetime]:
-    reference_now = now or datetime.now(timezone.utc)
-    if reference_now.tzinfo is None:
-        reference_now = reference_now.replace(tzinfo=timezone.utc)
-
-    references: list[datetime] = []
-    for offset in range(max(0, int(days))):
-        target_date = reference_now.date() - timedelta(days=offset)
-        if offset == 0:
-            references.append(reference_now)
-        else:
-            references.append(
-                datetime(
-                    target_date.year,
-                    target_date.month,
-                    target_date.day,
-                    23,
-                    59,
-                    59,
-                    tzinfo=timezone.utc,
-                )
-            )
-    return references
-
-
-def _daily_brief_backfill_attempts(
-    db: Session,
-    *,
-    parent_run_id: uuid.UUID,
-    brief_date: str,
-) -> list[AITaskRun]:
-    child_runs = list(
-        db.scalars(
-            select(AITaskRun)
-            .where(
-                AITaskRun.parent_run_id == parent_run_id,
-                AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF,
-            )
-            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
-        )
+    return _dispatch_feed_metadata_backfill(
+        db_session_factory=db_session,
+        settings=settings,
+        needs_feed_metadata_backfill=_needs_feed_metadata_backfill,
+        backfill_feed_metadata_task=backfill_feed_metadata,
+        logger=logger,
     )
-    return [run for run in child_runs if str((run.metadata_json or {}).get("brief_date") or "") == brief_date]
-
-
-def _daily_brief_backfill_attempt_is_settled(run: AITaskRun) -> bool:
-    if run.finished_at is None or run.status not in {AI_STATUS_READY, AI_STATUS_ERROR, AI_STATUS_SKIPPED}:
-        return False
-    metadata = run.metadata_json or {}
-    if metadata.get(AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY) is False:
-        return False
-    return not (run.reason and run.reason.startswith("stale_"))
-
-
-def _daily_brief_backfill_attempt_number(attempts: list[AITaskRun]) -> int:
-    attempt_numbers: list[int] = []
-    for attempt in attempts:
-        try:
-            attempt_numbers.append(int((attempt.metadata_json or {}).get("attempt") or 0))
-        except (TypeError, ValueError):
-            continue
-    return max([len(attempts), *attempt_numbers], default=0) + 1
-
-
-@celery_app.task(
-    bind=True,
-    name="app.tasks.feed_tasks.backfill_daily_ai_briefs",
-    acks_late=True,
-    reject_on_worker_lost=True,
-)
-def backfill_daily_ai_briefs(
-    self,
-    days: int,
-    task_run_id: str | None = None,
-    actor_user_id: str | None = None,
-):
-    worker_name = getattr(self.request, "hostname", None)
-    celery_task_id = getattr(self.request, "id", None)
-    try:
-        effective_days = int(days)
-    except (TypeError, ValueError):
-        effective_days = 0
-
-    with db_session() as db:
-        parsed_run_id = None
-        parsed_actor_user_id = None
-        if task_run_id:
-            try:
-                parsed_run_id = uuid.UUID(task_run_id)
-            except ValueError:
-                parsed_run_id = None
-        if actor_user_id:
-            try:
-                parsed_actor_user_id = uuid.UUID(actor_user_id)
-            except ValueError:
-                parsed_actor_user_id = None
-
-        run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id)) if parsed_run_id else None
-        parent_was_running = bool(
-            run is not None
-            and run.status == AI_STATUS_RUNNING
-            and run.finished_at is None
-        )
-        if run is None:
-            run = queue_ai_task_run(
-                db,
-                task_type=AI_TASK_TYPE_REPROCESS,
-                trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                actor_user_id=parsed_actor_user_id,
-                metadata={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
-                target_count=max(0, effective_days),
-            )
-
-        parent_run_id = run.id
-        run.target_count = max(0, effective_days)
-        run.metadata_json = {
-            **dict(run.metadata_json or {}),
-            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
-            "days": max(0, effective_days),
-            "force": True,
-            "includes_today": True,
-        }
-        db.add(run)
-        run = reconcile_daily_brief_backfill_parent_progress(
-            db,
-            parent_run_id=parent_run_id,
-            reopen_incomplete=True,
-        ) or run
-        started_run = start_ai_task_run(
-            db,
-            run_id=parent_run_id,
-            worker_name=worker_name,
-            celery_task_id=celery_task_id,
-            metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "days": max(0, effective_days), "force": True},
-        )
-        db.commit()
-
-        if not _task_run_claimed_by_current_worker(started_run, celery_task_id=celery_task_id):
-            return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
-
-        if effective_days < 1:
-            finish_ai_task_run(
-                db,
-                run_id=parent_run_id,
-                status=AI_STATUS_SKIPPED,
-                reason="invalid_days",
-                worker_name=worker_name,
-            )
-            db.commit()
-            return {"status": "skipped", "reason": "invalid_days", "run_id": str(parent_run_id)}
-
-        stop_reason = ai_task_run_stop_reason(started_run)
-        if stop_reason is not None:
-            if stop_reason == "canceled":
-                finish_ai_task_run(
-                    db,
-                    run_id=parent_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="canceled",
-                    worker_name=worker_name,
-                    metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
-                )
-                db.commit()
-            return {"status": "skipped", "reason": stop_reason, "run_id": str(parent_run_id)}
-
-        active_ai_settings = load_active_ai_settings(db)
-        if not active_ai_settings.ai_enabled:
-            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_disabled", worker_name=worker_name)
-            db.commit()
-            return {"status": "skipped", "reason": "ai_disabled", "run_id": str(parent_run_id)}
-        if not active_ai_settings.ai_configured:
-            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="ai_not_configured", worker_name=worker_name)
-            db.commit()
-            return {"status": "skipped", "reason": "ai_not_configured", "run_id": str(parent_run_id)}
-        if not active_ai_settings.daily_brief_enabled:
-            finish_ai_task_run(db, run_id=parent_run_id, status=AI_STATUS_SKIPPED, reason="daily_brief_disabled", worker_name=worker_name)
-            db.commit()
-            return {"status": "skipped", "reason": "daily_brief_disabled", "run_id": str(parent_run_id)}
-        if effective_days > int(active_ai_settings.daily_brief_history_limit or 0):
-            finish_ai_task_run(
-                db,
-                run_id=parent_run_id,
-                status=AI_STATUS_ERROR,
-                reason="history_limit_too_low",
-                error=f"Retained daily briefings is {active_ai_settings.daily_brief_history_limit}, below requested backfill days {effective_days}",
-                worker_name=worker_name,
-            )
-            db.commit()
-            return {"status": "error", "reason": "history_limit_too_low", "run_id": str(parent_run_id)}
-
-        active_model = active_ai_settings.model
-        run.model = active_model
-        db.add(run)
-        record_ai_task_event(
-            db,
-            run_id=parent_run_id,
-            event_type="backfill_started",
-            payload={"days": effective_days, "includes_today": True},
-        )
-        db.commit()
-
-        try:
-            with daily_ai_brief_lock() as acquired:
-                if not acquired:
-                    active_parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
-                    if parent_was_running and active_parent is not None and active_parent.finished_at is None:
-                        active_parent.metadata_json = {
-                            **dict(active_parent.metadata_json or {}),
-                            "duplicate_lock_observed_at": datetime.now(timezone.utc).isoformat(),
-                        }
-                        db.add(active_parent)
-                        record_ai_task_event(
-                            db,
-                            run_id=parent_run_id,
-                            event_type="duplicate_delivery_deferred",
-                            payload={"celery_task_id": celery_task_id, "worker_name": worker_name},
-                        )
-                        db.commit()
-                        return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
-                    finish_ai_task_run(
-                        db,
-                        run_id=parent_run_id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="already_running",
-                        worker_name=worker_name,
-                        metadata_updates={"lock_observed_at": datetime.now(timezone.utc).isoformat()},
-                    )
-                    db.commit()
-                    return {"status": "skipped", "reason": "already_running", "run_id": str(parent_run_id)}
-
-                processed_dates: list[str] = []
-                for reference_time in _daily_brief_backfill_reference_times(effective_days):
-                    brief_date = reference_time.date().isoformat()
-                    parent_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
-                    if parent_run is None:
-                        return {
-                            "status": "error",
-                            "reason": "parent_run_missing",
-                            "run_id": str(parent_run_id),
-                            "processed_dates": processed_dates,
-                        }
-
-                    parent_stop_reason = ai_task_run_stop_reason(parent_run)
-                    if parent_stop_reason is not None:
-                        if parent_stop_reason == "canceled" and parent_run.finished_at is None:
-                            finish_ai_task_run(
-                                db,
-                                run_id=parent_run_id,
-                                status=AI_STATUS_SKIPPED,
-                                reason="canceled",
-                                worker_name=worker_name,
-                                metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
-                            )
-                            db.commit()
-                        return {
-                            "status": "skipped",
-                            "reason": parent_stop_reason,
-                            "run_id": str(parent_run_id),
-                            "processed_dates": processed_dates,
-                        }
-
-                    attempts = _daily_brief_backfill_attempts(
-                        db,
-                        parent_run_id=parent_run_id,
-                        brief_date=brief_date,
-                    )
-                    if any(_daily_brief_backfill_attempt_is_settled(attempt) for attempt in attempts):
-                        processed_dates.append(brief_date)
-                        continue
-
-                    attempt_number = _daily_brief_backfill_attempt_number(attempts)
-                    for interrupted_attempt in [attempt for attempt in attempts if attempt.finished_at is None]:
-                        interrupted_attempt.metadata_json = {
-                            **dict(interrupted_attempt.metadata_json or {}),
-                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
-                            "superseded_by_attempt": attempt_number,
-                        }
-                        db.add(interrupted_attempt)
-                        finish_ai_task_run(
-                            db,
-                            run_id=interrupted_attempt.id,
-                            status=AI_STATUS_SKIPPED,
-                            reason="superseded_by_redelivery",
-                            worker_name=interrupted_attempt.worker_name or worker_name,
-                            model=interrupted_attempt.model or active_model,
-                        )
-
-                    child_run = queue_ai_task_run(
-                        db,
-                        task_type=AI_TASK_TYPE_DAILY_BRIEF,
-                        trigger_source=AI_TRIGGER_MANUAL if parsed_actor_user_id else AI_TRIGGER_SCHEDULED,
-                        actor_user_id=parsed_actor_user_id,
-                        parent_run_id=parent_run_id,
-                        model=active_model,
-                        metadata={
-                            "scope": AI_DAILY_BRIEF_BACKFILL_SCOPE,
-                            "force": True,
-                            "brief_date": brief_date,
-                            "reference_time": reference_time.isoformat(),
-                            "attempt": attempt_number,
-                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: False,
-                        },
-                    )
-                    start_ai_task_run(
-                        db,
-                        run_id=child_run.id,
-                        worker_name=worker_name,
-                        celery_task_id=celery_task_id,
-                        metadata_updates={"scope": AI_DAILY_BRIEF_BACKFILL_SCOPE, "force": True},
-                    )
-                    db.commit()
-                    child_run_id = child_run.id
-
-                    try:
-                        result = run_daily_brief_generation(
-                            db,
-                            force=True,
-                            reference_time=reference_time,
-                            task_run_id=child_run_id,
-                        )
-                    except Exception as exc:
-                        db.rollback()
-                        logger.exception("daily_brief_backfill_day_failed brief_date=%s", reference_time.date().isoformat())
-                        finish_ai_task_run(
-                            db,
-                            run_id=child_run_id,
-                            status=AI_STATUS_ERROR,
-                            reason="unexpected_error",
-                            error=str(exc) or _exception_type_name(exc),
-                            worker_name=worker_name,
-                            model=active_model,
-                            metadata_updates={
-                                "brief_date": brief_date,
-                                AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
-                            },
-                        )
-                        db.commit()
-                        processed_dates.append(brief_date)
-                        continue
-
-                    finish_ai_task_run(
-                        db,
-                        run_id=child_run_id,
-                        status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
-                        reason=result.reason,
-                        error=result.brief.error if result.brief is not None and result.status == "error" else None,
-                        worker_name=worker_name,
-                        model=result.brief.model if result.brief is not None else active_model,
-                        prompt_tokens=result.brief.prompt_tokens if result.brief is not None else None,
-                        completion_tokens=result.brief.completion_tokens if result.brief is not None else None,
-                        total_tokens=result.brief.total_tokens if result.brief is not None else None,
-                        latency_ms=result.brief.latency_ms if result.brief is not None else None,
-                        prompt_char_count=result.prompt_char_count,
-                        response_char_count=result.response_char_count,
-                        metadata_updates={
-                            "items_considered": result.items_considered,
-                            "items_selected": result.items_selected,
-                            "brief_date": brief_date,
-                            AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY: True,
-                        },
-                        daily_brief_id=result.brief.id if result.brief is not None else None,
-                    )
-                    db.commit()
-                    processed_dates.append(brief_date)
-
-                refreshed_run = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id))
-                return {
-                    "status": refreshed_run.status if refreshed_run is not None else "unknown",
-                    "reason": refreshed_run.reason if refreshed_run is not None else None,
-                    "run_id": str(parent_run_id),
-                    "processed_dates": processed_dates,
-                }
-        except CoordinationUnavailableError as exc:
-            logger.warning("daily_brief_backfill_coordination_unavailable error_type=%s", _exception_type_name(exc))
-            finish_ai_task_run(
-                db,
-                run_id=parent_run_id,
-                status=AI_STATUS_ERROR,
-                reason="coordination_unavailable",
-                error="coordination_unavailable",
-                worker_name=worker_name,
-            )
-            db.commit()
-            return {"status": "error", "reason": "coordination_unavailable", "run_id": str(parent_run_id)}
 
 
 @celery_app.task(name="app.tasks.feed_tasks.record_beat_heartbeat")
@@ -2386,70 +621,6 @@ def backfill_feed_metadata(feed_id: str):
             _exception_type_name(exc),
         )
         return {"status": "error", "reason": "coordination_unavailable", "feed_id": feed_id}
-
-
-def _is_feed_due(feed: Feed, now: datetime) -> bool:
-    next_fetch_at = _next_feed_fetch_at(feed, now)
-    return next_fetch_at is not None and next_fetch_at <= now
-
-
-def _next_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
-    if not getattr(feed, "enabled", True):
-        return None
-
-    backoff_until = getattr(feed, "dispatch_backoff_until", None)
-    claimed_at = getattr(feed, "dispatch_claimed_at", None)
-    if backoff_until is not None and claimed_at is None:
-        if backoff_until.tzinfo is None:
-            backoff_until = backoff_until.replace(tzinfo=timezone.utc)
-        if backoff_until > now:
-            return backoff_until
-
-    if feed.fetch_mode == "schedule":
-        return _next_scheduled_feed_fetch_at(feed, now)
-
-    if feed.last_fetch_at is None:
-        return now
-
-    last_fetch_at = feed.last_fetch_at
-    if last_fetch_at.tzinfo is None:
-        last_fetch_at = last_fetch_at.replace(tzinfo=timezone.utc)
-
-    raw_interval = getattr(feed, "fetch_interval_seconds", 1800)
-    try:
-        interval_seconds = int(raw_interval)
-    except (TypeError, ValueError):
-        interval_seconds = 1800
-    interval_seconds = max(60, interval_seconds)
-
-    next_fetch_at = last_fetch_at + timedelta(seconds=interval_seconds)
-    return now if next_fetch_at <= now else next_fetch_at
-
-
-def _is_scheduled_feed_due(feed: Feed, now: datetime) -> bool:
-    next_run = _next_scheduled_feed_fetch_at(feed, now)
-    return next_run is not None and next_run <= now
-
-
-def _next_scheduled_feed_fetch_at(feed: Feed, now: datetime) -> datetime | None:
-    if not feed.schedule_cron:
-        return None
-
-    base = feed.last_fetch_at or now.replace(hour=0, minute=0, second=0, microsecond=0)
-    if base.tzinfo is None:
-        base = base.replace(tzinfo=timezone.utc)
-
-    if not croniter.is_valid(feed.schedule_cron):
-        return None
-
-    next_run = croniter(feed.schedule_cron, base).get_next(datetime)
-    if next_run.tzinfo is None:
-        next_run = next_run.replace(tzinfo=timezone.utc)
-    return now if next_run <= now else next_run
-
-
-def _refresh_feed_next_fetch_at(feed: Feed, now: datetime) -> None:
-    feed.next_fetch_at = _next_feed_fetch_at(feed, now)
 
 
 @celery_app.task(
@@ -3326,7 +1497,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
 
         try:
             result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)
-        except Exception as exc:
+        except Exception:
             db.rollback()
             if parsed_run_id:
                 finish_ai_task_run(
@@ -3824,154 +1995,3 @@ def reapply_recent_item_tags(days: int = 30, limit: int = 0, dispatch_token: str
         "limit": limit,
         "processed": processed,
     }
-
-
-def _get_or_create_ioc(
-    db: Session,
-    *,
-    ioc_type: str,
-    ioc_value_norm: str,
-    ioc_value_raw: str,
-    now: datetime,
-) -> IOC:
-    ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-    if ioc is None:
-        candidate = IOC(
-            type=ioc_type,
-            value_raw=ioc_value_raw,
-            value_norm=ioc_value_norm,
-            first_seen_at=now,
-            last_seen_at=now,
-        )
-        try:
-            with db.begin_nested():
-                db.add(candidate)
-                db.flush()
-            return candidate
-        except IntegrityError:
-            ioc = db.scalar(select(IOC).where(IOC.type == ioc_type, IOC.value_norm == ioc_value_norm))
-            if ioc is None:
-                raise
-
-    ioc.last_seen_at = now
-    db.add(ioc)
-    db.flush()
-    return ioc
-
-
-def _store_article_error(
-    db: Session,
-    item: Item,
-    final_url: str,
-    http_status: int,
-    content_type: str | None,
-    fetch_ms: int,
-    error: str,
-):
-    article = db.scalar(select(Article).where(Article.item_id == item.id))
-    if article is None:
-        article = Article(item_id=item.id, final_url=final_url, http_status=http_status)
-
-    article.final_url = final_url
-    article.retrieved_at = datetime.now(timezone.utc)
-    article.http_status = http_status
-    article.content_type = content_type
-    article.title_extracted = None
-    article.language = None
-    article.fetch_ms = fetch_ms
-    article.error = error
-    if not _apply_article_summary_fallback(article, item, error):
-        article.text = None
-        article.extraction_method = "none"
-        article.word_count = None
-        item.status = "error"
-
-    item.last_error = error
-
-    db.add(article)
-    db.add(item)
-    db.commit()
-
-
-def _rss_summary_fallback_text(item: Item, error: str) -> str | None:
-    if not _article_error_allows_summary_fallback(error):
-        return None
-
-    raw_summary = (item.summary or "").strip()
-    if not raw_summary:
-        return None
-
-    text = extract_plain_text(raw_summary)
-    if not text:
-        return None
-
-    if item.title and text.strip().casefold() == item.title.strip().casefold():
-        return None
-
-    return text
-
-
-def _apply_article_summary_fallback(article: Article, item: Item, error: str) -> bool:
-    fallback_text = _rss_summary_fallback_text(item, error)
-    if not fallback_text:
-        return False
-
-    article.title_extracted = item.title
-    article.text = fallback_text
-    article.extraction_method = RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD
-    article.word_count = len(fallback_text.split())
-    item.status = "content_fetched"
-    item.ioc_extraction_state = None
-    item.last_error = error
-    return True
-
-
-def _article_error_allows_summary_fallback(error: str) -> bool:
-    if error in RSS_SUMMARY_FALLBACK_EXACT_ERRORS:
-        return True
-
-    if any(error.startswith(prefix) for prefix in RSS_SUMMARY_FALLBACK_PREFIXES):
-        return True
-
-    prefix, separator, raw_status = error.partition(":")
-    if prefix != "http_status" or not separator:
-        return False
-
-    try:
-        status_code = int(raw_status)
-    except ValueError:
-        return False
-
-    return status_code in RSS_SUMMARY_FALLBACK_HTTP_STATUSES
-
-
-def _article_fetch_error_result(item: Item, item_id: str) -> dict[str, str]:
-    if item.status == "content_fetched":
-        return {
-            "status": "degraded",
-            "reason": RSS_SUMMARY_FALLBACK_EXTRACTION_METHOD,
-            "item_id": item_id,
-        }
-    return {"status": "error", "item_id": item_id}
-
-
-def _mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
-    _mark_feed_failure(db, feed, error)
-    integration_event_ids: list[uuid.UUID] = []
-    if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
-        scope_key = _feed_failing_smtp_scope_key(datetime.now(timezone.utc))
-        event = emit_integration_event(
-            db,
-            event_type="feed_failing",
-            source_type="feed",
-            source_id=feed.id,
-            idempotency_key=f"feed:{feed.id}:feed_failing:{scope_key}:v1",
-            payload={
-                "feed_id": str(feed.id),
-                "scope_key": scope_key,
-                "error_count": int(feed.error_count or 0),
-            },
-        )
-        integration_event_ids.append(event.id)
-    db.commit()
-    return enqueue_integration_event_routing(integration_event_ids)

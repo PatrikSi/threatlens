@@ -370,16 +370,16 @@ def _load_item_ioc_values_by_type(db: Session, *, item_id: uuid.UUID) -> dict[st
 
 def _parse_graph_node_id(node_id: str) -> tuple[str, uuid.UUID]:
     if ":" not in node_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid focus_node_id")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid focus_node_id")
 
     kind, value = node_id.split(":", 1)
     if kind not in {"item", "ioc"}:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Unsupported focus node type")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Unsupported focus node type")
 
     try:
         parsed = uuid.UUID(value)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid focus node id") from exc
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid focus node id") from exc
 
     return kind, parsed
 

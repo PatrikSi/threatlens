@@ -171,6 +171,31 @@ afterEach(() => {
 })
 
 describe('UsersPage DOM workflows', () => {
+  it('progressively discloses mobile create and user management controls', () => {
+    const view = renderPage()
+    const createForm = view.querySelector<HTMLElement>('#create-user-form')
+    const createToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'New user')
+    const userSettings = view.querySelector<HTMLElement>('#user-settings-user-1')
+    const userManagement = view.querySelector<HTMLElement>('#user-management-user-1')
+    const manageToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Manage')
+
+    expect(createForm?.className).toContain('hidden')
+    expect(createToggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(userSettings?.className).toContain('hidden')
+    expect(userManagement?.className).toContain('hidden')
+
+    act(() => {
+      createToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      manageToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(createForm?.className).toContain('block')
+    expect(createToggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(userSettings?.className).toContain('flex')
+    expect(userManagement?.className).toContain('block')
+    expect(manageToggle?.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('reviews the create-user request before posting it', () => {
     const view = renderPage()
     const createSection = view.querySelector('section')

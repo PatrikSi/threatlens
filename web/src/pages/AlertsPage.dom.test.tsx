@@ -201,10 +201,15 @@ describe('AlertsPage DOM workflows', () => {
 
     expect(addButton).not.toBeNull()
     expect(addButton?.hasAttribute('disabled')).toBe(true)
-    expect(pageText()).toContain('Enter an interest name.')
+    expect(pageText()).not.toContain('Enter an interest name.')
 
     act(() => {
       setInputValue(nameInput!, 'Agent2 Preview Only')
+    })
+
+    expect(pageText()).toContain('Enter at least one keyword.')
+
+    act(() => {
       setTextAreaValue(keywordsInput!, 'ransomware')
     })
 

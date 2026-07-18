@@ -596,7 +596,6 @@ def get_ai_ops_overview(db: Session, *, days: int = 30) -> AIOpsOverviewResponse
     live = get_ai_db_live_status(db)
 
     successful_events = [event for event in usage_events if event.success]
-    failed_events = [event for event in usage_events if not event.success]
     total_requests = len(usage_events)
     success_rate = (len(successful_events) / total_requests * 100.0) if total_requests else 0.0
     latency_values = [float(event.latency_ms) for event in successful_events if event.latency_ms is not None]

@@ -201,7 +201,7 @@ def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, mo
 
 
 def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db_session, monkeypatch):
-    queued_run = queue_ai_task_run(
+    queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
         trigger_source=AI_TRIGGER_MANUAL,

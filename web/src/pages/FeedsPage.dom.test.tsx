@@ -380,6 +380,36 @@ afterEach(() => {
 })
 
 describe('FeedsPage DOM workflows', () => {
+  it('progressively discloses mobile create and schedule controls', () => {
+    const view = renderPage()
+    const addForm = view.querySelector<HTMLElement>('#add-feed-form')
+    const addToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'New feed')
+    const bulkActions = view.querySelector<HTMLElement>('#feed-bulk-actions')
+    const bulkToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Bulk actions'))
+    const schedule = view.querySelector<HTMLElement>('#feed-schedule-feed-1')
+    const scheduleToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Schedule')
+
+    expect(addForm?.className).toContain('hidden')
+    expect(addToggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(bulkActions?.className).toContain('hidden')
+    expect(bulkToggle?.getAttribute('aria-expanded')).toBe('false')
+    expect(schedule?.className).toContain('hidden')
+    expect(scheduleToggle?.getAttribute('aria-expanded')).toBe('false')
+
+    act(() => {
+      addToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      bulkToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      scheduleToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(addForm?.className).toContain('block')
+    expect(addToggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(bulkActions?.className).toContain('block')
+    expect(bulkToggle?.getAttribute('aria-expanded')).toBe('true')
+    expect(schedule?.className).toContain('block')
+    expect(scheduleToggle?.getAttribute('aria-expanded')).toBe('true')
+  })
+
   it('preserves user-scoped schedule drafts when feeds load before the current user id', () => {
     feedsPageDomMocks.currentUser = null
     const scopedKey = getFeedScheduleDraftStorageKey('admin-user')
@@ -787,6 +817,7 @@ describe('FeedsPage DOM workflows', () => {
 
     const runImportButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Run Import')
     expect(runImportButton).not.toBeNull()
+    expect(runImportButton?.className).toContain('block')
 
     act(() => {
       runImportButton!.dispatchEvent(new MouseEvent('click', { bubbles: true }))

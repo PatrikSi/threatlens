@@ -105,6 +105,7 @@ describe('DashboardPage rendered controls', () => {
 
     expect(markup).toContain('aria-label="Search across all dashboard panels"')
     expect(markup).toContain('aria-label="Dashboard time range"')
+    expect(markup).toContain('grid-cols-[minmax(0,1fr)_112px_auto]')
     expect(markup).toContain('aria-label="Load saved dashboard view"')
     expect(markup).toContain('Views')
     expect(markup).toContain('Edit Layout')
@@ -117,6 +118,7 @@ describe('DashboardPage rendered controls', () => {
     expect(markup).toContain('aria-label="RSS Panel 1 time range"')
     expect(markup).toContain('aria-label="RSS Panel 1 sort order"')
     expect(markup).toContain('aria-label="RSS Panel 1 results per page"')
+    expect(markup).toContain('10 per page')
     expect(markup).toContain('More Filters')
   })
 })

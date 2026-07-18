@@ -221,14 +221,231 @@ textarea:disabled {
   button,
   select,
   input:not([type='checkbox']):not([type='radio']) {
-    min-height: 2.75rem;
+    min-height: var(--tl-control-min-height, 2.75rem);
   }
 }
 
 .tl-app-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
   border-bottom: 1px solid var(--tl-border-soft);
   background: color-mix(in srgb, var(--tl-panel-bg) 88%, var(--tl-bg-base) 12%);
   backdrop-filter: blur(18px);
+}
+
+@media (min-width: 1024px) {
+  .tl-app-header {
+    position: static;
+  }
+}
+
+@media (max-width: 639px) {
+  .tl-app-header {
+    background: var(--tl-panel-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .tl-app-content {
+    --tl-control-min-height: 2.5rem;
+  }
+
+  :where(.tl-app-content) select,
+  :where(.tl-app-content) input,
+  :where(.tl-app-content) textarea {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  :where(.tl-app-content) .p-4 {
+    padding: 0.75rem;
+  }
+
+  :where(.tl-app-content) .space-y-4 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: calc(0.75rem * calc(1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
+  }
+
+  :where(.tl-app-content) .gap-4 {
+    gap: 0.75rem;
+  }
+
+  :where(.tl-app-content) .mt-4 {
+    margin-top: 0.75rem;
+  }
+
+  .tl-app-content .font-display.text-2xl {
+    font-size: 1.125rem;
+    line-height: 1.4;
+  }
+
+  .tl-app-content .font-display.text-xl {
+    font-size: 1.0625rem;
+    line-height: 1.4;
+  }
+
+  .tl-app-content .font-display.text-lg {
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+
+  .tl-dashboard-panel {
+    border-right-width: 0;
+    border-left-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .tl-mobile-panel-switcher {
+    position: sticky;
+    top: 3.75rem;
+    z-index: 20;
+  }
+
+  .tl-dashboard-panel-header {
+    gap: 0.375rem;
+    padding-top: 0.625rem;
+    padding-bottom: 0.625rem;
+  }
+
+  .tl-dashboard-panel-header[data-editing='false'] {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .tl-dashboard-panel-meta {
+    gap: 0.375rem 0.625rem;
+  }
+
+  .tl-dashboard-panel-meta .tl-panel-context {
+    border: 0;
+    border-radius: 0;
+    background: transparent !important;
+    padding: 0;
+    color: var(--tl-text-dim);
+    font-weight: 600;
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
+
+  .tl-dashboard-panel-kind {
+    font-size: 0.6875rem;
+    line-height: 1rem;
+  }
+
+  .tl-dashboard-panel-actions {
+    gap: 0.375rem;
+  }
+
+  .tl-dashboard-filter-scroller {
+    margin-right: -0.75rem;
+    margin-left: -0.75rem;
+    padding-right: 0.75rem;
+    padding-left: 0.75rem;
+    scrollbar-width: none;
+  }
+
+  .tl-dashboard-filter-scroller::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tl-dashboard-panel .tl-chip {
+    padding: 0.125rem 0.4375rem;
+    font-size: 0.6875rem;
+    line-height: 1.2;
+  }
+
+  .tl-dashboard-rss-card,
+  .tl-dashboard-alert-card {
+    border-width: 0 0 1px;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .tl-dashboard-panel-body {
+    padding: 0;
+  }
+
+  .tl-dashboard-rss-list > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0;
+  }
+
+  .tl-dashboard-rss-preview {
+    --tl-control-min-height: 2rem;
+  }
+
+  .tl-dashboard-rss-toggle {
+    --tl-control-min-height: 0rem;
+  }
+
+  .tl-stats-feed-toggle {
+    --tl-control-min-height: 2rem;
+  }
+
+  .tl-mobile-filter-sheet {
+    position: fixed;
+    z-index: 30;
+    top: 3.75rem;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    overflow-y: auto;
+    border-bottom: 0;
+    background: var(--tl-panel-bg);
+  }
+
+  .tl-mobile-filter-sheet-header {
+    position: sticky;
+    top: -0.5rem;
+    z-index: 1;
+  }
+
+  .tl-custom-date-control:disabled {
+    display: none;
+  }
+
+  .tl-dashboard-panel button.rounded.border,
+  .tl-dashboard-panel select.rounded.border {
+    min-width: 2.75rem;
+  }
+
+  .tl-mobile-rss-detail {
+    overscroll-behavior: contain;
+  }
+
+  .tl-mobile-rss-detail .tl-rss-detail-section {
+    border: 0;
+    border-top: 1px solid var(--tl-border-soft);
+    border-radius: 0;
+    background: transparent !important;
+    padding: 0.75rem 0 0;
+  }
+
+  .tl-mobile-rss-detail .tl-rss-detail-reader {
+    border: 0;
+    border-radius: 0.375rem;
+    padding: 0.625rem;
+  }
+
+  .tl-daily-brief-section {
+    border-width: 1px 0 0;
+    border-radius: 0;
+    background: transparent !important;
+    padding: 0.75rem 0 0;
+  }
+
+  .tl-daily-brief-item {
+    border-width: 0 0 1px;
+    border-radius: 0;
+    padding: 0.625rem 0;
+  }
+
+  .tl-dashboard-notes-editor {
+    min-height: clamp(16rem, 56vh, 28rem);
+  }
 }
 
 .tl-subtle-control {
