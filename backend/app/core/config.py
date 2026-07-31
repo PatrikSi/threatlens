@@ -217,6 +217,9 @@ class Settings(BaseSettings):
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
+    beat_watchdog_startup_grace_seconds: int = 240
+    beat_watchdog_check_interval_seconds: int = 15
+    beat_watchdog_terminate_timeout_seconds: int = 10
     notification_delivery_enqueue_batch_size: int = 100
     notification_delivery_recovery_batch_size: int = 100
     notification_delivery_sending_stale_after_seconds: int = 120
@@ -272,6 +275,26 @@ class Settings(BaseSettings):
     def _normalize_log_level(cls, value):
         return str(value).strip().upper() or "INFO"
 
+    @field_validator(
+        "beat_heartbeat_ttl_seconds",
+        "beat_heartbeat_stale_after_seconds",
+        "beat_heartbeat_interval_seconds",
+        "beat_watchdog_check_interval_seconds",
+        "beat_watchdog_terminate_timeout_seconds",
+    )
+    @classmethod
+    def _validate_positive_beat_timing(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Beat heartbeat and watchdog timing values must be greater than zero")
+        return value
+
+    @field_validator("beat_watchdog_startup_grace_seconds")
+    @classmethod
+    def _validate_beat_startup_grace(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("beat_watchdog_startup_grace_seconds must not be negative")
+        return value
+
     @field_validator("app_data_encryption_key", mode="before")
     @classmethod
     def _normalize_optional_secret(cls, value):
@@ -279,6 +302,12 @@ class Settings(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def _validate_beat_timing(self):
+        if self.beat_watchdog_startup_grace_seconds < self.beat_heartbeat_interval_seconds:
+            raise ValueError("beat_watchdog_startup_grace_seconds must cover at least one heartbeat interval")
+        return self
 
     @model_validator(mode="after")
     def _validate_production_security(self):
