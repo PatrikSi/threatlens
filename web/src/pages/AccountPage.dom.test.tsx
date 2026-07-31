@@ -20,6 +20,7 @@ const accountPageDomMocks = vi.hoisted(() => ({
 
 vi.mock('../api/client', () => ({
   apiFetch: accountPageDomMocks.apiFetch,
+  buildApiUrl: (path: string) => `/api/v1${path}`,
 }))
 
 vi.mock('../components/AuthContext', () => ({
@@ -66,6 +67,16 @@ let root: Root | null = null
 let container: HTMLDivElement | null = null
 
 function renderPage() {
+  if (!accountPageDomMocks.apiFetch.getMockImplementation()) {
+    accountPageDomMocks.apiFetch.mockResolvedValue({
+      available: false,
+      provider_name: null,
+      linked: false,
+      linked_email: null,
+      linked_at: null,
+      password_login_enabled: true,
+    })
+  }
   queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -209,7 +220,7 @@ describe('AccountPage DOM workflows', () => {
     const notice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
     expect(notice?.textContent).toContain('New password must be at least 8 characters.')
-    expect(accountPageDomMocks.apiFetch).not.toHaveBeenCalled()
+    expect(accountPageDomMocks.apiFetch).not.toHaveBeenCalledWith('/auth/change-password', expect.anything())
   })
 
   it('treats an unfinished password change as unsaved work', () => {
@@ -223,5 +234,30 @@ describe('AccountPage DOM workflows', () => {
     })
 
     expect(accountPageDomMocks.useBlocker).toHaveBeenLastCalledWith(true)
+  })
+
+  it('shows a linked OIDC identity with a protected unlink control', async () => {
+    accountPageDomMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/oidc/account') {
+        return Promise.resolve({
+          available: true,
+          provider_name: 'Acme SSO',
+          linked: true,
+          linked_email: 'analyst@example.com',
+          linked_at: '2026-07-31T10:00:00Z',
+          password_login_enabled: true,
+        })
+      }
+      return Promise.resolve({})
+    })
+
+    const view = renderPage()
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(view.textContent).toContain('Linked to Acme SSO as analyst@example.com')
+    expect(view.querySelector('#account-unlink-password')).not.toBeNull()
+    expect([...view.querySelectorAll('button')].some((button) => button.textContent?.includes('Unlink SSO'))).toBe(true)
   })
 })
