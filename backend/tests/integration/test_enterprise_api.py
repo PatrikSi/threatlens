@@ -32,6 +32,7 @@ from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
 from app.services.feed_probe import FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
+from app.services.beat_heartbeat import BeatHeartbeatSnapshot
 
 
 @pytest.fixture(autouse=True)
@@ -1506,7 +1507,12 @@ def test_health_ready_details_require_health_scope_for_api_tokens(
     )
     monkeypatch.setattr(
         "app.api.routes.health._beat_health_snapshot",
-        lambda _settings: (True, datetime.now(timezone.utc).isoformat(), 0),
+        lambda _settings: BeatHeartbeatSnapshot(
+            ok=True,
+            heartbeat_at=datetime.now(timezone.utc).isoformat(),
+            age_seconds=0,
+            reason="healthy",
+        ),
     )
 
     narrow_response = client.get(
@@ -1665,6 +1671,8 @@ def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClien
     assert response.status_code == 503
     payload = response.json()
     assert payload["ok"] is False
+    assert payload["reason"] == "stale"
+    assert payload["age_seconds"] >= 600
 
 
 def test_health_beat_endpoint_hides_internal_details_from_public(client: TestClient, monkeypatch):

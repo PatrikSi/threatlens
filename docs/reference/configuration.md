@@ -97,10 +97,13 @@
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. Leave disabled except for an intentional one-time reset. |
 | `LOG_LEVEL` (`log_level`) | `INFO` | Application log verbosity. |
 | `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
-| `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where beat writes heartbeat timestamps. |
+| `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
 | `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for beat heartbeat key. |
-| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for beat heartbeat before `/health/beat` fails. |
+| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for the Beat-to-worker heartbeat before health checks and the Beat watchdog fail. |
 | `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
+| `BEAT_WATCHDOG_STARTUP_GRACE_SECONDS` (`beat_watchdog_startup_grace_seconds`) | `240` | Grace period after Beat starts before a missing or stale heartbeat forces a restart. |
+| `BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS` (`beat_watchdog_check_interval_seconds`) | `15` | Interval between watchdog heartbeat checks. |
+| `BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS` (`beat_watchdog_terminate_timeout_seconds`) | `10` | Time allowed for Beat to stop before the watchdog force-kills it. |
 | `NOTIFICATION_DELIVERY_ENQUEUE_BATCH_SIZE` (`notification_delivery_enqueue_batch_size`) | `100` | Delivery batch size when queueing webhook deliveries. |
 | `NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE` (`notification_delivery_recovery_batch_size`) | `100` | Delivery batch size when retrying stale webhook deliveries. |
 | `NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS` (`notification_delivery_sending_stale_after_seconds`) | `120` | Age after which in-flight webhook sends are treated as stale. |
@@ -215,3 +218,5 @@ Beat schedules:
 - `maintain-integration-delivery-history`: every `3600.0` seconds
 - `dispatch-daily-ai-brief-generation`: every UTC minute boundary; the task checks the configured UTC hour and minute
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`
+
+The Beat container runs the scheduler under a watchdog. After the startup grace period, a missing, malformed, future-dated, or stale scheduler-to-worker heartbeat causes the watchdog to stop Beat and exit non-zero so the Compose restart policy can recover the scheduler.

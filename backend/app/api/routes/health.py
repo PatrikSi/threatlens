@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 import redis
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
@@ -13,6 +11,7 @@ from app.core.token_scopes import SCOPE_READ_HEALTH, has_required_scope
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.health import EncryptedDataInventoryResponse
+from app.services.beat_heartbeat import BeatHeartbeatSnapshot, read_beat_heartbeat
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
 from app.tasks.celery_app import QUEUE_AI, QUEUE_INGEST, QUEUE_MAINTENANCE, QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, celery_app
@@ -86,9 +85,9 @@ def _readiness_response(db: Session, *, detailed: bool):
     db_ok = _database_health_ok(db)
     redis_ok = _redis_health_ok(settings)
     worker_ok, _workers, _worker_queues = _worker_health_snapshot(settings)
-    beat_ok, _heartbeat_raw, _age_seconds = _beat_health_snapshot(settings)
+    beat_snapshot = _beat_health_snapshot(settings)
 
-    ok = db_ok and redis_ok and worker_ok and beat_ok
+    ok = db_ok and redis_ok and worker_ok and beat_snapshot.ok
     status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
     payload = {"ok": ok}
     if detailed:
@@ -97,7 +96,7 @@ def _readiness_response(db: Session, *, detailed: bool):
                 "db": db_ok,
                 "redis": redis_ok,
                 "worker": worker_ok,
-                "beat": beat_ok,
+                "beat": beat_snapshot.ok,
             }
         )
     return JSONResponse(
@@ -120,16 +119,17 @@ def _worker_health_response(*, detailed: bool):
 
 def _beat_health_response(*, detailed: bool):
     settings = get_settings()
-    beat_ok, heartbeat_raw, age_seconds = _beat_health_snapshot(settings)
+    snapshot = _beat_health_snapshot(settings)
 
-    status_code = status.HTTP_200_OK if beat_ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    payload = {"ok": beat_ok}
+    status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    payload = {"ok": snapshot.ok}
     if detailed:
         payload.update(
             {
                 "heartbeat_key": settings.beat_heartbeat_key,
-                "heartbeat_at": heartbeat_raw,
-                "age_seconds": age_seconds,
+                "heartbeat_at": snapshot.heartbeat_at,
+                "age_seconds": snapshot.age_seconds,
+                "reason": snapshot.reason,
                 "stale_after_seconds": settings.beat_heartbeat_stale_after_seconds,
             }
         )
@@ -206,26 +206,9 @@ def _required_worker_queues(settings) -> list[str]:
     return queues
 
 
-def _beat_health_snapshot(settings) -> tuple[bool, str | None, int | None]:
-    now = datetime.now(timezone.utc)
-    heartbeat_raw: str | None = None
-    age_seconds: int | None = None
-
-    try:
-        client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-        heartbeat_raw = client.get(settings.beat_heartbeat_key)
-    except Exception:
-        return False, None, None
-
-    if not heartbeat_raw:
-        return False, None, None
-
-    try:
-        heartbeat_at = datetime.fromisoformat(heartbeat_raw)
-    except ValueError:
-        return False, heartbeat_raw, None
-
-    if heartbeat_at.tzinfo is None:
-        heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
-    age_seconds = max(0, int((now - heartbeat_at).total_seconds()))
-    return age_seconds <= settings.beat_heartbeat_stale_after_seconds, heartbeat_raw, age_seconds
+def _beat_health_snapshot(settings) -> BeatHeartbeatSnapshot:
+    return read_beat_heartbeat(
+        redis_url=settings.redis_url,
+        heartbeat_key=settings.beat_heartbeat_key,
+        stale_after_seconds=settings.beat_heartbeat_stale_after_seconds,
+    )
