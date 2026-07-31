@@ -18,6 +18,7 @@ from app.services.oidc_client import (
     build_oidc_authorization_url,
     validate_oidc_token_claims,
 )
+from app.services import oidc_client
 from app.services.oidc_config import OIDCConfigurationError, oidc_callback_url, validate_oidc_provider_urls
 from app.services.oidc_identity import resolve_oidc_role
 from app.services.oidc_transaction import (
@@ -180,3 +181,32 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
 
     with pytest.raises(OIDCProtocolError, match="claims validation failed"):
         validate_oidc_token_claims(provider, metadata, token_for("wrong-nonce"), nonce="expected-nonce")
+
+
+def test_oidc_json_fetch_closes_streamed_httpx_response(monkeypatch):
+    response = oidc_client.httpx.Response(
+        200,
+        content=b'{"issuer":"https://idp.example.com"}',
+        request=oidc_client.httpx.Request("GET", "https://idp.example.com/metadata"),
+    )
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, data=None):
+            return oidc_client.httpx.Request(method, url, data=data)
+
+        def send(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+
+    assert oidc_client._fetch_json("GET", "https://idp.example.com/metadata") == {
+        "issuer": "https://idp.example.com"
+    }
+    assert response.is_closed is True

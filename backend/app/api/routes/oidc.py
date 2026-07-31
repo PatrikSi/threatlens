@@ -206,6 +206,22 @@ def test_configured_oidc_provider(
         )
         db.commit()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("oidc_provider_test_unexpected_failure provider_id=%s", provider.id)
+        record_audit(
+            db,
+            actor_user_id=admin.id,
+            action="oidc.provider.test",
+            resource_type="oidc_provider",
+            resource_id=str(provider.id),
+            success=False,
+            metadata={"error_type": type(exc).__name__},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="OIDC provider test failed unexpectedly",
+        ) from exc
 
     record_audit(
         db,
@@ -404,6 +420,22 @@ def _start_oidc_flow(db: Session, *, mode: str, user: User | None = None) -> Red
             code_verifier=transaction.code_verifier,
         )
     except (OIDCConfigurationError, OIDCProtocolError, ValueError) as exc:
+        record_audit(
+            db,
+            actor_user_id=user.id if user else None,
+            action="auth.oidc.start",
+            resource_type="oidc_provider",
+            resource_id=str(provider.id),
+            success=False,
+            metadata={"mode": mode, "error_type": type(exc).__name__},
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="OIDC sign-in is temporarily unavailable; contact an administrator",
+        ) from exc
+    except Exception as exc:
+        logger.exception("oidc_start_unexpected_failure provider_id=%s mode=%s", provider.id, mode)
         record_audit(
             db,
             actor_user_id=user.id if user else None,

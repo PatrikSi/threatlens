@@ -291,12 +291,14 @@ def _fetch_json(
                 ensure_runtime_fetchable_url(url, allow_private_network=settings.allow_private_network_oidc)
                 request = client.build_request(method.upper(), url, data=data)
                 response = client.send(request, stream=True, auth=auth, follow_redirects=False)
-            with response:
+            try:
                 if response.is_redirect:
                     raise OIDCProtocolError("OIDC endpoint returned an unexpected redirect")
                 if response.status_code < 200 or response.status_code >= 300:
                     raise OIDCProtocolError(f"OIDC endpoint returned HTTP {response.status_code}")
                 payload = _read_limited_body(response)
+            finally:
+                response.close()
     except (OIDCProtocolError, OIDCConfigurationError):
         raise
     except (httpx.HTTPError, ValueError) as exc:
