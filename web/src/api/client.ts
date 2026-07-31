@@ -67,7 +67,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError' && !requestOptions.signal?.aborted) {
-      throw new Error(`Request timed out after ${requestTimeoutMs / 1000}s (${path})`)
+      throw new Error(`Request timed out after ${requestTimeoutMs / 1000}s (${path})`, { cause: error })
     }
     throw error
   } finally {
