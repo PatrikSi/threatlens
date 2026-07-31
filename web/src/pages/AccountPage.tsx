@@ -2,12 +2,12 @@ import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
-import { apiFetch, buildApiUrl } from '../api/client'
+import { apiFetch } from '../api/client'
 import { useAuth } from '../components/AuthContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
-import { OIDCAccountStatus } from '../types/api'
+import { OIDCAccountStatus, OIDCStartResponse } from '../types/api'
 
 export function AccountPage() {
   const navigate = useNavigate()
@@ -61,6 +61,12 @@ export function AccountPage() {
     onSuccess: () => {
       setUnlinkPassword('')
       void queryClient.invalidateQueries({ queryKey: ['auth', 'oidc', 'account'] })
+    },
+  })
+  const linkOidc = useMutation({
+    mutationFn: () => apiFetch<OIDCStartResponse>('/auth/oidc/link', { method: 'POST' }),
+    onSuccess: ({ authorization_url: authorizationUrl }) => {
+      window.location.assign(authorizationUrl)
     },
   })
 
@@ -172,10 +178,16 @@ export function AccountPage() {
                 <button
                   type="button"
                   className="mt-3 rounded bg-ink px-3 py-2 font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
-                  onClick={() => window.location.assign(buildApiUrl('/auth/oidc/link'))}
+                  disabled={linkOidc.isPending}
+                  onClick={() => linkOidc.mutate()}
                 >
-                  Link SSO account
+                  {linkOidc.isPending ? 'Connecting...' : 'Link SSO account'}
                 </button>
+                {linkOidc.isError && (
+                  <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">
+                    {formatMutationError(linkOidc.error, 'Failed to start SSO account linking.')}
+                  </p>
+                )}
               </>
             ) : (
               <p className="text-slate dark:text-slate-300">Single sign-on is not currently available.</p>

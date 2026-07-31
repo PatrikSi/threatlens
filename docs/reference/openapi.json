@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.3.0",
-    "x-threatlens-contract-sha256": "950c429d9aff0a568436fe9b5c62b8614e273cb331037753dfb6dc24f4e4eec0"
+    "x-threatlens-contract-sha256": "e8bef904a417814ea4b4af7180db100ab7713db1401c848c07966d6943789404"
   },
   "servers": [
     {
@@ -382,19 +382,21 @@
       }
     },
     "/v1/auth/oidc/link": {
-      "get": {
+      "post": {
         "tags": [
           "auth",
           "oidc"
         ],
         "summary": "Start Oidc Link",
-        "operationId": "start_oidc_link_v1_auth_oidc_link_get",
+        "operationId": "start_oidc_link_v1_auth_oidc_link_post",
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCStartResponse"
+                }
               }
             }
           }
@@ -13559,6 +13561,19 @@
           "role"
         ],
         "title": "OIDCRoleMapping"
+      },
+      "OIDCStartResponse": {
+        "properties": {
+          "authorization_url": {
+            "type": "string",
+            "title": "Authorization Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "authorization_url"
+        ],
+        "title": "OIDCStartResponse"
       },
       "OIDCUnlinkRequest": {
         "properties": {

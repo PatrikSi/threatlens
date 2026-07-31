@@ -66,7 +66,7 @@ Protocol and identity behavior:
 - Discovery issuer matching is exact. ID tokens require a supported asymmetric signature and validated issuer, audience, expiry, nonce, and access-token hash when present.
 - Discovery, token, JWKS, and UserInfo requests use DNS-pinned outbound connections, bounded timeouts, and bounded response bodies. Unexpected endpoint redirects are rejected; discovery redirects are revalidated and capped.
 - The durable identity key is `(issuer, subject)`. ThreatLens never uses email as the external identity key and never automatically links an existing local account by email.
-- Linking an existing account requires an active browser session and a fresh provider authorization flow. Unlinking requires the current local password and is blocked for OIDC-only accounts.
+- Linking an existing account starts through a CSRF-protected request from an active browser session and requires a fresh provider authorization flow. Unlinking requires the current local password and is blocked for OIDC-only accounts.
 - Provider access tokens and ID tokens are not persisted. The client secret is encrypted with `APP_DATA_ENCRYPTION_KEY` and is never returned by the API.
 
 Provisioning and role mapping:

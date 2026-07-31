@@ -28,6 +28,7 @@ from app.schemas.oidc import (
     OIDCProviderTestResponse,
     OIDCProviderUpdateRequest,
     OIDCPublicSettingsResponse,
+    OIDCStartResponse,
     OIDCUnlinkRequest,
 )
 from app.services.audit import record_audit
@@ -58,6 +59,7 @@ from app.services.oidc_identity import (
     unlink_oidc_identity,
 )
 from app.services.oidc_transaction import (
+    OIDCTransaction,
     clear_oidc_transaction_cookie,
     decode_oidc_transaction,
     new_oidc_transaction,
@@ -245,15 +247,19 @@ def start_oidc_login(db: Session = Depends(get_db)):
     return _start_oidc_flow(db, mode="login")
 
 
-@router.get("/link")
+@router.post("/link", response_model=OIDCStartResponse)
 def start_oidc_link(
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     if not is_cookie_session_auth(request):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OIDC account linking requires a browser session")
-    return _start_oidc_flow(db, mode="link", user=user)
+    authorization_url, transaction = _prepare_oidc_flow(db, mode="link", user=user)
+    set_oidc_transaction_cookie(response, transaction)
+    response.headers["Cache-Control"] = "no-store"
+    return OIDCStartResponse(authorization_url=authorization_url)
 
 
 @router.get("/callback")
@@ -402,6 +408,19 @@ def unlink_oidc_account(
 
 
 def _start_oidc_flow(db: Session, *, mode: str, user: User | None = None) -> RedirectResponse:
+    authorization_url, transaction = _prepare_oidc_flow(db, mode=mode, user=user)
+    response = RedirectResponse(authorization_url, status_code=status.HTTP_302_FOUND)
+    set_oidc_transaction_cookie(response, transaction)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def _prepare_oidc_flow(
+    db: Session,
+    *,
+    mode: str,
+    user: User | None = None,
+) -> tuple[str, OIDCTransaction]:
     provider = _load_primary_provider(db)
     if provider is None or not provider.enabled:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="OIDC sign-in is not available")
@@ -451,10 +470,7 @@ def _start_oidc_flow(db: Session, *, mode: str, user: User | None = None) -> Red
             detail="OIDC sign-in is temporarily unavailable; contact an administrator",
         ) from exc
 
-    response = RedirectResponse(authorization_url, status_code=status.HTTP_302_FOUND)
-    set_oidc_transaction_cookie(response, transaction)
-    response.headers["Cache-Control"] = "no-store"
-    return response
+    return authorization_url, transaction
 
 
 def _load_primary_provider(db: Session) -> OIDCProvider | None:

@@ -260,4 +260,35 @@ describe('AccountPage DOM workflows', () => {
     expect(view.querySelector('#account-unlink-password')).not.toBeNull()
     expect([...view.querySelectorAll('button')].some((button) => button.textContent?.includes('Unlink SSO'))).toBe(true)
   })
+
+  it('starts OIDC account linking through the protected API', async () => {
+    accountPageDomMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/oidc/account') {
+        return Promise.resolve({
+          available: true,
+          provider_name: 'Acme SSO',
+          linked: false,
+          linked_email: null,
+          linked_at: null,
+          password_login_enabled: true,
+        })
+      }
+      return new Promise(() => {})
+    })
+
+    const view = renderPage()
+    await act(async () => {
+      await flushPromises()
+    })
+    const linkButton = [...view.querySelectorAll('button')].find((button) => button.textContent === 'Link SSO account')
+    expect(linkButton).not.toBeUndefined()
+
+    await act(async () => {
+      linkButton!.click()
+      await flushPromises()
+    })
+
+    expect(accountPageDomMocks.apiFetch).toHaveBeenCalledWith('/auth/oidc/link', { method: 'POST' })
+    expect(linkButton?.textContent).toBe('Connecting...')
+  })
 })

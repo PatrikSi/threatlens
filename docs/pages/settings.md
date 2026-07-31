@@ -39,7 +39,7 @@ Legacy route behavior:
   - `GET /auth/me`
   - `POST /auth/change-password`
   - `GET /auth/oidc/account`
-  - `GET /auth/oidc/link`
+  - `POST /auth/oidc/link`
   - `DELETE /auth/oidc/account`
 
 ## Identity Provider (Admin)

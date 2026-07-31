@@ -126,6 +126,10 @@ class OIDCPublicSettingsResponse(BaseModel):
     provider_name: str | None = None
 
 
+class OIDCStartResponse(BaseModel):
+    authorization_url: str
+
+
 class OIDCAccountStatusResponse(BaseModel):
     available: bool
     provider_name: str | None = None
