@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from urllib.parse import urlsplit
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.core.config import get_settings
 from app.models.oidc import OIDCProvider
 from app.schemas.oidc import OIDCProviderResponse, OIDCRoleMapping
@@ -13,6 +16,10 @@ DEFAULT_OIDC_SCOPES = ["openid", "profile", "email"]
 
 class OIDCConfigurationError(ValueError):
     pass
+
+
+def load_primary_oidc_provider(db: Session) -> OIDCProvider | None:
+    return db.scalar(select(OIDCProvider).where(OIDCProvider.system_key == OIDC_PROVIDER_SYSTEM_KEY))
 
 
 def validate_oidc_provider_urls(*, issuer_url: str, public_base_url: str) -> None:
