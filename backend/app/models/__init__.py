@@ -26,6 +26,7 @@ from app.models.item_classification import ItemClassification
 from app.models.item_state import ItemState
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
+from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.tagging_rule import TaggingRule
@@ -44,6 +45,7 @@ __all__ = [
     "Article",
     "AuditLog",
     "Feed",
+    "ExternalIdentity",
     "IOC",
     "IntegrationAttempt",
     "IntegrationDelivery",
@@ -60,6 +62,7 @@ __all__ = [
     "ItemState",
     "NotificationWebhook",
     "NotificationWebhookDelivery",
+    "OIDCProvider",
     "SavedView",
     "Tag",
     "ItemTag",
