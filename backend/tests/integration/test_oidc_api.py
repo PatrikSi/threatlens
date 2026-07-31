@@ -118,10 +118,32 @@ def test_admin_can_configure_oidc_without_secret_disclosure(client, auth_headers
     assert provider is not None
     assert is_encrypted_text(provider.client_secret_encrypted)
     assert "provider-secret" not in provider.client_secret_encrypted
+    stored_secret = provider.client_secret_encrypted
+
+    retain_payload = _provider_payload(name="Renamed SSO")
+    retain_payload.pop("client_secret")
+    retained = client.put("/auth/oidc/provider", json=retain_payload, headers=auth_headers["admin"])
+    assert retained.status_code == 200
+    assert retained.json()["has_client_secret"] is True
+    db_session.refresh(provider)
+    assert provider.client_secret_encrypted == stored_secret
+
+    clear_payload = _provider_payload(
+        name="Renamed SSO",
+        enabled=False,
+        client_auth_method="none",
+        clear_client_secret=True,
+    )
+    clear_payload.pop("client_secret")
+    cleared = client.put("/auth/oidc/provider", json=clear_payload, headers=auth_headers["admin"])
+    assert cleared.status_code == 200
+    assert cleared.json()["has_client_secret"] is False
+    db_session.refresh(provider)
+    assert provider.client_secret_encrypted is None
 
     public = client.get("/auth/oidc/settings")
     assert public.status_code == 200
-    assert public.json() == {"enabled": True, "provider_name": "Acme SSO"}
+    assert public.json() == {"enabled": False, "provider_name": None}
     assert client.get("/auth/oidc/provider", headers=auth_headers["viewer"]).status_code == 403
 
 
@@ -221,7 +243,12 @@ def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, 
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "subject-1")) is None
 
 
-def test_oidc_link_flow_binds_identity_to_initiating_browser_session(client, db_session, seed_users, monkeypatch):
+def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
+    client,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
     provider = _configured_provider(db_session)
     _mock_oidc_flow(
         monkeypatch,
@@ -245,6 +272,17 @@ def test_oidc_link_flow_binds_identity_to_initiating_browser_session(client, db_
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.provider_id == provider.id))
     assert identity is not None
     assert identity.user_id == seed_users["analyst"].id
+
+    csrf_token = client.cookies.get("threatlens_csrf")
+    assert csrf_token
+    unlinked = client.request(
+        "DELETE",
+        "/auth/oidc/account",
+        json={"current_password": "AnalystPass123!"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert unlinked.status_code == 204
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.id == identity.id)) is None
 
 
 def test_oidc_link_start_requires_csrf_and_cookie_session(client, auth_headers, db_session, seed_users, monkeypatch):
