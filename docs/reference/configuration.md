@@ -7,7 +7,8 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
-- `worker`: Celery worker for ingestion, processing, maintenance, and AI queues
+- `worker`: Celery worker for ingestion, processing, and AI queues
+- `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, and maintenance tasks
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
@@ -146,16 +147,17 @@ Outside production:
 - For Portainer, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mapping before deploying.
 - If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
 - The default ThreatLens application images point at GitHub Container Registry:
-  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-notifications`, and `beat`
+  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - `THREATLENS_IMAGE_TAG` defaults to `latest`, which tracks the newest default published image. Set it to an immutable release tag such as `1.0.0` or `v1.0.0`, or to a `sha-<commit>` tag, when you need a pinned deployment.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation unless the generated YAML mapping is pasted into the compose file, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
-- Both workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes `default`, `ingest`, `processing`, `maintenance`, and `ai`; `worker-notifications` consumes only `notifications`.
+- `worker` consumes `default`, `ingest`, `processing`, and `ai`; `worker-maintenance` consumes only `maintenance`; `worker-notifications` consumes only `notifications`.
+- Compose worker concurrency defaults to `4`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY` based on available CPU, memory, and connector load.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.

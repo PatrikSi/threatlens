@@ -147,7 +147,9 @@ View logs:
 ```bash
 docker compose logs -f api
 docker compose logs -f worker
+docker compose logs -f worker-maintenance
 docker compose logs -f worker-notifications
+docker compose logs -f beat
 docker compose logs -f web
 ```
 
@@ -192,7 +194,9 @@ Worker and scheduler:
 
 ```bash
 cd backend
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=default,ingest,processing,ai -n 'worker@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=maintenance -n 'maintenance@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog
 ```
 
