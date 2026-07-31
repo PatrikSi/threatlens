@@ -52,6 +52,10 @@ export interface OIDCPublicSettings {
   provider_name: string | null
 }
 
+export interface OIDCStartResponse {
+  authorization_url: string
+}
+
 export type OIDCClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none'
 
 export interface OIDCRoleMapping {

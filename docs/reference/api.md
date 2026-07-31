@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.3.0`
-- OpenAPI contract anchor: `openapi-sha256:950c429d9aff0a568436fe9b5c62b8614e273cb331037753dfb6dc24f4e4eec0`
+- OpenAPI contract anchor: `openapi-sha256:e8bef904a417814ea4b4af7180db100ab7713db1401c848c07966d6943789404`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -253,10 +253,10 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
   - `code` (query, optional): Code
   - `error` (query, optional): Error
 - Responses: `200` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
-### `GET /v1/auth/oidc/link`
+### `POST /v1/auth/oidc/link`
 - Summary: Start Oidc Link
 - Auth: ApiTokenBearer or SessionCookieAuth
-- Responses: `200` `application/json` -> unspecified
+- Responses: `200` `application/json` -> OIDCStartResponse
 ### `GET /v1/auth/oidc/login`
 - Summary: Start Oidc Login
 - Auth: none

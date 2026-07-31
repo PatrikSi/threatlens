@@ -87,9 +87,17 @@ def _mock_oidc_flow(monkeypatch, claims: dict):
 
 
 def _start_and_complete(client: TestClient, *, start_path: str = "/auth/oidc/login"):
-    start = client.get(start_path, follow_redirects=False)
-    assert start.status_code == 302
-    state = parse_qs(urlsplit(start.headers["location"]).query)["state"][0]
+    if start_path == "/auth/oidc/link":
+        csrf_token = client.cookies.get("threatlens_csrf")
+        assert csrf_token
+        start = client.post(start_path, headers={"X-CSRF-Token": csrf_token})
+        assert start.status_code == 200
+        authorization_url = start.json()["authorization_url"]
+    else:
+        start = client.get(start_path, follow_redirects=False)
+        assert start.status_code == 302
+        authorization_url = start.headers["location"]
+    state = parse_qs(urlsplit(authorization_url).query)["state"][0]
     return client.get(
         "/auth/oidc/callback",
         params={"state": state, "code": "authorization-code"},
@@ -237,6 +245,24 @@ def test_oidc_link_flow_binds_identity_to_initiating_browser_session(client, db_
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.provider_id == provider.id))
     assert identity is not None
     assert identity.user_id == seed_users["analyst"].id
+
+
+def test_oidc_link_start_requires_csrf_and_cookie_session(client, auth_headers, db_session, seed_users, monkeypatch):
+    _configured_provider(db_session)
+    _mock_oidc_flow(monkeypatch, {"sub": "linked-subject"})
+
+    bearer_response = client.post("/auth/oidc/link", headers=auth_headers["analyst"])
+    assert bearer_response.status_code == 400
+    assert bearer_response.json()["detail"] == "OIDC account linking requires a browser session"
+
+    login = client.post(
+        "/auth/login",
+        json={"email": seed_users["analyst"].email, "password": "AnalystPass123!"},
+    )
+    assert login.status_code == 200
+    missing_csrf = client.post("/auth/oidc/link")
+    assert missing_csrf.status_code == 403
+    assert missing_csrf.json()["detail"] == "Missing or invalid CSRF token"
 
 
 def test_oidc_callback_rejects_state_mismatch_and_clears_transaction_cookie(client, db_session, monkeypatch):

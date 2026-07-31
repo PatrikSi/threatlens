@@ -216,6 +216,11 @@ def _provision_identity(
             )
         )
         if concurrent_identity is not None:
+            if concurrent_identity.provider_id != provider.id:
+                raise OIDCIdentityError(
+                    "identity_conflict",
+                    "The external identity belongs to another provider",
+                ) from exc
             concurrent_user = load_user_for_access_update(db, concurrent_identity.user_id)
             if concurrent_user is not None:
                 return concurrent_user, concurrent_identity
