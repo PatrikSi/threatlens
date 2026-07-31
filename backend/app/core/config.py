@@ -184,12 +184,20 @@ class Settings(BaseSettings):
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
+    allow_private_network_oidc: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
     auth_login_window_seconds: int = 300
     auth_login_lockout_seconds: int = 900
     api_token_last_used_update_interval_seconds: int = 300
+    oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
+    oidc_transaction_ttl_seconds: int = 600
+    oidc_callback_path: str = "/api/v1/auth/oidc/callback"
+    oidc_metadata_cache_seconds: int = 300
+    oidc_connect_timeout_seconds: float = 5
+    oidc_read_timeout_seconds: float = 10
+    oidc_max_response_bytes: int = 1_000_000
 
     probe_feed_metadata_on_create: bool = False
     probe_feed_metadata_on_import: bool = False
@@ -270,6 +278,32 @@ class Settings(BaseSettings):
     @classmethod
     def _normalize_header_name(cls, value):
         return str(value).strip().lower()
+
+    @field_validator("oidc_callback_path", mode="before")
+    @classmethod
+    def _normalize_oidc_callback_path(cls, value):
+        normalized = str(value).strip()
+        if not normalized.startswith("/") or normalized.startswith("//") or "?" in normalized or "#" in normalized:
+            raise ValueError("oidc_callback_path must be an absolute URL path without a query or fragment")
+        return normalized
+
+    @field_validator(
+        "oidc_transaction_ttl_seconds",
+        "oidc_metadata_cache_seconds",
+        "oidc_max_response_bytes",
+    )
+    @classmethod
+    def _validate_positive_oidc_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("OIDC transaction, cache, and response limits must be greater than zero")
+        return value
+
+    @field_validator("oidc_connect_timeout_seconds", "oidc_read_timeout_seconds")
+    @classmethod
+    def _validate_positive_oidc_timeouts(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("OIDC timeout values must be greater than zero")
+        return value
 
     @field_validator("log_level", mode="before")
     @classmethod

@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.3.0",
-    "x-threatlens-contract-sha256": "ad380de4f502a6f317062a96a0a5f69b8d287fa07ef4213f0cbb133f3bb04460"
+    "x-threatlens-contract-sha256": "950c429d9aff0a568436fe9b5c62b8614e273cb331037753dfb6dc24f4e4eec0"
   },
   "servers": [
     {
@@ -220,6 +220,347 @@
             }
           }
         }
+      }
+    },
+    "/v1/auth/oidc/settings": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Public Oidc Settings",
+        "operationId": "public_oidc_settings_v1_auth_oidc_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCPublicSettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/oidc/provider": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Get Oidc Provider",
+        "operationId": "get_oidc_provider_v1_auth_oidc_provider_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCProviderResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:users"
+        ]
+      },
+      "put": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Update Oidc Provider",
+        "operationId": "update_oidc_provider_v1_auth_oidc_provider_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OIDCProviderUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCProviderResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:users"
+        ]
+      }
+    },
+    "/v1/auth/oidc/provider/test": {
+      "post": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Test Configured Oidc Provider",
+        "operationId": "test_configured_oidc_provider_v1_auth_oidc_provider_test_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCProviderTestResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:users"
+        ]
+      }
+    },
+    "/v1/auth/oidc/login": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Start Oidc Login",
+        "operationId": "start_oidc_login_v1_auth_oidc_login_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/oidc/link": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Start Oidc Link",
+        "operationId": "start_oidc_link_v1_auth_oidc_link_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/oidc/callback": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Oidc Callback",
+        "operationId": "oidc_callback_v1_auth_oidc_callback_get",
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 2048
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 8192
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Code"
+            }
+          },
+          {
+            "name": "error",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Error"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/oidc/account": {
+      "get": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Oidc Account Status",
+        "operationId": "oidc_account_status_v1_auth_oidc_account_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OIDCAccountStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
+      },
+      "delete": {
+        "tags": [
+          "auth",
+          "oidc"
+        ],
+        "summary": "Unlink Oidc Account",
+        "operationId": "unlink_oidc_account_v1_auth_oidc_account_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OIDCUnlinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ]
       }
     },
     "/v1/feeds": {
@@ -9764,6 +10105,11 @@
             "format": "date-time",
             "title": "Created At"
           },
+          "password_login_enabled": {
+            "type": "boolean",
+            "title": "Password Login Enabled",
+            "default": true
+          },
           "features": {
             "$ref": "#/components/schemas/AppFeaturesResponse"
           }
@@ -12819,6 +13165,417 @@
           "url_template"
         ],
         "title": "NotificationWebhookWrite"
+      },
+      "OIDCAccountStatusResponse": {
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "title": "Available"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          },
+          "linked": {
+            "type": "boolean",
+            "title": "Linked"
+          },
+          "linked_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked Email"
+          },
+          "linked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked At"
+          },
+          "password_login_enabled": {
+            "type": "boolean",
+            "title": "Password Login Enabled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "available",
+          "linked",
+          "password_login_enabled"
+        ],
+        "title": "OIDCAccountStatusResponse"
+      },
+      "OIDCProviderResponse": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "configured": {
+            "type": "boolean",
+            "title": "Configured"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "issuer_url": {
+            "type": "string",
+            "title": "Issuer Url"
+          },
+          "client_id": {
+            "type": "string",
+            "title": "Client Id"
+          },
+          "has_client_secret": {
+            "type": "boolean",
+            "title": "Has Client Secret"
+          },
+          "client_auth_method": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "client_secret_post",
+              "none"
+            ],
+            "title": "Client Auth Method"
+          },
+          "public_base_url": {
+            "type": "string",
+            "title": "Public Base Url"
+          },
+          "callback_url": {
+            "type": "string",
+            "title": "Callback Url"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Scopes"
+          },
+          "role_claim": {
+            "type": "string",
+            "title": "Role Claim"
+          },
+          "role_mappings": {
+            "items": {
+              "$ref": "#/components/schemas/OIDCRoleMapping"
+            },
+            "type": "array",
+            "title": "Role Mappings"
+          },
+          "default_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Default Role"
+          },
+          "jit_provisioning_enabled": {
+            "type": "boolean",
+            "title": "Jit Provisioning Enabled"
+          },
+          "auto_approve_users": {
+            "type": "boolean",
+            "title": "Auto Approve Users"
+          },
+          "sync_roles_on_login": {
+            "type": "boolean",
+            "title": "Sync Roles On Login"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured",
+          "name",
+          "enabled",
+          "issuer_url",
+          "client_id",
+          "has_client_secret",
+          "client_auth_method",
+          "public_base_url",
+          "callback_url",
+          "scopes",
+          "role_claim",
+          "role_mappings",
+          "default_role",
+          "jit_provisioning_enabled",
+          "auto_approve_users",
+          "sync_roles_on_login"
+        ],
+        "title": "OIDCProviderResponse"
+      },
+      "OIDCProviderTestResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "issuer": {
+            "type": "string",
+            "title": "Issuer"
+          },
+          "authorization_endpoint": {
+            "type": "string",
+            "title": "Authorization Endpoint"
+          },
+          "token_endpoint": {
+            "type": "string",
+            "title": "Token Endpoint"
+          },
+          "jwks_key_count": {
+            "type": "integer",
+            "title": "Jwks Key Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "issuer",
+          "authorization_endpoint",
+          "token_endpoint",
+          "jwks_key_count"
+        ],
+        "title": "OIDCProviderTestResponse"
+      },
+      "OIDCProviderUpdateRequest": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "default": "Company SSO"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": false
+          },
+          "issuer_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Issuer Url",
+            "default": ""
+          },
+          "client_id": {
+            "type": "string",
+            "maxLength": 255,
+            "title": "Client Id",
+            "default": ""
+          },
+          "client_secret": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4096
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "format": "password",
+            "title": "Client Secret",
+            "writeOnly": true
+          },
+          "clear_client_secret": {
+            "type": "boolean",
+            "title": "Clear Client Secret",
+            "default": false
+          },
+          "client_auth_method": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "client_secret_post",
+              "none"
+            ],
+            "title": "Client Auth Method",
+            "default": "client_secret_basic"
+          },
+          "public_base_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Public Base Url",
+            "default": ""
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 32,
+            "title": "Scopes"
+          },
+          "role_claim": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.:-]+$",
+            "title": "Role Claim",
+            "default": "groups"
+          },
+          "role_mappings": {
+            "items": {
+              "$ref": "#/components/schemas/OIDCRoleMapping"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Role Mappings"
+          },
+          "default_role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Default Role",
+            "default": "viewer"
+          },
+          "jit_provisioning_enabled": {
+            "type": "boolean",
+            "title": "Jit Provisioning Enabled",
+            "default": false
+          },
+          "auto_approve_users": {
+            "type": "boolean",
+            "title": "Auto Approve Users",
+            "default": false
+          },
+          "sync_roles_on_login": {
+            "type": "boolean",
+            "title": "Sync Roles On Login",
+            "default": true
+          }
+        },
+        "type": "object",
+        "title": "OIDCProviderUpdateRequest"
+      },
+      "OIDCPublicSettingsResponse": {
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled"
+          },
+          "provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "enabled"
+        ],
+        "title": "OIDCPublicSettingsResponse"
+      },
+      "OIDCRoleMapping": {
+        "properties": {
+          "claim_value": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Claim Value"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "analyst",
+              "viewer"
+            ],
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "claim_value",
+          "role"
+        ],
+        "title": "OIDCRoleMapping"
+      },
+      "OIDCUnlinkRequest": {
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "format": "password",
+            "title": "Current Password",
+            "writeOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "current_password"
+        ],
+        "title": "OIDCUnlinkRequest"
       },
       "ReadUpdateRequest": {
         "properties": {
@@ -16014,6 +16771,11 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "password_login_enabled": {
+            "type": "boolean",
+            "title": "Password Login Enabled",
+            "default": true
           }
         },
         "type": "object",
@@ -16108,6 +16870,11 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "password_login_enabled": {
+            "type": "boolean",
+            "title": "Password Login Enabled",
+            "default": true
           }
         },
         "type": "object",
