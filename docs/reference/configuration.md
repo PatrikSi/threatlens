@@ -98,8 +98,9 @@
 | `LOG_LEVEL` (`log_level`) | `INFO` | Application log verbosity. |
 | `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
 | `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
-| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for beat heartbeat key. |
-| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for the Beat-to-worker heartbeat before health checks and the Beat watchdog fail. |
+| `BEAT_SCHEDULER_HEARTBEAT_KEY` (`beat_scheduler_heartbeat_key`) | `threatlens:beat:scheduler-heartbeat` | Redis key updated directly after each successful Celery Beat scheduler tick. |
+| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for both scheduler and Beat-to-worker heartbeat keys. |
+| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for both heartbeats; the round trip controls API readiness and the direct scheduler heartbeat controls watchdog recovery. |
 | `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
 | `BEAT_WATCHDOG_STARTUP_GRACE_SECONDS` (`beat_watchdog_startup_grace_seconds`) | `240` | Grace period after Beat starts before a missing or stale heartbeat forces a restart. |
 | `BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS` (`beat_watchdog_check_interval_seconds`) | `15` | Interval between watchdog heartbeat checks. |
@@ -219,4 +220,4 @@ Beat schedules:
 - `dispatch-daily-ai-brief-generation`: every UTC minute boundary; the task checks the configured UTC hour and minute
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`
 
-The Beat container runs the scheduler under a watchdog. After the startup grace period, a missing, malformed, future-dated, or stale scheduler-to-worker heartbeat causes the watchdog to stop Beat and exit non-zero so the Compose restart policy can recover the scheduler.
+The Beat container runs the scheduler under a watchdog. After the startup grace period, a missing, malformed, future-dated, or stale direct scheduler heartbeat causes the watchdog to stop Beat and exit non-zero so the Compose restart policy can recover it. `/health/beat` also checks the queued Beat-to-worker heartbeat separately, allowing operators to distinguish a stalled scheduler from a delayed maintenance worker.

@@ -14,6 +14,22 @@ class BeatHeartbeatSnapshot:
     reason: str
 
 
+@dataclass(frozen=True)
+class BeatHealthSnapshot:
+    scheduler: BeatHeartbeatSnapshot
+    worker_round_trip: BeatHeartbeatSnapshot
+
+    @property
+    def readiness_ok(self) -> bool:
+        return self.worker_round_trip.ok
+
+    @property
+    def readiness_reason(self) -> str:
+        if not self.worker_round_trip.ok:
+            return f"worker_round_trip_{self.worker_round_trip.reason}"
+        return "healthy"
+
+
 def read_beat_heartbeat(
     *,
     redis_url: str,

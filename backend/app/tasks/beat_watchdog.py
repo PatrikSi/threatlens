@@ -16,13 +16,14 @@ BEAT_COMMAND = (
     "app.tasks.celery_app.celery_app",
     "beat",
     "--loglevel=INFO",
+    "--scheduler=app.tasks.beat_scheduler:WatchdogPersistentScheduler",
 )
 
 
-def load_beat_heartbeat(settings: Settings) -> BeatHeartbeatSnapshot:
+def load_scheduler_heartbeat(settings: Settings) -> BeatHeartbeatSnapshot:
     return read_beat_heartbeat(
         redis_url=settings.redis_url,
-        heartbeat_key=settings.beat_heartbeat_key,
+        heartbeat_key=settings.beat_scheduler_heartbeat_key,
         stale_after_seconds=settings.beat_heartbeat_stale_after_seconds,
     )
 
@@ -91,7 +92,7 @@ def run_beat(settings: Settings, command: Sequence[str] = BEAT_COMMAND) -> int:
         process = subprocess.Popen(list(command))
         return monitor_beat_process(
             process,
-            heartbeat_loader=lambda: load_beat_heartbeat(settings),
+            heartbeat_loader=lambda: load_scheduler_heartbeat(settings),
             startup_grace_seconds=settings.beat_watchdog_startup_grace_seconds,
             check_interval_seconds=settings.beat_watchdog_check_interval_seconds,
             terminate_timeout_seconds=settings.beat_watchdog_terminate_timeout_seconds,
@@ -105,7 +106,7 @@ def run_beat(settings: Settings, command: Sequence[str] = BEAT_COMMAND) -> int:
 
 
 def check_beat(settings: Settings) -> int:
-    snapshot = load_beat_heartbeat(settings)
+    snapshot = load_scheduler_heartbeat(settings)
     if snapshot.ok:
         return 0
     logger.error(

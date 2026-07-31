@@ -214,6 +214,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     health_worker_ping_timeout_seconds: float = 1.0
     beat_heartbeat_key: str = "threatlens:beat:heartbeat"
+    beat_scheduler_heartbeat_key: str = "threatlens:beat:scheduler-heartbeat"
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
