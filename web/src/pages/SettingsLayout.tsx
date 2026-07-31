@@ -20,6 +20,7 @@ export function SettingsLayout() {
     { to: '/settings/tokens', label: 'API Tokens' },
     ...(role === 'admin' && aiEnabled ? [{ to: '/settings/ai', label: 'AI' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/tagging', label: 'Tagging' }] : []),
+    ...(role === 'admin' ? [{ to: '/settings/identity', label: 'Identity' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/users', label: 'Users' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/audit-logs', label: 'Audit Logs' }] : []),
   ]

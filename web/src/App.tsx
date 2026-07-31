@@ -28,6 +28,9 @@ const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ def
 const IntegrationsSettingsPage = lazy(() =>
   import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.SMTPIntegrationSettingsPage })),
 )
+const IdentitySettingsPage = lazy(() =>
+  import('./pages/IdentitySettingsPage').then((module) => ({ default: module.IdentitySettingsPage })),
+)
 const NotificationWebhooksSettingsPage = lazy(() =>
   import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationWebhooksSettings })),
 )
@@ -109,6 +112,14 @@ function createAppRouter() {
                 }
               />
             </Route>
+            <Route
+              path="identity"
+              element={
+                <RoleRoute roles={['admin']}>
+                  {suspenseRoute(<IdentitySettingsPage />, 'Loading identity provider settings...')}
+                </RoleRoute>
+              }
+            />
             <Route
               path="ai"
               element={
