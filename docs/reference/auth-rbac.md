@@ -47,6 +47,39 @@ Defined in `backend/app/core/security.py`:
 - Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
 - Email-only changes do not rotate credentials.
 
+## OpenID Connect
+
+ThreatLens supports one enabled OpenID Connect provider per deployment. Configure it from **Settings > Identity** as an admin.
+
+Provider registration:
+
+1. Enter the provider's exact issuer URL, client ID, client authentication method, and requested scopes.
+2. Enter the public ThreatLens origin. Register the callback URL shown by the UI exactly at the provider.
+3. Save, then run **Test connection** to verify discovery and the provider's signing-key set.
+4. Enable the provider after the redirect URI and client credentials are registered.
+
+The bundled proxy callback is `https://<threatlens-host>/api/v1/auth/oidc/callback`. Direct API deployments can set `OIDC_CALLBACK_PATH=/v1/auth/oidc/callback`. Redirect URI comparison at the provider should remain exact.
+
+Protocol and identity behavior:
+
+- Authorization Code flow always uses PKCE S256, a signed short-lived transaction cookie, `state`, and `nonce`.
+- Discovery issuer matching is exact. ID tokens require a supported asymmetric signature and validated issuer, audience, expiry, nonce, and access-token hash when present.
+- Discovery, token, JWKS, and UserInfo requests use DNS-pinned outbound connections, bounded timeouts, and bounded response bodies. Unexpected endpoint redirects are rejected; discovery redirects are revalidated and capped.
+- The durable identity key is `(issuer, subject)`. ThreatLens never uses email as the external identity key and never automatically links an existing local account by email.
+- Linking an existing account requires an active browser session and a fresh provider authorization flow. Unlinking requires the current local password and is blocked for OIDC-only accounts.
+- Provider access tokens and ID tokens are not persisted. The client secret is encrypted with `APP_DATA_ENCRYPTION_KEY` and is never returned by the API.
+
+Provisioning and role mapping:
+
+- JIT provisioning is opt-in. New users require a syntactically valid email with `email_verified=true`.
+- Automatic approval is a separate opt-in. Otherwise, the new account is created pending the normal admin approval workflow.
+- `role_claim` accepts a claim name or dotted object path such as `realm_access.roles`. Claim values may be a string or a list of strings.
+- Role mappings use exact, case-sensitive claim values. When multiple mappings match, `admin` takes precedence over `analyst`, then `viewer`. With no match, the configured default role applies.
+- Optional role synchronization runs at each OIDC login. A role change rotates browser sessions and revokes active API tokens. A mapping can never demote the final active, approved admin.
+- Once identities are linked, the provider issuer and client ID cannot be changed. Unlink identities first or retain the existing provider identity key.
+
+Local password login remains available as a break-glass path. Keep at least one active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts do not have local password login until an admin sets a password from **Users**.
+
 ## API Token Behavior
 
 Token format and handling:
@@ -147,6 +180,9 @@ Paths below are relative to the published `/api/v1` base.
 | `/views` mutate | authenticated user | `write:views` |
 | `/tokens` | authenticated user | `read:tokens` / `write:tokens` |
 | `/users` | `admin` | `read:users` / `write:users` |
+| `/auth/oidc/provider*` | `admin` | `read:users` / `write:users` |
+| `/auth/oidc/login`, `/auth/oidc/callback`, `/auth/oidc/settings` | anonymous flow | none |
+| `/auth/oidc/account`, `/auth/oidc/link` | authenticated user | none |
 | `/audit-logs` | `admin` | `read:audit` |
 | `/audit-logs/export` | `admin` | `read:audit` |
 | `/stats/*` | authenticated user | `read:stats` |
@@ -162,3 +198,4 @@ Paths below are relative to the published `/api/v1` base.
 - Viewer-role access and API tokens without `write:notifications` receive webhook configuration with secret-bearing values redacted. Operator cookie sessions and write-scoped operator tokens retain the existing editable response.
 - User updates are serialized around the active-admin invariant; concurrent demotions cannot remove the final active, approved admin.
 - Non-admin token revocation is owner-constrained and returns the same not-found response for foreign and nonexistent token IDs.
+- OIDC role synchronization and admin user edits share the same serialized final-admin invariant.
