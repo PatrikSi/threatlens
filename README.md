@@ -193,7 +193,7 @@ Worker and scheduler:
 ```bash
 cd backend
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-./.venv/bin/celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
+./.venv/bin/python -m app.tasks.beat_watchdog
 ```
 
 Frontend:

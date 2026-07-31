@@ -70,3 +70,13 @@ def test_read_beat_heartbeat_reports_redis_failure(monkeypatch):
     )
 
     assert snapshot == beat_heartbeat.BeatHeartbeatSnapshot(False, None, None, "redis_unavailable")
+
+
+def test_beat_health_keeps_scheduler_heartbeat_compatible_with_raw_beat_launchers():
+    snapshot = beat_heartbeat.BeatHealthSnapshot(
+        scheduler=beat_heartbeat.BeatHeartbeatSnapshot(False, None, None, "missing"),
+        worker_round_trip=beat_heartbeat.BeatHeartbeatSnapshot(True, "2026-07-31T12:00:00+00:00", 0, "healthy"),
+    )
+
+    assert snapshot.readiness_ok is True
+    assert snapshot.readiness_reason == "healthy"

@@ -116,7 +116,7 @@ def test_stop_process_force_kills_beat_after_shutdown_timeout():
 def test_check_beat_returns_failure_for_unhealthy_snapshot(monkeypatch):
     monkeypatch.setattr(
         beat_watchdog,
-        "load_beat_heartbeat",
+        "load_scheduler_heartbeat",
         lambda _settings: _snapshot(ok=False, reason="redis_unavailable"),
     )
 

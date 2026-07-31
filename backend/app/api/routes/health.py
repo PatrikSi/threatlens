@@ -11,7 +11,7 @@ from app.core.token_scopes import SCOPE_READ_HEALTH, has_required_scope
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.health import EncryptedDataInventoryResponse
-from app.services.beat_heartbeat import BeatHeartbeatSnapshot, read_beat_heartbeat
+from app.services.beat_heartbeat import BeatHealthSnapshot, read_beat_heartbeat
 from app.services.encrypted_data_inventory import scan_encrypted_data_inventory
 from app.services.notification_webhooks import get_notification_delivery_queue_snapshot
 from app.tasks.celery_app import QUEUE_AI, QUEUE_INGEST, QUEUE_MAINTENANCE, QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, celery_app
@@ -87,7 +87,7 @@ def _readiness_response(db: Session, *, detailed: bool):
     worker_ok, _workers, _worker_queues = _worker_health_snapshot(settings)
     beat_snapshot = _beat_health_snapshot(settings)
 
-    ok = db_ok and redis_ok and worker_ok and beat_snapshot.ok
+    ok = db_ok and redis_ok and worker_ok and beat_snapshot.readiness_ok
     status_code = status.HTTP_200_OK if ok else status.HTTP_503_SERVICE_UNAVAILABLE
     payload = {"ok": ok}
     if detailed:
@@ -96,7 +96,7 @@ def _readiness_response(db: Session, *, detailed: bool):
                 "db": db_ok,
                 "redis": redis_ok,
                 "worker": worker_ok,
-                "beat": beat_snapshot.ok,
+                "beat": beat_snapshot.readiness_ok,
             }
         )
     return JSONResponse(
@@ -121,16 +121,21 @@ def _beat_health_response(*, detailed: bool):
     settings = get_settings()
     snapshot = _beat_health_snapshot(settings)
 
-    status_code = status.HTTP_200_OK if snapshot.ok else status.HTTP_503_SERVICE_UNAVAILABLE
-    payload = {"ok": snapshot.ok}
+    status_code = status.HTTP_200_OK if snapshot.readiness_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    payload = {"ok": snapshot.readiness_ok}
     if detailed:
         payload.update(
             {
                 "heartbeat_key": settings.beat_heartbeat_key,
-                "heartbeat_at": snapshot.heartbeat_at,
-                "age_seconds": snapshot.age_seconds,
-                "reason": snapshot.reason,
+                "heartbeat_at": snapshot.worker_round_trip.heartbeat_at,
+                "age_seconds": snapshot.worker_round_trip.age_seconds,
+                "reason": snapshot.readiness_reason,
+                "round_trip_reason": snapshot.worker_round_trip.reason,
                 "stale_after_seconds": settings.beat_heartbeat_stale_after_seconds,
+                "scheduler_heartbeat_key": settings.beat_scheduler_heartbeat_key,
+                "scheduler_heartbeat_at": snapshot.scheduler.heartbeat_at,
+                "scheduler_age_seconds": snapshot.scheduler.age_seconds,
+                "scheduler_reason": snapshot.scheduler.reason,
             }
         )
     return JSONResponse(status_code=status_code, content=payload)
@@ -206,9 +211,16 @@ def _required_worker_queues(settings) -> list[str]:
     return queues
 
 
-def _beat_health_snapshot(settings) -> BeatHeartbeatSnapshot:
-    return read_beat_heartbeat(
-        redis_url=settings.redis_url,
-        heartbeat_key=settings.beat_heartbeat_key,
-        stale_after_seconds=settings.beat_heartbeat_stale_after_seconds,
+def _beat_health_snapshot(settings) -> BeatHealthSnapshot:
+    return BeatHealthSnapshot(
+        scheduler=read_beat_heartbeat(
+            redis_url=settings.redis_url,
+            heartbeat_key=settings.beat_scheduler_heartbeat_key,
+            stale_after_seconds=settings.beat_heartbeat_stale_after_seconds,
+        ),
+        worker_round_trip=read_beat_heartbeat(
+            redis_url=settings.redis_url,
+            heartbeat_key=settings.beat_heartbeat_key,
+            stale_after_seconds=settings.beat_heartbeat_stale_after_seconds,
+        ),
     )
