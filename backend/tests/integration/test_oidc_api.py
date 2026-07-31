@@ -162,6 +162,25 @@ def test_oidc_jit_login_provisions_verified_user_and_maps_role(client, db_sessio
     assert client.get("/auth/me").status_code == 200
 
 
+def test_oidc_jit_pending_user_is_created_without_a_session(client, db_session, monkeypatch):
+    _configured_provider(db_session, auto_approve_users=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "pending-subject", "email": "pending@example.com", "email_verified": True, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["approval_required"]
+    user = db_session.scalar(select(User).where(User.email == "pending@example.com"))
+    assert user is not None
+    assert user.is_approved is False
+    assert user.password_login_enabled is False
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id)) is not None
+    assert client.get("/auth/me").status_code == 401
+
+
 def test_oidc_jit_rejects_unverified_email_without_creating_user(client, db_session, monkeypatch):
     _configured_provider(db_session)
     _mock_oidc_flow(
@@ -269,3 +288,80 @@ def test_oidc_role_sync_revokes_tokens_but_preserves_last_admin(client, db_sessi
     assert skipped_audit is not None
     assert skipped_audit.metadata_json["reason"] == "last_active_admin"
     assert db_session.scalar(select(ApiToken).where(ApiToken.user_id == admin.id, ApiToken.revoked_at.is_not(None))) is None
+
+
+def test_oidc_role_sync_revokes_existing_sessions_and_api_tokens(
+    client,
+    auth_headers,
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    provider = _configured_provider(
+        db_session,
+        role_mappings_json=[],
+        default_role="viewer",
+        jit_provisioning_enabled=False,
+    )
+    analyst = seed_users["analyst"]
+    previous_token_version = analyst.auth_token_version
+    db_session.add(
+        ExternalIdentity(
+            provider_id=provider.id,
+            user_id=analyst.id,
+            issuer=provider.issuer_url,
+            subject="analyst-subject",
+            email_at_link=analyst.email,
+        )
+    )
+    db_session.commit()
+    _mock_oidc_flow(monkeypatch, {"sub": "analyst-subject", "groups": []})
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    db_session.refresh(analyst)
+    assert analyst.role == "viewer"
+    assert analyst.auth_token_version == previous_token_version + 1
+    revoked_tokens = db_session.scalars(
+        select(ApiToken).where(ApiToken.user_id == analyst.id, ApiToken.revoked_at.is_not(None))
+    ).all()
+    assert len(revoked_tokens) == 1
+    assert client.get("/auth/me", headers=auth_headers["analyst"]).status_code == 401
+    sync_audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == "oidc.role.sync", AuditLog.success.is_(True))
+    )
+    assert sync_audit is not None
+    assert sync_audit.metadata_json["previous_role"] == "analyst"
+    assert sync_audit.metadata_json["role"] == "viewer"
+    assert sync_audit.metadata_json["revoked_api_tokens"] == 1
+
+
+def test_oidc_only_account_cannot_use_local_login_or_unlink(client, db_session, monkeypatch):
+    _configured_provider(db_session)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "external-only", "email": "external-only@example.com", "email_verified": True, "groups": []},
+    )
+    callback = _start_and_complete(client)
+    assert callback.headers["location"] == "http://testserver/"
+
+    local_login = client.post(
+        "/auth/login",
+        json={"email": "external-only@example.com", "password": "unavailable-password"},
+    )
+    assert local_login.status_code == 401
+    assert local_login.json()["detail"] == "Invalid email or password"
+
+    csrf_token = client.cookies.get("threatlens_csrf")
+    assert csrf_token
+    unlink = client.request(
+        "DELETE",
+        "/auth/oidc/account",
+        json={"current_password": "unavailable-password"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert unlink.status_code == 400
+    assert "local password" in unlink.json()["detail"]
+    identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "external-only"))
+    assert identity is not None
