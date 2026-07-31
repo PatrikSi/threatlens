@@ -19,6 +19,7 @@ Admin-only:
 - Integrations
   - SMTP
 - Tagging
+- Identity
 - Users
 - Audit Logs
 
@@ -33,9 +34,27 @@ Legacy route behavior:
 
 - User profile summary (`email`, `role`, `status`, `created`)
 - Change password form
+- OIDC identity status with link and password-confirmed unlink controls when a provider is enabled
 - API calls:
   - `GET /auth/me`
   - `POST /auth/change-password`
+  - `GET /auth/oidc/account`
+  - `GET /auth/oidc/link`
+  - `DELETE /auth/oidc/account`
+
+## Identity Provider (Admin)
+
+- One configurable OIDC provider with Authorization Code plus PKCE sign-in
+- Discovery, JWKS connection test, client authentication, scopes, and exact callback URL
+- Optional verified-email JIT provisioning and automatic approval
+- Configurable default role and exact claim-to-role mappings, including dotted claim paths
+- Optional role synchronization on each sign-in
+- Client secrets are write-only in the UI and encrypted at rest
+- API calls:
+  - `GET /auth/oidc/provider`
+  - `PUT /auth/oidc/provider`
+  - `POST /auth/oidc/provider/test`
+  - `GET /auth/oidc/settings`
 
 ## Integrations: Webhooks
 
