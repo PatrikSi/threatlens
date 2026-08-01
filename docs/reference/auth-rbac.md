@@ -60,6 +60,8 @@ Provider registration:
 
 The bundled proxy callback is `https://<threatlens-host>/api/v1/auth/oidc/callback`. Direct API deployments can set `OIDC_CALLBACK_PATH=/v1/auth/oidc/callback`. Redirect URI comparison at the provider should remain exact.
 
+HTTPS is the secure default for both the IdP and callback origin. Local development can set `ALLOW_INSECURE_HTTP_OIDC=true`; private or internal IdPs additionally require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Existing deployments that already enabled private-network OIDC retain private-HTTP compatibility, but setting both flags is recommended to make the plaintext and private-network trust decisions explicit. Never use plaintext OIDC across an untrusted network.
+
 Protocol and identity behavior:
 
 - Authorization Code flow always uses PKCE S256, a signed short-lived transaction cookie, `state`, and `nonce`.

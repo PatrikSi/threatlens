@@ -143,6 +143,7 @@ ALLOW_PRIVATE_NETWORK_FETCH=false
 ALLOW_PRIVATE_NETWORK_AI=false
 ALLOW_PRIVATE_NETWORK_WEBHOOKS=false
 ALLOW_PRIVATE_NETWORK_OIDC=false
+ALLOW_INSECURE_HTTP_OIDC=false
 OIDC_CALLBACK_PATH=/api/v1/auth/oidc/callback
 WEB_VITE_API_BASE_URL=/api/v1
 THREATLENS_WEB_PORT=3000
@@ -206,6 +207,7 @@ EOF
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_AI" "false"
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_WEBHOOKS" "false"
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_OIDC" "false"
+  render_yaml_entry "ALLOW_INSECURE_HTTP_OIDC" "false"
   render_yaml_entry "OUTBOUND_MAX_REDIRECTS" "5"
   render_yaml_entry "AUTH_LOGIN_MAX_ATTEMPTS" "8"
   render_yaml_entry "AUTH_LOGIN_WINDOW_SECONDS" "300"

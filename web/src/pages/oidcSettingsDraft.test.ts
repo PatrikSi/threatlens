@@ -14,6 +14,7 @@ const SETTINGS: OIDCProviderSettings = {
   client_auth_method: 'client_secret_basic',
   public_base_url: 'https://threatlens.example.com',
   callback_url: 'https://threatlens.example.com/api/v1/auth/oidc/callback',
+  callback_path: '/api/v1/auth/oidc/callback',
   scopes: ['openid', 'profile', 'email', 'groups'],
   role_claim: 'groups',
   role_mappings: [{ claim_value: 'soc-analysts', role: 'analyst' }],
@@ -46,6 +47,13 @@ describe('OIDC settings draft', () => {
     expect(validateOIDCDraft(draft, false)).toContain('Enter a client secret')
     draft.clientSecret = 'new-secret'
     expect(validateOIDCDraft(draft, false)).toBeNull()
+  })
+
+  it('preserves an explicitly entered client secret as opaque data', () => {
+    const draft = createOIDCDraft(SETTINGS)
+    draft.clientSecret = '  opaque secret  '
+
+    expect(createOIDCRequest(draft).client_secret).toBe('  opaque secret  ')
   })
 
   it('defaults a new public URL from the browser origin', () => {
