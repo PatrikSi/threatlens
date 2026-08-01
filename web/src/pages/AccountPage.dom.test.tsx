@@ -106,6 +106,12 @@ function flushPromises() {
   return new Promise((resolve) => window.setTimeout(resolve, 0))
 }
 
+async function waitForQueriesToSettle() {
+  await vi.waitFor(() => {
+    expect(queryClient?.isFetching()).toBe(0)
+  })
+}
+
 afterEach(async () => {
   await act(async () => {
     root?.unmount()
@@ -253,7 +259,7 @@ describe('AccountPage DOM workflows', () => {
 
     const view = renderPage()
     await act(async () => {
-      await flushPromises()
+      await waitForQueriesToSettle()
     })
 
     expect(view.textContent).toContain('Linked to Acme SSO as analyst@example.com')
@@ -278,7 +284,7 @@ describe('AccountPage DOM workflows', () => {
 
     const view = renderPage()
     await act(async () => {
-      await flushPromises()
+      await waitForQueriesToSettle()
     })
     const linkButton = [...view.querySelectorAll('button')].find((button) => button.textContent === 'Link SSO account')
     expect(linkButton).not.toBeUndefined()
@@ -314,8 +320,7 @@ describe('AccountPage DOM workflows', () => {
 
     const view = renderPage()
     await act(async () => {
-      await flushPromises()
-      await flushPromises()
+      await waitForQueriesToSettle()
     })
     expect(view.querySelector('#account-unlink-password')).not.toBeNull()
     act(() => {
