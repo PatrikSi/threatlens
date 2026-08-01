@@ -7,7 +7,8 @@
 - `db`: PostgreSQL 16 (`5432`)
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
-- `worker`: Celery worker for ingestion, processing, maintenance, and AI queues
+- `worker`: Celery worker for ingestion, processing, and AI queues
+- `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, and maintenance tasks
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
 - `web`: Nginx serving Vite build (`3000`) and reverse proxying only `/api/v1/*` plus `/api/openapi.json` to `api`
@@ -55,12 +56,21 @@
 | `ALLOW_PRIVATE_NETWORK_FETCH` (`allow_private_network_fetch`) | `false` | Allows feed and article fetches to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
+| `ALLOW_PRIVATE_NETWORK_OIDC` (`allow_private_network_oidc`) | `false` | Allows OIDC discovery, token, JWKS, and UserInfo requests to private-network or internal-only identity providers. Public endpoints must use `https`; enable this only for explicitly trusted internal IdPs. |
+| `ALLOW_INSECURE_HTTP_OIDC` (`allow_insecure_http_oidc`) | `false` | Allows publicly routable OIDC endpoints and the configured ThreatLens callback origin to use plaintext `http`. Private/internal OIDC endpoints still require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Keep disabled outside isolated development environments. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
 | `AUTH_LOGIN_WINDOW_SECONDS` (`auth_login_window_seconds`) | `300` | Sliding window for failed login attempt counting. |
 | `AUTH_LOGIN_LOCKOUT_SECONDS` (`auth_login_lockout_seconds`) | `900` | Login lockout duration after threshold breaches. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
+| `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
+| `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in or account-link transaction. |
+| `OIDC_CALLBACK_PATH` (`oidc_callback_path`) | `/api/v1/auth/oidc/callback` | Public callback path appended to the configured ThreatLens origin. Use `/v1/auth/oidc/callback` only when exposing the API directly without the bundled web proxy. |
+| `OIDC_METADATA_CACHE_SECONDS` (`oidc_metadata_cache_seconds`) | `300` | In-process cache lifetime for validated provider discovery metadata. |
+| `OIDC_CONNECT_TIMEOUT_SECONDS` (`oidc_connect_timeout_seconds`) | `5` | Connect timeout for discovery, token, JWKS, and UserInfo requests. |
+| `OIDC_READ_TIMEOUT_SECONDS` (`oidc_read_timeout_seconds`) | `10` | Read/write timeout for OIDC provider requests. |
+| `OIDC_MAX_RESPONSE_BYTES` (`oidc_max_response_bytes`) | `1000000` | Maximum accepted response size for each OIDC provider endpoint. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Leave empty unless the API is behind a reverse proxy whose container or network CIDR you explicitly control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |
 | `ALLOWED_HOSTS` (`allowed_hosts`) | `api,localhost,127.0.0.1,::1` | Backend Host header allowlist enforced by FastAPI. Add public hostnames when exposing the API service directly or behind a proxy that preserves the public Host header. |
@@ -97,10 +107,14 @@
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. Leave disabled except for an intentional one-time reset. |
 | `LOG_LEVEL` (`log_level`) | `INFO` | Application log verbosity. |
 | `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
-| `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where beat writes heartbeat timestamps. |
-| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for beat heartbeat key. |
-| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for beat heartbeat before `/health/beat` fails. |
+| `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
+| `BEAT_SCHEDULER_HEARTBEAT_KEY` (`beat_scheduler_heartbeat_key`) | `threatlens:beat:scheduler-heartbeat` | Redis key updated directly after each successful Celery Beat scheduler tick. |
+| `BEAT_HEARTBEAT_TTL_SECONDS` (`beat_heartbeat_ttl_seconds`) | `180` | Redis TTL for both scheduler and Beat-to-worker heartbeat keys. |
+| `BEAT_HEARTBEAT_STALE_AFTER_SECONDS` (`beat_heartbeat_stale_after_seconds`) | `180` | Max allowed age for both heartbeats; the round trip controls API readiness and the direct scheduler heartbeat controls watchdog recovery. |
 | `BEAT_HEARTBEAT_INTERVAL_SECONDS` (`beat_heartbeat_interval_seconds`) | `60` | Beat schedule interval for heartbeat task emission. |
+| `BEAT_WATCHDOG_STARTUP_GRACE_SECONDS` (`beat_watchdog_startup_grace_seconds`) | `240` | Grace period after Beat starts before a missing or stale heartbeat forces a restart. |
+| `BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS` (`beat_watchdog_check_interval_seconds`) | `15` | Interval between watchdog heartbeat checks. |
+| `BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS` (`beat_watchdog_terminate_timeout_seconds`) | `10` | Time allowed for Beat to stop before the watchdog force-kills it. |
 | `NOTIFICATION_DELIVERY_ENQUEUE_BATCH_SIZE` (`notification_delivery_enqueue_batch_size`) | `100` | Delivery batch size when queueing webhook deliveries. |
 | `NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE` (`notification_delivery_recovery_batch_size`) | `100` | Delivery batch size when retrying stale webhook deliveries. |
 | `NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS` (`notification_delivery_sending_stale_after_seconds`) | `120` | Age after which in-flight webhook sends are treated as stale. |
@@ -142,16 +156,17 @@ Outside production:
 - For Portainer, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mapping before deploying.
 - If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
 - The default ThreatLens application images point at GitHub Container Registry:
-  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-notifications`, and `beat`
+  - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
 - The default compose file pulls fresh ThreatLens application images during `docker compose up`. Source builds require the explicit override: `docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build`.
 - `THREATLENS_IMAGE_TAG` defaults to `latest`, which tracks the newest default published image. Set it to an immutable release tag such as `1.0.0` or `v1.0.0`, or to a `sha-<commit>` tag, when you need a pinned deployment.
 - `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `DATABASE_URL`, and `REDIS_URL` are required by compose interpolation unless the generated YAML mapping is pasted into the compose file, so missing values fail the stack instead of silently falling back to weak defaults.
 - `docker-compose.yml` runs migrations on API startup by default and can seed the admin account from the API container when `SEED_ADMIN_ON_STARTUP=true`.
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
-- Both workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
+- All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes `default`, `ingest`, `processing`, `maintenance`, and `ai`; `worker-notifications` consumes only `notifications`.
+- `worker` consumes `default`, `ingest`, `processing`, and `ai`; `worker-maintenance` consumes only `maintenance`; `worker-notifications` consumes only `notifications`.
+- Compose worker concurrency defaults to `4`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY` based on available CPU, memory, and connector load.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
@@ -170,10 +185,11 @@ Outside production:
 
 ## Trust and Egress Notes
 
-- Feed and article fetches, AI provider calls, and notification webhooks are separate outbound trust boundaries with separate deny-by-default private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`).
+- Feed and article fetches, AI provider calls, notification webhooks, and OIDC provider calls are separate outbound trust boundaries with separate deny-by-default private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`, `ALLOW_PRIVATE_NETWORK_OIDC`).
+- OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is a separate development-only transport opt-in and does not grant access to private hosts. For backward compatibility, `ALLOW_PRIVATE_NETWORK_OIDC=true` continues to permit HTTP only when the target is private; setting both flags makes the two risks explicit. When the ThreatLens callback itself uses HTTP, `AUTH_COOKIE_SECURE=false` is also required and production mode remains intentionally unsuitable for that deployment.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public webhook targets must use `https`; private-network or internal-only webhook targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound safety checks, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
-- `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, and saved delivery snapshots at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`.
+- `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, saved delivery snapshots, and the OIDC client secret at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`.
 - Admin-only encrypted data inventory is available at `/health/encrypted-data` and includes both a current scan and the most recent startup scan summary for unreadable encrypted rows.
 
 ## Theme Storage
@@ -209,9 +225,11 @@ Beat schedules:
 - `dispatch-unclassified-items`: every `300.0` seconds
 - `dispatch-items-missing-iocs`: every `300.0` seconds
 - `dispatch-feed-metadata-backfill`: every `600.0` seconds
-- `dispatch-daily-digest-notifications`: every `3600.0` seconds
+- `dispatch-daily-digest-notifications`: every `300.0` seconds as an idempotent AI Daily Brief notification reconciler
 - `dispatch-pending-integration-events`: every `10.0` seconds
 - `dispatch-pending-integration-deliveries`: every `10.0` seconds
 - `maintain-integration-delivery-history`: every `3600.0` seconds
-- `dispatch-daily-ai-brief-generation`: every `300.0` seconds
+- `dispatch-daily-ai-brief-generation`: every UTC minute boundary; the task checks the configured UTC hour and minute
 - `record-beat-heartbeat`: every `BEAT_HEARTBEAT_INTERVAL_SECONDS`
+
+The Beat container runs the scheduler under a watchdog. After the startup grace period, a missing, malformed, future-dated, or stale direct scheduler heartbeat causes the watchdog to stop Beat and exit non-zero so the Compose restart policy can recover it. `/health/beat` also checks the queued Beat-to-worker heartbeat separately, allowing operators to distinguish a stalled scheduler from a delayed maintenance worker.

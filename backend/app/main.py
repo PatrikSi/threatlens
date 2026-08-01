@@ -25,6 +25,7 @@ from app.api.routes import (
     integrations,
     items,
     notifications,
+    oidc,
     stats,
     tagging,
     tags,
@@ -54,6 +55,7 @@ SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
+    oidc.router,
     feeds.router,
     items.router,
     tags.router,
@@ -87,6 +89,10 @@ def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
 
 @asynccontextmanager
 async def app_lifespan(_application: FastAPI):
+    if settings.allow_insecure_http_oidc:
+        logger.warning(
+            "insecure_http_oidc_enabled OIDC authorization codes, tokens, and identity claims may traverse plaintext HTTP"
+        )
     with db_session.SessionLocal() as db:
         try:
             snapshot = refresh_startup_encrypted_data_inventory(db, settings=settings)

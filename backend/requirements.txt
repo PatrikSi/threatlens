@@ -3,6 +3,7 @@ uvicorn[standard]==0.35.0
 SQLAlchemy==2.0.42
 psycopg[binary]==3.2.9
 alembic==1.16.4
+Authlib==1.7.2
 pydantic-settings==2.10.1
 PyJWT[crypto]==2.13.0
 passlib[bcrypt]==1.7.4

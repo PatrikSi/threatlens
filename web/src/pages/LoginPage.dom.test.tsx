@@ -29,6 +29,7 @@ vi.mock('../api/client', () => ({
     }
   },
   apiFetch: loginPageDomMocks.apiFetch,
+  buildApiUrl: (path: string) => `/api/v1${path}`,
 }))
 
 import { LoginPage } from './LoginPage'
@@ -130,5 +131,34 @@ describe('LoginPage accessibility', () => {
     const alert = view.querySelector('[role="alert"][aria-live="polite"][aria-atomic="true"]')
     expect(alert).not.toBeNull()
     expect(alert?.textContent).toContain('Session expired. Sign in again.')
+  })
+
+  it('offers configured OIDC sign-in alongside the local form', async () => {
+    loginPageDomMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/auth/oidc/settings') {
+        return Promise.resolve({ enabled: true, provider_name: 'Acme SSO' })
+      }
+      return Promise.resolve({ allow_self_registration: false })
+    })
+
+    const view = renderPage()
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect([...view.querySelectorAll('button')].some((button) => button.textContent?.includes('Continue with Acme SSO'))).toBe(true)
+    expect(view.querySelector('#login-email')).not.toBeNull()
+    expect(view.querySelector('#login-password')).not.toBeNull()
+  })
+
+  it('shows a useful OIDC account-linking error', async () => {
+    loginPageDomMocks.apiFetch.mockResolvedValue({ allow_self_registration: false })
+
+    const view = renderPage(['/login?oidc_error=email_link_required'])
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('Sign in locally')
   })
 })

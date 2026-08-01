@@ -19,6 +19,7 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 - Keyword alert interests with preview before saving
 - Feed import/export plus webhook and multi-hook SMTP notifications
 - Role-based users: `admin`, `analyst`, and `viewer`
+- OpenID Connect SSO with account linking, verified-email JIT provisioning, and claim-to-role mapping
 - API tokens and audit logs
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
 - Optional AI summaries, relevance scoring, task history, and daily briefs
@@ -147,7 +148,9 @@ View logs:
 ```bash
 docker compose logs -f api
 docker compose logs -f worker
+docker compose logs -f worker-maintenance
 docker compose logs -f worker-notifications
+docker compose logs -f beat
 docker compose logs -f web
 ```
 
@@ -192,8 +195,10 @@ Worker and scheduler:
 
 ```bash
 cd backend
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO
-./.venv/bin/celery -A app.tasks.celery_app.celery_app beat --loglevel=INFO
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=default,ingest,processing,ai -n 'worker@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=maintenance -n 'maintenance@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=notifications -n 'notifications@%h'
+./.venv/bin/python -m app.tasks.beat_watchdog
 ```
 
 Frontend:
@@ -228,9 +233,10 @@ npm run build
 - The default Docker setup runs PostgreSQL, Redis, the API, worker, scheduler, and web UI.
 - Published application images can be pinned with `THREATLENS_IMAGE_TAG`; `latest` tracks the newest default published image, while release tags and `sha-*` tags are immutable references.
 - The browser talks to the API through `/api/v1`.
-- Feed/article fetching, AI calls, webhook delivery, and SMTP delivery can make outbound network requests.
+- Feed/article fetching, AI calls, webhook and SMTP delivery, and OIDC provider communication can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
-- Keep `APP_DATA_ENCRYPTION_KEY` safe. Some stored feed and webhook data depends on it.
+- OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is intended only for isolated local development; private IdPs remain separately controlled by `ALLOW_PRIVATE_NETWORK_OIDC`.
+- Keep `APP_DATA_ENCRYPTION_KEY` safe. Stored feed, webhook, delivery, and OIDC client-secret data depends on it.
 - Use `.env.example` as the configuration reference.
 
 ## License

@@ -122,6 +122,11 @@ def create_token(
 def _enforce_browser_session_step_up(request: Request, payload: ApiTokenCreateRequest, user: User) -> None:
     if not is_cookie_session_auth(request):
         return
+    if not user.password_login_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Browser API token creation requires an account with local password authentication",
+        )
     if not payload.current_password:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=SESSION_TOKEN_STEP_UP_REQUIRED_DETAIL)
     client_ip = resolve_client_ip(request)

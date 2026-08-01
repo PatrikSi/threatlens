@@ -14,6 +14,12 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String, nullable=False)
+    password_login_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     role: Mapped[str] = mapped_column(String(32), nullable=False, default=ROLE_VIEWER, server_default=ROLE_VIEWER)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     is_approved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

@@ -143,6 +143,29 @@ def test_bootstrap_mutation_flags_default_off():
     assert settings.seed_admin_on_startup is False
 
 
+@pytest.mark.parametrize(
+    "field_name",
+    [
+        "beat_heartbeat_ttl_seconds",
+        "beat_heartbeat_stale_after_seconds",
+        "beat_heartbeat_interval_seconds",
+        "beat_watchdog_check_interval_seconds",
+        "beat_watchdog_terminate_timeout_seconds",
+    ],
+)
+def test_beat_timing_settings_must_be_positive(field_name: str):
+    with pytest.raises(ValueError, match="greater than zero"):
+        isolated_settings(**{field_name: 0})
+
+
+def test_beat_watchdog_grace_must_cover_one_heartbeat_interval():
+    with pytest.raises(ValueError, match="cover at least one heartbeat interval"):
+        isolated_settings(
+            beat_heartbeat_interval_seconds=60,
+            beat_watchdog_startup_grace_seconds=59,
+        )
+
+
 def test_redis_password_is_applied_to_passwordless_redis_url():
     settings = isolated_settings(
         redis_url="redis://redis:6379/0",

@@ -61,6 +61,7 @@ class UserResponse(BaseModel):
     is_approved: bool
     approved_at: datetime | None
     created_at: datetime
+    password_login_enabled: bool = True
 
 
 class CurrentUserResponse(UserResponse):

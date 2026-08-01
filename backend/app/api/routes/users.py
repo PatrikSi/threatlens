@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
@@ -10,33 +10,24 @@ from app.core.rbac import ALL_ROLES, ROLE_ADMIN
 from app.core.security import get_password_hash
 from app.core.token_scopes import SCOPE_READ_USERS, SCOPE_WRITE_USERS
 from app.db.session import get_db
-from app.models.api_token import ApiToken
 from app.models.user import User
 from app.schemas.user import UserAdminResponse, UserCreateRequest, UserUpdateRequest
 from app.services.audit import record_audit
+from app.services.user_access import (
+    LastActiveAdminError,
+    acquire_active_admin_invariant_lock,
+    ensure_active_approved_admin_remains,
+    load_user_for_access_update,
+    revoke_user_credentials,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
-ACTIVE_ADMIN_ADVISORY_LOCK_ID = 6072351299479551566
-
-
 def _acquire_active_admin_invariant_lock(db: Session) -> None:
-    bind = db.get_bind()
-    if bind is not None and bind.dialect.name == "postgresql":
-        db.scalar(select(func.pg_advisory_xact_lock(ACTIVE_ADMIN_ADVISORY_LOCK_ID)))
-        return
-    db.scalars(
-        select(User.id)
-        .where(User.role == ROLE_ADMIN, User.is_active.is_(True), User.is_approved.is_(True))
-        .with_for_update()
-    ).all()
+    acquire_active_admin_invariant_lock(db)
 
 
 def _reload_admin_after_invariant_lock(db: Session, admin_id: uuid.UUID) -> User:
-    admin = db.scalar(
-        select(User)
-        .where(User.id == admin_id)
-        .execution_options(populate_existing=True)
-    )
+    admin = load_user_for_access_update(db, admin_id)
     if admin is None or admin.role != ROLE_ADMIN or not admin.is_active or not admin.is_approved:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
     return admin
@@ -47,28 +38,19 @@ def _ensure_active_approved_admin_remains(db: Session, user: User, payload: User
     next_is_active = payload.is_active if payload.is_active is not None else user.is_active
     next_is_approved = payload.is_approved if payload.is_approved is not None else user.is_approved
 
-    if next_role == ROLE_ADMIN and next_is_active and next_is_approved:
-        return
-
-    if user.role != ROLE_ADMIN or not user.is_active or not user.is_approved:
-        return
-
-    other_admin_count = int(
-        db.scalar(
-            select(func.count(User.id)).where(
-                User.id != user.id,
-                User.role == ROLE_ADMIN,
-                User.is_active.is_(True),
-                User.is_approved.is_(True),
-            )
+    try:
+        ensure_active_approved_admin_remains(
+            db,
+            user,
+            next_role=next_role,
+            next_is_active=next_is_active,
+            next_is_approved=next_is_approved,
         )
-        or 0
-    )
-    if other_admin_count == 0:
+    except LastActiveAdminError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="At least one active approved admin user is required",
-        )
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("", response_model=list[UserAdminResponse])
@@ -129,12 +111,7 @@ def update_user(
 ):
     _acquire_active_admin_invariant_lock(db)
     admin = _reload_admin_after_invariant_lock(db, admin.id)
-    user = db.scalar(
-        select(User)
-        .where(User.id == user_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
+    user = load_user_for_access_update(db, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
@@ -168,21 +145,10 @@ def update_user(
 
     if payload.password is not None:
         user.password_hash = get_password_hash(payload.password)
+        user.password_login_enabled = True
 
     if should_rotate_auth_tokens:
-        revoked_at = datetime.now(timezone.utc)
-        revoked_api_tokens = (
-            db.execute(
-                update(ApiToken)
-                .where(
-                    ApiToken.user_id == user.id,
-                    ApiToken.revoked_at.is_(None),
-                )
-                .values(revoked_at=revoked_at)
-            ).rowcount
-            or 0
-        )
-        user.auth_token_version = int(user.auth_token_version or 0) + 1
+        revoked_api_tokens = revoke_user_credentials(db, user)
 
     db.add(user)
     record_audit(
@@ -196,6 +162,7 @@ def update_user(
             "is_active": user.is_active,
             "is_approved": user.is_approved,
             "password_updated": payload.password is not None,
+            "password_login_enabled": user.password_login_enabled,
             "auth_token_version": user.auth_token_version,
             "revoked_api_tokens": int(revoked_api_tokens),
         },

@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -79,6 +79,97 @@ def test_smtp_delivery_with_non_scalar_uuid_is_terminal_context_error(db_session
     assert delivery.attempt_count == 1
     assert delivery.last_error_code == "context_error"
     assert delivery.last_error_message == "Invalid item_id"
+
+
+def test_smtp_daily_digest_delivery_uses_persisted_ai_brief_snapshot(db_session, monkeypatch):
+    generated_at = datetime(2026, 7, 18, 9, 0, 5, tzinfo=timezone.utc)
+    instance = IntegrationInstance(
+        id=uuid.uuid4(),
+        system_key=f"smtp.test.{uuid.uuid4()}",
+        name="AI Brief SMTP",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        config_json={
+            "host": "smtp.example.com",
+            "port": 587,
+            "security": "starttls",
+            "from_email": "threatlens@example.com",
+            "to_emails": ["soc@example.com"],
+            "timeout_seconds": 10,
+            "event_types": ["daily_digest"],
+            "feed_scope": "selected",
+            "feed_ids": [str(uuid.uuid4())],
+            "subject_template": "{{ brief.title }}",
+            "html_template": "<p>{{ brief.text }}</p>",
+        },
+    )
+    db_session.add(instance)
+    db_session.flush()
+    subscription = IntegrationSubscription(
+        integration_id=instance.id,
+        subscription_key="event:daily_digest",
+        event_type="daily_digest",
+        feed_scope="selected",
+    )
+    db_session.add(subscription)
+    db_session.flush()
+    brief_id = uuid.uuid4()
+    delivery = IntegrationDelivery(
+        integration_id=instance.id,
+        subscription_id=subscription.id,
+        connector_type="smtp",
+        event_type="daily_digest",
+        idempotency_key=f"smtp-daily-brief:{uuid.uuid4()}",
+        payload_json={
+            "daily_brief_id": str(brief_id),
+            "scope_key": "ai_daily_brief:2026-07-18",
+            "daily_brief": {
+                "schema_version": 1,
+                "id": str(brief_id),
+                "date": "2026-07-18",
+                "generated_at": generated_at.isoformat(),
+                "window_start": (generated_at - timedelta(hours=24)).isoformat(),
+                "window_end": generated_at.isoformat(),
+                "title": "Stored AI brief title",
+                "text": "Stored AI brief narrative",
+                "key_points": ["Stored point"],
+                "recommended_actions": ["Stored action"],
+                "item_count": 4,
+                "feed_names": ["CISA"],
+                "top_titles": ["Stored source title"],
+            },
+        },
+        max_attempts=3,
+    )
+    db_session.add(delivery)
+    db_session.commit()
+    captured_contexts = []
+
+    def _send(_active, **kwargs):
+        captured_contexts.append(kwargs["digest_context"])
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=12,
+            recipient_count=1,
+            accepted_count=1,
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=generated_at,
+            delivery_id=kwargs["delivery_id"],
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    assert result.status == "succeeded"
+    assert len(captured_contexts) == 1
+    assert captured_contexts[0].brief_id == brief_id
+    assert captured_contexts[0].title == "Stored AI brief title"
+    assert captured_contexts[0].brief_text == "Stored AI brief narrative"
+    assert captured_contexts[0].key_points == ["Stored point"]
 
 
 def _persist_smtp_delivery(db_session) -> tuple[Feed, Item, IntegrationDelivery]:
