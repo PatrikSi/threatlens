@@ -72,6 +72,32 @@ def test_read_beat_heartbeat_reports_redis_failure(monkeypatch):
     assert snapshot == beat_heartbeat.BeatHeartbeatSnapshot(False, None, None, "redis_unavailable")
 
 
+def test_read_beat_heartbeat_closes_redis_client(monkeypatch):
+    now = datetime.now(timezone.utc)
+
+    class _RedisClient:
+        closed = False
+
+        def get(self, _key):
+            return now.isoformat()
+
+        def close(self):
+            self.closed = True
+
+    client = _RedisClient()
+    monkeypatch.setattr(beat_heartbeat.redis.Redis, "from_url", lambda *_args, **_kwargs: client)
+
+    snapshot = beat_heartbeat.read_beat_heartbeat(
+        redis_url="redis://redis:6379/0",
+        heartbeat_key="beat",
+        stale_after_seconds=180,
+        now=now,
+    )
+
+    assert snapshot.ok is True
+    assert client.closed is True
+
+
 def test_beat_health_keeps_scheduler_heartbeat_compatible_with_raw_beat_launchers():
     snapshot = beat_heartbeat.BeatHealthSnapshot(
         scheduler=beat_heartbeat.BeatHeartbeatSnapshot(False, None, None, "missing"),
