@@ -64,7 +64,7 @@ class OIDCProviderUpdateRequest(BaseModel):
     def normalize_secret(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return value.strip() or None
+        return value if value.strip() else None
 
     @field_validator("scopes")
     @classmethod
@@ -110,6 +110,7 @@ class OIDCProviderResponse(BaseModel):
     client_auth_method: OIDCAuthMethod
     public_base_url: str
     callback_url: str
+    callback_path: str
     scopes: list[str]
     role_claim: str
     role_mappings: list[OIDCRoleMapping]
