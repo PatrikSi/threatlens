@@ -143,7 +143,9 @@ describe('LoginPage accessibility', () => {
 
     const view = renderPage()
     await act(async () => {
-      await flushPromises()
+      await vi.waitFor(() => {
+        expect([...view.querySelectorAll('button')].some((button) => button.textContent?.includes('Continue with Acme SSO'))).toBe(true)
+      })
     })
 
     expect([...view.querySelectorAll('button')].some((button) => button.textContent?.includes('Continue with Acme SSO'))).toBe(true)
