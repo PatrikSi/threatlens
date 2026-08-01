@@ -4,8 +4,8 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Published Contract
 
-- Schema version: `1.3.0`
-- OpenAPI contract anchor: `openapi-sha256:ad380de4f502a6f317062a96a0a5f69b8d287fa07ef4213f0cbb133f3bb04460`
+- Schema version: `1.4.0`
+- OpenAPI contract anchor: `openapi-sha256:e031b4823e2fa176a06ba264bf91fa2df1306562740cd64e41ebc8ef5a3c94f2`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -236,6 +236,51 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 - Summary: Me
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Responses: `200` `application/json` -> CurrentUserResponse
+### `DELETE /v1/auth/oidc/account`
+- Summary: Unlink Oidc Account
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Request body: `application/json` -> OIDCUnlinkRequest
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/auth/oidc/account`
+- Summary: Oidc Account Status
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> OIDCAccountStatusResponse
+### `GET /v1/auth/oidc/callback`
+- Summary: Oidc Callback
+- Auth: none
+- Parameters:
+  - `state` (query, optional): State
+  - `code` (query, optional): Code
+  - `error` (query, optional): Error
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
+### `POST /v1/auth/oidc/link`
+- Summary: Start Oidc Link
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Responses: `200` `application/json` -> OIDCStartResponse
+### `GET /v1/auth/oidc/login`
+- Summary: Start Oidc Login
+- Auth: none
+- Responses: `200` `application/json` -> unspecified
+### `GET /v1/auth/oidc/provider`
+- Summary: Get Oidc Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:users`
+- Responses: `200` `application/json` -> OIDCProviderResponse
+### `PUT /v1/auth/oidc/provider`
+- Summary: Update Oidc Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:users`
+- Request body: `application/json` -> OIDCProviderUpdateRequest
+- Responses: `200` `application/json` -> OIDCProviderResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/auth/oidc/provider/test`
+- Summary: Test Configured Oidc Provider
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:users`
+- Responses: `200` `application/json` -> OIDCProviderTestResponse
+### `GET /v1/auth/oidc/settings`
+- Summary: Public Oidc Settings
+- Auth: none
+- Responses: `200` `application/json` -> OIDCPublicSettingsResponse
 ### `POST /v1/auth/register`
 - Summary: Register
 - Auth: none

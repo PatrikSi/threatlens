@@ -33,6 +33,7 @@ from app.services.ai_ops import (
 )
 from app.tasks.celery_app import celery_app
 from app.tasks.feed_task_coordination import CoordinationUnavailableError, daily_ai_brief_lock
+from app.tasks.integration_tasks import enqueue_integration_event_routing
 from app.tasks.task_session import db_session
 
 
@@ -263,9 +264,22 @@ def dispatch_daily_ai_brief_generation(
                     daily_brief_id=result.brief.id if result.brief is not None else None,
                 )
                 db.commit()
+                notification_enqueue_ok = (
+                    enqueue_integration_event_routing([result.integration_event_id])
+                    if result.integration_event_id is not None
+                    else True
+                )
                 if result.brief is None:
                     return {"status": result.status, "reason": result.reason}
-                return {"status": result.status, "reason": result.reason, "brief_date": result.brief.brief_date.isoformat()}
+                return {
+                    "status": result.status,
+                    "reason": result.reason,
+                    "brief_date": result.brief.brief_date.isoformat(),
+                    "integration_event_id": (
+                        str(result.integration_event_id) if result.integration_event_id is not None else None
+                    ),
+                    "notification_enqueue_failed": not notification_enqueue_ok,
+                }
         except CoordinationUnavailableError as exc:
             logger.warning("daily_brief_coordination_unavailable error_type=%s", _exception_type_name(exc))
             if run is not None:
@@ -599,6 +613,7 @@ def backfill_daily_ai_briefs(
                             force=True,
                             reference_time=reference_time,
                             task_run_id=child_run_id,
+                            emit_notification=False,
                         )
                     except Exception as exc:
                         db.rollback()

@@ -29,11 +29,20 @@ x-backend-environment: &backend-environment
   ALLOW_PRIVATE_NETWORK_FETCH: "${ALLOW_PRIVATE_NETWORK_FETCH:-false}"
   ALLOW_PRIVATE_NETWORK_AI: "${ALLOW_PRIVATE_NETWORK_AI:-false}"
   ALLOW_PRIVATE_NETWORK_WEBHOOKS: "${ALLOW_PRIVATE_NETWORK_WEBHOOKS:-false}"
+  ALLOW_PRIVATE_NETWORK_OIDC: "${ALLOW_PRIVATE_NETWORK_OIDC:-false}"
+  ALLOW_INSECURE_HTTP_OIDC: "${ALLOW_INSECURE_HTTP_OIDC:-false}"
   OUTBOUND_MAX_REDIRECTS: "${OUTBOUND_MAX_REDIRECTS:-5}"
   AUTH_LOGIN_MAX_ATTEMPTS: "${AUTH_LOGIN_MAX_ATTEMPTS:-8}"
   AUTH_LOGIN_WINDOW_SECONDS: "${AUTH_LOGIN_WINDOW_SECONDS:-300}"
   AUTH_LOGIN_LOCKOUT_SECONDS: "${AUTH_LOGIN_LOCKOUT_SECONDS:-900}"
   API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS: "${API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS:-300}"
+  OIDC_TRANSACTION_COOKIE_NAME: "${OIDC_TRANSACTION_COOKIE_NAME:-threatlens_oidc_transaction}"
+  OIDC_TRANSACTION_TTL_SECONDS: "${OIDC_TRANSACTION_TTL_SECONDS:-600}"
+  OIDC_CALLBACK_PATH: "${OIDC_CALLBACK_PATH:-/api/v1/auth/oidc/callback}"
+  OIDC_METADATA_CACHE_SECONDS: "${OIDC_METADATA_CACHE_SECONDS:-300}"
+  OIDC_CONNECT_TIMEOUT_SECONDS: "${OIDC_CONNECT_TIMEOUT_SECONDS:-5}"
+  OIDC_READ_TIMEOUT_SECONDS: "${OIDC_READ_TIMEOUT_SECONDS:-10}"
+  OIDC_MAX_RESPONSE_BYTES: "${OIDC_MAX_RESPONSE_BYTES:-1000000}"
   CORS_ORIGINS: "${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}"
   TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
   ALLOWED_HOSTS: "${ALLOWED_HOSTS:-api,localhost,127.0.0.1,::1}"
@@ -66,9 +75,13 @@ x-backend-environment: &backend-environment
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
   HEALTH_WORKER_PING_TIMEOUT_SECONDS: "${HEALTH_WORKER_PING_TIMEOUT_SECONDS:-1.0}"
   BEAT_HEARTBEAT_KEY: "${BEAT_HEARTBEAT_KEY:-threatlens:beat:heartbeat}"
+  BEAT_SCHEDULER_HEARTBEAT_KEY: "${BEAT_SCHEDULER_HEARTBEAT_KEY:-threatlens:beat:scheduler-heartbeat}"
   BEAT_HEARTBEAT_TTL_SECONDS: "${BEAT_HEARTBEAT_TTL_SECONDS:-180}"
   BEAT_HEARTBEAT_STALE_AFTER_SECONDS: "${BEAT_HEARTBEAT_STALE_AFTER_SECONDS:-180}"
   BEAT_HEARTBEAT_INTERVAL_SECONDS: "${BEAT_HEARTBEAT_INTERVAL_SECONDS:-60}"
+  BEAT_WATCHDOG_STARTUP_GRACE_SECONDS: "${BEAT_WATCHDOG_STARTUP_GRACE_SECONDS:-240}"
+  BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS: "${BEAT_WATCHDOG_CHECK_INTERVAL_SECONDS:-15}"
+  BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS: "${BEAT_WATCHDOG_TERMINATE_TIMEOUT_SECONDS:-10}"
   INTEGRATION_EVENT_ROUTING_BATCH_SIZE: "${INTEGRATION_EVENT_ROUTING_BATCH_SIZE:-200}"
   INTEGRATION_EVENT_ROUTING_STALE_AFTER_SECONDS: "${INTEGRATION_EVENT_ROUTING_STALE_AFTER_SECONDS:-120}"
   INTEGRATION_EVENT_ROUTING_MAX_ATTEMPTS: "${INTEGRATION_EVENT_ROUTING_MAX_ATTEMPTS:-10}"
@@ -176,7 +189,7 @@ services:
         "worker",
         "--loglevel=INFO",
         "--concurrency=${WORKER_CONCURRENCY:-4}",
-        "--queues=default,ingest,processing,maintenance,ai",
+        "--queues=default,ingest,processing,ai",
         "-n",
         "worker@%h",
       ]
@@ -185,6 +198,46 @@ services:
         [
           "CMD-SHELL",
           "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backplane
+
+  worker-maintenance:
+    image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+      SEED_ADMIN_ON_STARTUP: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=${MAINTENANCE_WORKER_CONCURRENCY:-1}",
+        "--queues=maintenance",
+        "-n",
+        "maintenance@%h",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'maintenance@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
         ]
       interval: 30s
       timeout: 10s
@@ -248,17 +301,17 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
-    command: ["celery", "-A", "app.tasks.celery_app.celery_app", "beat", "--loglevel=INFO"]
+    command: ["python", "-m", "app.tasks.beat_watchdog"]
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "python -c \"import sys; cmdline = open('/proc/1/cmdline', 'rb').read().decode('utf-8', 'ignore').replace('\\x00', ' '); sys.exit(0 if 'celery' in cmdline and 'beat' in cmdline else 1)\"",
+          "python -m app.tasks.beat_watchdog --check",
         ]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 120s
     networks:
       - backplane
 

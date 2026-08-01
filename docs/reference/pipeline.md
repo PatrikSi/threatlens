@@ -118,8 +118,9 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - `alert_match`
   - `feed_failing`
   - `webhook_failed`
-  - `daily_digest`
+  - `daily_digest` (backward-compatible event identifier for the AI Daily Brief)
 - New-item webhook fanout is queued by `dispatch_new_item_notification_webhooks(item_id)` after feed ingestion.
+- A ready AI Daily Brief writes its immutable `daily_digest` integration event in the same transaction as the brief. The compatibility scheduler only reconciles a missing current-day event and does not build a rolling RSS digest.
 - Deliveries are matched against:
   - enabled webhooks
   - matching `event_type`

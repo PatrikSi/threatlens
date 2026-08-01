@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
 import {
@@ -53,11 +54,12 @@ const SMTP_EVENT_OPTIONS: Array<{ value: NotificationEventType; label: string; d
   { value: 'alert_match', label: 'Alert Match', description: 'Email when an item matches one or more alert interests.' },
   { value: 'feed_failing', label: 'Feed Failing', description: 'Email when a feed reaches the repeated-failure threshold.' },
   { value: 'webhook_failed', label: 'Webhook Failed', description: 'Email when a webhook delivery reaches a terminal failure.' },
-  { value: 'daily_digest', label: 'Daily Digest', description: 'Email the daily summary for the selected feed scope.' },
+  { value: 'daily_digest', label: 'AI Daily Brief', description: 'Email the generated AI Daily Brief as soon as it is ready.' },
 ]
 
 export function SMTPIntegrationSettingsPage() {
   const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null)
   const [selectionInitialized, setSelectionInitialized] = useState(false)
   const [draft, setDraftState] = useState<SMTPHookDraft>(DEFAULT_SMTP_HOOK_DRAFT)
@@ -115,7 +117,11 @@ export function SMTPIntegrationSettingsPage() {
     (hook) => hook.id !== selectedHookId && !hook.uses_shared_credentials && Boolean(hook.host),
   )
   const selectedCredentialSource = hooks.find((hook) => hook.id === draft.credential_source_id) ?? null
-  const currentSendFor = resolveSendForValue(draft.event_types)
+  const eventAvailability = resolveSMTPEventAvailability(
+    aiDailyBriefIsAvailable(currentUserQuery.data),
+    draft.event_types,
+  )
+  const { availableEventOptions, availableEventTypes, currentSendFor, unavailableDailyBriefSelected } = eventAvailability
 
   const setDraft: Dispatch<SetStateAction<SMTPHookDraft>> = (value) => {
     setHasUserEdited(true)
@@ -347,7 +353,8 @@ export function SMTPIntegrationSettingsPage() {
       setNotice({ tone: 'error', message: 'The default template for this event could not be loaded.' })
       return
     }
-    setDraft((current) => applySMTPTemplateDefault(current, template))
+    const availableTemplate = smtpTemplateForAvailableEvents(template, sendFor, availableEventTypes)
+    setDraft((current) => applySMTPTemplateDefault(current, availableTemplate))
   }
 
   const loadError = hooksQuery.error ?? analyticsQuery.error ?? defaultsQuery.error ?? feedsQuery.error ?? variablesQuery.error
@@ -470,12 +477,13 @@ export function SMTPIntegrationSettingsPage() {
                   onChange={(event) => onSendForChange(event.target.value as SendForValue)}
                 >
                   {currentSendFor === 'custom' && <option value="custom">Multiple events (legacy)</option>}
-                  {SMTP_EVENT_OPTIONS.map((option) => (
+                  {availableEventOptions.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                   <option value="all">All notification events</option>
                 </select>
                 <p className="mt-1 text-xs text-slate dark:text-white/60">Changing this selection loads its default email template.</p>
+                <UnavailableDailyBriefNotice visible={unavailableDailyBriefSelected} />
               </div>
             </div>
 
@@ -930,15 +938,58 @@ function createNewHookDraft(defaults: SMTPTemplateDefault[]): SMTPHookDraft {
   return template ? applySMTPTemplateDefault(DEFAULT_SMTP_HOOK_DRAFT, template) : { ...DEFAULT_SMTP_HOOK_DRAFT }
 }
 
-function resolveSendForValue(eventTypes: NotificationEventType[]): SendForValue {
-  if (eventTypes.length === 1) {
+function resolveSendForValue(
+  eventTypes: NotificationEventType[],
+  availableEventTypes: NotificationEventType[] = ALL_EVENT_TYPES,
+): SendForValue {
+  if (eventTypes.length === 1 && availableEventTypes.includes(eventTypes[0])) {
     return eventTypes[0]
   }
   const selected = new Set(eventTypes)
-  if (ALL_EVENT_TYPES.every((eventType) => selected.has(eventType)) && selected.size === ALL_EVENT_TYPES.length) {
+  if (
+    availableEventTypes.every((eventType) => selected.has(eventType))
+    && selected.size === availableEventTypes.length
+  ) {
     return 'all'
   }
   return 'custom'
+}
+
+function resolveSMTPEventAvailability(
+  aiDailyBriefAvailable: boolean,
+  eventTypes: NotificationEventType[],
+) {
+  const availableEventOptions = SMTP_EVENT_OPTIONS.filter(
+    (option) => option.value !== 'daily_digest' || aiDailyBriefAvailable,
+  )
+  const availableEventTypes = availableEventOptions.map((option) => option.value)
+  return {
+    availableEventOptions,
+    availableEventTypes,
+    currentSendFor: resolveSendForValue(eventTypes, availableEventTypes),
+    unavailableDailyBriefSelected: !aiDailyBriefAvailable && eventTypes.includes('daily_digest'),
+  }
+}
+
+function smtpTemplateForAvailableEvents(
+  template: SMTPTemplateDefault,
+  sendFor: SendForValue,
+  availableEventTypes: NotificationEventType[],
+): SMTPTemplateDefault {
+  return sendFor === 'all' ? { ...template, event_types: availableEventTypes } : template
+}
+
+function aiDailyBriefIsAvailable(currentUser: { features: { ai_daily_brief_enabled: boolean } } | undefined) {
+  return currentUser?.features.ai_daily_brief_enabled === true
+}
+
+function UnavailableDailyBriefNotice({ visible }: { visible: boolean }) {
+  if (!visible) return null
+  return (
+    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+      This existing selection is inactive until AI Daily Brief generation is enabled and configured.
+    </p>
+  )
 }
 
 function resolveTestValidationError(draft: SMTPHookDraft, sendTestEmail: boolean, testRecipient: string, firstValidationError: string | null) {
@@ -968,7 +1019,7 @@ function describeEventType(eventType: NotificationEventType) {
 }
 
 function describeEventDescription(value: SendForValue) {
-  if (value === 'all') return 'Send this email template for every supported notification event.'
+  if (value === 'all') return 'Send this email template for every currently available notification event.'
   if (value === 'custom') return 'This upgraded hook retains its existing multi-event selection until you choose a new option.'
   return SMTP_EVENT_OPTIONS.find((option) => option.value === value)?.description ?? 'Configure the event that sends this email.'
 }

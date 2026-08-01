@@ -1,4 +1,5 @@
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Queue
 
 from app.core.config import get_settings
@@ -100,7 +101,7 @@ celery_app.conf.update(
         },
         "dispatch-daily-digest-notifications": {
             "task": "app.tasks.feed_tasks.dispatch_daily_digest_notification_webhooks",
-            "schedule": 3600.0,
+            "schedule": 300.0,
         },
         "dispatch-pending-notification-webhooks": {
             "task": "app.tasks.feed_tasks.dispatch_pending_notification_webhook_deliveries",
@@ -120,7 +121,7 @@ celery_app.conf.update(
         },
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
-            "schedule": 300.0,
+            "schedule": crontab(minute="*"),
         },
         "reconcile-ai-task-runs": {
             "task": "app.tasks.feed_tasks.reconcile_ai_task_runs",

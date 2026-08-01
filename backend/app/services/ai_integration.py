@@ -34,6 +34,7 @@ from app.schemas.ai import (
     AIUsageSummaryResponse,
 )
 from app.services.ai_ops import ai_task_run_stop_reason, record_ai_task_event
+from app.services.daily_brief_notifications import emit_daily_brief_ready_event
 from app.services.ai_provider_exchange import (
     build_provider_exchange_payload as _build_provider_exchange_payload,
     sanitize_provider_exchange as _sanitize_provider_exchange,
@@ -141,6 +142,7 @@ class AIDailyBriefGenerationResult:
     items_selected: int
     prompt_char_count: int | None = None
     response_char_count: int | None = None
+    integration_event_id: uuid.UUID | None = None
 
 
 def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
@@ -405,6 +407,7 @@ def run_daily_brief_generation(
     force: bool = False,
     reference_time: datetime | None = None,
     task_run_id: uuid.UUID | None = None,
+    emit_notification: bool = True,
 ) -> AIDailyBriefGenerationResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured or not active.daily_brief_enabled:
@@ -431,12 +434,14 @@ def run_daily_brief_generation(
     existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == brief_date))
     if existing is not None and existing.status == "ready" and not force:
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
+        notification_event = emit_daily_brief_ready_event(db, brief=existing) if emit_notification else None
         return AIDailyBriefGenerationResult(
             brief=existing,
             status="skipped",
             reason="already_generated",
             items_considered=int(existing.item_count or 0),
             items_selected=len(existing.top_item_ids_json or []),
+            integration_event_id=notification_event.id if notification_event is not None else None,
         )
     if existing is not None and existing.status == "pending" and not force and not is_stale_daily_brief_pending(existing, now=now):
         return AIDailyBriefGenerationResult(
@@ -581,6 +586,7 @@ def run_daily_brief_generation(
     db.add(brief)
     _replace_daily_brief_source_items(db, brief=brief, item_rows_all=item_rows_all, selected_item_ids={str(row.id) for row in item_rows})
     prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
+    notification_event = emit_daily_brief_ready_event(db, brief=brief) if emit_notification else None
     return AIDailyBriefGenerationResult(
         brief=brief,
         status="ready",
@@ -589,6 +595,7 @@ def run_daily_brief_generation(
         items_selected=len(item_rows),
         prompt_char_count=completion.prompt_char_count,
         response_char_count=completion.response_char_count,
+        integration_event_id=notification_event.id if notification_event is not None else None,
     )
 
 

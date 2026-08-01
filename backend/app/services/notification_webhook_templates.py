@@ -5,6 +5,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from html import escape
 from types import SimpleNamespace
 
 from app.models.feed import Feed
@@ -50,6 +51,13 @@ class DailyDigestContext:
     total_feeds: int
     feed_names: list[str]
     top_titles: list[str]
+    brief_id: uuid.UUID | None = None
+    brief_date: str | None = None
+    generated_at: datetime | None = None
+    title: str = ""
+    brief_text: str = ""
+    key_points: list[str] | None = None
+    recommended_actions: list[str] | None = None
 
 
 TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
@@ -143,6 +151,24 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
         description="Newline-separated sample titles from the digest window.",
         example="Threat report one\nThreat report two",
     ),
+    NotificationTemplateVariable(key="brief.id", description="AI Daily Brief identifier.", example="a8636d41-f2e8-4690-a385-272e6f852441"),
+    NotificationTemplateVariable(key="brief.date", description="UTC date represented by the AI Daily Brief.", example="2026-03-25"),
+    NotificationTemplateVariable(
+        key="brief.generated_at",
+        description="Timestamp recorded when AI Daily Brief generation ran.",
+        example="2026-03-25T09:00:04+00:00",
+    ),
+    NotificationTemplateVariable(key="brief.window_start", description="Start of the AI Daily Brief source window in UTC.", example="2026-03-24T09:00:00+00:00"),
+    NotificationTemplateVariable(key="brief.window_end", description="End of the AI Daily Brief source window in UTC.", example="2026-03-25T09:00:00+00:00"),
+    NotificationTemplateVariable(key="brief.title", description="Generated AI Daily Brief title.", example="Daily threat intelligence brief"),
+    NotificationTemplateVariable(key="brief.title_html", description="HTML-escaped generated AI Daily Brief title.", example="Daily threat intelligence brief"),
+    NotificationTemplateVariable(key="brief.text", description="Generated AI Daily Brief narrative.", example="Identity-focused campaigns remain the highest-priority development."),
+    NotificationTemplateVariable(key="brief.text_html", description="HTML-escaped AI Daily Brief narrative with preserved line breaks.", example="Identity-focused campaigns remain the highest-priority development."),
+    NotificationTemplateVariable(key="brief.item_count", description="Number of source items considered for the AI Daily Brief.", example="18"),
+    NotificationTemplateVariable(key="brief.key_points", description="Newline-separated generated key points.", example="Review identity telemetry\nTrack exposed edge devices"),
+    NotificationTemplateVariable(key="brief.key_points_html", description="HTML-escaped generated key points separated by line breaks.", example="Review identity telemetry<br>Track exposed edge devices"),
+    NotificationTemplateVariable(key="brief.recommended_actions", description="Newline-separated generated recommended actions.", example="Validate MFA coverage\nReview edge patch status"),
+    NotificationTemplateVariable(key="brief.recommended_actions_html", description="HTML-escaped generated recommended actions separated by line breaks.", example="Validate MFA coverage<br>Review edge patch status"),
 )
 TEMPLATE_VARIABLE_KEYS = frozenset(variable.key for variable in TEMPLATE_VARIABLES)
 TEMPLATE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
@@ -251,6 +277,20 @@ def build_template_context(
         "digest.total_feeds": str(digest_context.total_feeds if digest_context else 0),
         "digest.feed_names": ", ".join(digest_context.feed_names) if digest_context else "",
         "digest.top_titles": "\n".join(digest_context.top_titles) if digest_context else "",
+        "brief.id": str(digest_context.brief_id) if digest_context and digest_context.brief_id else "",
+        "brief.date": digest_context.brief_date if digest_context and digest_context.brief_date else "",
+        "brief.generated_at": isoformat(digest_context.generated_at if digest_context else None),
+        "brief.window_start": isoformat(digest_context.window_start if digest_context else None),
+        "brief.window_end": isoformat(digest_context.window_end if digest_context else None),
+        "brief.title": digest_context.title if digest_context else "",
+        "brief.title_html": escape(digest_context.title) if digest_context else "",
+        "brief.text": digest_context.brief_text if digest_context else "",
+        "brief.text_html": _html_text(digest_context.brief_text) if digest_context else "",
+        "brief.item_count": str(digest_context.total_items if digest_context else 0),
+        "brief.key_points": "\n".join(digest_context.key_points or []) if digest_context else "",
+        "brief.key_points_html": _html_lines(digest_context.key_points or []) if digest_context else "",
+        "brief.recommended_actions": "\n".join(digest_context.recommended_actions or []) if digest_context else "",
+        "brief.recommended_actions_html": _html_lines(digest_context.recommended_actions or []) if digest_context else "",
     }
 
 
@@ -297,3 +337,11 @@ def isoformat(value: datetime | None) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _html_text(value: str) -> str:
+    return escape(value).replace("\n", "<br>")
+
+
+def _html_lines(values: list[str]) -> str:
+    return "<br>".join(escape(value) for value in values)

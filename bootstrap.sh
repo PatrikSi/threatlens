@@ -142,6 +142,9 @@ AI_API_KEY=
 ALLOW_PRIVATE_NETWORK_FETCH=false
 ALLOW_PRIVATE_NETWORK_AI=false
 ALLOW_PRIVATE_NETWORK_WEBHOOKS=false
+ALLOW_PRIVATE_NETWORK_OIDC=false
+ALLOW_INSECURE_HTTP_OIDC=false
+OIDC_CALLBACK_PATH=/api/v1/auth/oidc/callback
 WEB_VITE_API_BASE_URL=/api/v1
 THREATLENS_WEB_PORT=3000
 THREATLENS_IMAGE_TAG=latest
@@ -203,11 +206,20 @@ EOF
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_FETCH" "false"
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_AI" "false"
   render_yaml_entry "ALLOW_PRIVATE_NETWORK_WEBHOOKS" "false"
+  render_yaml_entry "ALLOW_PRIVATE_NETWORK_OIDC" "false"
+  render_yaml_entry "ALLOW_INSECURE_HTTP_OIDC" "false"
   render_yaml_entry "OUTBOUND_MAX_REDIRECTS" "5"
   render_yaml_entry "AUTH_LOGIN_MAX_ATTEMPTS" "8"
   render_yaml_entry "AUTH_LOGIN_WINDOW_SECONDS" "300"
   render_yaml_entry "AUTH_LOGIN_LOCKOUT_SECONDS" "900"
   render_yaml_entry "API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS" "300"
+  render_yaml_entry "OIDC_TRANSACTION_COOKIE_NAME" "threatlens_oidc_transaction"
+  render_yaml_entry "OIDC_TRANSACTION_TTL_SECONDS" "600"
+  render_yaml_entry "OIDC_CALLBACK_PATH" "/api/v1/auth/oidc/callback"
+  render_yaml_entry "OIDC_METADATA_CACHE_SECONDS" "300"
+  render_yaml_entry "OIDC_CONNECT_TIMEOUT_SECONDS" "5"
+  render_yaml_entry "OIDC_READ_TIMEOUT_SECONDS" "10"
+  render_yaml_entry "OIDC_MAX_RESPONSE_BYTES" "1000000"
   render_yaml_entry "CORS_ORIGINS" "http://localhost:3000,http://127.0.0.1:3000"
   render_yaml_entry "TRUSTED_PROXY_CIDRS" ""
   render_yaml_entry "ALLOWED_HOSTS" "api,localhost,127.0.0.1,::1"

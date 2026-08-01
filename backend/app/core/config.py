@@ -184,12 +184,21 @@ class Settings(BaseSettings):
     allow_private_network_fetch: bool = False
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
+    allow_private_network_oidc: bool = False
+    allow_insecure_http_oidc: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
     auth_login_window_seconds: int = 300
     auth_login_lockout_seconds: int = 900
     api_token_last_used_update_interval_seconds: int = 300
+    oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
+    oidc_transaction_ttl_seconds: int = 600
+    oidc_callback_path: str = "/api/v1/auth/oidc/callback"
+    oidc_metadata_cache_seconds: int = 300
+    oidc_connect_timeout_seconds: float = 5
+    oidc_read_timeout_seconds: float = 10
+    oidc_max_response_bytes: int = 1_000_000
 
     probe_feed_metadata_on_create: bool = False
     probe_feed_metadata_on_import: bool = False
@@ -214,9 +223,13 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     health_worker_ping_timeout_seconds: float = 1.0
     beat_heartbeat_key: str = "threatlens:beat:heartbeat"
+    beat_scheduler_heartbeat_key: str = "threatlens:beat:scheduler-heartbeat"
     beat_heartbeat_ttl_seconds: int = 180
     beat_heartbeat_stale_after_seconds: int = 180
     beat_heartbeat_interval_seconds: int = 60
+    beat_watchdog_startup_grace_seconds: int = 240
+    beat_watchdog_check_interval_seconds: int = 15
+    beat_watchdog_terminate_timeout_seconds: int = 10
     notification_delivery_enqueue_batch_size: int = 100
     notification_delivery_recovery_batch_size: int = 100
     notification_delivery_sending_stale_after_seconds: int = 120
@@ -267,10 +280,56 @@ class Settings(BaseSettings):
     def _normalize_header_name(cls, value):
         return str(value).strip().lower()
 
+    @field_validator("oidc_callback_path", mode="before")
+    @classmethod
+    def _normalize_oidc_callback_path(cls, value):
+        normalized = str(value).strip()
+        if not normalized.startswith("/") or normalized.startswith("//") or "?" in normalized or "#" in normalized:
+            raise ValueError("oidc_callback_path must be an absolute URL path without a query or fragment")
+        return normalized
+
+    @field_validator(
+        "oidc_transaction_ttl_seconds",
+        "oidc_metadata_cache_seconds",
+        "oidc_max_response_bytes",
+    )
+    @classmethod
+    def _validate_positive_oidc_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("OIDC transaction, cache, and response limits must be greater than zero")
+        return value
+
+    @field_validator("oidc_connect_timeout_seconds", "oidc_read_timeout_seconds")
+    @classmethod
+    def _validate_positive_oidc_timeouts(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("OIDC timeout values must be greater than zero")
+        return value
+
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value):
         return str(value).strip().upper() or "INFO"
+
+    @field_validator(
+        "beat_heartbeat_ttl_seconds",
+        "beat_heartbeat_stale_after_seconds",
+        "beat_heartbeat_interval_seconds",
+        "beat_watchdog_check_interval_seconds",
+        "beat_watchdog_terminate_timeout_seconds",
+    )
+    @classmethod
+    def _validate_positive_beat_timing(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Beat heartbeat and watchdog timing values must be greater than zero")
+        return value
+
+    @field_validator("beat_watchdog_startup_grace_seconds")
+    @classmethod
+    def _validate_beat_startup_grace(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("beat_watchdog_startup_grace_seconds must not be negative")
+        return value
 
     @field_validator("app_data_encryption_key", mode="before")
     @classmethod
@@ -279,6 +338,12 @@ class Settings(BaseSettings):
             return None
         normalized = str(value).strip()
         return normalized or None
+
+    @model_validator(mode="after")
+    def _validate_beat_timing(self):
+        if self.beat_watchdog_startup_grace_seconds < self.beat_heartbeat_interval_seconds:
+            raise ValueError("beat_watchdog_startup_grace_seconds must cover at least one heartbeat interval")
+        return self
 
     @model_validator(mode="after")
     def _validate_production_security(self):

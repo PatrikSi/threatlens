@@ -12,7 +12,6 @@ from app.models.integration import (
     IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
-    IntegrationSubscriptionFeed,
 )
 from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
@@ -31,10 +30,13 @@ from app.services.integration_connectors.base import (
     IntegrationEventContextError,
 )
 from app.services.integration_delivery import ensure_webhook_delivery, mark_integration_delivery_dead_letter
+from app.services.daily_brief_notifications import (
+    DailyBriefNotificationContextError,
+    daily_brief_context_from_payload,
+)
 from app.services.notification_delivery_processing import process_reserved_notification_deliveries
 from app.services.notification_webhooks import (
     NotificationDeliveryReservationBatch,
-    build_daily_digest_context,
     has_recent_notification_delivery,
     process_notification_webhook_delivery,
     reserve_alert_match_notification_deliveries,
@@ -221,7 +223,14 @@ class WebhookIntegrationConnector:
         event: IntegrationEvent,
         webhooks: list[NotificationWebhook],
     ) -> NotificationDeliveryReservationBatch:
-        scope_key = str(event.payload_json.get("scope_key") or event.created_at.date().isoformat())
+        try:
+            digest_context = daily_brief_context_from_payload(event.payload_json)
+        except DailyBriefNotificationContextError as exc:
+            raise IntegrationEventContextError(str(exc)) from exc
+        scope_key = str(
+            event.payload_json.get("scope_key")
+            or f"ai_daily_brief:{digest_context.brief_date or event.created_at.date().isoformat()}"
+        )
         delivery_ids: list[uuid.UUID] = []
         skipped = 0
         for webhook in webhooks:
@@ -245,29 +254,14 @@ class WebhookIntegrationConnector:
             ):
                 skipped += 1
                 continue
-            feed_ids = (
-                list(
-                    db.scalars(
-                        select(IntegrationSubscriptionFeed.feed_id).where(
-                            IntegrationSubscriptionFeed.subscription_id == webhook.subscription_id
-                        )
-                    ).all()
-                )
-                if webhook.feed_scope == "selected"
-                else None
-            )
-            digest_context = build_daily_digest_context(db, user_id=user.id, feed_ids=feed_ids)
-            if digest_context is None or digest_context.total_items <= 0:
-                skipped += 1
-                continue
             delivery = reserve_notification_webhook_delivery(
                 db,
                 webhook=webhook,
                 user=user,
                 event_type="daily_digest",
                 digest_context=digest_context,
-                item_title=f"{digest_context.total_items} items in last 24h",
-                feed_name=", ".join(digest_context.feed_names[:3]) or None,
+                item_title=digest_context.title,
+                feed_name="AI Daily Brief",
                 scope_key=scope_key,
             )
             delivery_ids.append(delivery.id)

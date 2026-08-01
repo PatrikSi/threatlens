@@ -1,8 +1,7 @@
 import uuid
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, resolve_client_ip
@@ -16,7 +15,6 @@ from app.core.security import (
     set_auth_cookies,
     verify_password,
 )
-from app.models.api_token import ApiToken
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import (
@@ -40,6 +38,7 @@ from app.services.auth_rate_limit import (
     record_login_failure,
     record_self_registration_attempt,
 )
+from app.services.user_access import revoke_user_credentials
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -143,7 +142,7 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
 
     user = db.scalar(select(User).where(User.email == email))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or not user.password_login_enabled or not verify_password(payload.password, user.password_hash):
         record_login_failure(email, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
@@ -184,6 +183,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         is_approved=user.is_approved,
         approved_at=user.approved_at,
         created_at=user.created_at,
+        password_login_enabled=user.password_login_enabled,
         features=_resolve_app_features(db),
     )
 
@@ -195,20 +195,16 @@ def change_password(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if not user.password_login_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Local password authentication is not configured for this account",
+        )
     _verify_current_password_or_throttle(request=request, user=user, candidate_password=payload.current_password)
 
-    revoked_at = datetime.now(timezone.utc)
-    revoked_api_tokens = db.execute(
-        update(ApiToken)
-        .where(
-            ApiToken.user_id == user.id,
-            ApiToken.revoked_at.is_(None),
-        )
-        .values(revoked_at=revoked_at)
-    ).rowcount or 0
     user.password_hash = get_password_hash(payload.new_password)
-    user.auth_token_version = int(user.auth_token_version or 0) + 1
-    db.add(user)
+    user.password_login_enabled = True
+    revoked_api_tokens = revoke_user_credentials(db, user)
     record_audit(
         db,
         actor_user_id=user.id,

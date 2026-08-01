@@ -110,7 +110,7 @@ jobs:
 
       - name: Audit frontend dependencies
         working-directory: web
-        run: npm audit --audit-level=high
+        run: npm run audit
 
   migrations:
     name: PostgreSQL migration round trip

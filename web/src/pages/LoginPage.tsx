@@ -2,9 +2,9 @@ import { FormEvent, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 
-import { ApiError, apiFetch } from '../api/client'
+import { ApiError, apiFetch, buildApiUrl } from '../api/client'
 import { useAuth } from '../components/AuthContext'
-import { RegistrationSettingsResponse, TokenResponse } from '../types/api'
+import { OIDCPublicSettings, RegistrationSettingsResponse, TokenResponse } from '../types/api'
 
 type AuthMode = 'login' | 'register'
 
@@ -22,6 +22,11 @@ export function LoginPage() {
   const registrationSettingsQuery = useQuery({
     queryKey: ['auth', 'registration-settings'],
     queryFn: () => apiFetch<RegistrationSettingsResponse>('/auth/registration-settings', {}, false),
+    staleTime: 60_000,
+  })
+  const oidcSettingsQuery = useQuery({
+    queryKey: ['auth', 'oidc', 'settings'],
+    queryFn: () => apiFetch<OIDCPublicSettings>('/auth/oidc/settings', {}, false),
     staleTime: 60_000,
   })
 
@@ -65,6 +70,7 @@ export function LoginPage() {
     typeof location.state === 'object' && location.state && 'authMessage' in location.state
       ? String(location.state.authMessage || '')
       : ''
+  const oidcError = new URLSearchParams(location.search).get('oidc_error')
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode)
@@ -103,26 +109,12 @@ export function LoginPage() {
             ? 'Sign in to manage feeds and triage articles.'
             : 'Self-registered accounts require admin approval before login.'}
         </p>
-        {mode === 'login' && authMessage && (
-          <p
-            role="alert"
-            aria-live="polite"
-            aria-atomic="true"
-            className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
-          >
-            {authMessage}
-          </p>
-        )}
-        {registrationSettingsQuery.isError && (
-          <p
-            role="alert"
-            aria-live="polite"
-            aria-atomic="true"
-            className="mt-3 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
-          >
-            Registration availability could not be loaded. Sign-in is still available.
-          </p>
-        )}
+        <LoginNotices
+          mode={mode}
+          authMessage={authMessage}
+          oidcError={oidcError}
+          registrationSettingsError={registrationSettingsQuery.isError}
+        />
 
         {selfRegistrationEnabled && (
           <div className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
@@ -147,7 +139,9 @@ export function LoginPage() {
           </div>
         )}
 
-        <label htmlFor="login-email" className="mt-5 block text-sm font-semibold">
+        <OIDCLoginOption mode={mode} settings={oidcSettingsQuery.data} />
+
+        <label htmlFor="login-email" className={`${mode === 'login' && oidcSettingsQuery.data?.enabled ? '' : 'mt-5'} block text-sm font-semibold`}>
           Email
         </label>
         <input
@@ -227,6 +221,75 @@ export function LoginPage() {
   )
 }
 
+function LoginNotices({
+  mode,
+  authMessage,
+  oidcError,
+  registrationSettingsError,
+}: {
+  mode: AuthMode
+  authMessage: string
+  oidcError: string | null
+  registrationSettingsError: boolean
+}) {
+  return (
+    <>
+      {mode === 'login' && authMessage && (
+        <p
+          role="alert"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+        >
+          {authMessage}
+        </p>
+      )}
+      {mode === 'login' && oidcError && (
+        <p
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          className="mt-3 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+        >
+          {resolveOidcError(oidcError)}
+        </p>
+      )}
+      {registrationSettingsError && (
+        <p
+          role="alert"
+          aria-live="polite"
+          aria-atomic="true"
+          className="mt-3 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
+        >
+          Registration availability could not be loaded. Sign-in is still available.
+        </p>
+      )}
+    </>
+  )
+}
+
+function OIDCLoginOption({ mode, settings }: { mode: AuthMode; settings: OIDCPublicSettings | undefined }) {
+  if (mode !== 'login' || !settings?.enabled) {
+    return null
+  }
+  return (
+    <>
+      <button
+        type="button"
+        className="mt-5 w-full rounded border border-cyan/40 bg-cyan/10 px-3 py-2 font-semibold text-cyan-900 hover:bg-cyan/15 dark:border-cyan/40 dark:text-cyan-100"
+        onClick={() => window.location.assign(buildApiUrl('/auth/oidc/login'))}
+      >
+        Continue with {settings.provider_name || 'SSO'}
+      </button>
+      <div className="my-4 flex items-center gap-3 text-xs text-slate dark:text-slate-400" aria-hidden="true">
+        <span className="h-px flex-1 bg-slate/20 dark:bg-white/10" />
+        <span>or use a local account</span>
+        <span className="h-px flex-1 bg-slate/20 dark:bg-white/10" />
+      </div>
+    </>
+  )
+}
+
 function resolveLoginError(error: unknown): string {
   if (error instanceof ApiError && error.status === 429) {
     return 'Too many sign-in attempts. Wait a moment and try again.'
@@ -245,6 +308,19 @@ function resolveRegisterError(error: unknown): string {
     return 'Registration failed. Check the submitted details and try again later.'
   }
   return 'Registration failed. Try again later.'
+}
+
+function resolveOidcError(errorCode: string): string {
+  const messages: Record<string, string> = {
+    approval_required: 'Your SSO account is waiting for administrator approval.',
+    account_inactive: 'This ThreatLens account is inactive. Contact an administrator.',
+    email_link_required: 'An account already uses this email. Sign in locally, then link SSO from Account settings.',
+    not_provisioned: 'No ThreatLens account is linked to this identity. Contact an administrator.',
+    verified_email_required: 'The identity provider did not supply a verified email address.',
+    provider_rejected: 'The identity provider did not complete sign-in.',
+    invalid_state: 'The SSO request expired or could not be verified. Start sign-in again.',
+  }
+  return messages[errorCode] ?? 'SSO sign-in could not be completed. Try again or contact an administrator.'
 }
 
 function resolvePostLoginDestination(state: unknown): string {
