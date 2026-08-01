@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
 
@@ -22,6 +23,7 @@ from app.services.oidc_client import (
 from app.services import oidc_client, oidc_config
 from app.services.oidc_config import OIDCConfigurationError, oidc_callback_url, validate_oidc_provider_urls
 from app.services.oidc_identity import resolve_oidc_role
+from app.services.secret_storage import encrypt_text
 from app.services.oidc_transaction import (
     decode_oidc_transaction,
     encode_oidc_transaction,
@@ -239,6 +241,28 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
     with pytest.raises(OIDCProtocolError, match="claims validation failed"):
         validate_oidc_token_claims(provider, metadata, token_for("wrong-nonce"), nonce="expected-nonce")
 
+    userinfo_metadata = OIDCMetadata(
+        issuer=metadata.issuer,
+        authorization_endpoint=metadata.authorization_endpoint,
+        token_endpoint=metadata.token_endpoint,
+        jwks_uri=metadata.jwks_uri,
+        userinfo_endpoint="https://idp.example.com/userinfo",
+        token_endpoint_auth_methods_supported=metadata.token_endpoint_auth_methods_supported,
+        id_token_signing_alg_values_supported=metadata.id_token_signing_alg_values_supported,
+    )
+    monkeypatch.setattr(
+        oidc_client,
+        "_fetch_json",
+        lambda *_args, **_kwargs: {"sub": "different-subject", "email": "attacker@example.com"},
+    )
+    with pytest.raises(OIDCProtocolError, match="UserInfo subject does not match"):
+        validate_oidc_token_claims(
+            provider,
+            userinfo_metadata,
+            token_for("expected-nonce"),
+            nonce="expected-nonce",
+        )
+
 
 def test_id_token_validation_wraps_failure_after_jwks_refresh(monkeypatch):
     provider = _provider()
@@ -289,6 +313,188 @@ def test_provider_connection_test_rejects_unsupported_client_auth_method(monkeyp
 
     with pytest.raises(OIDCConfigurationError, match="client_secret_post"):
         oidc_client.test_oidc_provider(provider)
+
+
+def test_oidc_metadata_load_caches_discovery_and_supports_forced_refresh(monkeypatch):
+    provider = _provider()
+    provider.id = uuid.uuid4()
+    discovery_payload = {
+        "issuer": provider.issuer_url,
+        "authorization_endpoint": "https://idp.example.com/authorize",
+        "token_endpoint": "https://idp.example.com/token",
+        "jwks_uri": "https://idp.example.com/jwks",
+        "userinfo_endpoint": "https://idp.example.com/userinfo",
+        "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+    }
+    fetches: list[tuple[str, str]] = []
+
+    def fetch_json(method, url, **_kwargs):
+        fetches.append((method, url))
+        return discovery_payload
+
+    monkeypatch.setattr(oidc_client, "_fetch_json", fetch_json)
+    monkeypatch.setattr(oidc_client, "validate_oidc_endpoint_url", lambda *_args, **_kwargs: None)
+    oidc_client._metadata_cache.clear()
+    try:
+        first = oidc_client.load_oidc_metadata(provider)
+        second = oidc_client.load_oidc_metadata(provider)
+        refreshed = oidc_client.load_oidc_metadata(provider, force=True)
+    finally:
+        oidc_client._metadata_cache.clear()
+
+    assert first == second == refreshed
+    assert first.userinfo_endpoint == "https://idp.example.com/userinfo"
+    assert fetches == [
+        ("GET", "https://idp.example.com/.well-known/openid-configuration"),
+        ("GET", "https://idp.example.com/.well-known/openid-configuration"),
+    ]
+
+
+def test_oidc_code_exchange_preserves_secret_and_pkce_fields(monkeypatch):
+    provider = _provider(
+        client_auth_method="client_secret_post",
+        client_secret_encrypted=encrypt_text("  opaque secret  "),
+    )
+    metadata = OIDCMetadata(
+        issuer=provider.issuer_url,
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        jwks_uri="https://idp.example.com/jwks",
+        userinfo_endpoint=None,
+        token_endpoint_auth_methods_supported=("client_secret_post",),
+        id_token_signing_alg_values_supported=("RS256",),
+    )
+    captured: dict[str, object] = {}
+
+    def fetch_json(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return {"id_token": "id-token", "access_token": "access-token"}
+
+    monkeypatch.setattr(oidc_client, "_fetch_json", fetch_json)
+
+    token = oidc_client.exchange_oidc_code(
+        provider,
+        metadata,
+        code="authorization-code",
+        code_verifier="code-verifier",
+    )
+
+    assert token == {"id_token": "id-token", "access_token": "access-token"}
+    assert captured["method"] == "POST"
+    assert captured["url"] == metadata.token_endpoint
+    assert captured["auth"] is None
+    assert captured["data"] == {
+        "grant_type": "authorization_code",
+        "code": "authorization-code",
+        "redirect_uri": "https://threatlens.example.com/api/v1/auth/oidc/callback",
+        "code_verifier": "code-verifier",
+        "client_id": "threatlens",
+        "client_secret": "  opaque secret  ",
+    }
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"error": "invalid_grant"}, "invalid_grant"),
+        ({"access_token": "access-token"}, "did not include an ID token"),
+        ({"id_token": "id-token"}, "did not include an access token"),
+    ],
+)
+def test_oidc_code_exchange_rejects_incomplete_token_responses(monkeypatch, payload, message):
+    provider = _provider(client_auth_method="none")
+    metadata = OIDCMetadata(
+        issuer=provider.issuer_url,
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        jwks_uri="https://idp.example.com/jwks",
+        userinfo_endpoint=None,
+        token_endpoint_auth_methods_supported=("none",),
+        id_token_signing_alg_values_supported=("RS256",),
+    )
+    monkeypatch.setattr(oidc_client, "_fetch_json", lambda *_args, **_kwargs: payload)
+
+    with pytest.raises(OIDCProtocolError, match=message):
+        oidc_client.exchange_oidc_code(
+            provider,
+            metadata,
+            code="authorization-code",
+            code_verifier="code-verifier",
+        )
+
+
+@pytest.mark.parametrize(
+    ("content", "status_code", "message"),
+    [
+        (b"not-json", 200, "invalid JSON"),
+        (b'{}', 502, "HTTP 502"),
+        (b'{}', 302, "unexpected redirect"),
+    ],
+)
+def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
+    monkeypatch,
+    content,
+    status_code,
+    message,
+):
+    response = oidc_client.httpx.Response(
+        status_code,
+        content=content,
+        headers={"Location": "https://other.example.com"} if status_code == 302 else None,
+        request=oidc_client.httpx.Request("GET", "https://idp.example.com/metadata"),
+    )
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, data=None):
+            return oidc_client.httpx.Request(method, url, data=data)
+
+        def send(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(OIDCProtocolError, match=message):
+        oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
+
+    assert response.is_closed is True
+
+
+def test_oidc_json_fetch_enforces_response_size_limit(monkeypatch):
+    response = oidc_client.httpx.Response(
+        200,
+        content=b'{"value":"larger than limit"}',
+        request=oidc_client.httpx.Request("GET", "https://idp.example.com/metadata"),
+    )
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, data=None):
+            return oidc_client.httpx.Request(method, url, data=data)
+
+        def send(self, *_args, **_kwargs):
+            return response
+
+    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(get_settings(), "oidc_max_response_bytes", 8)
+
+    with pytest.raises(OIDCProtocolError, match="size limit"):
+        oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
+
+    assert response.is_closed is True
 
 
 def test_oidc_json_fetch_closes_streamed_httpx_response(monkeypatch):

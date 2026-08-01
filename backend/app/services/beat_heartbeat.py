@@ -37,11 +37,18 @@ def read_beat_heartbeat(
     stale_after_seconds: int,
     now: datetime | None = None,
 ) -> BeatHeartbeatSnapshot:
+    client = None
     try:
         client = redis.Redis.from_url(redis_url, decode_responses=True)
         heartbeat_raw = client.get(heartbeat_key)
     except Exception:
         return BeatHeartbeatSnapshot(False, None, None, "redis_unavailable")
+    finally:
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
 
     return parse_beat_heartbeat(
         heartbeat_raw,
