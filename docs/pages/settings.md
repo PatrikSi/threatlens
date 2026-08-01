@@ -50,6 +50,7 @@ Legacy route behavior:
 - Configurable default role and exact claim-to-role mappings, including dotted claim paths
 - Optional role synchronization on each sign-in
 - Client secrets are write-only in the UI and encrypted at rest
+- HTTPS is required by default. Plain HTTP displays an operator warning and requires the corresponding deployment opt-in; private IdPs remain separately gated.
 - API calls:
   - `GET /auth/oidc/provider`
   - `PUT /auth/oidc/provider`

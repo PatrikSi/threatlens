@@ -74,6 +74,7 @@ export interface OIDCProviderSettings {
   client_auth_method: OIDCClientAuthMethod
   public_base_url: string
   callback_url: string
+  callback_path: string
   scopes: string[]
   role_claim: string
   role_mappings: OIDCRoleMapping[]

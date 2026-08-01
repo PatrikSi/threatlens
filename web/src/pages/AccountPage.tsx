@@ -58,9 +58,9 @@ export function AccountPage() {
         method: 'DELETE',
         body: JSON.stringify({ current_password: unlinkPassword }),
       }),
-    onSuccess: () => {
+    onSuccess: async () => {
       setUnlinkPassword('')
-      void queryClient.invalidateQueries({ queryKey: ['auth', 'oidc', 'account'] })
+      await queryClient.invalidateQueries({ queryKey: ['auth', 'oidc', 'account'] })
     },
   })
   const linkOidc = useMutation({
@@ -164,11 +164,6 @@ export function AccountPage() {
                     {formatMutationError(unlinkOidc.error, 'Failed to unlink SSO.')}
                   </p>
                 )}
-                {unlinkOidc.isSuccess && (
-                  <p role="status" className="mt-2 text-sm text-green-700 dark:text-green-400">
-                    SSO identity unlinked.
-                  </p>
-                )}
               </>
             ) : oidcStatusQuery.data.available ? (
               <>
@@ -191,6 +186,11 @@ export function AccountPage() {
               </>
             ) : (
               <p className="text-slate dark:text-slate-300">Single sign-on is not currently available.</p>
+            )}
+            {unlinkOidc.isSuccess && (
+              <p role="status" aria-live="polite" className="mt-2 text-sm text-green-700 dark:text-green-400">
+                SSO identity unlinked.
+              </p>
             )}
           </div>
         )}

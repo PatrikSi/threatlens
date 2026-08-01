@@ -38,7 +38,8 @@ const providerSettings = {
   has_client_secret: true,
   client_auth_method: 'client_secret_basic',
   public_base_url: 'https://threatlens.example.com',
-  callback_url: 'https://threatlens.example.com/api/v1/auth/oidc/callback',
+  callback_url: 'https://threatlens.example.com/custom/oidc/callback',
+  callback_path: '/custom/oidc/callback',
   scopes: ['openid', 'profile', 'email', 'groups'],
   role_claim: 'groups',
   role_mappings: [{ claim_value: 'soc-analysts', role: 'analyst' }],
@@ -70,6 +71,12 @@ function flushPromises() {
   return new Promise((resolve) => window.setTimeout(resolve, 0))
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
+  descriptor?.set?.call(input, value)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
 afterEach(async () => {
   await act(async () => {
     root?.unmount()
@@ -96,8 +103,30 @@ describe('IdentitySettingsPage', () => {
 
     expect(view.querySelector<HTMLInputElement>('#oidc-issuer')?.value).toBe('https://idp.example.com')
     expect(view.querySelector<HTMLInputElement>('#oidc-mapping-0')?.value).toBe('soc-analysts')
-    expect(view.textContent).toContain('https://threatlens.example.com/api/v1/auth/oidc/callback')
+    expect(view.textContent).toContain('https://threatlens.example.com/custom/oidc/callback')
     expect(view.textContent).toContain('JIT provisioning')
     expect(view.textContent).toContain('Sync roles on sign-in')
+
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#oidc-public-url')!, 'https://new.example.com/')
+    })
+    expect(view.textContent).toContain('https://new.example.com/custom/oidc/callback')
+  })
+
+  it('warns when either side of the OIDC flow uses plaintext HTTP', async () => {
+    const view = renderPage()
+    await act(async () => {
+      await flushPromises()
+      await flushPromises()
+    })
+    await vi.waitFor(() => {
+      expect(view.querySelector<HTMLInputElement>('#oidc-issuer')?.value).toBe('https://idp.example.com')
+    })
+
+    act(() => {
+      setInputValue(view.querySelector<HTMLInputElement>('#oidc-issuer')!, 'http://idp.internal')
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('HTTP can expose authorization codes')
   })
 })

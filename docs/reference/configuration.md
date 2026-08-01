@@ -57,6 +57,7 @@
 | `ALLOW_PRIVATE_NETWORK_AI` (`allow_private_network_ai`) | `false` | Allows AI requests to private-network or internal-only hosts when explicitly enabled. Publicly routable AI endpoints must still use `https`. |
 | `ALLOW_PRIVATE_NETWORK_WEBHOOKS` (`allow_private_network_webhooks`) | `false` | Separately allows notification webhook deliveries to private-network or internal-only hosts when explicitly enabled. |
 | `ALLOW_PRIVATE_NETWORK_OIDC` (`allow_private_network_oidc`) | `false` | Allows OIDC discovery, token, JWKS, and UserInfo requests to private-network or internal-only identity providers. Public endpoints must use `https`; enable this only for explicitly trusted internal IdPs. |
+| `ALLOW_INSECURE_HTTP_OIDC` (`allow_insecure_http_oidc`) | `false` | Allows publicly routable OIDC endpoints and the configured ThreatLens callback origin to use plaintext `http`. Private/internal OIDC endpoints still require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Keep disabled outside isolated development environments. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
@@ -185,6 +186,7 @@ Outside production:
 ## Trust and Egress Notes
 
 - Feed and article fetches, AI provider calls, notification webhooks, and OIDC provider calls are separate outbound trust boundaries with separate deny-by-default private-network controls (`ALLOW_PRIVATE_NETWORK_FETCH`, `ALLOW_PRIVATE_NETWORK_AI`, `ALLOW_PRIVATE_NETWORK_WEBHOOKS`, `ALLOW_PRIVATE_NETWORK_OIDC`).
+- OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is a separate development-only transport opt-in and does not grant access to private hosts. For backward compatibility, `ALLOW_PRIVATE_NETWORK_OIDC=true` continues to permit HTTP only when the target is private; setting both flags makes the two risks explicit. When the ThreatLens callback itself uses HTTP, `AUTH_COOKIE_SECURE=false` is also required and production mode remains intentionally unsuitable for that deployment.
 - Notification webhook targets are validated on create, update, test, retry, and delivery. Public webhook targets must use `https`; private-network or internal-only webhook targets require `ALLOW_PRIVATE_NETWORK_WEBHOOKS=true`.
 - `TRUSTED_PROXY_CIDRS` only controls whether ThreatLens trusts proxy-supplied client IP headers. It does not widen outbound safety checks, and every trusted proxy hop that can append `X-Forwarded-For` should be included.
 - `APP_DATA_ENCRYPTION_KEY` protects feed URLs, stored webhook templates, saved delivery snapshots, and the OIDC client secret at rest; keep it distinct from `JWT_SECRET` and back it up with any `APP_DATA_ENCRYPTION_PREVIOUS_KEYS`.

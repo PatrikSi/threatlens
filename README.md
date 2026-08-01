@@ -235,6 +235,7 @@ npm run build
 - The browser talks to the API through `/api/v1`.
 - Feed/article fetching, AI calls, webhook and SMTP delivery, and OIDC provider communication can make outbound network requests.
 - Private-network outbound access is off by default. Enable only what you trust in `.env` or your stack environment.
+- OIDC requires HTTPS by default. `ALLOW_INSECURE_HTTP_OIDC=true` is intended only for isolated local development; private IdPs remain separately controlled by `ALLOW_PRIVATE_NETWORK_OIDC`.
 - Keep `APP_DATA_ENCRYPTION_KEY` safe. Stored feed, webhook, delivery, and OIDC client-secret data depends on it.
 - Use `.env.example` as the configuration reference.
 

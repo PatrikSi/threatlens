@@ -83,7 +83,7 @@ export function createOIDCRequest(draft: OIDCSettingsDraft): OIDCProviderUpdateR
     sync_roles_on_login: draft.syncRolesOnLogin,
   }
   if (draft.clientSecret.trim()) {
-    request.client_secret = draft.clientSecret.trim()
+    request.client_secret = draft.clientSecret
   }
   return request
 }

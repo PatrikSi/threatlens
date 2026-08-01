@@ -212,6 +212,15 @@ export function IdentitySettingsPage() {
                   {resolveCallbackUrl(draft, providerQuery.data)}
                 </code>
               </div>
+              {usesInsecureOIDCHttp(draft) && (
+                <p
+                  role="alert"
+                  className="lg:col-span-2 rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                >
+                  HTTP can expose authorization codes, tokens, and identity claims in transit. Use it only on a trusted
+                  development network with ALLOW_INSECURE_HTTP_OIDC enabled.
+                </p>
+              )}
             </div>
           </section>
 
@@ -410,10 +419,17 @@ function Toggle({
 }
 
 function resolveCallbackUrl(draft: OIDCSettingsDraft, settings: OIDCProviderSettings): string {
-  if (settings.public_base_url === draft.publicBaseUrl.trim().replace(/\/$/, '') && settings.callback_url) {
+  const publicBaseUrl = draft.publicBaseUrl.trim().replace(/\/+$/, '')
+  if (settings.public_base_url === publicBaseUrl && settings.callback_url) {
     return settings.callback_url
   }
-  return draft.publicBaseUrl ? `${draft.publicBaseUrl.replace(/\/$/, '')}/api/v1/auth/oidc/callback` : 'Save a public URL to generate the callback.'
+  return publicBaseUrl
+    ? `${publicBaseUrl}${settings.callback_path}`
+    : 'Save a public URL to generate the callback.'
+}
+
+function usesInsecureOIDCHttp(draft: OIDCSettingsDraft): boolean {
+  return [draft.issuerUrl, draft.publicBaseUrl].some((value) => value.trim().toLowerCase().startsWith('http://'))
 }
 
 function formatError(error: unknown, fallback: string): string {
