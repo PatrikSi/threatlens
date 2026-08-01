@@ -8,7 +8,7 @@ from app.models.audit_log import AuditLog
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.user import User
 from app.services.oidc_client import OIDCClaims, OIDCMetadata
-from app.services.secret_storage import is_encrypted_text
+from app.services.secret_storage import decrypt_text, is_encrypted_text
 
 
 def _provider_payload(**overrides):
@@ -106,7 +106,11 @@ def _start_and_complete(client: TestClient, *, start_path: str = "/auth/oidc/log
 
 
 def test_admin_can_configure_oidc_without_secret_disclosure(client, auth_headers, db_session):
-    response = client.put("/auth/oidc/provider", json=_provider_payload(), headers=auth_headers["admin"])
+    response = client.put(
+        "/auth/oidc/provider",
+        json=_provider_payload(client_secret="  provider-secret  "),
+        headers=auth_headers["admin"],
+    )
 
     assert response.status_code == 200
     body = response.json()
@@ -114,10 +118,12 @@ def test_admin_can_configure_oidc_without_secret_disclosure(client, auth_headers
     assert body["has_client_secret"] is True
     assert "client_secret" not in body
     assert body["callback_url"] == "https://threatlens.example.com/api/v1/auth/oidc/callback"
+    assert body["callback_path"] == "/api/v1/auth/oidc/callback"
     provider = db_session.scalar(select(OIDCProvider))
     assert provider is not None
     assert is_encrypted_text(provider.client_secret_encrypted)
     assert "provider-secret" not in provider.client_secret_encrypted
+    assert decrypt_text(provider.client_secret_encrypted) == "  provider-secret  "
     stored_secret = provider.client_secret_encrypted
 
     retain_payload = _provider_payload(name="Renamed SSO")

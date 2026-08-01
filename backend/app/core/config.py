@@ -185,6 +185,7 @@ class Settings(BaseSettings):
     allow_private_network_ai: bool = False
     allow_private_network_webhooks: bool = False
     allow_private_network_oidc: bool = False
+    allow_insecure_http_oidc: bool = False
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8

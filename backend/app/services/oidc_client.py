@@ -142,10 +142,11 @@ def validate_oidc_token_claims(
     key_set = _load_jwks(metadata)
     algorithms = _allowed_signing_algorithms(metadata)
     try:
-        parsed_token = jose_jwt.decode(token["id_token"], key_set, algorithms=algorithms)
-    except InvalidKeyIdError:
-        key_set = _load_jwks(metadata)
-        parsed_token = jose_jwt.decode(token["id_token"], key_set, algorithms=algorithms)
+        try:
+            parsed_token = jose_jwt.decode(token["id_token"], key_set, algorithms=algorithms)
+        except InvalidKeyIdError:
+            key_set = _load_jwks(metadata)
+            parsed_token = jose_jwt.decode(token["id_token"], key_set, algorithms=algorithms)
     except Exception as exc:
         raise OIDCProtocolError("OIDC ID token signature validation failed") from exc
 
@@ -186,6 +187,7 @@ def validate_oidc_token_claims(
 
 def test_oidc_provider(provider: OIDCProvider) -> tuple[OIDCMetadata, int]:
     metadata = load_oidc_metadata(provider, force=True)
+    _ensure_auth_method_supported(provider, metadata)
     key_set = _load_jwks(metadata)
     return metadata, len(key_set.as_dict().get("keys", []))
 

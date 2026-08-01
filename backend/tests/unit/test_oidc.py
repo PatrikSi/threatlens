@@ -8,6 +8,7 @@ import jwt
 from jwt.algorithms import RSAAlgorithm
 import pytest
 from joserfc.jwk import KeySet
+from joserfc.errors import InvalidKeyIdError
 
 from app.core.config import get_settings
 from app.models.oidc import OIDCProvider
@@ -18,7 +19,7 @@ from app.services.oidc_client import (
     build_oidc_authorization_url,
     validate_oidc_token_claims,
 )
-from app.services import oidc_client
+from app.services import oidc_client, oidc_config
 from app.services.oidc_config import OIDCConfigurationError, oidc_callback_url, validate_oidc_provider_urls
 from app.services.oidc_identity import resolve_oidc_role
 from app.services.oidc_transaction import (
@@ -71,6 +72,9 @@ def test_oidc_provider_schema_requires_openid_and_unique_mapping_values():
             ]
         )
 
+    request = OIDCProviderUpdateRequest(client_secret="  opaque secret  ")
+    assert request.client_secret == "  opaque secret  "
+
 
 def test_oidc_role_mapping_supports_nested_claims_and_uses_highest_role():
     provider = _provider(
@@ -88,13 +92,66 @@ def test_oidc_role_mapping_supports_nested_claims_and_uses_highest_role():
 
 
 def test_oidc_urls_require_https_by_default(monkeypatch):
-    monkeypatch.setattr(get_settings(), "allow_private_network_oidc", False)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_private_network_oidc", False)
+    monkeypatch.setattr(settings, "allow_insecure_http_oidc", False)
 
     with pytest.raises(OIDCConfigurationError, match="must use HTTPS"):
         validate_oidc_provider_urls(
             issuer_url="http://idp.example.com",
             public_base_url="https://threatlens.example.com",
         )
+
+
+def test_oidc_urls_allow_http_only_with_explicit_transport_and_network_opt_ins(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_insecure_http_oidc", True)
+    monkeypatch.setattr(settings, "allow_private_network_oidc", False)
+    monkeypatch.setattr(
+        oidc_config,
+        "is_fetchable_url",
+        lambda _url, *, allow_private_network: allow_private_network,
+    )
+
+    with pytest.raises(OIDCConfigurationError, match="ALLOW_PRIVATE_NETWORK_OIDC"):
+        validate_oidc_provider_urls(
+            issuer_url="http://idp.internal",
+            public_base_url="http://threatlens.internal",
+        )
+
+    monkeypatch.setattr(settings, "allow_private_network_oidc", True)
+    validate_oidc_provider_urls(
+        issuer_url="http://idp.internal",
+        public_base_url="http://threatlens.internal",
+    )
+
+
+def test_oidc_urls_allow_public_http_with_explicit_insecure_transport_opt_in(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_insecure_http_oidc", True)
+    monkeypatch.setattr(settings, "allow_private_network_oidc", False)
+    monkeypatch.setattr(oidc_config, "is_fetchable_url", lambda *_args, **_kwargs: True)
+
+    validate_oidc_provider_urls(
+        issuer_url="http://idp.example.com",
+        public_base_url="http://threatlens.example.com",
+    )
+
+
+def test_private_http_oidc_remains_backward_compatible(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_insecure_http_oidc", False)
+    monkeypatch.setattr(settings, "allow_private_network_oidc", True)
+    monkeypatch.setattr(
+        oidc_config,
+        "is_fetchable_url",
+        lambda _url, *, allow_private_network: allow_private_network,
+    )
+
+    validate_oidc_provider_urls(
+        issuer_url="http://idp.internal",
+        public_base_url="http://threatlens.internal",
+    )
 
 
 def test_oidc_callback_path_is_configurable(monkeypatch):
@@ -181,6 +238,57 @@ def test_id_token_validation_checks_signature_audience_issuer_and_nonce(monkeypa
 
     with pytest.raises(OIDCProtocolError, match="claims validation failed"):
         validate_oidc_token_claims(provider, metadata, token_for("wrong-nonce"), nonce="expected-nonce")
+
+
+def test_id_token_validation_wraps_failure_after_jwks_refresh(monkeypatch):
+    provider = _provider()
+    metadata = OIDCMetadata(
+        issuer=provider.issuer_url,
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        jwks_uri="https://idp.example.com/jwks",
+        userinfo_endpoint=None,
+        token_endpoint_auth_methods_supported=("client_secret_basic",),
+        id_token_signing_alg_values_supported=("RS256",),
+    )
+    decode_attempts = 0
+
+    def fail_decode(*_args, **_kwargs):
+        nonlocal decode_attempts
+        decode_attempts += 1
+        if decode_attempts == 1:
+            raise InvalidKeyIdError()
+        raise ValueError("rotated key is still unavailable")
+
+    monkeypatch.setattr("app.services.oidc_client._load_jwks", lambda _metadata: object())
+    monkeypatch.setattr("app.services.oidc_client.jose_jwt.decode", fail_decode)
+
+    with pytest.raises(OIDCProtocolError, match="signature validation failed"):
+        validate_oidc_token_claims(
+            provider,
+            metadata,
+            {"id_token": "id-token", "access_token": "access-token"},
+            nonce="nonce",
+        )
+
+    assert decode_attempts == 2
+
+
+def test_provider_connection_test_rejects_unsupported_client_auth_method(monkeypatch):
+    provider = _provider(client_auth_method="client_secret_post")
+    metadata = OIDCMetadata(
+        issuer=provider.issuer_url,
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        jwks_uri="https://idp.example.com/jwks",
+        userinfo_endpoint=None,
+        token_endpoint_auth_methods_supported=("client_secret_basic",),
+        id_token_signing_alg_values_supported=("RS256",),
+    )
+    monkeypatch.setattr(oidc_client, "load_oidc_metadata", lambda _provider, *, force: metadata)
+
+    with pytest.raises(OIDCConfigurationError, match="client_secret_post"):
+        oidc_client.test_oidc_provider(provider)
 
 
 def test_oidc_json_fetch_closes_streamed_httpx_response(monkeypatch):

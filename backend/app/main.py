@@ -89,6 +89,10 @@ def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
 
 @asynccontextmanager
 async def app_lifespan(_application: FastAPI):
+    if settings.allow_insecure_http_oidc:
+        logger.warning(
+            "insecure_http_oidc_enabled OIDC authorization codes, tokens, and identity claims may traverse plaintext HTTP"
+        )
     with db_session.SessionLocal() as db:
         try:
             snapshot = refresh_startup_encrypted_data_inventory(db, settings=settings)

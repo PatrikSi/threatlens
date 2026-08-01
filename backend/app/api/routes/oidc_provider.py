@@ -132,6 +132,8 @@ def update_oidc_provider(
             "client_id": provider.client_id,
             "client_auth_method": provider.client_auth_method,
             "secret_updated": secret_updated,
+            "insecure_http": provider.issuer_url.startswith("http://")
+            or provider.public_base_url.startswith("http://"),
             "identity_count": identity_count,
             "jit_provisioning_enabled": provider.jit_provisioning_enabled,
             "auto_approve_users": provider.auto_approve_users,

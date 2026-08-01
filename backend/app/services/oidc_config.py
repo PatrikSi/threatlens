@@ -55,6 +55,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
             client_auth_method="client_secret_basic",
             public_base_url="",
             callback_url="",
+            callback_path=get_settings().oidc_callback_path,
             scopes=list(DEFAULT_OIDC_SCOPES),
             role_claim="groups",
             role_mappings=[],
@@ -75,6 +76,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
         client_auth_method=provider.client_auth_method,
         public_base_url=provider.public_base_url,
         callback_url=oidc_callback_url(provider.public_base_url),
+        callback_path=get_settings().oidc_callback_path,
         scopes=list(provider.scopes or DEFAULT_OIDC_SCOPES),
         role_claim=provider.role_claim,
         role_mappings=[OIDCRoleMapping.model_validate(mapping) for mapping in (provider.role_mappings_json or [])],
@@ -91,17 +93,34 @@ def _validate_outbound_oidc_url(url: str, *, field_name: str) -> None:
     settings = get_settings()
     try:
         parts = urlsplit(url)
+        port = parts.port
     except ValueError as exc:
         raise OIDCConfigurationError(f"{field_name} is not a valid URL") from exc
 
+    if not parts.hostname:
+        raise OIDCConfigurationError(f"{field_name} is not a valid URL")
     if parts.username or parts.password:
         raise OIDCConfigurationError(f"{field_name} must not contain embedded credentials")
-    if parts.scheme.lower() != "https":
-        if not settings.allow_private_network_oidc:
-            raise OIDCConfigurationError(f"{field_name} must use HTTPS")
-        if parts.scheme.lower() != "http" or is_fetchable_url(url, allow_private_network=False):
-            raise OIDCConfigurationError(f"{field_name} may use HTTP only for an explicitly allowed private endpoint")
+    _ = port
+    scheme = parts.scheme.lower()
+    if scheme not in {"http", "https"}:
+        raise OIDCConfigurationError(f"{field_name} must use HTTP or HTTPS")
+    if scheme == "http" and not settings.allow_insecure_http_oidc and not settings.allow_private_network_oidc:
+        raise OIDCConfigurationError(
+            f"{field_name} must use HTTPS unless ALLOW_INSECURE_HTTP_OIDC is enabled"
+        )
+
+    publicly_fetchable = is_fetchable_url(url, allow_private_network=False)
+    legacy_private_http_allowed = settings.allow_private_network_oidc and not publicly_fetchable
+    if scheme == "http" and not settings.allow_insecure_http_oidc and not legacy_private_http_allowed:
+        raise OIDCConfigurationError(
+            f"{field_name} must use HTTPS unless ALLOW_INSECURE_HTTP_OIDC is enabled"
+        )
     if not is_fetchable_url(url, allow_private_network=settings.allow_private_network_oidc):
+        if not publicly_fetchable:
+            raise OIDCConfigurationError(
+                f"{field_name} targets a private or internal host; enable ALLOW_PRIVATE_NETWORK_OIDC only if it is trusted"
+            )
         raise OIDCConfigurationError(f"{field_name} is not allowed for outbound OIDC requests")
 
 
@@ -119,9 +138,13 @@ def _validate_public_base_url(url: str) -> None:
     settings = get_settings()
     if parts.scheme.lower() == "https":
         return
+    if parts.scheme.lower() == "http" and settings.allow_insecure_http_oidc:
+        return
     if settings.allow_private_network_oidc and parts.scheme.lower() == "http" and not is_fetchable_url(
         url,
         allow_private_network=False,
     ):
         return
-    raise OIDCConfigurationError("Public base URL must use HTTPS")
+    raise OIDCConfigurationError(
+        "Public base URL must use HTTPS unless ALLOW_INSECURE_HTTP_OIDC is enabled"
+    )
