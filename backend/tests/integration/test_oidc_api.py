@@ -310,6 +310,45 @@ def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_i
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id)) is not None
 
 
+def test_oidc_jit_accepts_internal_email_identifier_when_verification_is_optional(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "internal-subject", "email": "Admin@Admin.Local", "email_verified": False, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "http://testserver/"
+    user = db_session.scalar(select(User).where(User.email == "admin@admin.local"))
+    assert user is not None
+    identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id))
+    assert identity is not None
+    assert identity.email_at_link == "admin@admin.local"
+
+
+def test_oidc_jit_rejects_internal_email_identifier_when_strict_verification_is_enabled(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=True)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "internal-subject", "email": "admin@admin.local", "email_verified": True, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["invalid_email"]
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "internal-subject")) is None
+
+
 @pytest.mark.parametrize(
     ("claims", "expected_error", "email_claim_present", "email_value_present", "email_claim_type"),
     [
@@ -317,6 +356,20 @@ def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_i
         ({"sub": "subject-1", "email": None, "email_verified": False}, "email_required", True, False, None),
         ({"sub": "subject-1", "email": "", "email_verified": False}, "email_required", True, False, "str"),
         ({"sub": "subject-1", "email": "not-an-email", "email_verified": False}, "invalid_email", True, True, "str"),
+        (
+            {"sub": "subject-1", "email": "bad..local@internal.local", "email_verified": False},
+            "invalid_email",
+            True,
+            True,
+            "str",
+        ),
+        (
+            {"sub": "subject-1", "email": "admin@-internal.local", "email_verified": False},
+            "invalid_email",
+            True,
+            True,
+            "str",
+        ),
     ],
 )
 def test_oidc_jit_still_rejects_missing_or_invalid_email_when_verification_is_optional(
