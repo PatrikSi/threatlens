@@ -154,7 +154,7 @@ docker compose logs -f beat
 docker compose logs -f web
 ```
 
-For temporary deep diagnostics, set `LOG_LEVEL=DEBUG` and `LOG_DETAIL=verbose` in `.env`, then recreate the API, workers, and Beat. Set `LOG_FORMAT=json` for structured collectors. ThreatLens excludes request bodies and credential-bearing headers and redacts common secret patterns even in verbose mode; see [Configuration](docs/reference/configuration.md#diagnostic-logging) for the complete controls.
+For temporary deep diagnostics, set `LOG_LEVEL=DEBUG` and `LOG_DETAIL=verbose` in `.env`, then recreate the API, workers, and Beat. Set `LOG_FORMAT=json` for structured collectors, or use `LOG_LEVEL_OVERRIDES=logger.name=DEBUG` for a focused subsystem. ThreatLens excludes request bodies, task argument values, and credential-bearing headers and redacts common secret patterns even in verbose mode; see [Configuration](docs/reference/configuration.md#diagnostic-logging) for the complete controls.
 
 If the first startup fails with `Role "threatlens" does not exist`, an old PostgreSQL volume was likely initialized before the generated `.env` was in place. For a new install with no data to keep, reset the local volumes:
 

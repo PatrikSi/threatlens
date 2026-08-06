@@ -1,9 +1,12 @@
 import json
 import logging
+from types import SimpleNamespace
 
+from app.core import logging_config
 from app.core.logging_config import (
     ThreatLensJsonFormatter,
     ThreatLensTextFormatter,
+    configure_logging,
     redact_log_text,
     reset_log_context,
     set_log_context,
@@ -25,14 +28,19 @@ def _record(message: str, *args) -> logging.LogRecord:
 def test_redact_log_text_removes_common_credentials():
     rendered = redact_log_text(
         "authorization=Bearer abc.def password=hunter2 "
-        "database=postgresql://user:db-secret@db/threatlens client_secret=oidc-secret"
+        "database=postgresql://user:db-secret@db/threatlens client_secret=oidc-secret "
+        "redirect=https://idp/callback?access_token=oauth-token "
+        "payload={'refresh_token': 'refresh-secret'} json={\"api_key\": \"json-secret\"}"
     )
 
     assert "abc.def" not in rendered
     assert "hunter2" not in rendered
     assert "db-secret" not in rendered
     assert "oidc-secret" not in rendered
-    assert rendered.count("[REDACTED]") >= 4
+    assert "oauth-token" not in rendered
+    assert "refresh-secret" not in rendered
+    assert "json-secret" not in rendered
+    assert rendered.count("[REDACTED]") >= 7
 
 
 def test_text_formatter_adds_diagnostic_context_without_secret_values():
@@ -62,3 +70,30 @@ def test_json_formatter_emits_machine_parseable_context():
     assert payload["request_id"] == "request-456"
     assert payload["status"] == 503
     assert payload["duration_ms"] == 42.5
+
+
+def test_per_logger_override_can_be_more_verbose_than_root(monkeypatch):
+    configured: dict[str, object] = {}
+    logger_levels: dict[str, str] = {}
+
+    monkeypatch.setattr(logging_config.logging.config, "dictConfig", lambda value: configured.update(value))
+    for logger_name in ("sqlalchemy.engine", "app.services.oidc_client"):
+        target = logging.getLogger(logger_name)
+        monkeypatch.setattr(
+            target,
+            "setLevel",
+            lambda level, name=logger_name: logger_levels.__setitem__(name, level),
+        )
+    settings = SimpleNamespace(
+        log_format="text",
+        log_max_event_chars=20_000,
+        log_level="INFO",
+        log_sql=False,
+        log_level_overrides=["app.services.oidc_client=DEBUG"],
+    )
+
+    configure_logging(settings, force=False)
+
+    assert configured["handlers"]["console"]["level"] == "NOTSET"
+    assert configured["root"]["level"] == "INFO"
+    assert logger_levels["app.services.oidc_client"] == "DEBUG"

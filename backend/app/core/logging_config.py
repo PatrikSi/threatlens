@@ -17,13 +17,15 @@ _LOG_CONTEXT: ContextVar[dict[str, str]] = ContextVar("threatlens_log_context", 
 _BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+\-/]+=*")
 _URL_CREDENTIAL_PATTERN = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<credentials>[^/@\s]+)@", re.IGNORECASE)
 _SENSITIVE_VALUE_PATTERN = re.compile(
-    r"(?i)(\b(?:password|passwd|secret|token|api[_-]?key|authorization|cookie|csrf|smtp[_-]?password|client[_-]?secret)\b"
-    r"\s*[=:]\s*)([^\s,;&]+)"
+    r"(?i)([\"']?\b(?:password|passwd|secret|token|access[_-]?token|refresh[_-]?token|id[_-]?token|"
+    r"api[_-]?key|authorization|cookie|csrf|smtp[_-]?password|client[_-]?secret|authorization[_-]?code)\b[\"']?"
+    r"\s*[=:]\s*[\"']?)([^\s,;&}\"']+)"
 )
 _SAFE_RECORD_FIELDS = (
     "request_id",
     "task_id",
     "task_name",
+    "queue",
     "method",
     "path",
     "route",
@@ -131,7 +133,7 @@ def configure_logging(settings: Settings, *, force: bool = True) -> None:
                 "console": {
                     "class": "logging.StreamHandler",
                     "stream": "ext://sys.stdout",
-                    "level": settings.log_level,
+                    "level": "NOTSET",
                     "formatter": "threatlens",
                     "filters": ["diagnostic_context"],
                 }
@@ -142,6 +144,9 @@ def configure_logging(settings: Settings, *, force: bool = True) -> None:
     if force:
         _route_framework_loggers_to_root(settings.log_level)
     logging.getLogger("sqlalchemy.engine").setLevel(logging.INFO if settings.log_sql else logging.WARNING)
+    for override in settings.log_level_overrides:
+        logger_name, level = override.rsplit("=", 1)
+        logging.getLogger(logger_name).setLevel(level)
 
 
 def _route_framework_loggers_to_root(level: str) -> None:
@@ -159,8 +164,9 @@ def verbose_logging_enabled(settings: Settings) -> bool:
 def log_configuration_summary(settings: Settings, *, logger: logging.Logger | None = None) -> None:
     target = logger or logging.getLogger("threatlens.logging")
     target.info(
-        "logging_configured level=%s format=%s detail=%s include_client_ip=%s slow_request_ms=%s sql=%s",
+        "logging_configured level=%s overrides=%s format=%s detail=%s include_client_ip=%s slow_request_ms=%s sql=%s",
         settings.log_level,
+        settings.log_level_overrides,
         settings.log_format,
         settings.log_detail,
         settings.log_include_client_ip,
