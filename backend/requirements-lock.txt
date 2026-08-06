@@ -21,7 +21,7 @@ click-plugins==1.1.1.2
 click-repl==0.3.0
 courlan==1.4.0
 croniter==3.0.3
-cryptography==49.0.0
+cryptography==50.0.0
 cssselect==1.4.0
 dateparser==1.4.1
 dnspython==2.8.0
