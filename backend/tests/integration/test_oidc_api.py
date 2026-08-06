@@ -27,6 +27,7 @@ def _provider_payload(**overrides):
         "default_role": "viewer",
         "jit_provisioning_enabled": True,
         "auto_approve_users": True,
+        "require_verified_email": True,
         "sync_roles_on_login": True,
     }
     payload.update(overrides)
@@ -49,6 +50,7 @@ def _configured_provider(db_session, **overrides) -> OIDCProvider:
         "default_role": "viewer",
         "jit_provisioning_enabled": True,
         "auto_approve_users": True,
+        "require_verified_email": True,
         "sync_roles_on_login": True,
     }
     values.update(overrides)
@@ -117,6 +119,7 @@ def test_admin_can_configure_oidc_without_secret_disclosure(client, auth_headers
     body = response.json()
     assert body["configured"] is True
     assert body["has_client_secret"] is True
+    assert body["require_verified_email"] is True
     assert "client_secret" not in body
     assert body["callback_url"] == "https://threatlens.example.com/api/v1/auth/oidc/callback"
     assert body["callback_path"] == "/api/v1/auth/oidc/callback"
@@ -284,6 +287,46 @@ def test_oidc_jit_rejects_unverified_email_without_creating_user(client, db_sess
     assert callback.status_code == 302
     assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["verified_email_required"]
     assert db_session.scalar(select(User).where(User.email == "new-user@example.com")) is None
+
+
+def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_it(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "subject-1", "email": "trusted@example.com", "email_verified": False, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "http://testserver/"
+    user = db_session.scalar(select(User).where(User.email == "trusted@example.com"))
+    assert user is not None
+    assert user.is_approved is True
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id)) is not None
+
+
+@pytest.mark.parametrize("email", [None, "", "not-an-email"])
+def test_oidc_jit_still_rejects_missing_or_invalid_email_when_verification_is_optional(
+    client,
+    db_session,
+    monkeypatch,
+    email,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "subject-1", "email": email, "email_verified": False, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["verified_email_required"]
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "subject-1")) is None
 
 
 def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, seed_users, monkeypatch):

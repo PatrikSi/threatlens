@@ -175,7 +175,10 @@ def _provision_identity(
     provider: OIDCProvider,
     oidc_claims: OIDCClaims,
 ) -> tuple[User, ExternalIdentity]:
-    email = _verified_email(oidc_claims.claims, required=True)
+    email = _provisioning_email(
+        oidc_claims.claims,
+        require_verified=provider.require_verified_email,
+    )
     existing_user = db.scalar(select(User).where(User.email == email))
     if existing_user is not None:
         raise OIDCIdentityError(
@@ -259,13 +262,34 @@ def _synchronize_role(db: Session, user: User, mapped_role: str) -> tuple[str | 
 
 
 def _verified_email(claims: dict[str, Any], *, required: bool) -> str | None:
+    return _normalized_email(claims, required=required, require_verified=True)
+
+
+def _provisioning_email(claims: dict[str, Any], *, require_verified: bool) -> str:
+    email = _normalized_email(claims, required=True, require_verified=require_verified)
+    assert email is not None
+    return email
+
+
+def _normalized_email(
+    claims: dict[str, Any],
+    *,
+    required: bool,
+    require_verified: bool,
+) -> str | None:
     email = claims.get("email")
-    verified = claims.get("email_verified") is True
-    if not isinstance(email, str) or not email.strip() or not verified:
+    if not isinstance(email, str) or not email.strip():
         if required:
             raise OIDCIdentityError(
                 "verified_email_required",
-                "The identity provider must return a verified email address for account provisioning",
+                "The identity provider must return an email address for account provisioning",
+            )
+        return None
+    if require_verified and claims.get("email_verified") is not True:
+        if required:
+            raise OIDCIdentityError(
+                "verified_email_required",
+                "The identity provider must verify the email address used for account provisioning",
             )
         return None
     try:

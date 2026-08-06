@@ -62,6 +62,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
             default_role="viewer",
             jit_provisioning_enabled=False,
             auto_approve_users=False,
+            require_verified_email=True,
             sync_roles_on_login=True,
         )
 
@@ -83,6 +84,7 @@ def provider_response(provider: OIDCProvider | None) -> OIDCProviderResponse:
         default_role=provider.default_role,
         jit_provisioning_enabled=provider.jit_provisioning_enabled,
         auto_approve_users=provider.auto_approve_users,
+        require_verified_email=provider.require_verified_email,
         sync_roles_on_login=provider.sync_roles_on_login,
         created_at=provider.created_at,
         updated_at=provider.updated_at,
