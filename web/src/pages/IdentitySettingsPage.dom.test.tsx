@@ -46,6 +46,7 @@ const providerSettings = {
   default_role: 'viewer',
   jit_provisioning_enabled: true,
   auto_approve_users: false,
+  require_verified_email: true,
   sync_roles_on_login: true,
   created_at: '2026-07-31T10:00:00Z',
   updated_at: '2026-07-31T10:00:00Z',
@@ -106,6 +107,7 @@ describe('IdentitySettingsPage', () => {
     expect(view.textContent).toContain('https://threatlens.example.com/custom/oidc/callback')
     expect(view.textContent).toContain('JIT provisioning')
     expect(view.textContent).toContain('Sync roles on sign-in')
+    expect(view.textContent).toContain('Require verified email')
 
     act(() => {
       setInputValue(view.querySelector<HTMLInputElement>('#oidc-public-url')!, 'https://new.example.com/')
@@ -128,5 +130,23 @@ describe('IdentitySettingsPage', () => {
     })
 
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('HTTP can expose authorization codes')
+  })
+
+  it('warns when JIT provisioning accepts email addresses the provider has not verified', async () => {
+    const view = renderPage()
+    await act(async () => {
+      await flushPromises()
+      await flushPromises()
+    })
+    await vi.waitFor(() => {
+      expect(view.textContent).toContain('Require verified email')
+    })
+
+    const toggle = [...view.querySelectorAll('label')].find((label) => label.textContent?.includes('Require verified email'))
+    act(() => {
+      toggle?.querySelector<HTMLInputElement>('input')?.click()
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('has not verified')
   })
 })

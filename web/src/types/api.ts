@@ -81,6 +81,7 @@ export interface OIDCProviderSettings {
   default_role: User['role']
   jit_provisioning_enabled: boolean
   auto_approve_users: boolean
+  require_verified_email: boolean
   sync_roles_on_login: boolean
   created_at: string | null
   updated_at: string | null
@@ -101,6 +102,7 @@ export interface OIDCProviderUpdateRequest {
   default_role: User['role']
   jit_provisioning_enabled: boolean
   auto_approve_users: boolean
+  require_verified_email: boolean
   sync_roles_on_login: boolean
 }
 

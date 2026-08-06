@@ -75,7 +75,7 @@ Protocol and identity behavior:
 
 Provisioning and role mapping:
 
-- JIT provisioning is opt-in. New users require a syntactically valid email with `email_verified=true`.
+- JIT provisioning is opt-in. New users require a syntactically valid email, and `email_verified=true` is required by default. An administrator can relax the verification requirement per provider for a trusted internal IdP; missing, malformed, and duplicate local email addresses are still rejected, and existing accounts are never linked automatically by email.
 - Automatic approval is a separate opt-in. Otherwise, the new account is created pending the normal admin approval workflow.
 - `role_claim` accepts a claim name or dotted object path such as `realm_access.roles`. Claim values may be a string or a list of strings.
 - Role mappings use exact, case-sensitive claim values. When multiple mappings match, `admin` takes precedence over `analyst`, then `viewer`. With no match, the configured default role applies.
@@ -83,6 +83,8 @@ Provisioning and role mapping:
 - Once identities are linked, the provider issuer and client ID cannot be changed. Unlink identities first or retain the existing provider identity key.
 
 Local password login remains available as a break-glass path. Keep at least one active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts do not have local password login until an admin sets a password from **Users**.
+
+Authentik 2025.10 and newer returns `email_verified=false` by default. The preferred fix is a custom `email` scope mapping backed by a real verification attribute. For isolated deployments that already trust Authentik's user enrollment and email assignment, disable **Require verified email** in ThreatLens after reviewing the resulting JIT provisioning risk. See Authentik's [email scope verification guidance](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
 
 ## API Token Behavior
 
