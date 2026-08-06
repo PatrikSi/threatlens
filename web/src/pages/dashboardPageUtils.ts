@@ -1,7 +1,7 @@
 import { type Dispatch, type SetStateAction } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { ApiError } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { AIDailyBrief, ItemDetail, ItemListResponse } from '../types/api'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
@@ -139,13 +139,7 @@ export function buildDashboardItemsQueryKey(params: DashboardItemsQueryKeyParams
 }
 
 export function resolveItemActionError(error: unknown, fallback: string) {
-  if (error instanceof ApiError && error.message.trim()) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return fallback
+  return resolveApiErrorMessage(error, fallback)
 }
 
 export function isRelativeTimeRange(value: TimeRangeFilter) {
@@ -153,23 +147,11 @@ export function isRelativeTimeRange(value: TimeRangeFilter) {
 }
 
 export function resolveDashboardViewSaveError(error: unknown) {
-  if (error instanceof ApiError && error.message.trim()) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Failed to save the dashboard view. Your edits are still open.'
+  return resolveApiErrorMessage(error, 'Dashboard view could not be saved. Your edits are still open')
 }
 
 function resolveSavedViewImportError(error: unknown) {
-  if (error instanceof ApiError && error.message.trim()) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Unable to import this saved view.'
+  return resolveApiErrorMessage(error, '')
 }
 
 function summarizeSavedViewNames(names: string[]) {

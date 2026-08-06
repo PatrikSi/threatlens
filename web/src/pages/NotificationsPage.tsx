@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -1674,8 +1675,5 @@ function formatFailureRate(failedDeliveries: number, totalDeliveries: number): s
 }
 
 function resolveApiMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return error.message
-  }
-  return fallback
+  return resolveApiErrorMessage(error, fallback)
 }

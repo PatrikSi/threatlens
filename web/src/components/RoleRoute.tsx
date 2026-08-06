@@ -1,6 +1,7 @@
 import { Link, Navigate, useLocation } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { User } from '../types/api'
 import { SessionIssueState } from './SessionIssueState'
@@ -26,7 +27,7 @@ export function RoleRoute({ roles, children }: RoleRouteProps) {
       <div className="tl-surface mx-auto max-w-2xl rounded-2xl p-6 shadow-sm">
         <h2 className="font-display text-3xl text-ink dark:text-white">Access blocked</h2>
         <p className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
-          {meQuery.error.message || 'This account is authenticated, but it cannot access this area right now.'}
+          {resolveApiErrorMessage(meQuery.error, 'This account cannot access this area')}
         </p>
       </div>
     )
@@ -36,7 +37,7 @@ export function RoleRoute({ roles, children }: RoleRouteProps) {
       <SessionIssueState
         title="Permission check unavailable"
         description="ThreatLens could not confirm your role because the API is unavailable or returned an unexpected error."
-        errorMessage={meQuery.error instanceof Error ? meQuery.error.message : undefined}
+        errorMessage={resolveApiErrorMessage(meQuery.error, 'Role verification failed')}
         actionLabel="Retry permission check"
         onAction={() => void meQuery.refetch()}
         secondaryLinkLabel="Go to dashboard"

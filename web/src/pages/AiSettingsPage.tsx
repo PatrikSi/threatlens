@@ -10,7 +10,8 @@ import {
 } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -462,13 +463,7 @@ export function AiSettingsPage() {
   ])
 
   const showActionError = (error: unknown, fallback: string) => {
-    const message =
-      error instanceof ApiError && error.message.trim()
-        ? error.message
-        : error instanceof Error && error.message.trim()
-          ? error.message
-          : fallback
-    setNotice({ tone: 'error', message })
+    setNotice({ tone: 'error', message: resolveApiErrorMessage(error, fallback) })
   }
 
   const saveMutation = useMutation({
@@ -701,9 +696,9 @@ export function AiSettingsPage() {
     !activeTasksLoading &&
     (liveStatusQuery.isFetching || queuedRunsQuery.isFetching || runningRunsQuery.isFetching)
   const activeTasksErrorMessage = [
-    liveStatusQuery.isError ? `Live status: ${(liveStatusQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
-    queuedRunsQuery.isError ? `Queued tasks: ${(queuedRunsQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
-    runningRunsQuery.isError ? `Running tasks: ${(runningRunsQuery.error as Error | undefined)?.message ?? 'failed to load'}` : '',
+    liveStatusQuery.isError ? resolveApiErrorMessage(liveStatusQuery.error, 'AI live status could not be loaded') : '',
+    queuedRunsQuery.isError ? resolveApiErrorMessage(queuedRunsQuery.error, 'Queued AI tasks could not be loaded') : '',
+    runningRunsQuery.isError ? resolveApiErrorMessage(runningRunsQuery.error, 'Running AI tasks could not be loaded') : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -890,7 +885,11 @@ export function AiSettingsPage() {
                 overview={overviewQuery.data}
                 isLoading={overviewQuery.isLoading}
                 isError={overviewQuery.isError}
-                errorMessage={(overviewQuery.error as Error | undefined)?.message ?? ''}
+                errorMessage={
+                  overviewQuery.isError
+                    ? resolveApiErrorMessage(overviewQuery.error, 'AI analytics could not be loaded')
+                    : ''
+                }
                 days={days}
                 setDays={setDays}
                 onRefresh={() => invalidateAiQueries(queryClient)}
@@ -983,7 +982,11 @@ export function AiSettingsPage() {
                   reprocessMutation.mutate(reprocessQueueState.payload)
                 }}
                 itemSearchLoading={candidateItemsQuery.isLoading}
-                itemSearchError={(candidateItemsQuery.error as Error | undefined)?.message ?? ''}
+                itemSearchError={
+                  candidateItemsQuery.isError
+                    ? resolveApiErrorMessage(candidateItemsQuery.error, 'Candidate items could not be loaded')
+                    : ''
+                }
                 itemSearchReady={candidateItemsReady}
                 filters={runFilters}
                 setFilters={setRunFilters}
@@ -998,7 +1001,11 @@ export function AiSettingsPage() {
                 runDetailQuery={runDetailQuery}
                 briefSources={briefSourcesQuery.data ?? []}
                 briefSourcesLoading={briefSourcesQuery.isLoading}
-                briefSourcesErrorMessage={(briefSourcesQuery.error as Error | undefined)?.message ?? ''}
+                briefSourcesErrorMessage={
+                  briefSourcesQuery.isError
+                    ? resolveApiErrorMessage(briefSourcesQuery.error, 'Daily brief sources could not be loaded')
+                    : ''
+                }
                 selectedRunSectionRef={selectedRunSectionRef}
               />
             </section>
@@ -1018,7 +1025,11 @@ export function AiSettingsPage() {
                 readiness={readiness}
                 isLoading={settingsQuery.isLoading}
                 isError={settingsQuery.isError}
-                errorMessage={(settingsQuery.error as Error | undefined)?.message ?? ''}
+                errorMessage={
+                  settingsQuery.isError
+                    ? resolveApiErrorMessage(settingsQuery.error, 'AI settings could not be loaded')
+                    : ''
+                }
                 savePending={saveMutation.isPending}
                 saveDisabled={
                   !settingsReadyToSave ||

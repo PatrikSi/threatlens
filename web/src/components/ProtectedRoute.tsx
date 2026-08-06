@@ -1,6 +1,7 @@
 import { Navigate, useLocation } from 'react-router-dom'
 
 import { ApiError } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { SessionIssueState } from './SessionIssueState'
 
@@ -21,7 +22,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
         <div className="tl-surface w-full max-w-lg rounded-2xl p-6 shadow-sm">
           <h2 className="font-display text-3xl text-ink dark:text-white">Access blocked</h2>
           <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50/80 px-3 py-2 text-sm text-amber-900 dark:border-amber-800/40 dark:bg-amber-950/30 dark:text-amber-100">
-            <p>{meQuery.error.message || 'This account is authenticated, but it cannot access ThreatLens right now.'}</p>
+            <p>{resolveApiErrorMessage(meQuery.error, 'This account cannot access ThreatLens')}</p>
             <p className="mt-2">Contact an administrator if this account should be active and approved.</p>
           </div>
         </div>
@@ -33,7 +34,7 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
       <SessionIssueState
         title="Session check unavailable"
         description="ThreatLens could not verify your session because the API is unavailable or returned an unexpected error."
-        errorMessage={meQuery.error instanceof Error ? meQuery.error.message : undefined}
+        errorMessage={resolveApiErrorMessage(meQuery.error, 'Session verification failed')}
         actionLabel="Retry session check"
         onAction={() => void meQuery.refetch()}
         secondaryLinkLabel="Go to login"

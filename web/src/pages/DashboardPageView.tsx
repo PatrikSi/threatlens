@@ -1,3 +1,4 @@
+import { resolveApiErrorMessage } from '../api/errors'
 import {
   feedHealthBadgeClass,
   resolveFeedHealth,
@@ -778,7 +779,11 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                             )
                           })}
                       </div>
-                      {tagsQuery.isError && <p className="mt-0.5 text-xs text-red-600">Failed to load tags.</p>}
+                      {tagsQuery.isError && (
+                        <p className="mt-0.5 text-xs text-red-600">
+                          {resolveApiErrorMessage(tagsQuery.error, 'Tags could not be loaded')}
+                        </p>
+                      )}
 
                       <div className="tl-dashboard-filter-controls mt-1 grid grid-cols-2 items-center gap-1.5 sm:flex sm:flex-wrap">
                       <input
@@ -1066,7 +1071,11 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                     </div>
                                   </div>
                                 {detailQuery?.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading article content...</p>}
-                                {detailQuery?.isError && <p className="text-sm text-red-600">Failed to load item details.</p>}
+                                {detailQuery?.isError && (
+                                  <p className="text-sm text-red-600">
+                                    {resolveApiErrorMessage(detailQuery.error, 'Article details could not be loaded')}
+                                  </p>
+                                )}
 
                                 {detail && detail.id === item.id && (
                                   <>
@@ -1290,7 +1299,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                       )}
                       {rssQuery?.isError && (
                         <p className="text-sm text-red-600">
-                          Failed to load items. {(rssQuery.error as Error | undefined)?.message ?? ''}
+                          {resolveApiErrorMessage(rssQuery.error, 'RSS items could not be loaded')}
                         </p>
                       )}
                       {!rssQuery?.isLoading && !rssWindowItems.length && (
@@ -1594,7 +1603,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                       )}
                       {alertQuery?.isError && (
                         <p className="text-sm text-red-600">
-                          Failed to load alert matches. {(alertQuery.error as Error | undefined)?.message ?? ''}
+                          {resolveApiErrorMessage(alertQuery.error, 'Alert matches could not be loaded')}
                         </p>
                       )}
                       {!alertQuery?.isLoading && !alertWindowItems.length && (
@@ -1653,7 +1662,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                   {dailyBriefHistoryQuery.isLoading && <p className="text-sm text-slate dark:text-white/75">Loading daily brief...</p>}
                   {dailyBriefHistoryQuery.isError && (
                     <p className="text-sm text-red-600">
-                      Failed to load the daily brief. {(dailyBriefHistoryQuery.error as Error | undefined)?.message ?? ''}
+                      {resolveApiErrorMessage(dailyBriefHistoryQuery.error, 'The daily brief could not be loaded')}
                     </p>
                   )}
                   {!dailyBriefHistoryQuery.isLoading && !(dailyBriefHistoryQuery.data?.length ?? 0) && (

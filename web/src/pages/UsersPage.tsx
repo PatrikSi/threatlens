@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -737,10 +738,7 @@ function UserRow({
 }
 
 function resolveUsersError(error: unknown): string {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return `Failed to load users: ${error.message}`
-  }
-  return 'Failed to load users.'
+  return resolveApiErrorMessage(error, 'User directory could not be loaded')
 }
 
 function resolveAccountCategory(user: AdminUser): 'local' | 'oidc' | 'hybrid' {
@@ -769,13 +767,7 @@ function formatAuthenticationMethods(user: AdminUser): string {
 }
 
 function resolveUsersMutationError(error: unknown): string {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Failed to update user.'
+  return resolveApiErrorMessage(error, 'User changes could not be saved')
 }
 
 function hasDirtyUserSettingsDrafts(

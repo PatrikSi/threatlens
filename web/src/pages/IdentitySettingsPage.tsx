@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { OIDCProviderSettings, OIDCProviderTestResponse, User } from '../types/api'
 import {
@@ -448,8 +449,5 @@ function usesInsecureOIDCHttp(draft: OIDCSettingsDraft): boolean {
 }
 
 function formatError(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message.trim()) {
-    return `${fallback} ${error.message}`
-  }
-  return fallback
+  return resolveApiErrorMessage(error, fallback)
 }

@@ -45,7 +45,7 @@ export function OverviewTab({
   }
 
   if (isError && !overview) {
-    return <Panel title="Overview">Failed to load AI analytics. {errorMessage}</Panel>
+    return <Panel title="Overview">{errorMessage}</Panel>
   }
 
   if (!overview) {

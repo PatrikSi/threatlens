@@ -49,10 +49,18 @@ Route tree:
 - Adds `Content-Type: application/json` for requests.
 - Sends browser credentials (`credentials: include`) for cookie-based session auth.
 - Adds CSRF header (`x-csrf-token` by default) on mutating requests when `auth=true`.
-- Uses `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`).
-- Throws textual API error body when `response.ok` is false.
+- Uses an `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`) and distinguishes timeouts from network failures.
+- Parses the compatible top-level `detail` field and the structured API error envelope, including stable code, retry hint, request ID, and `Retry-After` timing.
+- Rejects malformed successful responses and summarizes non-JSON proxy failures without rendering HTML response bodies in the UI.
 - Returns `undefined` for `204` responses.
 - `LoginPage` and self-registration calls pass `auth=false`; after login the app relies on the server-set session cookies rather than persisting any bearer token in browser storage.
+
+### Error presentation (`web/src/api/errors.ts`)
+
+- Operation-specific context and safe backend detail are shown together instead of replacing one another.
+- Retryable, rate-limited, authorization, CSRF, timeout, and network failures receive distinct recovery guidance.
+- The API request reference is shown when available so an operator can correlate the UI failure with server logs.
+- Login credential failures intentionally suppress server detail that could make account enumeration easier.
 
 ### Browser storage keys
 
