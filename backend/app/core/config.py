@@ -221,6 +221,7 @@ class Settings(BaseSettings):
     stats_top_domains_limit: int = 10
 
     log_level: str = "INFO"
+    log_level_overrides: Annotated[list[str], NoDecode] = []
     log_format: str = "text"
     log_detail: str = "standard"
     log_include_client_ip: bool = False
@@ -265,6 +266,7 @@ class Settings(BaseSettings):
         "trusted_proxy_cidrs",
         "allowed_hosts",
         "app_data_encryption_previous_keys",
+        "log_level_overrides",
         mode="before",
     )
     @classmethod
@@ -318,6 +320,21 @@ class Settings(BaseSettings):
         normalized = str(value).strip().upper() or "INFO"
         if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
             raise ValueError("log_level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+        return normalized
+
+    @field_validator("log_level_overrides")
+    @classmethod
+    def _validate_log_level_overrides(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            logger_name, separator, level = value.partition("=")
+            logger_name = logger_name.strip()
+            level = level.strip().upper()
+            if not separator or not logger_name or any(character.isspace() for character in logger_name):
+                raise ValueError("log_level_overrides entries must use logger.name=LEVEL")
+            if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+                raise ValueError("log_level_overrides levels must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+            normalized.append(f"{logger_name}={level}")
         return normalized
 
     @field_validator("log_format", mode="before")

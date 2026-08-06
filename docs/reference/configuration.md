@@ -106,6 +106,7 @@
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. Leave disabled except for an intentional one-time reset. |
 | `LOG_LEVEL` (`log_level`) | `INFO` | Shared API, worker, and Beat threshold: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Invalid values fail startup. |
+| `LOG_LEVEL_OVERRIDES` (`log_level_overrides`) | empty | Optional comma-separated `logger.name=LEVEL` overrides for focused diagnostics without raising every dependency to `DEBUG`. Invalid entries fail startup. |
 | `LOG_FORMAT` (`log_format`) | `text` | `text` for human-readable console logs or newline-delimited `json` for log collectors. |
 | `LOG_DETAIL` (`log_detail`) | `standard` | `verbose` adds safe request-start diagnostics and debug lifecycle events when `LOG_LEVEL=DEBUG`; bodies and credentials remain excluded. |
 | `LOG_INCLUDE_CLIENT_IP` (`log_include_client_ip`) | `false` | Include the direct client address in request logs. This may be personal data. |
@@ -190,7 +191,15 @@ LOG_DETAIL=verbose
 LOG_FORMAT=text
 ```
 
-Use `LOG_FORMAT=json` when shipping logs to Loki, ELK, Splunk, or another structured collector. Request and task identifiers are emitted as first-class fields in JSON and as `key=value` context in text logs.
+Use `LOG_FORMAT=json` when shipping logs to Loki, ELK, Splunk, or another structured collector. Request and task identifiers are emitted as first-class fields in JSON and as `key=value` context in text logs. Verbose mode records API request starts and Celery task starts/completions, including duration, state, queue, argument count, and keyword names without recording argument values.
+
+For focused subsystem diagnostics, keep the global threshold at `INFO` and override only selected loggers:
+
+```dotenv
+LOG_LEVEL=INFO
+LOG_DETAIL=verbose
+LOG_LEVEL_OVERRIDES=app.services.oidc_client=DEBUG,app.tasks.integration_tasks=DEBUG
+```
 
 Verbose mode does not log request or response bodies, cookies, authorization or CSRF headers, passwords, API keys, SMTP credentials, OIDC tokens, or client secrets. Common credential patterns in exception messages are redacted, SQL parameter values remain hidden, and oversized events are truncated. `LOG_INCLUDE_CLIENT_IP` and `LOG_SQL` are separate opt-ins because they have privacy and volume implications.
 
