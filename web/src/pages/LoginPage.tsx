@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { ApiError, apiFetch, buildApiUrl } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useAuth } from '../components/AuthContext'
 import { OIDCPublicSettings, RegistrationSettingsResponse, TokenResponse } from '../types/api'
 
@@ -113,7 +114,7 @@ export function LoginPage() {
           mode={mode}
           authMessage={authMessage}
           oidcError={oidcError}
-          registrationSettingsError={registrationSettingsQuery.isError}
+          registrationSettingsError={registrationSettingsQuery.error}
         />
 
         {selfRegistrationEnabled && (
@@ -230,7 +231,7 @@ function LoginNotices({
   mode: AuthMode
   authMessage: string
   oidcError: string | null
-  registrationSettingsError: boolean
+  registrationSettingsError: unknown
 }) {
   return (
     <>
@@ -254,14 +255,17 @@ function LoginNotices({
           {resolveOidcError(oidcError)}
         </p>
       )}
-      {registrationSettingsError && (
+      {Boolean(registrationSettingsError) && (
         <p
           role="alert"
           aria-live="polite"
           aria-atomic="true"
           className="mt-3 rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-200"
         >
-          Registration availability could not be loaded. Sign-in is still available.
+          {resolveApiErrorMessage(
+            registrationSettingsError,
+            'Registration availability could not be loaded. Sign-in is still available',
+          )}
         </p>
       )}
     </>
@@ -292,22 +296,19 @@ function OIDCLoginOption({ mode, settings }: { mode: AuthMode; settings: OIDCPub
 
 function resolveLoginError(error: unknown): string {
   if (error instanceof ApiError && error.status === 429) {
-    return 'Too many sign-in attempts. Wait a moment and try again.'
+    return resolveApiErrorMessage(error, 'Too many sign-in attempts')
   }
-  if (error instanceof ApiError) {
-    return 'Sign in failed. Check your credentials or account status and try again. If this account was recently created, it may still need admin approval.'
+  if (error instanceof ApiError && error.status === 401) {
+    return resolveApiErrorMessage(error, 'Sign in failed', {
+      includeApiDetail: false,
+      retryGuidance: 'Check your email and password, then try again.',
+    })
   }
-  return 'Sign in failed. Try again.'
+  return resolveApiErrorMessage(error, 'Sign in failed')
 }
 
 function resolveRegisterError(error: unknown): string {
-  if (error instanceof ApiError && error.status === 429) {
-    return 'Too many registration attempts. Wait a moment and try again.'
-  }
-  if (error instanceof ApiError) {
-    return 'Registration failed. Check the submitted details and try again later.'
-  }
-  return 'Registration failed. Try again later.'
+  return resolveApiErrorMessage(error, 'Registration could not be completed')
 }
 
 function resolveOidcError(errorCode: string): string {

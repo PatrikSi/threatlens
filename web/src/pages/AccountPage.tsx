@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useAuth } from '../components/AuthContext'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -119,7 +120,7 @@ export function AccountPage() {
         )}
         {oidcStatusQuery.isError && (
           <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">
-            Identity status could not be loaded.
+            {resolveApiErrorMessage(oidcStatusQuery.error, 'Identity status could not be loaded')}
           </p>
         )}
         {oidcStatusQuery.data && (
@@ -353,17 +354,11 @@ function getPasswordChangeValidationError(currentPassword: string, newPassword: 
 }
 
 function formatPasswordChangeError(error: unknown) {
-  if (error instanceof Error && error.message.trim()) {
-    return `Failed to change password. ${error.message}`
-  }
-  return 'Failed to change password.'
+  return resolveApiErrorMessage(error, 'Password could not be changed')
 }
 
 function formatMutationError(error: unknown, fallback: string) {
-  if (error instanceof Error && error.message.trim()) {
-    return `${fallback} ${error.message}`
-  }
-  return fallback
+  return resolveApiErrorMessage(error, fallback)
 }
 
 function resolveOidcLinkNotice(): { message: string; error: boolean } | null {

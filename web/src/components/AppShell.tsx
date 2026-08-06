@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useAuth } from './AuthContext'
 import { useTheme } from './ThemeContext'
@@ -223,13 +224,5 @@ function isServerExpiredLogout(error: unknown) {
 }
 
 function resolveLogoutFailureNotice(error: unknown) {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return `Logout was not completed because the server returned an error: ${error.message}`
-  }
-
-  if (error instanceof Error && error.message.trim()) {
-    return `Logout was not completed because the request failed: ${error.message}`
-  }
-
-  return 'Logout was not completed. Check your connection and try again.'
+  return resolveApiErrorMessage(error, 'Logout could not be completed', { includeTechnicalDetail: false })
 }

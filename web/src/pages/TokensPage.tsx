@@ -1,7 +1,8 @@
 import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -92,7 +93,7 @@ export function TokensPage() {
     onError: (error) => {
       setRevocationNotice({
         tone: 'error',
-        message: error instanceof ApiError && error.message.trim() ? error.message : 'Failed to revoke token.',
+        message: resolveApiErrorMessage(error, 'API token could not be revoked'),
       })
     },
   })
@@ -192,7 +193,7 @@ export function TokensPage() {
           )}
           {createToken.isError && !tokenFormError && (
             <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-              {createToken.error instanceof ApiError ? createToken.error.message : 'Failed to create token.'}
+              {resolveApiErrorMessage(createToken.error, 'API token could not be created')}
             </p>
           )}
         </form>
@@ -273,7 +274,11 @@ export function TokensPage() {
           ))}
 
           {tokensQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading tokens...</p>}
-          {tokensQuery.isError && <p className="text-sm text-red-600 dark:text-red-300">Failed to load tokens.</p>}
+          {tokensQuery.isError && (
+            <p className="text-sm text-red-600 dark:text-red-300">
+              {resolveApiErrorMessage(tokensQuery.error, 'API tokens could not be loaded')}
+            </p>
+          )}
           {!tokensQuery.isLoading && !tokensQuery.isError && tokensQuery.data?.length === 0 && (
             <div className="rounded-lg border border-dashed border-slate/25 px-3 py-4 text-center text-sm text-slate dark:border-cyan-900/40 dark:text-slate-300">
               No API tokens match the current filters.

@@ -269,7 +269,8 @@ describe('AccountPage DOM workflows', () => {
 
     const notice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('Failed to change password.')
+    expect(notice?.textContent).toContain('Password could not be changed.')
+    expect(notice?.textContent).toContain('Password change failed.')
   })
 
   it('shows inline validation before sending a short password change', async () => {

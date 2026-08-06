@@ -2,6 +2,7 @@ import { FormEvent, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { AlertInterest, AlertMatchListResponse } from '../types/api'
@@ -315,7 +316,11 @@ export function AlertsPage() {
                 {saveDisabledReason}
               </p>
             )}
-            {saveAlert.isError && <p className="text-sm text-red-600">Failed to save alert interest.</p>}
+            {saveAlert.isError && (
+              <p className="text-sm text-red-600">
+                {resolveApiErrorMessage(saveAlert.error, 'Alert interest could not be saved')}
+              </p>
+            )}
           </form>
 
         <section className="mt-4 border-t border-slate/20 pt-4 sm:mt-5 sm:rounded-xl sm:border sm:bg-white/70 sm:p-4 dark:border-cyan-900/40 dark:sm:bg-white/[0.03]">
@@ -344,7 +349,9 @@ export function AlertsPage() {
           )}
 
           {previewEnabled && previewQuery.isError && (
-            <p className="mt-3 text-sm text-red-600">Failed to load alert preview.</p>
+            <p className="mt-3 text-sm text-red-600">
+              {resolveApiErrorMessage(previewQuery.error, 'Alert preview could not be loaded')}
+            </p>
           )}
 
           {previewEnabled && previewQuery.data && (
@@ -481,7 +488,11 @@ export function AlertsPage() {
             })}
 
             {alertsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading alert interests...</p>}
-            {alertsQuery.isError && <p className="text-sm text-red-600">Failed to load alert interests.</p>}
+            {alertsQuery.isError && (
+              <p className="text-sm text-red-600">
+                {resolveApiErrorMessage(alertsQuery.error, 'Alert interests could not be loaded')}
+              </p>
+            )}
             {!alertsQuery.isLoading && (alertsQuery.data?.length ?? 0) === 0 && (
               <p className="text-sm text-slate dark:text-slate-300">No alert interests configured yet.</p>
             )}
@@ -544,10 +555,7 @@ function describeAlertCategory(category: string): string {
 }
 
 function resolveAlertDeleteError(error: unknown): string {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Failed to delete alert interest.'
+  return resolveApiErrorMessage(error, 'Alert interest could not be deleted')
 }
 
 function formatTimestamp(value: string | null): string {

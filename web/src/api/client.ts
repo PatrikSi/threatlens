@@ -4,7 +4,8 @@ const DEFAULT_API_BASE_URL = import.meta.env.DEV
     : 'http://localhost:8000/v1'
   : '/api/v1'
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? DEFAULT_API_BASE_URL
-const REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS ?? 15000)
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000
+const REQUEST_TIMEOUT_MS = normalizeTimeoutMs(import.meta.env.VITE_API_TIMEOUT_MS, DEFAULT_REQUEST_TIMEOUT_MS)
 const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_csrf'
 const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -17,13 +18,48 @@ export class ApiError extends Error {
   status: number
   path: string
   detail: unknown
+  responseBody: unknown
+  code: string | null
+  requestId: string | null
+  retryable: boolean
+  retryAfterSeconds: number | null
 
-  constructor(message: string, status: number, path: string, detail: unknown = null) {
+  constructor(
+    message: string,
+    status: number,
+    path: string,
+    detail: unknown = null,
+    diagnostics: {
+      responseBody?: unknown
+      code?: string | null
+      requestId?: string | null
+      retryable?: boolean
+      retryAfterSeconds?: number | null
+    } = {},
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.path = path
     this.detail = detail
+    this.responseBody = diagnostics.responseBody ?? detail
+    this.code = diagnostics.code ?? null
+    this.requestId = diagnostics.requestId ?? null
+    this.retryable = diagnostics.retryable ?? false
+    this.retryAfterSeconds = diagnostics.retryAfterSeconds ?? null
+  }
+}
+
+export class ApiTransportError extends Error {
+  path: string
+  kind: 'timeout' | 'network'
+  retryable = true
+
+  constructor(message: string, path: string, kind: 'timeout' | 'network', cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = 'ApiTransportError'
+    this.path = path
+    this.kind = kind
   }
 }
 
@@ -54,7 +90,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
 
   const timeoutController = new AbortController()
   const { signal, cleanup } = composeAbortSignals(requestOptions.signal, timeoutController.signal)
-  const requestTimeoutMs = timeoutMs ?? REQUEST_TIMEOUT_MS
+  const requestTimeoutMs = normalizeTimeoutMs(timeoutMs, REQUEST_TIMEOUT_MS)
   const timeout = setTimeout(() => timeoutController.abort(), requestTimeoutMs)
 
   let response: Response
@@ -66,10 +102,23 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
       signal,
     })
   } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError' && !requestOptions.signal?.aborted) {
-      throw new Error(`Request timed out after ${requestTimeoutMs / 1000}s (${path})`, { cause: error })
+    if (isAbortError(error) && !requestOptions.signal?.aborted) {
+      throw new ApiTransportError(
+        `The ThreatLens API did not respond within ${formatTimeoutSeconds(requestTimeoutMs)}.`,
+        path,
+        'timeout',
+        error,
+      )
     }
-    throw error
+    if (requestOptions.signal?.aborted) {
+      throw error
+    }
+    throw new ApiTransportError(
+      'ThreatLens could not reach the API. Check the network connection and API container health.',
+      path,
+      'network',
+      error,
+    )
   } finally {
     clearTimeout(timeout)
     cleanup()
@@ -78,8 +127,17 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
   if (!response.ok) {
     const raw = await response.text()
     const parsed = tryParseJson(raw)
-    const message = extractErrorMessage(parsed, raw, response.status)
-    throw new ApiError(message, response.status, path, parsed)
+    const problem = extractProblemDetails(parsed)
+    const message =
+      problem.message ??
+      extractErrorMessage(parsed, raw, response.status, response.statusText, response.headers.get('content-type'))
+    throw new ApiError(message, response.status, path, extractResponseDetail(parsed, raw), {
+      responseBody: parsed ?? raw,
+      code: problem.code,
+      requestId: problem.requestId ?? response.headers.get('x-request-id'),
+      retryable: problem.retryable ?? isRetryableStatus(response.status),
+      retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('retry-after')),
+    })
   }
 
   if (response.status === 204) {
@@ -93,9 +151,63 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
 
   const parsed = tryParseJsonResult(raw)
   if (!parsed.ok) {
-    throw new ApiError(`Expected JSON response from API (${path})`, response.status, path, raw)
+    throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
+      responseBody: raw,
+      code: 'invalid_response',
+      requestId: response.headers.get('x-request-id'),
+    })
   }
   return parsed.value as T
+}
+
+function extractProblemDetails(parsed: unknown): {
+  code: string | null
+  message: string | null
+  requestId: string | null
+  retryable: boolean | null
+} {
+  if (!parsed || typeof parsed !== 'object' || !('error' in parsed)) {
+    return { code: null, message: null, requestId: null, retryable: null }
+  }
+  const error = (parsed as { error?: unknown }).error
+  if (!error || typeof error !== 'object') {
+    return { code: null, message: null, requestId: null, retryable: null }
+  }
+  const record = error as { code?: unknown; message?: unknown; request_id?: unknown; retryable?: unknown }
+  return {
+    code: typeof record.code === 'string' ? record.code : null,
+    message: typeof record.message === 'string' && record.message.trim() ? record.message.trim() : null,
+    requestId: typeof record.request_id === 'string' && record.request_id.trim() ? record.request_id.trim() : null,
+    retryable: typeof record.retryable === 'boolean' ? record.retryable : null,
+  }
+}
+
+function extractResponseDetail(parsed: unknown, raw: string): unknown {
+  if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
+    return (parsed as { detail?: unknown }).detail ?? null
+  }
+  return parsed ?? (raw.trim() ? raw : null)
+}
+
+function parseRetryAfterSeconds(value: string | null): number | null {
+  if (!value) {
+    return null
+  }
+  const seconds = Number(value)
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds)
+  }
+  const retryAt = Date.parse(value)
+  return Number.isNaN(retryAt) ? null : Math.max(0, Math.ceil((retryAt - Date.now()) / 1000))
+}
+
+function isRetryableStatus(status: number): boolean {
+  return [408, 425, 429, 500, 502, 503, 504].includes(status)
+}
+
+function formatTimeoutSeconds(milliseconds: number): string {
+  const seconds = milliseconds / 1000
+  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)} seconds`
 }
 
 function composeAbortSignals(primary: AbortSignal | null | undefined, secondary: AbortSignal) {
@@ -156,7 +268,13 @@ function tryParseJsonResult(value: string): { ok: true; value: unknown } | { ok:
   }
 }
 
-function extractErrorMessage(parsed: unknown, raw: string, statusCode: number): string {
+function extractErrorMessage(
+  parsed: unknown,
+  raw: string,
+  statusCode: number,
+  statusText: string,
+  contentType: string | null,
+): string {
   if (parsed && typeof parsed === 'object' && 'detail' in parsed) {
     const detail = (parsed as { detail?: unknown }).detail
     if (typeof detail === 'string' && detail.trim()) {
@@ -169,10 +287,30 @@ function extractErrorMessage(parsed: unknown, raw: string, statusCode: number): 
       }
     }
   }
-  if (raw.trim()) {
-    return raw
+  if (parsed !== null && raw.trim()) {
+    return `The API returned HTTP ${statusCode}${statusText ? ` ${statusText}` : ''} with an unsupported error payload.`
   }
-  return `HTTP ${statusCode}`
+  if (raw.trim() && contentType?.toLowerCase().startsWith('text/plain')) {
+    return truncateSingleLine(raw, 500)
+  }
+  if (raw.trim()) {
+    return `The API returned HTTP ${statusCode}${statusText ? ` ${statusText}` : ''} with a non-JSON response.`
+  }
+  return `HTTP ${statusCode}${statusText ? ` ${statusText}` : ''}`
+}
+
+function normalizeTimeoutMs(value: unknown, fallback: number): number {
+  const parsed = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+function truncateSingleLine(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, ' ').trim()
+  return normalized.length <= maxLength ? normalized : `${normalized.slice(0, maxLength - 3)}...`
 }
 
 function formatValidationIssue(issue: unknown): string {
