@@ -21,6 +21,7 @@ const SETTINGS: OIDCProviderSettings = {
   default_role: 'viewer',
   jit_provisioning_enabled: true,
   auto_approve_users: false,
+  require_verified_email: true,
   sync_roles_on_login: true,
   created_at: '2026-07-31T10:00:00Z',
   updated_at: '2026-07-31T10:00:00Z',
@@ -31,6 +32,7 @@ describe('OIDC settings draft', () => {
     const request = createOIDCRequest(createOIDCDraft(SETTINGS))
     expect(request).not.toHaveProperty('client_secret')
     expect(request.role_mappings).toEqual([{ claim_value: 'soc-analysts', role: 'analyst' }])
+    expect(request.require_verified_email).toBe(true)
   })
 
   it('requires exact unique role mapping values', () => {
@@ -60,5 +62,11 @@ describe('OIDC settings draft', () => {
     vi.stubGlobal('window', { location: { origin: 'https://local.example.com' } })
     expect(createOIDCDraft({ ...SETTINGS, public_base_url: '' }).publicBaseUrl).toBe('https://local.example.com')
     vi.unstubAllGlobals()
+  })
+
+  it('preserves an explicit trusted-email policy', () => {
+    const request = createOIDCRequest(createOIDCDraft({ ...SETTINGS, require_verified_email: false }))
+
+    expect(request.require_verified_email).toBe(false)
   })
 })
