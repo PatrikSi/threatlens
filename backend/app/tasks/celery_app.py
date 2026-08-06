@@ -1,10 +1,18 @@
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import setup_logging
 from kombu import Queue
 
 from app.core.config import get_settings
+from app.core.logging_config import configure_logging, log_configuration_summary
 
 settings = get_settings()
+
+
+@setup_logging.connect
+def configure_celery_logging(**_kwargs) -> None:
+    configure_logging(settings)
+    log_configuration_summary(settings)
 
 QUEUE_DEFAULT = "default"
 QUEUE_INGEST = "ingest"

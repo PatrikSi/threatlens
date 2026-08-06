@@ -144,6 +144,29 @@ def test_bootstrap_mutation_flags_default_off():
 
 
 @pytest.mark.parametrize(
+    ("field_name", "field_value", "message"),
+    [
+        ("log_level", "TRACE", "log_level"),
+        ("log_format", "xml", "log_format"),
+        ("log_detail", "everything", "log_detail"),
+        ("log_slow_request_ms", 0, "greater than zero"),
+        ("log_max_event_chars", 0, "greater than zero"),
+    ],
+)
+def test_logging_settings_reject_invalid_values(field_name: str, field_value: object, message: str):
+    with pytest.raises(ValueError, match=message):
+        isolated_settings(**{field_name: field_value})
+
+
+def test_logging_settings_normalize_supported_values():
+    settings = isolated_settings(log_level="debug", log_format="JSON", log_detail="VERBOSE")
+
+    assert settings.log_level == "DEBUG"
+    assert settings.log_format == "json"
+    assert settings.log_detail == "verbose"
+
+
+@pytest.mark.parametrize(
     "field_name",
     [
         "beat_heartbeat_ttl_seconds",
