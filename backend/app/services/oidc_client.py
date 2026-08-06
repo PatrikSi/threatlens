@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import socket
 import threading
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from authlib.integrations.httpx_client import OAuth2Client
@@ -16,9 +19,15 @@ from joserfc.jwk import KeySet
 from app.core.config import get_settings
 from app.models.oidc import OIDCProvider
 from app.services.oidc_config import OIDCConfigurationError, oidc_callback_url, validate_oidc_endpoint_url
-from app.services.safe_fetch import build_safe_http_client, safe_stream_with_redirects
+from app.services.safe_fetch import (
+    RedirectError,
+    SafeFetchError,
+    UnsafeTargetError,
+    build_safe_http_client,
+    safe_stream_with_redirects,
+)
 from app.services.secret_storage import decrypt_text
-from app.services.url_utils import ensure_runtime_fetchable_url
+from app.services.url_utils import ensure_runtime_fetchable_url, is_fetchable_url, resolve_hostname_ips
 
 SUPPORTED_ID_TOKEN_ALGORITHMS = frozenset({"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512"})
 
@@ -276,6 +285,7 @@ def _fetch_json(
     )
     request_headers = {"Accept": "application/json", "User-Agent": settings.fetch_user_agent, **(headers or {})}
     try:
+        _ensure_oidc_runtime_fetchable_url(url, allow_private_network=settings.allow_private_network_oidc)
         with build_safe_http_client(
             timeout=timeout,
             headers=request_headers,
@@ -290,7 +300,6 @@ def _fetch_json(
                     max_redirects=min(settings.outbound_max_redirects, 3),
                 )
             else:
-                ensure_runtime_fetchable_url(url, allow_private_network=settings.allow_private_network_oidc)
                 request = client.build_request(method.upper(), url, data=data)
                 response = client.send(request, stream=True, auth=auth, follow_redirects=False)
             try:
@@ -303,6 +312,25 @@ def _fetch_json(
                 response.close()
     except (OIDCProtocolError, OIDCConfigurationError):
         raise
+    except UnsafeTargetError as exc:
+        raise OIDCProtocolError("OIDC endpoint is blocked by outbound network policy") from exc
+    except RedirectError as exc:
+        raise OIDCProtocolError("OIDC discovery redirect could not be followed safely") from exc
+    except SafeFetchError as exc:
+        raise OIDCProtocolError("OIDC endpoint safety validation failed") from exc
+    except httpx.ConnectTimeout as exc:
+        raise OIDCProtocolError("OIDC endpoint connection timed out") from exc
+    except httpx.ReadTimeout as exc:
+        raise OIDCProtocolError("OIDC endpoint response timed out") from exc
+    except httpx.ConnectError as exc:
+        message = (
+            "OIDC endpoint hostname could not be resolved"
+            if _exception_chain_contains(exc, socket.gaierror)
+            else "OIDC endpoint connection failed"
+        )
+        raise OIDCProtocolError(message) from exc
+    except httpx.TimeoutException as exc:
+        raise OIDCProtocolError("OIDC endpoint request timed out") from exc
     except (httpx.HTTPError, ValueError) as exc:
         raise OIDCProtocolError("OIDC endpoint request failed") from exc
 
@@ -313,6 +341,38 @@ def _fetch_json(
     if not isinstance(parsed, dict):
         raise OIDCProtocolError("OIDC endpoint returned an unexpected JSON payload")
     return parsed
+
+
+def oidc_failure_reason(exc: Exception) -> str:
+    if not isinstance(exc, (OIDCConfigurationError, OIDCProtocolError)):
+        return "OIDC validation failed"
+    return " ".join(str(exc).split())[:512] or type(exc).__name__
+
+
+def _ensure_oidc_runtime_fetchable_url(url: str, *, allow_private_network: bool) -> None:
+    if not is_fetchable_url(url, allow_private_network=allow_private_network):
+        raise OIDCProtocolError("OIDC endpoint is blocked by outbound network policy")
+    try:
+        ensure_runtime_fetchable_url(url, allow_private_network=allow_private_network)
+    except ValueError as exc:
+        hostname = urlsplit(url).hostname or ""
+        try:
+            ipaddress.ip_address(hostname)
+        except ValueError:
+            if hostname and not resolve_hostname_ips(hostname):
+                raise OIDCProtocolError("OIDC endpoint hostname could not be resolved") from exc
+        raise OIDCProtocolError("OIDC endpoint is blocked by outbound network policy") from exc
+
+
+def _exception_chain_contains(exc: BaseException, error_type: type[BaseException]) -> bool:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        if isinstance(current, error_type):
+            return True
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return False
 
 
 def _read_limited_body(response: httpx.Response) -> bytes:

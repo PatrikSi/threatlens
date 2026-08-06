@@ -209,6 +209,28 @@ def test_oidc_provider_connection_test_records_verified_metadata(client, auth_he
     assert audit.metadata_json["jwks_key_count"] == 2
 
 
+def test_oidc_provider_connection_test_records_actionable_failure(client, auth_headers, db_session, monkeypatch):
+    provider = _configured_provider(db_session)
+
+    def fail_test(_provider):
+        raise OIDCProtocolError("OIDC endpoint hostname could not be resolved")
+
+    monkeypatch.setattr("app.api.routes.oidc_provider.test_oidc_provider", fail_test)
+
+    response = client.post("/auth/oidc/provider/test", headers=auth_headers["admin"])
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "OIDC endpoint hostname could not be resolved"
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "oidc.provider.test"))
+    assert audit is not None
+    assert audit.resource_id == str(provider.id)
+    assert audit.success is False
+    assert audit.metadata_json == {
+        "error_type": "OIDCProtocolError",
+        "reason": "OIDC endpoint hostname could not be resolved",
+    }
+
+
 def test_oidc_jit_login_provisions_verified_user_and_maps_role(client, db_session, monkeypatch):
     _configured_provider(db_session)
     _mock_oidc_flow(
@@ -435,7 +457,37 @@ def test_oidc_login_start_returns_stable_service_error_and_audit_when_discovery_
     assert audit is not None
     assert audit.resource_id == str(provider.id)
     assert audit.success is False
-    assert audit.metadata_json == {"mode": "login", "error_type": "OIDCProtocolError"}
+    assert audit.metadata_json == {
+        "mode": "login",
+        "error_type": "OIDCProtocolError",
+        "reason": "provider offline",
+    }
+
+
+def test_oidc_browser_login_returns_to_login_page_when_discovery_fails(
+    client,
+    db_session,
+    monkeypatch,
+):
+    provider = _configured_provider(db_session)
+
+    def fail_metadata(_provider):
+        raise OIDCProtocolError("provider offline")
+
+    monkeypatch.setattr("app.api.routes.oidc.load_oidc_metadata", fail_metadata)
+
+    response = client.get(
+        "/auth/oidc/login",
+        headers={"Accept": "text/html,application/xhtml+xml"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://testserver/login?oidc_error=provider_unavailable"
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.start"))
+    assert audit is not None
+    assert audit.resource_id == str(provider.id)
+    assert audit.metadata_json["reason"] == "provider offline"
 
 
 def test_oidc_login_rejects_inactive_linked_account_without_a_session(
