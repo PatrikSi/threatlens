@@ -578,7 +578,9 @@ def test_oidc_login_start_returns_stable_service_error_and_audit_when_discovery_
     response = client.get("/auth/oidc/login", follow_redirects=False)
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "OIDC sign-in is temporarily unavailable; contact an administrator"
+    assert response.json()["detail"] == "OIDC sign-in could not start: provider offline"
+    assert response.json()["error"]["code"] == "service_unavailable"
+    assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
     audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.start"))
     assert audit is not None
     assert audit.resource_id == str(provider.id)

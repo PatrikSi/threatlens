@@ -240,7 +240,7 @@ def _prepare_oidc_flow(
         db.commit()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="OIDC sign-in is temporarily unavailable; contact an administrator",
+            detail=f"OIDC sign-in could not start: {reason}",
         ) from exc
     except Exception as exc:
         logger.exception("oidc_start_unexpected_failure provider_id=%s mode=%s", provider.id, mode)

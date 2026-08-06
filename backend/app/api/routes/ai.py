@@ -1,3 +1,4 @@
+import logging
 import uuid
 from hashlib import sha256
 
@@ -6,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, get_current_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.logging_config import redact_log_text, verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_AI, SCOPE_READ_ITEMS, SCOPE_WRITE_AI
 from app.db.session import get_db
 from app.models.user import User
@@ -74,6 +76,7 @@ from app.tasks.feed_tasks import backfill_daily_ai_briefs, dispatch_daily_ai_bri
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 
 router = APIRouter(prefix="/ai", tags=["ai"])
+logger = logging.getLogger(__name__)
 
 
 def require_ai_enabled():
@@ -617,7 +620,13 @@ def _enqueue_task_run_or_fail(db: Session, *, run_id: uuid.UUID, task_factory, o
     try:
         return task_factory()
     except Exception as exc:
-        error = str(exc)
+        logger.warning(
+            "ai_task_enqueue_failed run_id=%s error_type=%s",
+            run_id,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
+        error = redact_log_text(exc, max_chars=4000)
         finish_ai_task_run(
             db,
             run_id=run_id,

@@ -180,7 +180,7 @@ def test_generic_delivery_retries_with_backoff_and_rejects_stale_results(db_sess
         success=False,
         duration_ms=50,
         error_code="timeout",
-        error_message="SMTP timed out.",
+        error_message="SMTP password=hunter2 timed out.",
         retryable=True,
         finished_at=started_at + timedelta(seconds=1),
     )
@@ -191,6 +191,11 @@ def test_generic_delivery_retries_with_backoff_and_rejects_stale_results(db_sess
     assert outcome.state == "retry_wait"
     assert outcome.retry_at is not None
     assert outcome.retry_at >= started_at + timedelta(seconds=31)
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id))
+    assert attempt is not None
+    assert delivery.last_error_message == "SMTP password=[REDACTED] timed out."
+    assert attempt.error_message == delivery.last_error_message
     stale = finalize_integration_delivery(
         db_session,
         delivery_id=delivery.id,

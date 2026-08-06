@@ -190,7 +190,12 @@ def test_tagging_reapply_returns_409_when_run_is_already_queued_or_in_progress(c
 def test_tagging_reapply_returns_503_when_broker_publish_fails(client: TestClient, auth_headers, monkeypatch):
     monkeypatch.setattr("app.api.routes.tagging.claim_tagging_reapply_dispatch", lambda: "dispatch-token-1")
     released_tokens: list[str] = []
+    warnings: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
     monkeypatch.setattr("app.api.routes.tagging.release_tagging_reapply_dispatch", lambda token: released_tokens.append(token))
+    monkeypatch.setattr(
+        "app.api.routes.tagging.logger.warning",
+        lambda message, *args, **kwargs: warnings.append((message, args, kwargs)),
+    )
     monkeypatch.setattr(
         "app.api.routes.tagging.reapply_recent_item_tags.delay",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("broker down")),
@@ -205,3 +210,10 @@ def test_tagging_reapply_returns_503_when_broker_publish_fails(client: TestClien
     assert response.status_code == 503
     assert response.json()["detail"] == "Task queue is temporarily unavailable. Try again later."
     assert released_tokens == ["dispatch-token-1"]
+    assert warnings == [
+        (
+            "tagging_reapply_enqueue_failed dispatch_id=%s error_type=%s",
+            ("dispatch-token-1", "RuntimeError"),
+            {"exc_info": False},
+        )
+    ]

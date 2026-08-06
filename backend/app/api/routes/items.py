@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import datetime
 
@@ -8,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_operator_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_ITEMS, SCOPE_WRITE_ITEMS
 from app.db.session import get_db
 from app.models.article import Article
@@ -44,6 +46,7 @@ from app.services.tag_feedback import record_feedback_events
 from app.tasks.feed_tasks import fetch_article
 
 router = APIRouter(prefix="/items", tags=["items"])
+logger = logging.getLogger(__name__)
 
 
 def _parse_feed_ids(feed_ids: str | None) -> list[uuid.UUID]:
@@ -503,6 +506,12 @@ def retry_item_article_fetch(
     try:
         task = fetch_article.delay(str(item_id), force=True)
     except Exception as exc:
+        logger.warning(
+            "article_fetch_retry_enqueue_failed item_id=%s error_type=%s",
+            item_id,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
         record_audit(
             db,
             actor_user_id=user.id,

@@ -18,6 +18,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging_config import (
     configure_logging,
     log_configuration_summary,
+    redact_log_text,
     reset_log_context,
     set_log_context,
     verbose_logging_enabled,
@@ -112,7 +113,7 @@ async def app_lifespan(_application: FastAPI):
                 snapshot.summary.unreadable_fields,
             )
         except Exception as exc:
-            record_startup_encrypted_data_inventory_error(str(exc))
+            record_startup_encrypted_data_inventory_error(redact_log_text(exc, max_chars=4000))
             logger.warning("startup_encrypted_data_inventory_failed error=%s", exc, exc_info=True)
     yield
 
