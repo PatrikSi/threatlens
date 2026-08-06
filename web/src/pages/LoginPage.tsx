@@ -316,6 +316,8 @@ function resolveOidcError(errorCode: string): string {
     account_inactive: 'This ThreatLens account is inactive. Contact an administrator.',
     email_link_required: 'An account already uses this email. Sign in locally, then link SSO from Account settings.',
     not_provisioned: 'No ThreatLens account is linked to this identity. Contact an administrator.',
+    email_required: 'The identity provider did not supply an email address.',
+    invalid_email: 'The identity provider supplied an invalid email address.',
     verified_email_required: 'The identity provider did not supply a verified email address.',
     provider_rejected: 'The identity provider did not complete sign-in.',
     provider_unavailable: 'The SSO provider is temporarily unavailable. Try again later or contact an administrator.',

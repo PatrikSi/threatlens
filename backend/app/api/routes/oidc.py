@@ -25,6 +25,7 @@ from app.models.user import User
 from app.schemas.oidc import OIDCStartResponse
 from app.services.audit import record_audit
 from app.services.oidc_client import (
+    OIDCClaims,
     OIDCProtocolError,
     build_oidc_authorization_url,
     exchange_oidc_code,
@@ -95,6 +96,7 @@ def oidc_callback(
     if not code:
         return _callback_failure(db, provider, "missing_code", response_mode=transaction.mode)
 
+    claims: OIDCClaims | None = None
     try:
         metadata = load_oidc_metadata(provider)
         token = exchange_oidc_code(provider, metadata, code=code, code_verifier=transaction.code_verifier)
@@ -160,7 +162,22 @@ def oidc_callback(
         return response
     except OIDCIdentityError as exc:
         db.rollback()
-        return _callback_failure(db, provider, exc.code, response_mode=transaction.mode, actor_user_id=transaction.user_id)
+        claim_diagnostics = _identity_claim_diagnostics(claims)
+        logger.warning(
+            "oidc_identity_failed provider_id=%s mode=%s error_code=%s claim_diagnostics=%s",
+            provider.id,
+            transaction.mode,
+            exc.code,
+            claim_diagnostics,
+        )
+        return _callback_failure(
+            db,
+            provider,
+            exc.code,
+            response_mode=transaction.mode,
+            actor_user_id=transaction.user_id,
+            details={"claim_diagnostics": claim_diagnostics},
+        )
     except (OIDCConfigurationError, OIDCProtocolError, ValueError) as exc:
         db.rollback()
         logger.warning("oidc_callback_failed provider_id=%s error_type=%s", provider.id, type(exc).__name__)
@@ -329,6 +346,7 @@ def _callback_failure(
     *,
     response_mode: str,
     actor_user_id: str | None = None,
+    details: dict[str, object] | None = None,
 ) -> RedirectResponse:
     parsed_actor_id: uuid.UUID | None = None
     if actor_user_id:
@@ -336,6 +354,9 @@ def _callback_failure(
             parsed_actor_id = uuid.UUID(actor_user_id)
         except ValueError:
             parsed_actor_id = None
+    audit_metadata: dict[str, object] = {"error_code": error_code, "mode": response_mode}
+    if details:
+        audit_metadata.update(details)
     record_audit(
         db,
         actor_user_id=parsed_actor_id,
@@ -343,12 +364,29 @@ def _callback_failure(
         resource_type="oidc_provider",
         resource_id=str(provider.id) if provider else None,
         success=False,
-        metadata={"error_code": error_code, "mode": response_mode},
+        metadata=audit_metadata,
     )
     db.commit()
     target_path = "/settings/account" if response_mode == "link" else "/login"
     query_key = "oidc_link" if response_mode == "link" else "oidc_error"
     return _callback_redirect(provider, target_path, {query_key: error_code})
+
+
+def _identity_claim_diagnostics(claims: OIDCClaims | None) -> dict[str, object]:
+    if claims is None:
+        return {"claims_available": False}
+
+    email = claims.claims.get("email")
+    email_verified = claims.claims.get("email_verified")
+    return {
+        "claims_available": True,
+        "email_claim_present": "email" in claims.claims,
+        "email_value_present": isinstance(email, str) and bool(email.strip()),
+        "email_claim_type": type(email).__name__ if email is not None else None,
+        "email_verified_claim_present": "email_verified" in claims.claims,
+        "email_verified": email_verified if isinstance(email_verified, bool) else None,
+        "email_verified_claim_type": type(email_verified).__name__ if email_verified is not None else None,
+    }
 
 
 def _callback_redirect(provider: OIDCProvider | None, path: str, query: dict[str, str]) -> RedirectResponse:

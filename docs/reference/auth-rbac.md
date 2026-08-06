@@ -86,6 +86,8 @@ Local password login remains available as a break-glass path. Keep at least one 
 
 Authentik 2025.10 and newer returns `email_verified=false` by default. The preferred fix is a custom `email` scope mapping backed by a real verification attribute. For isolated deployments that already trust Authentik's user enrollment and email assignment, disable **Require verified email** in ThreatLens after reviewing the resulting JIT provisioning risk. See Authentik's [email scope verification guidance](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
 
+Disabling **Require verified email** only relaxes the `email_verified=true` requirement. Authentik must still return a non-empty, syntactically valid `email` claim, so ensure the user's Email field is populated and the provider includes an email scope mapping.
+
 ## API Token Behavior
 
 Token format and handling:

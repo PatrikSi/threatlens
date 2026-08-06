@@ -164,6 +164,21 @@ describe('LoginPage accessibility', () => {
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('Sign in locally')
   })
 
+  it.each([
+    ['email_required', 'did not supply an email address'],
+    ['invalid_email', 'supplied an invalid email address'],
+    ['verified_email_required', 'did not supply a verified email address'],
+  ])('distinguishes the %s OIDC claim failure', async (errorCode, message) => {
+    loginPageDomMocks.apiFetch.mockResolvedValue({ allow_self_registration: false })
+
+    const view = renderPage([`/login?oidc_error=${errorCode}`])
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain(message)
+  })
+
   it('shows a useful OIDC provider availability error', async () => {
     loginPageDomMocks.apiFetch.mockResolvedValue({ allow_self_registration: false })
 
