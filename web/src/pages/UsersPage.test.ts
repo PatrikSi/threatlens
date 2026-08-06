@@ -152,8 +152,8 @@ describe('buildCreateUserConfirmation', () => {
     })
 
     expect(confirmation).toMatchObject({
-      title: 'Create user account?',
-      confirmLabel: 'Create user',
+      title: 'Create local user account?',
+      confirmLabel: 'Create local user',
       confirmTone: 'primary',
       payload: {
         email: 'admin@example.com',

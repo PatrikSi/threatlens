@@ -21,6 +21,7 @@ export interface OIDCSettingsDraft {
   defaultRole: User['role']
   jitProvisioningEnabled: boolean
   autoApproveUsers: boolean
+  requireVerifiedEmail: boolean
   syncRolesOnLogin: boolean
 }
 
@@ -39,6 +40,7 @@ export const DEFAULT_OIDC_DRAFT: OIDCSettingsDraft = {
   defaultRole: 'viewer',
   jitProvisioningEnabled: false,
   autoApproveUsers: false,
+  requireVerifiedEmail: true,
   syncRolesOnLogin: true,
 }
 
@@ -58,6 +60,7 @@ export function createOIDCDraft(settings: OIDCProviderSettings): OIDCSettingsDra
     defaultRole: settings.default_role,
     jitProvisioningEnabled: settings.jit_provisioning_enabled,
     autoApproveUsers: settings.auto_approve_users,
+    requireVerifiedEmail: settings.require_verified_email,
     syncRolesOnLogin: settings.sync_roles_on_login,
   }
 }
@@ -80,6 +83,7 @@ export function createOIDCRequest(draft: OIDCSettingsDraft): OIDCProviderUpdateR
     default_role: draft.defaultRole,
     jit_provisioning_enabled: draft.jitProvisioningEnabled,
     auto_approve_users: draft.jitProvisioningEnabled && draft.autoApproveUsers,
+    require_verified_email: draft.requireVerifiedEmail,
     sync_roles_on_login: draft.syncRolesOnLogin,
   }
   if (draft.clientSecret.trim()) {

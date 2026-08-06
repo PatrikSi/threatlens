@@ -73,6 +73,13 @@ x-backend-environment: &backend-environment
   SEED_ADMIN_REACTIVATE_EXISTING: "${SEED_ADMIN_REACTIVATE_EXISTING:-false}"
   SEED_ADMIN_RESET_PASSWORD_ON_STARTUP: "${SEED_ADMIN_RESET_PASSWORD_ON_STARTUP:-false}"
   LOG_LEVEL: "${LOG_LEVEL:-INFO}"
+  LOG_LEVEL_OVERRIDES: "${LOG_LEVEL_OVERRIDES:-}"
+  LOG_FORMAT: "${LOG_FORMAT:-text}"
+  LOG_DETAIL: "${LOG_DETAIL:-standard}"
+  LOG_INCLUDE_CLIENT_IP: "${LOG_INCLUDE_CLIENT_IP:-false}"
+  LOG_SLOW_REQUEST_MS: "${LOG_SLOW_REQUEST_MS:-1000}"
+  LOG_MAX_EVENT_CHARS: "${LOG_MAX_EVENT_CHARS:-20000}"
+  LOG_SQL: "${LOG_SQL:-false}"
   HEALTH_WORKER_PING_TIMEOUT_SECONDS: "${HEALTH_WORKER_PING_TIMEOUT_SECONDS:-1.0}"
   BEAT_HEARTBEAT_KEY: "${BEAT_HEARTBEAT_KEY:-threatlens:beat:heartbeat}"
   BEAT_SCHEDULER_HEARTBEAT_KEY: "${BEAT_SCHEDULER_HEARTBEAT_KEY:-threatlens:beat:scheduler-heartbeat}"
@@ -187,7 +194,7 @@ services:
         "-A",
         "app.tasks.celery_app.celery_app",
         "worker",
-        "--loglevel=INFO",
+        "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${WORKER_CONCURRENCY:-4}",
         "--queues=default,ingest,processing,ai",
         "-n",
@@ -227,7 +234,7 @@ services:
         "-A",
         "app.tasks.celery_app.celery_app",
         "worker",
-        "--loglevel=INFO",
+        "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${MAINTENANCE_WORKER_CONCURRENCY:-1}",
         "--queues=maintenance",
         "-n",
@@ -267,7 +274,7 @@ services:
         "-A",
         "app.tasks.celery_app.celery_app",
         "worker",
-        "--loglevel=INFO",
+        "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${NOTIFICATION_WORKER_CONCURRENCY:-4}",
         "--queues=notifications",
         "-n",

@@ -121,3 +121,12 @@ def test_check_beat_returns_failure_for_unhealthy_snapshot(monkeypatch):
     )
 
     assert beat_watchdog.check_beat(object()) == 1
+
+
+def test_build_beat_command_uses_configured_log_level():
+    settings = type("Settings", (), {"log_level": "DEBUG"})()
+
+    command = beat_watchdog.build_beat_command(settings)
+
+    assert "--loglevel=DEBUG" in command
+    assert "--loglevel=INFO" not in command

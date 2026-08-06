@@ -60,6 +60,8 @@ Provider registration:
 
 The bundled proxy callback is `https://<threatlens-host>/api/v1/auth/oidc/callback`. Direct API deployments can set `OIDC_CALLBACK_PATH=/v1/auth/oidc/callback`. Redirect URI comparison at the provider should remain exact.
 
+For Authentik's default per-provider issuer mode, use the issuer shown in the provider's OpenID Configuration. It normally ends in `/application/o/<application-slug>/`; the Authentik root origin alone is not the provider issuer. Register ThreatLens's displayed callback as a strict redirect URI. The issuer hostname must resolve from the ThreatLens `api` container, which can be checked with `docker compose exec api getent hosts <authentik-host>`.
+
 HTTPS is the secure default for both the IdP and callback origin. Local development can set `ALLOW_INSECURE_HTTP_OIDC=true`; private or internal IdPs additionally require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Existing deployments that already enabled private-network OIDC retain private-HTTP compatibility, but setting both flags is recommended to make the plaintext and private-network trust decisions explicit. Never use plaintext OIDC across an untrusted network.
 
 Protocol and identity behavior:
@@ -73,14 +75,26 @@ Protocol and identity behavior:
 
 Provisioning and role mapping:
 
-- JIT provisioning is opt-in. New users require a syntactically valid email with `email_verified=true`.
+- JIT provisioning is opt-in. New users require a syntactically valid email, and `email_verified=true` is required by default. An administrator can relax the verification requirement per provider for a trusted internal IdP; this also permits well-formed identifiers on internal or reserved domains such as `.local`. Missing, malformed, and duplicate local email addresses are still rejected, and existing accounts are never linked automatically by email.
 - Automatic approval is a separate opt-in. Otherwise, the new account is created pending the normal admin approval workflow.
 - `role_claim` accepts a claim name or dotted object path such as `realm_access.roles`. Claim values may be a string or a list of strings.
 - Role mappings use exact, case-sensitive claim values. When multiple mappings match, `admin` takes precedence over `analyst`, then `viewer`. With no match, the configured default role applies.
 - Optional role synchronization runs at each OIDC login. A role change rotates browser sessions and revokes active API tokens. A mapping can never demote the final active, approved admin.
 - Once identities are linked, the provider issuer and client ID cannot be changed. Unlink identities first or retain the existing provider identity key.
 
-Local password login remains available as a break-glass path. Keep at least one active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts do not have local password login until an admin sets a password from **Users**.
+Account ownership and administration:
+
+- Every account has a durable provisioning source: `local` or `oidc`. Linking a local account to OIDC does not change its local provisioning source.
+- The user directory identifies local, SSO-provisioned, and local-plus-SSO accounts and lists their available sign-in methods.
+- Passwords and email identifiers for SSO-provisioned accounts remain owned by the identity provider. ThreatLens does not expose local password reset, email edit, or identity unlink actions for these accounts.
+- A linked local account retains its local password and may unlink OIDC after password confirmation.
+- When role synchronization is enabled, linked users' roles are read-only in ThreatLens because the next OIDC login would otherwise overwrite a local edit. Active and approved status remain locally managed so administrators can suspend or approve access independently of the provider.
+
+Local password login remains available as a break-glass path for local accounts. Keep at least one separate active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts remain provider-managed and cannot be converted into local accounts by assigning a password.
+
+Authentik 2025.10 and newer returns `email_verified=false` by default. The preferred fix is a custom `email` scope mapping backed by a real verification attribute. For isolated deployments that already trust Authentik's user enrollment and email assignment, disable **Require verified email** in ThreatLens after reviewing the resulting JIT provisioning risk. See Authentik's [email scope verification guidance](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
+
+Disabling **Require verified email** permits unverified, well-formed internal email identifiers such as `user@company.local`. Authentik must still return a non-empty email-shaped claim, so ensure the user's Email field is populated and the provider includes an email scope mapping.
 
 ## API Token Behavior
 

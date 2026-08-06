@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from app.core.rbac import ROLE_ANALYST, ROLE_VIEWER
 
 RoleValue = Literal["admin", "analyst", "viewer"]
+ProvisioningSource = Literal["local", "oidc"]
+AuthenticationMethod = Literal["password", "oidc"]
+ManagementSource = Literal["local", "oidc"]
 
 
 class UserCreateRequest(BaseModel):
@@ -36,3 +39,10 @@ class UserAdminResponse(BaseModel):
     approved_at: datetime | None
     created_at: datetime
     password_login_enabled: bool = True
+    provisioning_source: ProvisioningSource = "local"
+    authentication_methods: list[AuthenticationMethod] = Field(default_factory=lambda: ["password"])
+    oidc_provider_name: str | None = None
+    oidc_linked_at: datetime | None = None
+    oidc_last_login_at: datetime | None = None
+    password_managed_by: ManagementSource = "local"
+    role_managed_by: ManagementSource = "local"

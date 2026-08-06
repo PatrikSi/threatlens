@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 
@@ -9,6 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
+from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_TAGS, SCOPE_WRITE_TAGS
 from app.db.session import get_db
 from app.models.article import Article
@@ -43,6 +46,7 @@ from app.tasks.feed_tasks import reapply_recent_item_tags
 from app.tasks.feed_tasks import claim_tagging_reapply_dispatch, release_tagging_reapply_dispatch, CoordinationUnavailableError
 
 router = APIRouter(prefix="/tagging", tags=["tagging"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("/settings", response_model=TaggingSettingsBundleResponse)
@@ -228,6 +232,12 @@ def queue_tagging_reapply(
         task = reapply_recent_item_tags.delay(payload.days, payload.limit, dispatch_token)
     except Exception as exc:
         release_tagging_reapply_dispatch(dispatch_token)
+        logger.warning(
+            "tagging_reapply_enqueue_failed dispatch_id=%s error_type=%s",
+            dispatch_token,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
         record_audit(
             db,
             actor_user_id=admin.id,

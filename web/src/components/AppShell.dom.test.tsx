@@ -166,7 +166,8 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout was not completed because the request failed: Failed to fetch')
+    expect(view.textContent).toContain('Logout could not be completed.')
+    expect(view.textContent).not.toContain('Failed to fetch')
     expect(view.textContent).toContain('Dashboard body')
   })
 
@@ -177,7 +178,7 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout was not completed because the server returned an error: HTTP 503')
+    expect(view.textContent).toContain('Logout could not be completed. The API encountered an internal or dependency failure.')
     expect(view.textContent).toContain('Dashboard body')
   })
 
@@ -188,7 +189,8 @@ describe('AppShell logout', () => {
     await clickLogout(view)
 
     expect(appShellDomMocks.markLoggedOut).not.toHaveBeenCalled()
-    expect(view.textContent).toContain('Logout was not completed because the server returned an error: Missing or invalid CSRF token')
+    expect(view.textContent).toContain('Logout could not be completed. Missing or invalid CSRF token.')
+    expect(view.textContent).toContain('Refresh the page to renew the browser session')
     expect(view.textContent).toContain('Dashboard body')
   })
 })

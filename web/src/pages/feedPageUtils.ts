@@ -1,4 +1,4 @@
-import { ApiError } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { Feed, FeedExportResponse, FeedImportEntry } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -220,12 +220,9 @@ export function formatFeedExportNotice(payload: FeedExportResponse) {
   return `Feed export downloaded with ${feedCount} and ${warningCount}: ${payload.warnings[0]}`
 }
 
-export function resolveMutationError(error: unknown): string {
-  if (error instanceof ApiError) {
-    return error.message
-  }
-  if (error instanceof Error && error.message.trim()) {
-    return error.message
-  }
-  return 'Unknown error'
+export function resolveMutationError(
+  error: unknown,
+  fallback = 'Feed operation could not be completed',
+): string {
+  return resolveApiErrorMessage(error, fallback)
 }

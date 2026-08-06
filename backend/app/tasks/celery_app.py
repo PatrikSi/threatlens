@@ -1,10 +1,104 @@
+import logging
+import time
+
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import setup_logging, task_postrun, task_prerun
 from kombu import Queue
 
 from app.core.config import get_settings
+from app.core.logging_config import (
+    configure_logging,
+    log_configuration_summary,
+    reset_log_context,
+    set_log_context,
+    verbose_logging_enabled,
+)
 
 settings = get_settings()
+logger = logging.getLogger("threatlens.worker")
+_TASK_CONTEXT_TOKEN_ATTRIBUTE = "_threatlens_log_context_token"
+_TASK_STARTED_AT_ATTRIBUTE = "_threatlens_task_started_at"
+
+
+@setup_logging.connect
+def configure_celery_logging(**_kwargs) -> None:
+    configure_logging(settings)
+    log_configuration_summary(settings)
+
+
+@task_prerun.connect
+def add_task_log_context(
+    *,
+    task_id: str | None = None,
+    task=None,
+    args=None,
+    kwargs=None,
+    **_signal_kwargs,
+) -> None:
+    if task is None:
+        return
+
+    task_name = str(getattr(task, "name", None) or type(task).__name__)
+    request = getattr(task, "request", None)
+    queue = _task_queue(request)
+    token = set_log_context(task_id=task_id, task_name=task_name)
+    if request is not None:
+        setattr(request, _TASK_CONTEXT_TOKEN_ATTRIBUTE, token)
+        setattr(request, _TASK_STARTED_AT_ATTRIBUTE, time.perf_counter())
+
+    if verbose_logging_enabled(settings):
+        logger.debug(
+            "task_started positional_arg_count=%s keyword_keys=%s",
+            len(args or ()),
+            sorted(str(key) for key in (kwargs or {}).keys()),
+            extra={"task_id": task_id, "task_name": task_name, "queue": queue},
+        )
+
+
+@task_postrun.connect
+def complete_task_log_context(
+    *,
+    task_id: str | None = None,
+    task=None,
+    state: str | None = None,
+    **_signal_kwargs,
+) -> None:
+    if task is None:
+        return
+
+    request = getattr(task, "request", None)
+    started_at = getattr(request, _TASK_STARTED_AT_ATTRIBUTE, None)
+    duration_ms = (time.perf_counter() - started_at) * 1000 if isinstance(started_at, (int, float)) else None
+    task_name = str(getattr(task, "name", None) or type(task).__name__)
+    if verbose_logging_enabled(settings):
+        logger.debug(
+            "task_complete state=%s",
+            state or "unknown",
+            extra={
+                "task_id": task_id,
+                "task_name": task_name,
+                "queue": _task_queue(request),
+                "duration_ms": round(duration_ms, 2) if duration_ms is not None else None,
+            },
+        )
+
+    token = getattr(request, _TASK_CONTEXT_TOKEN_ATTRIBUTE, None)
+    try:
+        if token is not None:
+            reset_log_context(token)
+    finally:
+        for attribute in (_TASK_CONTEXT_TOKEN_ATTRIBUTE, _TASK_STARTED_AT_ATTRIBUTE):
+            if request is not None and hasattr(request, attribute):
+                delattr(request, attribute)
+
+
+def _task_queue(request) -> str | None:
+    delivery_info = getattr(request, "delivery_info", None)
+    if not isinstance(delivery_info, dict):
+        return None
+    queue = delivery_info.get("routing_key") or delivery_info.get("exchange")
+    return str(queue) if queue else None
 
 QUEUE_DEFAULT = "default"
 QUEUE_INGEST = "ingest"

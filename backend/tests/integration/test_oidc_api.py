@@ -27,6 +27,7 @@ def _provider_payload(**overrides):
         "default_role": "viewer",
         "jit_provisioning_enabled": True,
         "auto_approve_users": True,
+        "require_verified_email": True,
         "sync_roles_on_login": True,
     }
     payload.update(overrides)
@@ -49,6 +50,7 @@ def _configured_provider(db_session, **overrides) -> OIDCProvider:
         "default_role": "viewer",
         "jit_provisioning_enabled": True,
         "auto_approve_users": True,
+        "require_verified_email": True,
         "sync_roles_on_login": True,
     }
     values.update(overrides)
@@ -117,6 +119,7 @@ def test_admin_can_configure_oidc_without_secret_disclosure(client, auth_headers
     body = response.json()
     assert body["configured"] is True
     assert body["has_client_secret"] is True
+    assert body["require_verified_email"] is True
     assert "client_secret" not in body
     assert body["callback_url"] == "https://threatlens.example.com/api/v1/auth/oidc/callback"
     assert body["callback_path"] == "/api/v1/auth/oidc/callback"
@@ -209,6 +212,28 @@ def test_oidc_provider_connection_test_records_verified_metadata(client, auth_he
     assert audit.metadata_json["jwks_key_count"] == 2
 
 
+def test_oidc_provider_connection_test_records_actionable_failure(client, auth_headers, db_session, monkeypatch):
+    provider = _configured_provider(db_session)
+
+    def fail_test(_provider):
+        raise OIDCProtocolError("OIDC endpoint hostname could not be resolved")
+
+    monkeypatch.setattr("app.api.routes.oidc_provider.test_oidc_provider", fail_test)
+
+    response = client.post("/auth/oidc/provider/test", headers=auth_headers["admin"])
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "OIDC endpoint hostname could not be resolved"
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "oidc.provider.test"))
+    assert audit is not None
+    assert audit.resource_id == str(provider.id)
+    assert audit.success is False
+    assert audit.metadata_json == {
+        "error_type": "OIDCProtocolError",
+        "reason": "OIDC endpoint hostname could not be resolved",
+    }
+
+
 def test_oidc_jit_login_provisions_verified_user_and_maps_role(client, db_session, monkeypatch):
     _configured_provider(db_session)
     _mock_oidc_flow(
@@ -224,6 +249,7 @@ def test_oidc_jit_login_provisions_verified_user_and_maps_role(client, db_sessio
     assert user is not None
     assert user.role == "analyst"
     assert user.password_login_enabled is False
+    assert user.provisioning_source == "oidc"
     assert user.is_approved is True
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id))
     assert identity is not None
@@ -264,6 +290,120 @@ def test_oidc_jit_rejects_unverified_email_without_creating_user(client, db_sess
     assert db_session.scalar(select(User).where(User.email == "new-user@example.com")) is None
 
 
+def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_it(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "subject-1", "email": "trusted@example.com", "email_verified": False, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "http://testserver/"
+    user = db_session.scalar(select(User).where(User.email == "trusted@example.com"))
+    assert user is not None
+    assert user.is_approved is True
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id)) is not None
+
+
+def test_oidc_jit_accepts_internal_email_identifier_when_verification_is_optional(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "internal-subject", "email": "Admin@Admin.Local", "email_verified": False, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert callback.status_code == 302
+    assert callback.headers["location"] == "http://testserver/"
+    user = db_session.scalar(select(User).where(User.email == "admin@admin.local"))
+    assert user is not None
+    identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id))
+    assert identity is not None
+    assert identity.email_at_link == "admin@admin.local"
+
+
+def test_oidc_jit_rejects_internal_email_identifier_when_strict_verification_is_enabled(
+    client,
+    db_session,
+    monkeypatch,
+):
+    _configured_provider(db_session, require_verified_email=True)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "internal-subject", "email": "admin@admin.local", "email_verified": True, "groups": []},
+    )
+
+    callback = _start_and_complete(client)
+
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["invalid_email"]
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "internal-subject")) is None
+
+
+@pytest.mark.parametrize(
+    ("claims", "expected_error", "email_claim_present", "email_value_present", "email_claim_type"),
+    [
+        ({"sub": "subject-1", "email_verified": False}, "email_required", False, False, None),
+        ({"sub": "subject-1", "email": None, "email_verified": False}, "email_required", True, False, None),
+        ({"sub": "subject-1", "email": "", "email_verified": False}, "email_required", True, False, "str"),
+        ({"sub": "subject-1", "email": "not-an-email", "email_verified": False}, "invalid_email", True, True, "str"),
+        (
+            {"sub": "subject-1", "email": "bad..local@internal.local", "email_verified": False},
+            "invalid_email",
+            True,
+            True,
+            "str",
+        ),
+        (
+            {"sub": "subject-1", "email": "admin@-internal.local", "email_verified": False},
+            "invalid_email",
+            True,
+            True,
+            "str",
+        ),
+    ],
+)
+def test_oidc_jit_still_rejects_missing_or_invalid_email_when_verification_is_optional(
+    client,
+    db_session,
+    monkeypatch,
+    claims,
+    expected_error,
+    email_claim_present,
+    email_value_present,
+    email_claim_type,
+):
+    _configured_provider(db_session, require_verified_email=False)
+    _mock_oidc_flow(monkeypatch, claims)
+
+    callback = _start_and_complete(client)
+
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == [expected_error]
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "subject-1")) is None
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.callback"))
+    assert audit is not None
+    assert audit.metadata_json["error_code"] == expected_error
+    assert audit.metadata_json["claim_diagnostics"] == {
+        "claims_available": True,
+        "email_claim_present": email_claim_present,
+        "email_value_present": email_value_present,
+        "email_claim_type": email_claim_type,
+        "email_verified_claim_present": True,
+        "email_verified": False,
+        "email_verified_claim_type": "bool",
+    }
+
+
 def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, seed_users, monkeypatch):
     _configured_provider(db_session)
     _mock_oidc_flow(
@@ -284,6 +424,7 @@ def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, 
 
 def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
     client,
+    auth_headers,
     db_session,
     seed_users,
     monkeypatch,
@@ -311,6 +452,13 @@ def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.provider_id == provider.id))
     assert identity is not None
     assert identity.user_id == seed_users["analyst"].id
+
+    directory = client.get("/users", headers=auth_headers["admin"])
+    entry = next(user for user in directory.json() if user["id"] == str(seed_users["analyst"].id))
+    assert entry["provisioning_source"] == "local"
+    assert entry["authentication_methods"] == ["password", "oidc"]
+    assert entry["password_managed_by"] == "local"
+    assert entry["role_managed_by"] == "oidc"
 
     csrf_token = client.cookies.get("threatlens_csrf")
     assert csrf_token
@@ -430,12 +578,44 @@ def test_oidc_login_start_returns_stable_service_error_and_audit_when_discovery_
     response = client.get("/auth/oidc/login", follow_redirects=False)
 
     assert response.status_code == 503
-    assert response.json()["detail"] == "OIDC sign-in is temporarily unavailable; contact an administrator"
+    assert response.json()["detail"] == "OIDC sign-in could not start: provider offline"
+    assert response.json()["error"]["code"] == "service_unavailable"
+    assert response.json()["error"]["request_id"] == response.headers["x-request-id"]
     audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.start"))
     assert audit is not None
     assert audit.resource_id == str(provider.id)
     assert audit.success is False
-    assert audit.metadata_json == {"mode": "login", "error_type": "OIDCProtocolError"}
+    assert audit.metadata_json == {
+        "mode": "login",
+        "error_type": "OIDCProtocolError",
+        "reason": "provider offline",
+    }
+
+
+def test_oidc_browser_login_returns_to_login_page_when_discovery_fails(
+    client,
+    db_session,
+    monkeypatch,
+):
+    provider = _configured_provider(db_session)
+
+    def fail_metadata(_provider):
+        raise OIDCProtocolError("provider offline")
+
+    monkeypatch.setattr("app.api.routes.oidc.load_oidc_metadata", fail_metadata)
+
+    response = client.get(
+        "/auth/oidc/login",
+        headers={"Accept": "text/html,application/xhtml+xml"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    assert response.headers["location"] == "http://testserver/login?oidc_error=provider_unavailable"
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.start"))
+    assert audit is not None
+    assert audit.resource_id == str(provider.id)
+    assert audit.metadata_json["reason"] == "provider offline"
 
 
 def test_oidc_login_rejects_inactive_linked_account_without_a_session(
@@ -574,7 +754,7 @@ def test_oidc_only_account_cannot_use_local_login_or_unlink(client, db_session, 
         headers={"X-CSRF-Token": csrf_token},
     )
     assert unlink.status_code == 400
-    assert "local password" in unlink.json()["detail"]
+    assert unlink.json()["detail"] == "SSO-provisioned accounts cannot unlink their managed sign-in identity"
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "external-only"))
     assert identity is not None
 
@@ -611,7 +791,7 @@ def test_oidc_link_callback_rejects_a_session_revoked_after_link_start(
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "linked-subject")) is None
 
 
-def test_admin_password_reset_adds_local_recovery_to_oidc_only_account(
+def test_sso_provisioned_account_rejects_locally_managed_identity_changes(
     client,
     auth_headers,
     db_session,
@@ -627,27 +807,76 @@ def test_admin_password_reset_adds_local_recovery_to_oidc_only_account(
     user = db_session.scalar(select(User).where(User.email == "recovery@example.com"))
     assert user is not None
     assert user.password_login_enabled is False
+    assert user.provisioning_source == "oidc"
 
     reset = client.patch(
         f"/users/{user.id}",
         json={"password": "RecoveryPass123!"},
         headers=auth_headers["admin"],
     )
-    assert reset.status_code == 200
-    assert reset.json()["password_login_enabled"] is True
+    assert reset.status_code == 409
+    assert reset.json()["detail"] == "Password is managed by Acme SSO for this SSO-provisioned account"
 
-    client.cookies.clear()
-    local_login = client.post(
-        "/auth/login",
-        json={"email": user.email, "password": "RecoveryPass123!"},
+    role_update = client.patch(
+        f"/users/{user.id}",
+        json={"role": "analyst"},
+        headers=auth_headers["admin"],
     )
-    assert local_login.status_code == 200
+    assert role_update.status_code == 409
+    assert role_update.json()["detail"] == "Role is managed by Acme SSO and synchronized during SSO sign-in"
+
+    email_update = client.patch(
+        f"/users/{user.id}",
+        json={"email": "different@example.com"},
+        headers=auth_headers["admin"],
+    )
+    assert email_update.status_code == 409
+    assert email_update.json()["detail"] == "Email is managed by Acme SSO for this SSO-provisioned account"
+
     csrf_token = client.cookies.get("threatlens_csrf")
+    password_change = client.post(
+        "/auth/change-password",
+        json={"current_password": "unused", "new_password": "RecoveryPass123!"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert password_change.status_code == 403
+    assert password_change.json()["detail"] == (
+        "Password is managed by the identity provider for this SSO-provisioned account"
+    )
+
     unlink = client.request(
         "DELETE",
         "/auth/oidc/account",
-        json={"current_password": "RecoveryPass123!"},
+        json={"current_password": "unused"},
         headers={"X-CSRF-Token": csrf_token},
     )
-    assert unlink.status_code == 204
-    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "recovery-subject")) is None
+    assert unlink.status_code == 400
+    assert unlink.json()["detail"] == "SSO-provisioned accounts cannot unlink their managed sign-in identity"
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "recovery-subject")) is not None
+
+
+def test_user_directory_describes_sso_account_management_boundaries(
+    client,
+    auth_headers,
+    db_session,
+    monkeypatch,
+):
+    provider = _configured_provider(db_session)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "directory-subject", "email": "directory@example.com", "email_verified": True, "groups": []},
+    )
+    callback = _start_and_complete(client)
+    assert callback.headers["location"] == "http://testserver/"
+
+    response = client.get("/users", headers=auth_headers["admin"])
+
+    assert response.status_code == 200
+    entry = next(user for user in response.json() if user["email"] == "directory@example.com")
+    assert entry["provisioning_source"] == "oidc"
+    assert entry["authentication_methods"] == ["oidc"]
+    assert entry["oidc_provider_name"] == provider.name
+    assert entry["oidc_linked_at"] is not None
+    assert entry["oidc_last_login_at"] is not None
+    assert entry["password_managed_by"] == "oidc"
+    assert entry["role_managed_by"] == "oidc"

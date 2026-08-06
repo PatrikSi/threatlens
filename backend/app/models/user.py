@@ -1,15 +1,24 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Uuid, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Integer, String, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.rbac import ROLE_VIEWER
 from app.db.base import Base
 
+PROVISIONING_SOURCE_LOCAL = "local"
+PROVISIONING_SOURCE_OIDC = "oidc"
+
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint(
+            "provisioning_source IN ('local', 'oidc')",
+            name="ck_users_provisioning_source",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
@@ -19,6 +28,12 @@ class User(Base):
         nullable=False,
         default=True,
         server_default="true",
+    )
+    provisioning_source: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default=PROVISIONING_SOURCE_LOCAL,
+        server_default=PROVISIONING_SOURCE_LOCAL,
     )
     role: Mapped[str] = mapped_column(String(32), nullable=False, default=ROLE_VIEWER, server_default=ROLE_VIEWER)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")

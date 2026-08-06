@@ -2,6 +2,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 're
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
@@ -698,7 +699,7 @@ export function FeedsPage() {
     } catch (error) {
       setFeedSaveState((previous) => ({
         ...previous,
-        [feedId]: { status: 'error', message: resolveMutationError(error) },
+        [feedId]: { status: 'error', message: resolveMutationError(error, 'Feed schedule could not be updated') },
       }))
     }
   }
@@ -807,6 +808,8 @@ export function FeedsPage() {
   }
 
   const showMobileAddFeedForm = shouldShowMobileFeedForm(mobileAddFeedOpen, feedStats.total)
+  const managementError =
+    bulkRefreshFeeds.error || bulkSetEnabled.error || bulkDeleteFeeds.error || deleteFeed.error
 
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
@@ -855,7 +858,7 @@ export function FeedsPage() {
             </div>
             {detectMetadata.isError && (
               <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-1 text-xs text-red-600">
-                Failed to detect feed metadata.
+                {resolveApiErrorMessage(detectMetadata.error, 'Feed metadata could not be detected')}
               </p>
             )}
           </div>
@@ -975,7 +978,7 @@ export function FeedsPage() {
           </button>
           {createFeed.isError && (
             <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-              Failed to add feed.
+              {resolveApiErrorMessage(createFeed.error, 'Feed could not be added')}
             </p>
           )}
         </form>
@@ -1270,7 +1273,7 @@ export function FeedsPage() {
         )}
         {importFeeds.isError && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
-            Import failed: {resolveMutationError(importFeeds.error)}
+            {resolveMutationError(importFeeds.error, 'Feed import could not be completed')}
           </p>
         )}
         {managementNotice && (
@@ -1285,17 +1288,17 @@ export function FeedsPage() {
         )}
         {exportFeeds.isError && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
-            Export failed: {resolveMutationError(exportFeeds.error)}
+            {resolveMutationError(exportFeeds.error, 'Feed export could not be completed')}
           </p>
         )}
         {canDelete && encryptedDataHealthQuery.isError && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
-            Failed to load encrypted data health.
+            {resolveApiErrorMessage(encryptedDataHealthQuery.error, 'Encrypted data health could not be loaded')}
           </p>
         )}
-        {(bulkRefreshFeeds.isError || bulkSetEnabled.isError || bulkDeleteFeeds.isError || deleteFeed.isError) && (
+        {managementError && (
           <p role="alert" aria-live="assertive" aria-atomic="true" className="mt-2 text-xs text-red-600">
-            One or more management actions failed.
+            {resolveApiErrorMessage(managementError, 'One or more feed management actions could not be completed')}
           </p>
         )}
 
@@ -1503,7 +1506,11 @@ export function FeedsPage() {
           })}
 
           {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading feeds...</p>}
-          {feedsQuery.isError && <p className="text-sm text-red-600">Failed to load feeds.</p>}
+          {feedsQuery.isError && (
+            <p className="text-sm text-red-600">
+              {resolveApiErrorMessage(feedsQuery.error, 'Feeds could not be loaded')}
+            </p>
+          )}
           {!feedsQuery.isLoading && !filteredFeeds.length && (
             <p className="text-sm text-slate dark:text-slate-300">No feeds match your current filters.</p>
           )}
@@ -1706,7 +1713,7 @@ export function FeedsPage() {
 
               {updateFeedDetails.isError && (
                 <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-                  Feed update failed: {resolveMutationError(updateFeedDetails.error)}
+                  {resolveMutationError(updateFeedDetails.error, 'Feed details could not be updated')}
                 </p>
               )}
             </section>
@@ -1726,7 +1733,7 @@ export function FeedsPage() {
               {feedArticlesQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading recent articles...</p>}
               {feedArticlesQuery.isError && (
                 <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-                  Failed to load recent articles.
+                  {resolveApiErrorMessage(feedArticlesQuery.error, 'Recent feed articles could not be loaded')}
                 </p>
               )}
               {!feedArticlesQuery.isLoading && !feedArticlesQuery.isError && !feedArticlesQuery.data?.items.length && (

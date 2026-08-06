@@ -1,3 +1,4 @@
+import { resolveApiErrorMessage } from '../api/errors'
 import {
   ConfirmDialog,
   DialogSurface,
@@ -173,7 +174,11 @@ export function DashboardDialogs({ controller }: { controller: DashboardPageCont
             ))}
 
             {viewsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading saved views...</p>}
-            {viewsQuery.isError && <p className="text-sm text-red-600">Failed to load saved views.</p>}
+            {viewsQuery.isError && (
+              <p className="text-sm text-red-600">
+                {resolveApiErrorMessage(viewsQuery.error, 'Saved dashboard views could not be loaded')}
+              </p>
+            )}
             {!viewsQuery.isLoading && !viewsQuery.data?.length && (
               <p className="text-sm text-slate dark:text-slate-300">No saved views available.</p>
             )}

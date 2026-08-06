@@ -4,8 +4,8 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 ## Published Contract
 
-- Schema version: `1.4.0`
-- OpenAPI contract anchor: `openapi-sha256:e031b4823e2fa176a06ba264bf91fa2df1306562740cd64e41ebc8ef5a3c94f2`
+- Schema version: `1.5.0`
+- OpenAPI contract anchor: `openapi-sha256:b042ecd98b11119e77c32268f149c78162451c02254d2f9d5825e7e310eea11d`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -17,6 +17,10 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 
 - `ApiTokenBearer`: `http` - Use a scoped personal API token in the `Authorization: Bearer <token>` header. Browser sign-in at `/v1/auth/login` creates a cookie session and returns only session-cookie metadata; bearer auth requires a dedicated API token.
 - `SessionCookieAuth`: `apiKey` - HttpOnly browser session cookie established by `/v1/auth/login`, mirrored through the web proxy at `/api/v1/auth/login`. Cookie-authenticated mutating requests must also send the CSRF header.
+
+## Error Diagnostics
+
+Error responses retain FastAPI's top-level `detail` field for compatibility and also include an `error` object with a stable category in `code`, a display-safe `message`, the HTTP `status`, a `retryable` hint, and a correlation `request_id`. The same correlation value is returned in the `X-Request-ID` response header and can be used to locate the server-side log entry. Validation responses do not echo submitted input values.
 
 ## Ai
 

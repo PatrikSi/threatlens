@@ -221,6 +221,13 @@ class Settings(BaseSettings):
     stats_top_domains_limit: int = 10
 
     log_level: str = "INFO"
+    log_level_overrides: Annotated[list[str], NoDecode] = []
+    log_format: str = "text"
+    log_detail: str = "standard"
+    log_include_client_ip: bool = False
+    log_slow_request_ms: int = 1000
+    log_max_event_chars: int = 20_000
+    log_sql: bool = False
     health_worker_ping_timeout_seconds: float = 1.0
     beat_heartbeat_key: str = "threatlens:beat:heartbeat"
     beat_scheduler_heartbeat_key: str = "threatlens:beat:scheduler-heartbeat"
@@ -259,6 +266,7 @@ class Settings(BaseSettings):
         "trusted_proxy_cidrs",
         "allowed_hosts",
         "app_data_encryption_previous_keys",
+        "log_level_overrides",
         mode="before",
     )
     @classmethod
@@ -309,7 +317,48 @@ class Settings(BaseSettings):
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value):
-        return str(value).strip().upper() or "INFO"
+        normalized = str(value).strip().upper() or "INFO"
+        if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("log_level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+        return normalized
+
+    @field_validator("log_level_overrides")
+    @classmethod
+    def _validate_log_level_overrides(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for value in values:
+            logger_name, separator, level = value.partition("=")
+            logger_name = logger_name.strip()
+            level = level.strip().upper()
+            if not separator or not logger_name or any(character.isspace() for character in logger_name):
+                raise ValueError("log_level_overrides entries must use logger.name=LEVEL")
+            if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+                raise ValueError("log_level_overrides levels must be DEBUG, INFO, WARNING, ERROR, or CRITICAL")
+            normalized.append(f"{logger_name}={level}")
+        return normalized
+
+    @field_validator("log_format", mode="before")
+    @classmethod
+    def _normalize_log_format(cls, value):
+        normalized = str(value).strip().lower() or "text"
+        if normalized not in {"text", "json"}:
+            raise ValueError("log_format must be one of: text, json")
+        return normalized
+
+    @field_validator("log_detail", mode="before")
+    @classmethod
+    def _normalize_log_detail(cls, value):
+        normalized = str(value).strip().lower() or "standard"
+        if normalized not in {"standard", "verbose"}:
+            raise ValueError("log_detail must be one of: standard, verbose")
+        return normalized
+
+    @field_validator("log_slow_request_ms", "log_max_event_chars")
+    @classmethod
+    def _validate_positive_logging_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Logging limits must be greater than zero")
+        return value
 
     @field_validator(
         "beat_heartbeat_ttl_seconds",

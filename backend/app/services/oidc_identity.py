@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from email_validator import EmailNotValidError, validate_email
+from email_validator import EmailNotValidError, EmailSyntaxError, validate_email
+from email_validator.syntax import validate_email_domain_name, validate_email_local_part
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -13,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import ALL_ROLES, ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import get_password_hash
 from app.models.oidc import ExternalIdentity, OIDCProvider
-from app.models.user import User
+from app.models.user import PROVISIONING_SOURCE_OIDC, User
 from app.services.oidc_client import OIDCClaims
 from app.services.user_access import (
     LastActiveAdminError,
@@ -24,6 +25,8 @@ from app.services.user_access import (
 )
 
 ROLE_PRECEDENCE = {ROLE_VIEWER: 1, ROLE_ANALYST: 2, ROLE_ADMIN: 3}
+EMAIL_MAX_OCTETS = 254
+INTERNAL_DOMAIN_VALIDATION_SUFFIX = ".x"
 
 
 class OIDCIdentityError(RuntimeError):
@@ -153,6 +156,11 @@ def link_oidc_identity(
 
 
 def unlink_oidc_identity(db: Session, provider: OIDCProvider, user: User) -> ExternalIdentity:
+    if user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise OIDCIdentityError(
+            "sso_managed_account",
+            "SSO-provisioned accounts cannot unlink their managed sign-in identity",
+        )
     if not user.password_login_enabled:
         raise OIDCIdentityError(
             "local_login_required",
@@ -175,7 +183,10 @@ def _provision_identity(
     provider: OIDCProvider,
     oidc_claims: OIDCClaims,
 ) -> tuple[User, ExternalIdentity]:
-    email = _verified_email(oidc_claims.claims, required=True)
+    email = _provisioning_email(
+        oidc_claims.claims,
+        require_verified=provider.require_verified_email,
+    )
     existing_user = db.scalar(select(User).where(User.email == email))
     if existing_user is not None:
         raise OIDCIdentityError(
@@ -188,6 +199,7 @@ def _provision_identity(
         email=email,
         password_hash=get_password_hash(secrets.token_urlsafe(48)),
         password_login_enabled=False,
+        provisioning_source=PROVISIONING_SOURCE_OIDC,
         role=resolve_oidc_role(provider, oidc_claims.claims),
         is_active=True,
         is_approved=provider.auto_approve_users,
@@ -259,21 +271,72 @@ def _synchronize_role(db: Session, user: User, mapped_role: str) -> tuple[str | 
 
 
 def _verified_email(claims: dict[str, Any], *, required: bool) -> str | None:
+    return _normalized_email(claims, required=required, require_verified=True)
+
+
+def _provisioning_email(claims: dict[str, Any], *, require_verified: bool) -> str:
+    email = _normalized_email(claims, required=True, require_verified=require_verified)
+    assert email is not None
+    return email
+
+
+def _normalized_email(
+    claims: dict[str, Any],
+    *,
+    required: bool,
+    require_verified: bool,
+) -> str | None:
     email = claims.get("email")
-    verified = claims.get("email_verified") is True
-    if not isinstance(email, str) or not email.strip() or not verified:
+    if email is None or (isinstance(email, str) and not email.strip()):
+        if required:
+            raise OIDCIdentityError(
+                "email_required",
+                "The identity provider must return an email address for account provisioning",
+            )
+        return None
+    if not isinstance(email, str):
+        if required:
+            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address")
+        return None
+    if require_verified and claims.get("email_verified") is not True:
         if required:
             raise OIDCIdentityError(
                 "verified_email_required",
-                "The identity provider must return a verified email address for account provisioning",
+                "The identity provider must verify the email address used for account provisioning",
             )
         return None
     try:
-        return validate_email(email, check_deliverability=False).normalized.lower()
+        return _normalize_email_identifier(email, allow_internal_domain=not require_verified)
     except EmailNotValidError as exc:
         if required:
-            raise OIDCIdentityError("verified_email_required", "The identity provider returned an invalid email address") from exc
+            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address") from exc
         return None
+
+
+def _normalize_email_identifier(email: str, *, allow_internal_domain: bool) -> str:
+    try:
+        return validate_email(email, check_deliverability=False).normalized.lower()
+    except EmailNotValidError:
+        if not allow_internal_domain:
+            raise
+
+    local_part, separator, domain = email.rpartition("@")
+    if not separator:
+        raise EmailSyntaxError("An email address must have an @-sign")
+
+    local = validate_email_local_part(local_part)
+    domain_with_suffix = validate_email_domain_name(
+        f"{domain}{INTERNAL_DOMAIN_VALIDATION_SUFFIX}",
+        globally_deliverable=False,
+    )
+    normalized_domain = domain_with_suffix["domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
+    ascii_domain = domain_with_suffix["ascii_domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
+    normalized = f"{local['local_part']}@{normalized_domain}".lower()
+    ascii_local_part = local["ascii_local_part"]
+    ascii_email = f"{ascii_local_part}@{ascii_domain}" if ascii_local_part is not None else normalized
+    if any(len(value.encode("utf-8")) > EMAIL_MAX_OCTETS for value in (email, normalized, ascii_email)):
+        raise EmailSyntaxError("The email address is too long")
+    return normalized
 
 
 def _nested_claim_value(claims: dict[str, Any], path: str) -> Any:

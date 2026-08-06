@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, get_operator_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import SCOPE_READ_FEEDS, SCOPE_WRITE_FEEDS
 from app.db.session import get_db
 from app.models.feed import Feed
@@ -386,6 +387,12 @@ def refresh_feed(
     try:
         celery_app.send_task("app.tasks.feed_tasks.fetch_feed", args=[str(feed_id)], kwargs={"force": True})
     except Exception as exc:
+        logger.warning(
+            "feed_refresh_enqueue_failed feed_id=%s error_type=%s",
+            feed_id,
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
         record_audit(
             db,
             actor_user_id=user.id,

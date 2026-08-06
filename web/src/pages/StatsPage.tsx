@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
 import {
   Feed,
@@ -216,13 +217,19 @@ export function StatsPage() {
               )
             })}
             {feedsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading feeds...</p>}
-            {feedsQuery.isError && <p className="text-sm text-red-600 dark:text-red-300">Failed to load feeds.</p>}
+            {feedsQuery.isError && (
+              <p className="text-sm text-red-600 dark:text-red-300">
+                {resolveApiErrorMessage(feedsQuery.error, 'Feed filters could not be loaded')}
+              </p>
+            )}
           </div>
         </fieldset>
       </section>
 
       {statsQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading stats...</p>}
-      {statsQuery.isError && <p className="text-sm text-red-600">Failed to load stats.</p>}
+      {statsQuery.isError && (
+        <p className="text-sm text-red-600">{resolveApiErrorMessage(statsQuery.error, 'Statistics could not be loaded')}</p>
+      )}
 
       {statsQuery.data && (
         <>
@@ -239,7 +246,11 @@ export function StatsPage() {
               Interactive daily time series. Toggle feeds and hover the chart to inspect counts.
             </p>
             {feedTimeSeriesQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading feed time series...</p>}
-            {feedTimeSeriesQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load feed time series.</p>}
+            {feedTimeSeriesQuery.isError && (
+              <p className="mt-3 text-sm text-red-600">
+                {resolveApiErrorMessage(feedTimeSeriesQuery.error, 'Feed time series could not be loaded')}
+              </p>
+            )}
             {feedTimeSeriesQuery.data && <FeedTimeSeriesChart data={feedTimeSeriesQuery.data} />}
           </section>
 
@@ -251,7 +262,11 @@ export function StatsPage() {
                 : 'Publication-time density by hour across short windows. Darker cells indicate higher post volume.'}
             </p>
             {activityHeatmapQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading activity heatmap...</p>}
-            {activityHeatmapQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load activity heatmap.</p>}
+            {activityHeatmapQuery.isError && (
+              <p className="mt-3 text-sm text-red-600">
+                {resolveApiErrorMessage(activityHeatmapQuery.error, 'Activity heatmap could not be loaded')}
+              </p>
+            )}
             {activityHeatmapQuery.data && <ActivityHeatmapPanel data={activityHeatmapQuery.data} />}
           </section>
 
@@ -261,7 +276,11 @@ export function StatsPage() {
               Classification signal intensity across threat categories for the selected feed/time window.
             </p>
             {signalRadarQuery.isLoading && <p className="mt-3 text-sm text-slate dark:text-slate-300">Loading signal radar...</p>}
-            {signalRadarQuery.isError && <p className="mt-3 text-sm text-red-600">Failed to load signal radar.</p>}
+            {signalRadarQuery.isError && (
+              <p className="mt-3 text-sm text-red-600">
+                {resolveApiErrorMessage(signalRadarQuery.error, 'Signal radar could not be loaded')}
+              </p>
+            )}
             {signalRadarQuery.data && <SignalRadarChart data={signalRadarQuery.data} />}
           </section>
 

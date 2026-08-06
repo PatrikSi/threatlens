@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "1.4.0",
-    "x-threatlens-contract-sha256": "e031b4823e2fa176a06ba264bf91fa2df1306562740cd64e41ebc8ef5a3c94f2"
+    "version": "1.5.0",
+    "x-threatlens-contract-sha256": "b042ecd98b11119e77c32268f149c78162451c02254d2f9d5825e7e310eea11d"
   },
   "servers": [
     {
@@ -10112,6 +10112,15 @@
             "title": "Password Login Enabled",
             "default": true
           },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
+          },
           "features": {
             "$ref": "#/components/schemas/AppFeaturesResponse"
           }
@@ -13319,6 +13328,10 @@
             "type": "boolean",
             "title": "Auto Approve Users"
           },
+          "require_verified_email": {
+            "type": "boolean",
+            "title": "Require Verified Email"
+          },
           "sync_roles_on_login": {
             "type": "boolean",
             "title": "Sync Roles On Login"
@@ -13366,6 +13379,7 @@
           "default_role",
           "jit_provisioning_enabled",
           "auto_approve_users",
+          "require_verified_email",
           "sync_roles_on_login"
         ],
         "title": "OIDCProviderResponse"
@@ -13508,6 +13522,12 @@
             "type": "boolean",
             "title": "Auto Approve Users",
             "default": false
+          },
+          "require_verified_email": {
+            "type": "boolean",
+            "title": "Require Verified Email",
+            "description": "Require a publicly valid email claim with email_verified=true for JIT provisioning. When disabled, well-formed internal email identifiers such as user@company.local are accepted.",
+            "default": true
           },
           "sync_roles_on_login": {
             "type": "boolean",
@@ -16796,6 +16816,79 @@
             "type": "boolean",
             "title": "Password Login Enabled",
             "default": true
+          },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
+          },
+          "authentication_methods": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "password",
+                "oidc"
+              ]
+            },
+            "type": "array",
+            "title": "Authentication Methods"
+          },
+          "oidc_provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider Name"
+          },
+          "oidc_linked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Linked At"
+          },
+          "oidc_last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Last Login At"
+          },
+          "password_managed_by": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Password Managed By",
+            "default": "local"
+          },
+          "role_managed_by": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Role Managed By",
+            "default": "local"
           }
         },
         "type": "object",
@@ -16895,6 +16988,15 @@
             "type": "boolean",
             "title": "Password Login Enabled",
             "default": true
+          },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
           }
         },
         "type": "object",

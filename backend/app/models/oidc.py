@@ -41,6 +41,12 @@ class OIDCProvider(Base):
         default=False,
         server_default="false",
     )
+    require_verified_email: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="true",
+    )
     sync_roles_on_login: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,

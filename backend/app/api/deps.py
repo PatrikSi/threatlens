@@ -1,3 +1,4 @@
+import logging
 import uuid
 from ipaddress import ip_address, ip_network
 from datetime import datetime, timezone
@@ -10,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.security import decode_access_token_claims, extract_api_token_prefix, hash_api_token
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.token_scopes import has_required_scope, normalize_token_scopes
 from app.db.session import get_db
 from app.models.api_token import ApiToken
@@ -28,6 +30,7 @@ oauth2_scheme = OAuth2PasswordBearer(
     ),
 )
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+logger = logging.getLogger(__name__)
 
 
 
@@ -185,8 +188,14 @@ def _resolve_api_token_user(db: Session, token: str) -> tuple[User, list[str]] |
         db.add(api_token)
         try:
             db.commit()
-        except Exception:
+        except Exception as exc:
             db.rollback()
+            logger.warning(
+                "api_token_last_used_update_failed token_id=%s error_type=%s",
+                api_token.id,
+                type(exc).__name__,
+                exc_info=verbose_logging_enabled(get_settings()),
+            )
     return user, scopes
 
 

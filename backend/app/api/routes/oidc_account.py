@@ -8,7 +8,7 @@ from app.api.deps import get_current_user, resolve_client_ip
 from app.core.security import verify_password
 from app.db.session import get_db
 from app.models.oidc import ExternalIdentity
-from app.models.user import User
+from app.models.user import PROVISIONING_SOURCE_OIDC, User
 from app.schemas.oidc import OIDCAccountStatusResponse, OIDCUnlinkRequest
 from app.services.audit import record_audit
 from app.services.auth_rate_limit import (
@@ -75,6 +75,11 @@ def unlink_oidc_account(
 
 
 def _verify_unlink_password(request: Request, user: User, current_password: str) -> None:
+    if user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="SSO-provisioned accounts cannot unlink their managed sign-in identity",
+        )
     if not user.password_login_enabled:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
