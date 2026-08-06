@@ -337,8 +337,9 @@ export function IdentitySettingsPage() {
                   role="alert"
                   className="rounded border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200 md:col-span-2 xl:col-span-4"
                 >
-                  JIT provisioning will trust email addresses that the identity provider has not verified. Use this only
-                  when identity-provider access and email assignment are tightly controlled.
+                  JIT provisioning will trust unverified email identifiers, including well-formed internal domains such
+                  as .local. Missing or malformed email claims are still rejected. Use this only when identity-provider
+                  access and email assignment are tightly controlled.
                 </p>
               )}
             </div>

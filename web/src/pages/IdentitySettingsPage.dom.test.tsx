@@ -132,7 +132,7 @@ describe('IdentitySettingsPage', () => {
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('HTTP can expose authorization codes')
   })
 
-  it('warns when JIT provisioning accepts email addresses the provider has not verified', async () => {
+  it('warns when JIT provisioning accepts unverified internal email identifiers', async () => {
     const view = renderPage()
     await act(async () => {
       await flushPromises()
@@ -147,6 +147,7 @@ describe('IdentitySettingsPage', () => {
       toggle?.querySelector<HTMLInputElement>('input')?.click()
     })
 
-    expect(view.querySelector('[role="alert"]')?.textContent).toContain('has not verified')
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('.local')
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('malformed')
   })
 })

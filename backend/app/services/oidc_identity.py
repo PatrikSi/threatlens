@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from email_validator import EmailNotValidError, validate_email
+from email_validator import EmailNotValidError, EmailSyntaxError, validate_email
+from email_validator.syntax import validate_email_domain_name, validate_email_local_part
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -24,6 +25,8 @@ from app.services.user_access import (
 )
 
 ROLE_PRECEDENCE = {ROLE_VIEWER: 1, ROLE_ANALYST: 2, ROLE_ADMIN: 3}
+EMAIL_MAX_OCTETS = 254
+INTERNAL_DOMAIN_VALIDATION_SUFFIX = ".x"
 
 
 class OIDCIdentityError(RuntimeError):
@@ -297,11 +300,37 @@ def _normalized_email(
             )
         return None
     try:
-        return validate_email(email, check_deliverability=False).normalized.lower()
+        return _normalize_email_identifier(email, allow_internal_domain=not require_verified)
     except EmailNotValidError as exc:
         if required:
             raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address") from exc
         return None
+
+
+def _normalize_email_identifier(email: str, *, allow_internal_domain: bool) -> str:
+    try:
+        return validate_email(email, check_deliverability=False).normalized.lower()
+    except EmailNotValidError:
+        if not allow_internal_domain:
+            raise
+
+    local_part, separator, domain = email.rpartition("@")
+    if not separator:
+        raise EmailSyntaxError("An email address must have an @-sign")
+
+    local = validate_email_local_part(local_part)
+    domain_with_suffix = validate_email_domain_name(
+        f"{domain}{INTERNAL_DOMAIN_VALIDATION_SUFFIX}",
+        globally_deliverable=False,
+    )
+    normalized_domain = domain_with_suffix["domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
+    ascii_domain = domain_with_suffix["ascii_domain"][: -len(INTERNAL_DOMAIN_VALIDATION_SUFFIX)]
+    normalized = f"{local['local_part']}@{normalized_domain}".lower()
+    ascii_local_part = local["ascii_local_part"]
+    ascii_email = f"{ascii_local_part}@{ascii_domain}" if ascii_local_part is not None else normalized
+    if any(len(value.encode("utf-8")) > EMAIL_MAX_OCTETS for value in (email, normalized, ascii_email)):
+        raise EmailSyntaxError("The email address is too long")
+    return normalized
 
 
 def _nested_claim_value(claims: dict[str, Any], path: str) -> Any:

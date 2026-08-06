@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.4.0",
-    "x-threatlens-contract-sha256": "6c30582198ebb38a350b0e77eec6ee3aeb761d678903f4fcc3f962b92886313f"
+    "x-threatlens-contract-sha256": "5b262d7502c014e40e10cec4070f9a4b8851ee5e293a740de986b4438560fb97"
   },
   "servers": [
     {
@@ -13517,6 +13517,7 @@
           "require_verified_email": {
             "type": "boolean",
             "title": "Require Verified Email",
+            "description": "Require a publicly valid email claim with email_verified=true for JIT provisioning. When disabled, well-formed internal email identifiers such as user@company.local are accepted.",
             "default": true
           },
           "sync_roles_on_login": {
