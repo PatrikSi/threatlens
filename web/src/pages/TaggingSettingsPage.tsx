@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { ApiError, apiFetch } from '../api/client'
+import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { formatDateTime } from '../utils/datetime'
@@ -1102,8 +1103,5 @@ function formatTimestamp(value: string): string {
 }
 
 function resolveApiMessage(error: unknown, fallback: string): string {
-  if (error instanceof ApiError && typeof error.message === 'string' && error.message.trim()) {
-    return error.message
-  }
-  return fallback
+  return resolveApiErrorMessage(error, fallback)
 }

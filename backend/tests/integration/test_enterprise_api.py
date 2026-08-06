@@ -1333,6 +1333,10 @@ def test_admin_can_list_users_for_user_directory(client: TestClient, auth_header
     assert len(payload) >= 1
     assert "email" in payload[0]
     assert "is_approved" in payload[0]
+    assert payload[0]["provisioning_source"] == "local"
+    assert payload[0]["authentication_methods"] == ["password"]
+    assert payload[0]["password_managed_by"] == "local"
+    assert payload[0]["role_managed_by"] == "local"
 
 
 def test_users_list_tolerates_legacy_invalid_email_values(client: TestClient, auth_headers, db_session):
@@ -2942,7 +2946,8 @@ def test_token_revocation_hides_foreign_token_ids_from_non_admins(
     missing_response = client.delete(f"/tokens/{uuid.uuid4()}", headers=auth_headers["viewer"])
 
     assert foreign_response.status_code == 404
-    assert foreign_response.json() == missing_response.json() == {"detail": "Token not found"}
+    assert foreign_response.json()["detail"] == missing_response.json()["detail"] == "Token not found"
+    assert foreign_response.json()["error"]["code"] == missing_response.json()["error"]["code"] == "not_found"
     db_session.refresh(foreign_token)
     assert foreign_token.revoked_at is None
 

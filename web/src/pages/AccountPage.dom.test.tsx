@@ -4,13 +4,30 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const accountPageDomMocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
   markLoggedOut: vi.fn(),
   navigate: vi.fn(),
+  currentUser: {
+    id: 'user-1',
+    email: 'analyst@example.com',
+    role: 'analyst',
+    is_active: true,
+    is_approved: true,
+    approved_at: '2026-04-20T10:00:00Z',
+    created_at: '2026-04-19T10:00:00Z',
+    password_login_enabled: true,
+    provisioning_source: 'local',
+    features: {
+      ai_enabled: false,
+      ai_configured: false,
+      ai_summary_enabled: false,
+      ai_relevance_enabled: false,
+      ai_daily_brief_enabled: false,
+    },
+  },
   useBlocker: vi.fn(() => ({
     state: 'unblocked' as const,
     proceed: vi.fn(),
@@ -33,22 +50,7 @@ vi.mock('../components/AuthContext', () => ({
 
 vi.mock('../hooks/useCurrentUser', () => ({
   useCurrentUser: () => ({
-    data: {
-      id: 'user-1',
-      email: 'analyst@example.com',
-      role: 'analyst',
-      is_active: true,
-      is_approved: true,
-      approved_at: '2026-04-20T10:00:00Z',
-      created_at: '2026-04-19T10:00:00Z',
-      features: {
-        ai_enabled: false,
-        ai_configured: false,
-        ai_summary_enabled: false,
-        ai_relevance_enabled: false,
-        ai_daily_brief_enabled: false,
-      },
-    },
+    data: accountPageDomMocks.currentUser,
     isLoading: false,
     isError: false,
     error: null,
@@ -123,6 +125,24 @@ afterEach(async () => {
   container?.remove()
   container = null
   document.body.innerHTML = ''
+  accountPageDomMocks.currentUser = {
+    id: 'user-1',
+    email: 'analyst@example.com',
+    role: 'analyst',
+    is_active: true,
+    is_approved: true,
+    approved_at: '2026-04-20T10:00:00Z',
+    created_at: '2026-04-19T10:00:00Z',
+    password_login_enabled: true,
+    provisioning_source: 'local',
+    features: {
+      ai_enabled: false,
+      ai_configured: false,
+      ai_summary_enabled: false,
+      ai_relevance_enabled: false,
+      ai_daily_brief_enabled: false,
+    },
+  }
   accountPageDomMocks.apiFetch.mockReset()
   accountPageDomMocks.markLoggedOut.mockReset()
   accountPageDomMocks.navigate.mockReset()
@@ -135,6 +155,53 @@ afterEach(async () => {
 })
 
 describe('AccountPage DOM workflows', () => {
+  it('presents SSO-provisioned identity and password ownership without local controls', async () => {
+    accountPageDomMocks.currentUser = {
+      ...accountPageDomMocks.currentUser,
+      password_login_enabled: false,
+      provisioning_source: 'oidc',
+    }
+    accountPageDomMocks.apiFetch.mockResolvedValue({
+      available: true,
+      provider_name: 'Authentik',
+      linked: true,
+      linked_email: 'analyst@example.com',
+      linked_at: '2026-04-19T10:00:00Z',
+      password_login_enabled: false,
+    })
+
+    const view = renderPage()
+    await act(async () => {
+      await waitForQueriesToSettle()
+    })
+
+    expect(view.textContent).toContain('Account type: SSO-provisioned')
+    expect(view.textContent).toContain('account and its sign-in identity are managed by Authentik')
+    expect(view.textContent).toContain('Password credentials are managed by Authentik')
+    expect(view.querySelector('#account-current-password')).toBeNull()
+    expect(view.querySelector('#account-unlink-password')).toBeNull()
+  })
+
+  it('identifies a linked local account as hybrid and retains local credential controls', async () => {
+    accountPageDomMocks.apiFetch.mockResolvedValue({
+      available: true,
+      provider_name: 'Authentik',
+      linked: true,
+      linked_email: 'analyst@example.com',
+      linked_at: '2026-04-19T10:00:00Z',
+      password_login_enabled: true,
+    })
+
+    const view = renderPage()
+    await act(async () => {
+      await waitForQueriesToSettle()
+    })
+
+    expect(view.textContent).toContain('Account type: Local + SSO')
+    expect(view.querySelector('#account-current-password')).not.toBeNull()
+    expect(view.querySelector('#account-unlink-password')).not.toBeNull()
+  })
+
   it('redirects to login after a successful password change', async () => {
     accountPageDomMocks.apiFetch.mockResolvedValue({})
 
@@ -171,7 +238,9 @@ describe('AccountPage DOM workflows', () => {
     expect(accountPageDomMocks.markLoggedOut).toHaveBeenCalledTimes(1)
     expect(accountPageDomMocks.navigate).toHaveBeenCalledWith('/login', {
       replace: true,
-      state: { authMessage: 'Password updated. Sign in again with your new password.' },
+      state: {
+        authMessage: 'Password updated. Sign in again with your new password.',
+      },
     })
   })
 
@@ -200,7 +269,8 @@ describe('AccountPage DOM workflows', () => {
 
     const notice = view.querySelector('[role="alert"][aria-live="assertive"][aria-atomic="true"]')
     expect(notice).not.toBeNull()
-    expect(notice?.textContent).toContain('Failed to change password.')
+    expect(notice?.textContent).toContain('Password could not be changed.')
+    expect(notice?.textContent).toContain('Password change failed.')
   })
 
   it('shows inline validation before sending a short password change', async () => {
@@ -328,9 +398,10 @@ describe('AccountPage DOM workflows', () => {
     })
 
     await act(async () => {
-      view.querySelector<HTMLInputElement>('#account-unlink-password')?.closest('form')?.dispatchEvent(
-        new Event('submit', { bubbles: true, cancelable: true }),
-      )
+      view
+        .querySelector<HTMLInputElement>('#account-unlink-password')
+        ?.closest('form')
+        ?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
       await vi.waitFor(() => {
         expect(queryClient?.isMutating()).toBe(0)
         expect(queryClient?.isFetching()).toBe(0)

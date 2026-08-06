@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.logging_config import redact_log_text
 from app.models.integration import IntegrationAttempt, IntegrationDelivery, IntegrationInstance
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
@@ -191,6 +192,7 @@ def finalize_integration_delivery(
     schedule_retry: bool = True,
 ) -> IntegrationDeliveryOutcome:
     completed_at = finished_at or datetime.now(timezone.utc)
+    safe_error_message = _safe_error_message(error_message)
     delivery = db.scalar(
         select(IntegrationDelivery)
         .where(IntegrationDelivery.id == delivery_id)
@@ -227,7 +229,7 @@ def finalize_integration_delivery(
     attempt.duration_ms = duration_ms
     attempt.status_code = status_code
     attempt.error_code = None if success else error_code
-    attempt.error_message = None if success else error_message
+    attempt.error_message = None if success else safe_error_message
     attempt.retryable = False if success else retryable
     attempt.response_json = dict(response_json or {})
 
@@ -236,7 +238,7 @@ def finalize_integration_delivery(
     delivery.last_status_code = status_code
     delivery.last_duration_ms = duration_ms
     delivery.last_error_code = None if success else error_code
-    delivery.last_error_message = None if success else error_message
+    delivery.last_error_message = None if success else safe_error_message
     delivery.last_error_retryable = False if success else retryable
     retry_at: datetime | None = None
     if success:
@@ -310,7 +312,7 @@ def mark_integration_delivery_dead_letter(
     delivery.not_before = None
     delivery.dead_lettered_at = current_time
     delivery.last_error_code = error_code or delivery.last_error_code
-    delivery.last_error_message = error_message or delivery.last_error_message
+    delivery.last_error_message = _safe_error_message(error_message) or delivery.last_error_message
     db.add(delivery)
     return True
 
@@ -332,7 +334,7 @@ def defer_integration_delivery(
     delivery.claimed_at = None
     delivery.not_before = current_time + timedelta(seconds=max(1, int(delay_seconds)))
     delivery.last_error_code = error_code
-    delivery.last_error_message = error_message
+    delivery.last_error_message = _safe_error_message(error_message)
     delivery.last_error_retryable = True
     db.add(delivery)
     return True
@@ -737,7 +739,7 @@ def _dead_letter_without_attempt(
     delivery.not_before = None
     delivery.dead_lettered_at = now
     delivery.last_error_code = code
-    delivery.last_error_message = message
+    delivery.last_error_message = _safe_error_message(message)
     delivery.last_error_retryable = False
 
 
@@ -750,6 +752,12 @@ def _retry_backoff_seconds(delivery: IntegrationDelivery) -> int:
     digest = hashlib.sha256(f"{delivery.id}:{delivery.attempt_count}".encode("ascii")).digest()
     jitter = int.from_bytes(digest[:2], "big") % (jitter_ceiling + 1)
     return min(maximum, exponential + jitter)
+
+
+def _safe_error_message(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return redact_log_text(value, max_chars=4000)
 
 
 def _update_circuit(

@@ -1,3 +1,5 @@
+import logging
+
 import redis
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
@@ -6,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, get_optional_current_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.logging_config import verbose_logging_enabled
 from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_HEALTH, has_required_scope
 from app.db.session import get_db
@@ -17,6 +20,7 @@ from app.services.notification_webhooks import get_notification_delivery_queue_s
 from app.tasks.celery_app import QUEUE_AI, QUEUE_INGEST, QUEUE_MAINTENANCE, QUEUE_NOTIFICATIONS, QUEUE_PROCESSING, celery_app
 
 router = APIRouter(prefix="/health", tags=["health"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -152,7 +156,12 @@ def _database_health_ok(db: Session) -> bool:
     try:
         db.execute(text("SELECT 1"))
         return True
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "database_health_check_failed error_type=%s",
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(get_settings()),
+        )
         return False
 
 
@@ -160,7 +169,12 @@ def _redis_health_ok(settings) -> bool:
     try:
         client = redis.Redis.from_url(settings.redis_url)
         return bool(client.ping())
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "redis_health_check_failed error_type=%s",
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(settings),
+        )
         return False
 
 
@@ -199,7 +213,12 @@ def _worker_health_snapshot(settings) -> tuple[bool, dict[str, str], dict[str, o
             "by_worker": queues_by_worker,
         }
         worker_ok = bool(raw_ping) and not missing_queues
-    except Exception:
+    except Exception as exc:
+        logger.warning(
+            "worker_health_check_failed error_type=%s",
+            type(exc).__name__,
+            exc_info=verbose_logging_enabled(settings),
+        )
         worker_ok = False
     return worker_ok, workers, queue_snapshot
 

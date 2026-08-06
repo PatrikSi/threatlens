@@ -42,6 +42,13 @@ class OIDCProviderUpdateRequest(BaseModel):
     default_role: OIDCRole = ROLE_VIEWER
     jit_provisioning_enabled: bool = False
     auto_approve_users: bool = False
+    require_verified_email: bool = Field(
+        default=True,
+        description=(
+            "Require a publicly valid email claim with email_verified=true for JIT provisioning. "
+            "When disabled, well-formed internal email identifiers such as user@company.local are accepted."
+        ),
+    )
     sync_roles_on_login: bool = True
 
     @field_validator("name", "client_id", "role_claim")
@@ -117,6 +124,7 @@ class OIDCProviderResponse(BaseModel):
     default_role: OIDCRole
     jit_provisioning_enabled: bool
     auto_approve_users: bool
+    require_verified_email: bool
     sync_roles_on_login: bool
     created_at: datetime | None = None
     updated_at: datetime | None = None

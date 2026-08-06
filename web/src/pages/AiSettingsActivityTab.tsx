@@ -9,6 +9,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { DialogSurface } from '../components/ConfirmDialog'
 import {
   AIDailyBriefSourceItemResponse,
@@ -470,7 +471,7 @@ function QueueWorkPanel({
                 {itemSearchReady && !itemSearchLoading && !candidateItems.length && !itemSearchError && (
                   <EmptyInline>No recent items matched the current scope.</EmptyInline>
                 )}
-                {itemSearchReady && itemSearchError && <p className="text-sm text-red-600">Failed to load items. {itemSearchError}</p>}
+                {itemSearchReady && itemSearchError && <p className="text-sm text-red-600">{itemSearchError}</p>}
               </div>
             </div>
           </div>
@@ -536,7 +537,7 @@ function RunArticlesSection({
       )}
       {childRunsQuery.isError && (
         <p className="mt-3 text-sm text-red-600">
-          Failed to load {childRunNounPlural}. {(childRunsQuery.error as Error | undefined)?.message ?? ''}
+          {resolveApiErrorMessage(childRunsQuery.error, `${childRunNounPlural} could not be loaded`)}
         </p>
       )}
 
@@ -659,7 +660,7 @@ function ProviderExchangeModal({
       bodyClassName="mt-4 space-y-4 text-sm text-slate dark:text-white/75"
     >
       {isLoading && <p>Loading request/response details...</p>}
-      {!isLoading && errorMessage && <p className="text-red-600">Failed to load run detail. {errorMessage}</p>}
+      {!isLoading && errorMessage && <p className="text-red-600">{errorMessage}</p>}
       {!isLoading && !errorMessage && !event && (
         <p>No provider request/response was captured for this run.</p>
       )}
@@ -1190,7 +1191,7 @@ export function ActivityTab({
           </div>
           {runsQuery.isError && (
             <p className="mt-3 text-sm text-red-600">
-              Failed to load AI runs. {(runsQuery.error as Error | undefined)?.message ?? ''}
+              {resolveApiErrorMessage(runsQuery.error, 'AI runs could not be loaded')}
             </p>
           )}
 
@@ -1343,7 +1344,7 @@ export function ActivityTab({
           {runDetailQuery.isLoading && <p className="text-sm text-slate dark:text-white/70">Loading run detail...</p>}
           {runDetailQuery.isError && (
             <p className="text-sm text-red-600">
-              Failed to load run detail. {(runDetailQuery.error as Error | undefined)?.message ?? ''}
+              {resolveApiErrorMessage(runDetailQuery.error, 'AI run details could not be loaded')}
             </p>
           )}
           {!selectedRun && <EmptyInline>Select a run to inspect it.</EmptyInline>}
@@ -1474,7 +1475,7 @@ export function ActivityTab({
                   <div className="mt-2 space-y-2">
                     {briefSourcesLoading && <EmptyInline>Loading source log for this brief...</EmptyInline>}
                     {!briefSourcesLoading && briefSourcesErrorMessage && (
-                      <p className="text-sm text-red-600">Failed to load the source log. {briefSourcesErrorMessage}</p>
+                      <p className="text-sm text-red-600">{briefSourcesErrorMessage}</p>
                     )}
                     {briefSources.map((source) => (
                       <div key={source.id} className="rounded-lg border border-slate/10 px-3 py-2 text-sm dark:border-cyan-900/30">
@@ -1507,7 +1508,11 @@ export function ActivityTab({
             run={inspectedRun}
             event={inspectedProviderEvent}
             isLoading={inspectedRunDetailQuery.isLoading}
-            errorMessage={(inspectedRunDetailQuery.error as Error | undefined)?.message ?? ''}
+            errorMessage={
+              inspectedRunDetailQuery.isError
+                ? resolveApiErrorMessage(inspectedRunDetailQuery.error, 'Inspected AI run details could not be loaded')
+                : ''
+            }
             onClose={() => setInspectedRunId(null)}
           />
         </OverviewSection>

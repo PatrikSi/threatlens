@@ -16,6 +16,7 @@ import {
   useQueryClient,
 } from '@tanstack/react-query'
 import { ApiError, apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { type ArticlePreviewState } from './DashboardPageComponents'
@@ -838,17 +839,11 @@ export function useDashboardPageController() {
       await queryClient.invalidateQueries({ queryKey: ['item', variables.itemId] })
     },
     onError: (error, variables) => {
-      const message =
-        error instanceof ApiError && error.message.trim()
-          ? error.message
-          : error instanceof Error && error.message.trim()
-            ? error.message
-            : 'Unable to queue article fetch right now.'
       setArticleRetryFeedbackByItemId((current) => ({
         ...current,
         [variables.itemId]: {
           tone: 'error',
-          message,
+          message: resolveApiErrorMessage(error, 'Article fetch could not be queued'),
         },
       }))
     },
@@ -1658,7 +1653,7 @@ export function useDashboardPageController() {
       setImportViewsResult(formatSavedViewImportResult(importedNames))
       await queryClient.invalidateQueries({ queryKey: ['views'] })
     } catch (error) {
-      setImportViewsError((error as Error).message || 'Failed to import saved views')
+      setImportViewsError(resolveApiErrorMessage(error, 'Saved dashboard views could not be imported'))
     } finally {
       setIsImportingViews(false)
       event.target.value = ''

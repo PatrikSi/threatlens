@@ -192,9 +192,9 @@ export function buildCreateUserConfirmation(createRequest: UserCreateRequest): C
   }
 
   return {
-    title: 'Create user account?',
-    description: 'Review the new account details before provisioning access.',
-    confirmLabel: 'Create user',
+    title: 'Create local user account?',
+    description: 'Review the local account details before provisioning access.',
+    confirmLabel: 'Create local user',
     confirmTone: 'primary',
     details,
     payload: {

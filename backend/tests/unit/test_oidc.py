@@ -1,4 +1,5 @@
 import json
+import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import parse_qs, urlsplit
@@ -63,6 +64,8 @@ def _request_with_cookie(cookie_name: str, cookie_value: str) -> Request:
 
 
 def test_oidc_provider_schema_requires_openid_and_unique_mapping_values():
+    assert OIDCProviderUpdateRequest().require_verified_email is True
+
     with pytest.raises(ValueError, match="must include openid"):
         OIDCProviderUpdateRequest(scopes=["profile"])
 
@@ -465,6 +468,91 @@ def test_oidc_json_fetch_rejects_invalid_responses_and_closes_stream(
         oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
 
     assert response.is_closed is True
+
+
+@pytest.mark.parametrize(
+    ("request_error", "message"),
+    [
+        (oidc_client.httpx.ConnectError("connection failed"), "connection failed"),
+        (oidc_client.httpx.ConnectTimeout("connect timeout"), "connection timed out"),
+        (oidc_client.httpx.ReadTimeout("read timeout"), "response timed out"),
+        (oidc_client.httpx.PoolTimeout("pool timeout"), "request timed out"),
+    ],
+)
+def test_oidc_json_fetch_classifies_network_failures(monkeypatch, request_error, message):
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, data=None):
+            return oidc_client.httpx.Request(method, url, data=data)
+
+        def send(self, *_args, **_kwargs):
+            raise request_error
+
+    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(OIDCProtocolError, match=message):
+        oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
+
+
+def test_oidc_json_fetch_identifies_dns_resolution_failures(monkeypatch):
+    request_error = oidc_client.httpx.ConnectError("connection failed")
+    request_error.__cause__ = socket.gaierror(-3, "Temporary failure in name resolution")
+
+    class FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def build_request(self, method, url, data=None):
+            return oidc_client.httpx.Request(method, url, data=data)
+
+        def send(self, *_args, **_kwargs):
+            raise request_error
+
+    monkeypatch.setattr(oidc_client, "build_safe_http_client", lambda **_kwargs: FakeClient())
+    monkeypatch.setattr(oidc_client, "ensure_runtime_fetchable_url", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(OIDCProtocolError, match="hostname could not be resolved"):
+        oidc_client._fetch_json("GET", "https://idp.example.com/metadata")
+
+
+def test_oidc_runtime_url_check_distinguishes_dns_and_network_policy(monkeypatch):
+    monkeypatch.setattr(oidc_client, "is_fetchable_url", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        oidc_client,
+        "ensure_runtime_fetchable_url",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(ValueError("not fetchable")),
+    )
+    monkeypatch.setattr(oidc_client, "resolve_hostname_ips", lambda _hostname: set())
+
+    with pytest.raises(OIDCProtocolError, match="hostname could not be resolved"):
+        oidc_client._ensure_oidc_runtime_fetchable_url(
+            "http://authentik.patriksi.local/discovery",
+            allow_private_network=True,
+        )
+
+    monkeypatch.setattr(oidc_client, "is_fetchable_url", lambda *_args, **_kwargs: False)
+    with pytest.raises(OIDCProtocolError, match="blocked by outbound network policy"):
+        oidc_client._ensure_oidc_runtime_fetchable_url(
+            "http://authentik.patriksi.local/discovery",
+            allow_private_network=False,
+        )
+
+
+def test_oidc_failure_reason_bounds_expected_errors_and_hides_unexpected_values():
+    expected = OIDCProtocolError(f"provider failure\n{'x' * 600}")
+
+    assert oidc_client.oidc_failure_reason(expected).startswith("provider failure ")
+    assert len(oidc_client.oidc_failure_reason(expected)) == 512
+    assert oidc_client.oidc_failure_reason(ValueError("sensitive value")) == "OIDC validation failed"
 
 
 def test_oidc_json_fetch_enforces_response_size_limit(monkeypatch):

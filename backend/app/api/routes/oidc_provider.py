@@ -18,7 +18,7 @@ from app.schemas.oidc import (
     OIDCPublicSettingsResponse,
 )
 from app.services.audit import record_audit
-from app.services.oidc_client import OIDCProtocolError, test_oidc_provider
+from app.services.oidc_client import OIDCProtocolError, oidc_failure_reason, test_oidc_provider
 from app.services.oidc_config import (
     OIDCConfigurationError,
     OIDC_PROVIDER_SYSTEM_KEY,
@@ -116,6 +116,7 @@ def update_oidc_provider(
     provider.default_role = payload.default_role
     provider.jit_provisioning_enabled = payload.jit_provisioning_enabled
     provider.auto_approve_users = payload.auto_approve_users
+    provider.require_verified_email = payload.require_verified_email
     provider.sync_roles_on_login = payload.sync_roles_on_login
     provider.updated_by_user_id = admin.id
     db.add(provider)
@@ -137,6 +138,7 @@ def update_oidc_provider(
             "identity_count": identity_count,
             "jit_provisioning_enabled": provider.jit_provisioning_enabled,
             "auto_approve_users": provider.auto_approve_users,
+            "require_verified_email": provider.require_verified_email,
             "sync_roles_on_login": provider.sync_roles_on_login,
             "role_claim": provider.role_claim,
             "role_mapping_count": len(provider.role_mappings_json),
@@ -160,6 +162,13 @@ def test_configured_oidc_provider(
     try:
         metadata, key_count = test_oidc_provider(provider)
     except (OIDCConfigurationError, OIDCProtocolError, ValueError) as exc:
+        reason = oidc_failure_reason(exc)
+        logger.warning(
+            "oidc_provider_test_failed provider_id=%s error_type=%s reason=%s",
+            provider.id,
+            type(exc).__name__,
+            reason,
+        )
         record_audit(
             db,
             actor_user_id=admin.id,
@@ -167,10 +176,10 @@ def test_configured_oidc_provider(
             resource_type="oidc_provider",
             resource_id=str(provider.id),
             success=False,
-            metadata={"error_type": type(exc).__name__},
+            metadata={"error_type": type(exc).__name__, "reason": reason},
         )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=reason) from exc
     except Exception as exc:
         logger.exception("oidc_provider_test_unexpected_failure provider_id=%s", provider.id)
         record_audit(

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiFetch } from '../api/client'
+import { resolveApiErrorMessage } from '../api/errors'
 import { AuditLogExportResponse, AuditLogListResponse } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
 
@@ -34,6 +35,9 @@ export function AuditLogsPage() {
 
   const totalPages = auditQueryEnabled ? Math.max(1, Math.ceil((auditQuery.data?.total ?? 0) / pageSize)) : 1
   const logs = auditQueryEnabled ? (auditQuery.data?.logs ?? []) : []
+  const auditQueryError = auditQuery.isError
+    ? resolveApiErrorMessage(auditQuery.error, 'Audit logs could not be loaded')
+    : ''
 
   const exportLogs = useMutation({
     mutationFn: () => {
@@ -64,7 +68,7 @@ export function AuditLogsPage() {
     },
     onError: (error) => {
       setExportMessage('')
-      setExportError((error as Error).message || 'Failed to export audit logs')
+      setExportError(resolveApiErrorMessage(error, 'Audit logs could not be exported'))
     },
   })
 
@@ -139,7 +143,7 @@ export function AuditLogsPage() {
         )}
         {auditQueryEnabled && auditQuery.isError && (
           <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
-            {(auditQuery.error as Error).message || 'Audit logs could not be loaded.'}
+            {auditQueryError}
           </div>
         )}
         {auditQueryEnabled && !auditQuery.isLoading && !auditQuery.isError && logs.length === 0 && (
@@ -199,7 +203,7 @@ export function AuditLogsPage() {
               <tr>
                 <td colSpan={5} className="px-2 py-6">
                   <div role="alert" className="rounded-lg border border-red-300/60 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-950/25 dark:text-red-200">
-                    {(auditQuery.error as Error).message || 'Audit logs could not be loaded.'}
+                    {auditQueryError}
                   </div>
                 </td>
               </tr>
