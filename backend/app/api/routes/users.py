@@ -10,7 +10,7 @@ from app.core.rbac import ALL_ROLES, ROLE_ADMIN
 from app.core.security import get_password_hash
 from app.core.token_scopes import SCOPE_READ_USERS, SCOPE_WRITE_USERS
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import PROVISIONING_SOURCE_LOCAL, PROVISIONING_SOURCE_OIDC, User
 from app.schemas.user import UserAdminResponse, UserCreateRequest, UserUpdateRequest
 from app.services.audit import record_audit
 from app.services.user_access import (
@@ -19,6 +19,11 @@ from app.services.user_access import (
     ensure_active_approved_admin_remains,
     load_user_for_access_update,
     revoke_user_credentials,
+)
+from app.services.user_directory import (
+    UserManagementContext,
+    load_user_management_context,
+    load_user_management_contexts,
 )
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -61,7 +66,8 @@ def list_users(
 ):
     _ = admin
     users = db.scalars(select(User).order_by(User.created_at.asc())).all()
-    return list(users)
+    contexts = load_user_management_contexts(db, [user.id for user in users])
+    return [_user_admin_response(user, contexts.get(user.id, UserManagementContext())) for user in users]
 
 
 @router.post("", response_model=UserAdminResponse, status_code=status.HTTP_201_CREATED)
@@ -81,6 +87,7 @@ def create_user(
     user = User(
         email=payload.email.lower(),
         password_hash=get_password_hash(payload.password),
+        provisioning_source=PROVISIONING_SOURCE_LOCAL,
         role=payload.role,
         is_active=payload.is_active,
         is_approved=payload.is_approved,
@@ -94,11 +101,16 @@ def create_user(
         action="users.create",
         resource_type="user",
         resource_id=str(user.id),
-        metadata={"email": user.email, "role": user.role, "is_approved": user.is_approved},
+        metadata={
+            "email": user.email,
+            "role": user.role,
+            "is_approved": user.is_approved,
+            "provisioning_source": user.provisioning_source,
+        },
     )
     db.commit()
     db.refresh(user)
-    return user
+    return _user_admin_response(user, UserManagementContext())
 
 
 @router.patch("/{user_id}", response_model=UserAdminResponse)
@@ -115,6 +127,8 @@ def update_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
+    management = load_user_management_context(db, user.id)
+    _ensure_locally_managed_changes(user, payload, management)
     _ensure_active_approved_admin_remains(db, user, payload)
     should_rotate_auth_tokens = payload.password is not None
     revoked_api_tokens = 0
@@ -169,4 +183,48 @@ def update_user(
     )
     db.commit()
     db.refresh(user)
-    return user
+    return _user_admin_response(user, management)
+
+
+def _ensure_locally_managed_changes(
+    user: User,
+    payload: UserUpdateRequest,
+    management: UserManagementContext,
+) -> None:
+    provider_name = management.provider.name if management.provider is not None else "the identity provider"
+    if payload.password is not None and user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Password is managed by {provider_name} for this SSO-provisioned account",
+        )
+    if payload.email is not None and payload.email.lower() != user.email and user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Email is managed by {provider_name} for this SSO-provisioned account",
+        )
+    if payload.role is not None and payload.role != user.role and management.role_managed_by == "oidc":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Role is managed by {provider_name} and synchronized during SSO sign-in",
+        )
+
+
+def _user_admin_response(user: User, management: UserManagementContext) -> UserAdminResponse:
+    identity = management.identity
+    return UserAdminResponse(
+        id=user.id,
+        email=user.email,
+        role=user.role,
+        is_active=user.is_active,
+        is_approved=user.is_approved,
+        approved_at=user.approved_at,
+        created_at=user.created_at,
+        password_login_enabled=user.password_login_enabled,
+        provisioning_source=user.provisioning_source,
+        authentication_methods=management.authentication_methods(user),
+        oidc_provider_name=management.provider.name if management.provider is not None else None,
+        oidc_linked_at=identity.created_at if identity is not None else None,
+        oidc_last_login_at=identity.last_login_at if identity is not None else None,
+        password_managed_by=management.password_managed_by(user),
+        role_managed_by=management.role_managed_by,
+    )

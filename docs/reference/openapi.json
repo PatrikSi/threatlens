@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.4.0",
-    "x-threatlens-contract-sha256": "5b262d7502c014e40e10cec4070f9a4b8851ee5e293a740de986b4438560fb97"
+    "x-threatlens-contract-sha256": "e23d885e377cb3dd5632f336292541a31a298d14eacedc7a1cff2681650c50f2"
   },
   "servers": [
     {
@@ -10112,6 +10112,15 @@
             "title": "Password Login Enabled",
             "default": true
           },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
+          },
           "features": {
             "$ref": "#/components/schemas/AppFeaturesResponse"
           }
@@ -16807,6 +16816,79 @@
             "type": "boolean",
             "title": "Password Login Enabled",
             "default": true
+          },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
+          },
+          "authentication_methods": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "password",
+                "oidc"
+              ]
+            },
+            "type": "array",
+            "title": "Authentication Methods"
+          },
+          "oidc_provider_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Provider Name"
+          },
+          "oidc_linked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Linked At"
+          },
+          "oidc_last_login_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Oidc Last Login At"
+          },
+          "password_managed_by": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Password Managed By",
+            "default": "local"
+          },
+          "role_managed_by": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Role Managed By",
+            "default": "local"
           }
         },
         "type": "object",
@@ -16906,6 +16988,15 @@
             "type": "boolean",
             "title": "Password Login Enabled",
             "default": true
+          },
+          "provisioning_source": {
+            "type": "string",
+            "enum": [
+              "local",
+              "oidc"
+            ],
+            "title": "Provisioning Source",
+            "default": "local"
           }
         },
         "type": "object",

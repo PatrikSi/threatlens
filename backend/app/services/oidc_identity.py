@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.core.rbac import ALL_ROLES, ROLE_ADMIN, ROLE_ANALYST, ROLE_VIEWER
 from app.core.security import get_password_hash
 from app.models.oidc import ExternalIdentity, OIDCProvider
-from app.models.user import User
+from app.models.user import PROVISIONING_SOURCE_OIDC, User
 from app.services.oidc_client import OIDCClaims
 from app.services.user_access import (
     LastActiveAdminError,
@@ -156,6 +156,11 @@ def link_oidc_identity(
 
 
 def unlink_oidc_identity(db: Session, provider: OIDCProvider, user: User) -> ExternalIdentity:
+    if user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise OIDCIdentityError(
+            "sso_managed_account",
+            "SSO-provisioned accounts cannot unlink their managed sign-in identity",
+        )
     if not user.password_login_enabled:
         raise OIDCIdentityError(
             "local_login_required",
@@ -194,6 +199,7 @@ def _provision_identity(
         email=email,
         password_hash=get_password_hash(secrets.token_urlsafe(48)),
         password_login_enabled=False,
+        provisioning_source=PROVISIONING_SOURCE_OIDC,
         role=resolve_oidc_role(provider, oidc_claims.claims),
         is_active=True,
         is_approved=provider.auto_approve_users,

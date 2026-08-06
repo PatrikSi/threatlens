@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.core.rbac import ROLE_VIEWER
+from app.schemas.user import ProvisioningSource
 
 
 class LoginRequest(BaseModel):
@@ -62,6 +63,7 @@ class UserResponse(BaseModel):
     approved_at: datetime | None
     created_at: datetime
     password_login_enabled: bool = True
+    provisioning_source: ProvisioningSource = "local"
 
 
 class CurrentUserResponse(UserResponse):
