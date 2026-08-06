@@ -318,6 +318,7 @@ function resolveOidcError(errorCode: string): string {
     not_provisioned: 'No ThreatLens account is linked to this identity. Contact an administrator.',
     verified_email_required: 'The identity provider did not supply a verified email address.',
     provider_rejected: 'The identity provider did not complete sign-in.',
+    provider_unavailable: 'The SSO provider is temporarily unavailable. Try again later or contact an administrator.',
     invalid_state: 'The SSO request expired or could not be verified. Start sign-in again.',
   }
   return messages[errorCode] ?? 'SSO sign-in could not be completed. Try again or contact an administrator.'

@@ -163,4 +163,15 @@ describe('LoginPage accessibility', () => {
 
     expect(view.querySelector('[role="alert"]')?.textContent).toContain('Sign in locally')
   })
+
+  it('shows a useful OIDC provider availability error', async () => {
+    loginPageDomMocks.apiFetch.mockResolvedValue({ allow_self_registration: false })
+
+    const view = renderPage(['/login?oidc_error=provider_unavailable'])
+    await act(async () => {
+      await flushPromises()
+    })
+
+    expect(view.querySelector('[role="alert"]')?.textContent).toContain('temporarily unavailable')
+  })
 })
