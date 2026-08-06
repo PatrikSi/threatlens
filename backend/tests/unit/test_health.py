@@ -92,3 +92,31 @@ def test_worker_health_accepts_merged_worker_when_ai_enabled(monkeypatch):
     assert ok is True
     assert workers == {"worker@test": "pong"}
     assert queue_snapshot["missing"] == []
+
+
+def test_worker_health_logs_dependency_type_without_standard_traceback(monkeypatch):
+    warnings: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        health.celery_app.control,
+        "inspect",
+        lambda timeout: (_ for _ in ()).throw(RuntimeError("sensitive broker detail")),
+    )
+    monkeypatch.setattr(
+        health.logger,
+        "warning",
+        lambda message, *args, **kwargs: warnings.append((message, args, kwargs)),
+    )
+    settings = SimpleNamespace(health_worker_ping_timeout_seconds=1.0, ai_enabled=False, log_detail="standard")
+
+    ok, workers, queue_snapshot = health._worker_health_snapshot(settings)
+
+    assert ok is False
+    assert workers == {}
+    assert queue_snapshot["missing"] == ["ingest", "processing", "notifications", "maintenance"]
+    assert warnings == [
+        (
+            "worker_health_check_failed error_type=%s",
+            ("RuntimeError",),
+            {"exc_info": False},
+        )
+    ]
