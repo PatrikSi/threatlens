@@ -1,4 +1,3 @@
-import logging
 from types import SimpleNamespace
 
 from celery.schedules import crontab
@@ -15,6 +14,7 @@ from app.tasks.celery_app import (
     add_task_log_context,
     celery_app,
     complete_task_log_context,
+    logger as worker_logger,
     settings,
 )
 
@@ -58,25 +58,34 @@ def test_daily_brief_generation_checks_due_time_on_utc_minute_boundaries():
     assert reconciliation_schedule == 300.0
 
 
-def test_verbose_task_lifecycle_adds_context_without_logging_argument_values(monkeypatch, caplog):
+def test_verbose_task_lifecycle_adds_context_without_logging_argument_values(monkeypatch):
     monkeypatch.setattr(settings, "log_detail", "verbose")
+    debug_events: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+    monkeypatch.setattr(
+        worker_logger,
+        "debug",
+        lambda message, *args, **kwargs: debug_events.append((message, args, kwargs)),
+    )
     task = SimpleNamespace(
         name="app.tasks.example",
         request=SimpleNamespace(delivery_info={"routing_key": "processing"}),
     )
 
-    with caplog.at_level(logging.DEBUG, logger="threatlens.worker"):
-        add_task_log_context(
-            task_id="task-123",
-            task=task,
-            args=("sensitive-argument",),
-            kwargs={"api_key": "sensitive-key"},
-        )
-        assert get_log_context() == {"task_id": "task-123", "task_name": "app.tasks.example"}
-        complete_task_log_context(task_id="task-123", task=task, state="SUCCESS")
+    add_task_log_context(
+        task_id="task-123",
+        task=task,
+        args=("sensitive-argument",),
+        kwargs={"api_key": "sensitive-key"},
+    )
+    assert get_log_context() == {"task_id": "task-123", "task_name": "app.tasks.example"}
+    complete_task_log_context(task_id="task-123", task=task, state="SUCCESS")
 
     assert get_log_context() == {}
-    assert "task_started positional_arg_count=1 keyword_keys=['api_key']" in caplog.text
-    assert "task_complete state=SUCCESS" in caplog.text
-    assert "sensitive-argument" not in caplog.text
-    assert "sensitive-key" not in caplog.text
+    assert [event[0] for event in debug_events] == [
+        "task_started positional_arg_count=%s keyword_keys=%s",
+        "task_complete state=%s",
+    ]
+    assert debug_events[0][1] == (1, ["api_key"])
+    assert debug_events[1][1] == ("SUCCESS",)
+    assert "sensitive-argument" not in repr(debug_events)
+    assert "sensitive-key" not in repr(debug_events)
