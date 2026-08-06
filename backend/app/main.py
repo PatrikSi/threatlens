@@ -13,6 +13,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
+from app.core.api_errors import install_api_error_handlers
 from app.core.config import Settings, get_settings
 from app.core.logging_config import (
     configure_logging,
@@ -141,6 +142,7 @@ app = FastAPI(
     lifespan=app_lifespan,
     **_build_openapi_visibility_kwargs(settings),
 )
+install_api_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -168,15 +170,7 @@ async def request_logging_middleware(request: Request, call_next):
                 request.headers.get("user-agent", ""),
                 extra=_request_log_fields(request),
             )
-        try:
-            response = await call_next(request)
-        except Exception:
-            duration_ms = (time.perf_counter() - started_at) * 1000
-            logger.exception(
-                "request_failed",
-                extra=_request_log_fields(request, duration_ms=duration_ms),
-            )
-            raise
+        response = await call_next(request)
 
         duration_ms = (time.perf_counter() - started_at) * 1000
         response.headers["X-Request-ID"] = request_id

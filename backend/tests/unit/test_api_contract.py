@@ -28,6 +28,9 @@ def test_api_reference_markdown_describes_published_auth_contract():
     assert f"- Machine-readable OpenAPI schema through the web proxy: `{OPENAPI_PROXY_PATH}`" in reference
     assert "`ApiTokenBearer`: `http`" in reference
     assert "`SessionCookieAuth`: `apiKey`" in reference
+    assert "## Error Diagnostics" in reference
+    assert "`X-Request-ID`" in reference
+    assert "Validation responses do not echo submitted input values." in reference
     assert "/v1/auth/login" in reference
     assert "/api/v1/auth/login" in reference
 

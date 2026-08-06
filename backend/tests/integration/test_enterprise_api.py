@@ -2946,7 +2946,8 @@ def test_token_revocation_hides_foreign_token_ids_from_non_admins(
     missing_response = client.delete(f"/tokens/{uuid.uuid4()}", headers=auth_headers["viewer"])
 
     assert foreign_response.status_code == 404
-    assert foreign_response.json() == missing_response.json() == {"detail": "Token not found"}
+    assert foreign_response.json()["detail"] == missing_response.json()["detail"] == "Token not found"
+    assert foreign_response.json()["error"]["code"] == missing_response.json()["error"]["code"] == "not_found"
     db_session.refresh(foreign_token)
     assert foreign_token.revoked_at is None
 

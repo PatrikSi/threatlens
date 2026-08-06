@@ -73,6 +73,21 @@ def render_api_reference_markdown(
     else:
         lines.append("- None")
 
+    lines.extend(
+        [
+            "",
+            "## Error Diagnostics",
+            "",
+            (
+                "Error responses retain FastAPI's top-level `detail` field for compatibility and also include an "
+                "`error` object with a stable category in `code`, a display-safe `message`, the HTTP `status`, a "
+                "`retryable` hint, and a correlation `request_id`. The same correlation value is returned in the "
+                "`X-Request-ID` response header and can be used to locate the server-side log entry. Validation "
+                "responses do not echo submitted input values."
+            ),
+        ]
+    )
+
     for tag in ordered_tags:
         lines.extend(["", f"## {tag.title().replace('_', ' ')}", ""])
         for method, path, operation in operations_by_tag[tag]:
