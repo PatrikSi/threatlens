@@ -249,6 +249,7 @@ def test_oidc_jit_login_provisions_verified_user_and_maps_role(client, db_sessio
     assert user is not None
     assert user.role == "analyst"
     assert user.password_login_enabled is False
+    assert user.provisioning_source == "oidc"
     assert user.is_approved is True
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id))
     assert identity is not None
@@ -423,6 +424,7 @@ def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, 
 
 def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
     client,
+    auth_headers,
     db_session,
     seed_users,
     monkeypatch,
@@ -450,6 +452,13 @@ def test_oidc_link_and_unlink_flow_binds_identity_to_initiating_browser_session(
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.provider_id == provider.id))
     assert identity is not None
     assert identity.user_id == seed_users["analyst"].id
+
+    directory = client.get("/users", headers=auth_headers["admin"])
+    entry = next(user for user in directory.json() if user["id"] == str(seed_users["analyst"].id))
+    assert entry["provisioning_source"] == "local"
+    assert entry["authentication_methods"] == ["password", "oidc"]
+    assert entry["password_managed_by"] == "local"
+    assert entry["role_managed_by"] == "oidc"
 
     csrf_token = client.cookies.get("threatlens_csrf")
     assert csrf_token
@@ -743,7 +752,7 @@ def test_oidc_only_account_cannot_use_local_login_or_unlink(client, db_session, 
         headers={"X-CSRF-Token": csrf_token},
     )
     assert unlink.status_code == 400
-    assert "local password" in unlink.json()["detail"]
+    assert unlink.json()["detail"] == "SSO-provisioned accounts cannot unlink their managed sign-in identity"
     identity = db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "external-only"))
     assert identity is not None
 
@@ -780,7 +789,7 @@ def test_oidc_link_callback_rejects_a_session_revoked_after_link_start(
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "linked-subject")) is None
 
 
-def test_admin_password_reset_adds_local_recovery_to_oidc_only_account(
+def test_sso_provisioned_account_rejects_locally_managed_identity_changes(
     client,
     auth_headers,
     db_session,
@@ -796,27 +805,76 @@ def test_admin_password_reset_adds_local_recovery_to_oidc_only_account(
     user = db_session.scalar(select(User).where(User.email == "recovery@example.com"))
     assert user is not None
     assert user.password_login_enabled is False
+    assert user.provisioning_source == "oidc"
 
     reset = client.patch(
         f"/users/{user.id}",
         json={"password": "RecoveryPass123!"},
         headers=auth_headers["admin"],
     )
-    assert reset.status_code == 200
-    assert reset.json()["password_login_enabled"] is True
+    assert reset.status_code == 409
+    assert reset.json()["detail"] == "Password is managed by Acme SSO for this SSO-provisioned account"
 
-    client.cookies.clear()
-    local_login = client.post(
-        "/auth/login",
-        json={"email": user.email, "password": "RecoveryPass123!"},
+    role_update = client.patch(
+        f"/users/{user.id}",
+        json={"role": "analyst"},
+        headers=auth_headers["admin"],
     )
-    assert local_login.status_code == 200
+    assert role_update.status_code == 409
+    assert role_update.json()["detail"] == "Role is managed by Acme SSO and synchronized during SSO sign-in"
+
+    email_update = client.patch(
+        f"/users/{user.id}",
+        json={"email": "different@example.com"},
+        headers=auth_headers["admin"],
+    )
+    assert email_update.status_code == 409
+    assert email_update.json()["detail"] == "Email is managed by Acme SSO for this SSO-provisioned account"
+
     csrf_token = client.cookies.get("threatlens_csrf")
+    password_change = client.post(
+        "/auth/change-password",
+        json={"current_password": "unused", "new_password": "RecoveryPass123!"},
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    assert password_change.status_code == 403
+    assert password_change.json()["detail"] == (
+        "Password is managed by the identity provider for this SSO-provisioned account"
+    )
+
     unlink = client.request(
         "DELETE",
         "/auth/oidc/account",
-        json={"current_password": "RecoveryPass123!"},
+        json={"current_password": "unused"},
         headers={"X-CSRF-Token": csrf_token},
     )
-    assert unlink.status_code == 204
-    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "recovery-subject")) is None
+    assert unlink.status_code == 400
+    assert unlink.json()["detail"] == "SSO-provisioned accounts cannot unlink their managed sign-in identity"
+    assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "recovery-subject")) is not None
+
+
+def test_user_directory_describes_sso_account_management_boundaries(
+    client,
+    auth_headers,
+    db_session,
+    monkeypatch,
+):
+    provider = _configured_provider(db_session)
+    _mock_oidc_flow(
+        monkeypatch,
+        {"sub": "directory-subject", "email": "directory@example.com", "email_verified": True, "groups": []},
+    )
+    callback = _start_and_complete(client)
+    assert callback.headers["location"] == "http://testserver/"
+
+    response = client.get("/users", headers=auth_headers["admin"])
+
+    assert response.status_code == 200
+    entry = next(user for user in response.json() if user["email"] == "directory@example.com")
+    assert entry["provisioning_source"] == "oidc"
+    assert entry["authentication_methods"] == ["oidc"]
+    assert entry["oidc_provider_name"] == provider.name
+    assert entry["oidc_linked_at"] is not None
+    assert entry["oidc_last_login_at"] is not None
+    assert entry["password_managed_by"] == "oidc"
+    assert entry["role_managed_by"] == "oidc"

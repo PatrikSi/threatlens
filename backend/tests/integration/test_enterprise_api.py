@@ -1333,6 +1333,10 @@ def test_admin_can_list_users_for_user_directory(client: TestClient, auth_header
     assert len(payload) >= 1
     assert "email" in payload[0]
     assert "is_approved" in payload[0]
+    assert payload[0]["provisioning_source"] == "local"
+    assert payload[0]["authentication_methods"] == ["password"]
+    assert payload[0]["password_managed_by"] == "local"
+    assert payload[0]["role_managed_by"] == "local"
 
 
 def test_users_list_tolerates_legacy_invalid_email_values(client: TestClient, auth_headers, db_session):

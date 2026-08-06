@@ -16,7 +16,7 @@ from app.core.security import (
     verify_password,
 )
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import PROVISIONING_SOURCE_OIDC, User
 from app.schemas.auth import (
     AppFeaturesResponse,
     ChangePasswordRequest,
@@ -184,6 +184,7 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         approved_at=user.approved_at,
         created_at=user.created_at,
         password_login_enabled=user.password_login_enabled,
+        provisioning_source=user.provisioning_source,
         features=_resolve_app_features(db),
     )
 
@@ -195,6 +196,11 @@ def change_password(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
+    if user.provisioning_source == PROVISIONING_SOURCE_OIDC:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password is managed by the identity provider for this SSO-provisioned account",
+        )
     if not user.password_login_enabled:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
