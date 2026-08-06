@@ -64,6 +64,8 @@ def _request_with_cookie(cookie_name: str, cookie_value: str) -> Request:
 
 
 def test_oidc_provider_schema_requires_openid_and_unique_mapping_values():
+    assert OIDCProviderUpdateRequest().require_verified_email is True
+
     with pytest.raises(ValueError, match="must include openid"):
         OIDCProviderUpdateRequest(scopes=["profile"])
 

@@ -116,6 +116,7 @@ def update_oidc_provider(
     provider.default_role = payload.default_role
     provider.jit_provisioning_enabled = payload.jit_provisioning_enabled
     provider.auto_approve_users = payload.auto_approve_users
+    provider.require_verified_email = payload.require_verified_email
     provider.sync_roles_on_login = payload.sync_roles_on_login
     provider.updated_by_user_id = admin.id
     db.add(provider)
@@ -137,6 +138,7 @@ def update_oidc_provider(
             "identity_count": identity_count,
             "jit_provisioning_enabled": provider.jit_provisioning_enabled,
             "auto_approve_users": provider.auto_approve_users,
+            "require_verified_email": provider.require_verified_email,
             "sync_roles_on_login": provider.sync_roles_on_login,
             "role_claim": provider.role_claim,
             "role_mapping_count": len(provider.role_mappings_json),
