@@ -29,6 +29,7 @@ from app.services.oidc_client import (
     build_oidc_authorization_url,
     exchange_oidc_code,
     load_oidc_metadata,
+    oidc_failure_reason,
     validate_oidc_token_claims,
 )
 from app.services.oidc_config import (
@@ -53,8 +54,13 @@ logger = logging.getLogger("threatlens.oidc")
 
 
 @session_router.get("/login")
-def start_oidc_login(db: Session = Depends(get_db)):
-    return _start_oidc_flow(db, mode="login")
+def start_oidc_login(request: Request, db: Session = Depends(get_db)):
+    try:
+        return _start_oidc_flow(db, mode="login")
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE and _accepts_html(request):
+            return _callback_redirect(load_primary_oidc_provider(db), "/login", {"oidc_error": "provider_unavailable"})
+        raise
 
 
 @session_router.post("/link", response_model=OIDCStartResponse)
@@ -197,6 +203,14 @@ def _prepare_oidc_flow(
             code_verifier=transaction.code_verifier,
         )
     except (OIDCConfigurationError, OIDCProtocolError, ValueError) as exc:
+        reason = oidc_failure_reason(exc)
+        logger.warning(
+            "oidc_start_failed provider_id=%s mode=%s error_type=%s reason=%s",
+            provider.id,
+            mode,
+            type(exc).__name__,
+            reason,
+        )
         record_audit(
             db,
             actor_user_id=user.id if user else None,
@@ -204,7 +218,7 @@ def _prepare_oidc_flow(
             resource_type="oidc_provider",
             resource_id=str(provider.id),
             success=False,
-            metadata={"mode": mode, "error_type": type(exc).__name__},
+            metadata={"mode": mode, "error_type": type(exc).__name__, "reason": reason},
         )
         db.commit()
         raise HTTPException(
@@ -229,6 +243,10 @@ def _prepare_oidc_flow(
         ) from exc
 
     return authorization_url, transaction
+
+
+def _accepts_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "").lower()
 
 
 def _provider_for_transaction(db: Session, provider_id: str | None) -> OIDCProvider | None:
