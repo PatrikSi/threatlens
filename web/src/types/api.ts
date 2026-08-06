@@ -7,6 +7,18 @@ export interface User {
   approved_at: string | null
   created_at: string
   password_login_enabled?: boolean
+  provisioning_source?: 'local' | 'oidc'
+}
+
+export interface AdminUser extends User {
+  password_login_enabled: boolean
+  provisioning_source: 'local' | 'oidc'
+  authentication_methods: Array<'password' | 'oidc'>
+  oidc_provider_name: string | null
+  oidc_linked_at: string | null
+  oidc_last_login_at: string | null
+  password_managed_by: 'local' | 'oidc'
+  role_managed_by: 'local' | 'oidc'
 }
 
 export interface AppFeatures {

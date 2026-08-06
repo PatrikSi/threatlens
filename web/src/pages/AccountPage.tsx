@@ -22,7 +22,8 @@ export function AccountPage() {
     queryKey: ['auth', 'oidc', 'account'],
     queryFn: () => apiFetch<OIDCAccountStatus>('/auth/oidc/account'),
   })
-  const passwordLoginEnabled = meQuery.data?.password_login_enabled !== false
+  const ssoProvisioned = meQuery.data?.provisioning_source === 'oidc'
+  const passwordLoginEnabled = !ssoProvisioned && meQuery.data?.password_login_enabled !== false
   const passwordDraftDirty =
     currentPassword.trim().length > 0 || newPassword.trim().length > 0 || unlinkPassword.trim().length > 0
   const confirmDiscardPasswordDraft = useUnsavedChangesWarning(
@@ -48,7 +49,9 @@ export function AccountPage() {
       markLoggedOut()
       navigate('/login', {
         replace: true,
-        state: { authMessage: 'Password updated. Sign in again with your new password.' },
+        state: {
+          authMessage: 'Password updated. Sign in again with your new password.',
+        },
       })
     },
   })
@@ -60,7 +63,9 @@ export function AccountPage() {
       }),
     onSuccess: async () => {
       setUnlinkPassword('')
-      await queryClient.invalidateQueries({ queryKey: ['auth', 'oidc', 'account'] })
+      await queryClient.invalidateQueries({
+        queryKey: ['auth', 'oidc', 'account'],
+      })
     },
   })
   const linkOidc = useMutation({
@@ -94,6 +99,10 @@ export function AccountPage() {
               <span className="font-semibold">Role:</span> {meQuery.data.role}
             </p>
             <p>
+              <span className="font-semibold">Account type:</span>{' '}
+              {resolveAccountTypeLabel(ssoProvisioned, oidcStatusQuery.data?.linked === true)}
+            </p>
+            <p>
               <span className="font-semibold">Status:</span> {meQuery.data.is_active ? 'active' : 'inactive'}
             </p>
             <p>
@@ -105,7 +114,9 @@ export function AccountPage() {
 
       <section className="tl-surface rounded-xl p-4">
         <h2 className="font-display text-xl">Single Sign-On</h2>
-        {oidcStatusQuery.isLoading && <p className="mt-2 text-sm text-slate dark:text-slate-300">Loading identity status...</p>}
+        {oidcStatusQuery.isLoading && (
+          <p className="mt-2 text-sm text-slate dark:text-slate-300">Loading identity status...</p>
+        )}
         {oidcStatusQuery.isError && (
           <p role="alert" className="mt-2 text-sm text-red-600 dark:text-red-300">
             Identity status could not be loaded.
@@ -120,9 +131,16 @@ export function AccountPage() {
                   {oidcStatusQuery.data.linked_email ? ` as ${oidcStatusQuery.data.linked_email}` : ''}.
                 </p>
                 {oidcStatusQuery.data.linked_at && (
-                  <p className="mt-1 text-slate dark:text-slate-300">Linked {formatDateTime(oidcStatusQuery.data.linked_at)}</p>
+                  <p className="mt-1 text-slate dark:text-slate-300">
+                    Linked {formatDateTime(oidcStatusQuery.data.linked_at)}
+                  </p>
                 )}
-                {passwordLoginEnabled ? (
+                {ssoProvisioned ? (
+                  <p className="mt-3 text-slate dark:text-slate-300">
+                    This account and its sign-in identity are managed by{' '}
+                    {oidcStatusQuery.data.provider_name || 'the identity provider'}.
+                  </p>
+                ) : passwordLoginEnabled ? (
                   <form
                     className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-end"
                     onSubmit={(event) => {
@@ -156,7 +174,8 @@ export function AccountPage() {
                   </form>
                 ) : (
                   <p className="mt-3 text-slate dark:text-slate-300">
-                    This is the only sign-in method for the account. An administrator must set a local password before it can be unlinked.
+                    This is the only sign-in method for the account. An administrator must set a local password before
+                    it can be unlinked.
                   </p>
                 )}
                 {unlinkOidc.isError && (
@@ -195,16 +214,79 @@ export function AccountPage() {
           </div>
         )}
         {resolveOidcLinkNotice() && (
-          <p role={resolveOidcLinkNotice()?.error ? 'alert' : 'status'} className="mt-3 text-sm text-slate dark:text-slate-200">
+          <p
+            role={resolveOidcLinkNotice()?.error ? 'alert' : 'status'}
+            className="mt-3 text-sm text-slate dark:text-slate-200"
+          >
             {resolveOidcLinkNotice()?.message}
           </p>
         )}
       </section>
 
-      <section className="tl-surface rounded-xl p-4 lg:col-start-2">
-        <h2 className="font-display text-xl">Change Password</h2>
-        {passwordLoginEnabled ? (
-          <form className="mt-3 space-y-3" onSubmit={onSubmit} noValidate>
+      <PasswordManagementSection
+        ssoProvisioned={ssoProvisioned}
+        passwordLoginEnabled={passwordLoginEnabled}
+        providerName={oidcStatusQuery.data?.provider_name}
+        currentPassword={currentPassword}
+        newPassword={newPassword}
+        passwordFormError={passwordFormError}
+        mutationError={changePassword.isError ? changePassword.error : null}
+        isPending={changePassword.isPending}
+        onCurrentPasswordChange={(value) => {
+          setCurrentPassword(value)
+          setPasswordFormError('')
+        }}
+        onNewPasswordChange={(value) => {
+          setNewPassword(value)
+          setPasswordFormError('')
+        }}
+        onSubmit={onSubmit}
+      />
+    </div>
+  )
+}
+
+function resolveAccountTypeLabel(ssoProvisioned: boolean, oidcLinked: boolean) {
+  if (ssoProvisioned) {
+    return 'SSO-provisioned'
+  }
+  return oidcLinked ? 'Local + SSO' : 'Local'
+}
+
+function PasswordManagementSection({
+  ssoProvisioned,
+  passwordLoginEnabled,
+  providerName,
+  currentPassword,
+  newPassword,
+  passwordFormError,
+  mutationError,
+  isPending,
+  onCurrentPasswordChange,
+  onNewPasswordChange,
+  onSubmit,
+}: {
+  ssoProvisioned: boolean
+  passwordLoginEnabled: boolean
+  providerName?: string | null
+  currentPassword: string
+  newPassword: string
+  passwordFormError: string
+  mutationError: unknown
+  isPending: boolean
+  onCurrentPasswordChange: (value: string) => void
+  onNewPasswordChange: (value: string) => void
+  onSubmit: (event: FormEvent) => void
+}) {
+  return (
+    <section className="tl-surface rounded-xl p-4 lg:col-start-2">
+      <h2 className="font-display text-xl">Change Password</h2>
+      {ssoProvisioned ? (
+        <p className="mt-3 text-sm text-slate dark:text-slate-300">
+          Password credentials are managed by {providerName || 'the identity provider'}.
+        </p>
+      ) : passwordLoginEnabled ? (
+        <form className="mt-3 space-y-3" onSubmit={onSubmit} noValidate>
           <div>
             <label htmlFor="account-current-password" className="text-sm font-semibold">
               Current password
@@ -214,10 +296,7 @@ export function AccountPage() {
               type="password"
               autoComplete="current-password"
               value={currentPassword}
-              onChange={(event) => {
-                setCurrentPassword(event.target.value)
-                setPasswordFormError('')
-              }}
+              onChange={(event) => onCurrentPasswordChange(event.target.value)}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               required
             />
@@ -232,10 +311,7 @@ export function AccountPage() {
               autoComplete="new-password"
               minLength={8}
               value={newPassword}
-              onChange={(event) => {
-                setNewPassword(event.target.value)
-                setPasswordFormError('')
-              }}
+              onChange={(event) => onNewPasswordChange(event.target.value)}
               className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
               required
             />
@@ -245,22 +321,21 @@ export function AccountPage() {
               {passwordFormError}
             </p>
           )}
-          {changePassword.isError && !passwordFormError && (
+          {Boolean(mutationError) && !passwordFormError && (
             <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600 dark:text-red-300">
-              {formatPasswordChangeError(changePassword.error)}
+              {formatPasswordChangeError(mutationError)}
             </p>
           )}
-          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={changePassword.isPending}>
+          <button className="rounded bg-ink px-3 py-2 text-white dark:bg-cyan dark:text-[#053c2e]" disabled={isPending}>
             Update password
           </button>
-          </form>
-        ) : (
-          <p className="mt-3 text-sm text-slate dark:text-slate-300">
-            Local password sign-in is not configured for this account. An administrator can set a local password from Users.
-          </p>
-        )}
-      </section>
-    </div>
+        </form>
+      ) : (
+        <p className="mt-3 text-sm text-slate dark:text-slate-300">
+          Local password sign-in is not configured for this account.
+        </p>
+      )}
+    </section>
   )
 }
 
@@ -308,5 +383,8 @@ function resolveOidcLinkNotice(): { message: string; error: boolean } | null {
     link_session_expired: 'The account-linking session expired. Start the link again.',
     invalid_state: 'The account-linking request expired or could not be verified.',
   }
-  return { message: messages[result] ?? 'The SSO identity could not be linked.', error: true }
+  return {
+    message: messages[result] ?? 'The SSO identity could not be linked.',
+    error: true,
+  }
 }

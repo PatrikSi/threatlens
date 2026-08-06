@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot, Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import type { AdminUser } from '../types/api'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const usersPageDomMocks = vi.hoisted(() => ({
@@ -41,8 +42,16 @@ const usersPageDomMocks = vi.hoisted(() => ({
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
       created_at: '2026-04-19T10:00:00Z',
+      password_login_enabled: true,
+      provisioning_source: 'local',
+      authentication_methods: ['password'],
+      oidc_provider_name: null,
+      oidc_linked_at: null,
+      oidc_last_login_at: null,
+      password_managed_by: 'local',
+      role_managed_by: 'local',
     },
-  ],
+  ] as AdminUser[],
 }))
 
 const routerMocks = vi.hoisted(() => {
@@ -67,12 +76,12 @@ vi.mock('@tanstack/react-query', () => ({
     error: null,
   }),
   useMutation: () => ({
-      mutate: usersPageDomMocks.mutate,
-      isPending: false,
-      isError: false,
-      error: null,
-      variables: null,
-    }),
+    mutate: usersPageDomMocks.mutate,
+    isPending: false,
+    isError: false,
+    error: null,
+    variables: null,
+  }),
 }))
 
 vi.mock('react-router-dom', async () => {
@@ -141,6 +150,14 @@ afterEach(() => {
       is_approved: true,
       approved_at: '2026-04-20T10:00:00Z',
       created_at: '2026-04-19T10:00:00Z',
+      password_login_enabled: true,
+      provisioning_source: 'local',
+      authentication_methods: ['password'],
+      oidc_provider_name: null,
+      oidc_linked_at: null,
+      oidc_last_login_at: null,
+      password_managed_by: 'local',
+      role_managed_by: 'local',
     },
   ]
   usersPageDomMocks.currentUser = {
@@ -174,14 +191,17 @@ describe('UsersPage DOM workflows', () => {
   it('progressively discloses mobile create and user management controls', () => {
     const view = renderPage()
     const createForm = view.querySelector<HTMLElement>('#create-user-form')
-    const createToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'New user')
+    const createToggle = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'New local user',
+    )
     const userSettings = view.querySelector<HTMLElement>('#user-settings-user-1')
     const userManagement = view.querySelector<HTMLElement>('#user-management-user-1')
-    const manageToggle = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Manage')
+    const manageToggle = Array.from(view.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Manage',
+    )
 
     expect(createForm?.className).toContain('hidden')
     expect(createToggle?.getAttribute('aria-expanded')).toBe('false')
-    expect(userSettings?.className).toContain('hidden')
     expect(userManagement?.className).toContain('hidden')
 
     act(() => {
@@ -189,11 +209,43 @@ describe('UsersPage DOM workflows', () => {
       manageToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
 
-    expect(createForm?.className).toContain('block')
+    expect(createForm?.className).toContain('grid')
     expect(createToggle?.getAttribute('aria-expanded')).toBe('true')
-    expect(userSettings?.className).toContain('flex')
+    expect(userSettings?.className).toContain('grid')
     expect(userManagement?.className).toContain('block')
     expect(manageToggle?.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('shows SSO ownership and omits locally managed credential and role controls', () => {
+    usersPageDomMocks.usersData = [
+      {
+        id: 'user-1',
+        email: 'sso-user@example.com',
+        role: 'viewer',
+        is_active: true,
+        is_approved: true,
+        approved_at: '2026-04-20T10:00:00Z',
+        created_at: '2026-04-19T10:00:00Z',
+        password_login_enabled: false,
+        provisioning_source: 'oidc',
+        authentication_methods: ['oidc'],
+        oidc_provider_name: 'Authentik',
+        oidc_linked_at: '2026-04-19T10:00:00Z',
+        oidc_last_login_at: '2026-04-21T10:00:00Z',
+        password_managed_by: 'oidc',
+        role_managed_by: 'oidc',
+      },
+    ]
+
+    const view = renderPage()
+
+    expect(view.textContent).toContain('SSO-provisioned')
+    expect(view.textContent).toContain('Sign-in: SSO')
+    expect(view.textContent).toContain('Provider: Authentik')
+    expect(view.textContent).toContain('Managed by Authentik')
+    expect(view.textContent).toContain('Credentials are managed by Authentik')
+    expect(view.querySelector('#user-role-user-1')).toBeNull()
+    expect(view.querySelector('#user-reset-password-user-1')).toBeNull()
   })
 
   it('reviews the create-user request before posting it', () => {
@@ -220,12 +272,14 @@ describe('UsersPage DOM workflows', () => {
       createForm!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     })
 
-    expect(pageText()).toContain('Create user account?')
+    expect(pageText()).toContain('Create local user account?')
     expect(pageText()).toContain('admin@example.com')
     expect(pageText()).toContain('This account will have full administrative access on first sign-in.')
     expect(pageText()).toContain('The account will skip the pending-approval state.')
 
-    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Create user')
+    const confirmButton = Array.from(document.querySelectorAll('button')).find(
+      (button) => button.textContent?.trim() === 'Create local user',
+    )
     expect(confirmButton).not.toBeNull()
 
     act(() => {
@@ -245,7 +299,7 @@ describe('UsersPage DOM workflows', () => {
     const view = renderPage()
 
     expect(view.querySelector('label[for="create-user-email"]')?.textContent).toContain('Email')
-    expect(view.querySelector('label[for="create-user-password"]')?.textContent).toContain('Password')
+    expect(view.querySelector('label[for="create-user-password"]')?.textContent?.toLowerCase()).toContain('password')
     expect(view.querySelector('label[for="create-user-role"]')?.textContent).toContain('Role')
     expect(view.querySelector('label[for="user-directory-search"]')?.textContent).toContain('Search users')
     expect(view.querySelector('label[for="user-role-user-1"]')?.textContent).toContain('Role for analyst@example.com')
@@ -255,7 +309,7 @@ describe('UsersPage DOM workflows', () => {
 
     const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-user-1')
     const reviewButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Review user changes'),
+      button.textContent?.includes('Review changes'),
     )
 
     expect(roleSelect).not.toBeNull()
@@ -319,17 +373,25 @@ describe('UsersPage DOM workflows', () => {
         is_approved: true,
         approved_at: '2026-04-20T10:00:00Z',
         created_at: '2026-04-19T10:00:00Z',
+        password_login_enabled: true,
+        provisioning_source: 'local',
+        authentication_methods: ['password'],
+        oidc_provider_name: null,
+        oidc_linked_at: null,
+        oidc_last_login_at: null,
+        password_managed_by: 'local',
+        role_managed_by: 'local',
       },
     ]
 
     const view = renderPage()
     const roleSelect = view.querySelector<HTMLSelectElement>('#user-role-admin-1')
-    const controls = roleSelect?.parentElement
+    const controls = view.querySelector('#user-settings-admin-1')
     const rowCheckboxes = Array.from(controls?.querySelectorAll<HTMLInputElement>('input[type="checkbox"]') ?? [])
     const activeCheckbox = rowCheckboxes[0]
     const approvedCheckbox = rowCheckboxes[1]
     const reviewButton = Array.from(view.querySelectorAll('button')).find((button) =>
-      button.textContent?.includes('Review user changes'),
+      button.textContent?.includes('Review changes'),
     )
 
     expect(roleSelect).not.toBeNull()
