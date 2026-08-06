@@ -82,7 +82,15 @@ Provisioning and role mapping:
 - Optional role synchronization runs at each OIDC login. A role change rotates browser sessions and revokes active API tokens. A mapping can never demote the final active, approved admin.
 - Once identities are linked, the provider issuer and client ID cannot be changed. Unlink identities first or retain the existing provider identity key.
 
-Local password login remains available as a break-glass path. Keep at least one active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts do not have local password login until an admin sets a password from **Users**.
+Account ownership and administration:
+
+- Every account has a durable provisioning source: `local` or `oidc`. Linking a local account to OIDC does not change its local provisioning source.
+- The user directory identifies local, SSO-provisioned, and local-plus-SSO accounts and lists their available sign-in methods.
+- Passwords and email identifiers for SSO-provisioned accounts remain owned by the identity provider. ThreatLens does not expose local password reset, email edit, or identity unlink actions for these accounts.
+- A linked local account retains its local password and may unlink OIDC after password confirmation.
+- When role synchronization is enabled, linked users' roles are read-only in ThreatLens because the next OIDC login would otherwise overwrite a local edit. Active and approved status remain locally managed so administrators can suspend or approve access independently of the provider.
+
+Local password login remains available as a break-glass path for local accounts. Keep at least one separate active, approved local admin and test that credential before enabling SSO. JIT-created OIDC accounts remain provider-managed and cannot be converted into local accounts by assigning a password.
 
 Authentik 2025.10 and newer returns `email_verified=false` by default. The preferred fix is a custom `email` scope mapping backed by a real verification attribute. For isolated deployments that already trust Authentik's user enrollment and email assignment, disable **Require verified email** in ThreatLens after reviewing the resulting JIT provisioning risk. See Authentik's [email scope verification guidance](https://docs.goauthentik.io/add-secure-apps/providers/oauth2/#email-scope-verification).
 
