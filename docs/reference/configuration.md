@@ -105,7 +105,13 @@
 | `SEED_ADMIN_FORCE_ROLE` (`seed_admin_force_role`) | `false` | Forces existing admin email user role to `admin` during seeding. |
 | `SEED_ADMIN_REACTIVATE_EXISTING` (`seed_admin_reactivate_existing`) | `false` | Reactivates existing admin email user during seeding. |
 | `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP` (`seed_admin_reset_password_on_startup`) | `false` | Resets existing admin email user password to `ADMIN_PASSWORD` during seeding. Leave disabled except for an intentional one-time reset. |
-| `LOG_LEVEL` (`log_level`) | `INFO` | Application log verbosity. |
+| `LOG_LEVEL` (`log_level`) | `INFO` | Shared API, worker, and Beat threshold: `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Invalid values fail startup. |
+| `LOG_FORMAT` (`log_format`) | `text` | `text` for human-readable console logs or newline-delimited `json` for log collectors. |
+| `LOG_DETAIL` (`log_detail`) | `standard` | `verbose` adds safe request-start diagnostics and debug lifecycle events when `LOG_LEVEL=DEBUG`; bodies and credentials remain excluded. |
+| `LOG_INCLUDE_CLIENT_IP` (`log_include_client_ip`) | `false` | Include the direct client address in request logs. This may be personal data. |
+| `LOG_SLOW_REQUEST_MS` (`log_slow_request_ms`) | `1000` | Promote successful requests at or above this duration to warning logs. |
+| `LOG_MAX_EVENT_CHARS` (`log_max_event_chars`) | `20000` | Per-message and exception text bound before diagnostic output is truncated. |
+| `LOG_SQL` (`log_sql`) | `false` | Emit SQLAlchemy statements at `INFO`; bound parameter values are always hidden. |
 | `HEALTH_WORKER_PING_TIMEOUT_SECONDS` (`health_worker_ping_timeout_seconds`) | `1.0` | Timeout for Celery worker ping checks on `/health/worker`. |
 | `BEAT_HEARTBEAT_KEY` (`beat_heartbeat_key`) | `threatlens:beat:heartbeat` | Redis key where the Beat-to-worker heartbeat task writes timestamps. |
 | `BEAT_SCHEDULER_HEARTBEAT_KEY` (`beat_scheduler_heartbeat_key`) | `threatlens:beat:scheduler-heartbeat` | Redis key updated directly after each successful Celery Beat scheduler tick. |
@@ -155,6 +161,7 @@ Outside production:
 - For a local first run, `./bootstrap.sh` generates `.env` with fresh random secrets, HTTP-friendly local settings, and one-time admin seeding enabled.
 - For Portainer, run `./bootstrap.sh --print-compose-env`, then replace the `x-db-environment`, `x-redis-environment`, and `x-backend-environment` blocks at the top of the compose file with the generated YAML mapping before deploying.
 - If Postgres logs `Role "threatlens" does not exist`, the `postgres_data` volume was initialized before the matching `.env` values were present. For a disposable local install, run `docker compose down -v` and start again.
+
 - The default ThreatLens application images point at GitHub Container Registry:
   - `ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}` for `api`, `worker`, `worker-maintenance`, `worker-notifications`, and `beat`
   - `ghcr.io/patriksi/threatlens-web:${THREATLENS_IMAGE_TAG:-latest}` for `web`
@@ -172,6 +179,27 @@ Outside production:
 - The same compose injects secure defaults for `APP_ENV`, `AUTH_COOKIE_SECURE`, `AUTH_REQUIRE_CSRF`, and `REQUIRE_EXPLICIT_DATA_ENCRYPTION_KEY=true`. It intentionally lets Docker allocate project-scoped networks so multiple stacks do not collide. Set `TRUSTED_PROXY_CIDRS` only when you need the API to trust `X-Forwarded-For` from exact reverse-proxy hops you control.
 - `docker-compose.build.yml` forwards exported `APP_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every locally built ThreatLens image as OCI label args. Export them before running the source-build override if you want local image metadata to capture the app version, checked-out revision, and build time; otherwise `APP_VERSION` falls back to the checked-in compose default and the provenance labels fall back to `unknown`.
 - `WEB_VITE_API_BASE_URL` from `.env` is passed to the web image as `VITE_API_BASE_URL` and defaults to `/api/v1`. For non-proxied deployments, set it to a full versioned API origin such as `https://api.example.com/v1`.
+
+## Diagnostic Logging
+
+The default is compact human-readable output. For a temporary high-detail troubleshooting session, set:
+
+```dotenv
+LOG_LEVEL=DEBUG
+LOG_DETAIL=verbose
+LOG_FORMAT=text
+```
+
+Use `LOG_FORMAT=json` when shipping logs to Loki, ELK, Splunk, or another structured collector. Request and task identifiers are emitted as first-class fields in JSON and as `key=value` context in text logs.
+
+Verbose mode does not log request or response bodies, cookies, authorization or CSRF headers, passwords, API keys, SMTP credentials, OIDC tokens, or client secrets. Common credential patterns in exception messages are redacted, SQL parameter values remain hidden, and oversized events are truncated. `LOG_INCLUDE_CLIENT_IP` and `LOG_SQL` are separate opt-ins because they have privacy and volume implications.
+
+Apply logging changes by recreating the backend processes:
+
+```bash
+docker compose up -d --force-recreate api worker worker-maintenance worker-notifications beat
+docker compose logs -f api worker worker-maintenance worker-notifications beat
+```
 
 ## Frontend Runtime Values (`web/src/api/client.ts`)
 

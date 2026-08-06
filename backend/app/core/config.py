@@ -221,6 +221,12 @@ class Settings(BaseSettings):
     stats_top_domains_limit: int = 10
 
     log_level: str = "INFO"
+    log_format: str = "text"
+    log_detail: str = "standard"
+    log_include_client_ip: bool = False
+    log_slow_request_ms: int = 1000
+    log_max_event_chars: int = 20_000
+    log_sql: bool = False
     health_worker_ping_timeout_seconds: float = 1.0
     beat_heartbeat_key: str = "threatlens:beat:heartbeat"
     beat_scheduler_heartbeat_key: str = "threatlens:beat:scheduler-heartbeat"
@@ -309,7 +315,33 @@ class Settings(BaseSettings):
     @field_validator("log_level", mode="before")
     @classmethod
     def _normalize_log_level(cls, value):
-        return str(value).strip().upper() or "INFO"
+        normalized = str(value).strip().upper() or "INFO"
+        if normalized not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError("log_level must be one of: DEBUG, INFO, WARNING, ERROR, CRITICAL")
+        return normalized
+
+    @field_validator("log_format", mode="before")
+    @classmethod
+    def _normalize_log_format(cls, value):
+        normalized = str(value).strip().lower() or "text"
+        if normalized not in {"text", "json"}:
+            raise ValueError("log_format must be one of: text, json")
+        return normalized
+
+    @field_validator("log_detail", mode="before")
+    @classmethod
+    def _normalize_log_detail(cls, value):
+        normalized = str(value).strip().lower() or "standard"
+        if normalized not in {"standard", "verbose"}:
+            raise ValueError("log_detail must be one of: standard, verbose")
+        return normalized
+
+    @field_validator("log_slow_request_ms", "log_max_event_chars")
+    @classmethod
+    def _validate_positive_logging_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Logging limits must be greater than zero")
+        return value
 
     @field_validator(
         "beat_heartbeat_ttl_seconds",

@@ -154,6 +154,8 @@ docker compose logs -f beat
 docker compose logs -f web
 ```
 
+For temporary deep diagnostics, set `LOG_LEVEL=DEBUG` and `LOG_DETAIL=verbose` in `.env`, then recreate the API, workers, and Beat. Set `LOG_FORMAT=json` for structured collectors. ThreatLens excludes request bodies and credential-bearing headers and redacts common secret patterns even in verbose mode; see [Configuration](docs/reference/configuration.md#diagnostic-logging) for the complete controls.
+
 If the first startup fails with `Role "threatlens" does not exist`, an old PostgreSQL volume was likely initialized before the generated `.env` was in place. For a new install with no data to keep, reset the local volumes:
 
 ```bash
@@ -195,9 +197,9 @@ Worker and scheduler:
 
 ```bash
 cd backend
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=default,ingest,processing,ai -n 'worker@%h'
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=maintenance -n 'maintenance@%h'
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel=INFO --queues=notifications -n 'notifications@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing,ai -n 'worker@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance -n 'maintenance@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog
 ```
 

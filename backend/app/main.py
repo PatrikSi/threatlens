@@ -14,6 +14,13 @@ from fastapi.openapi.utils import get_openapi
 from fastapi.routing import APIRoute
 
 from app.core.config import Settings, get_settings
+from app.core.logging_config import (
+    configure_logging,
+    log_configuration_summary,
+    reset_log_context,
+    set_log_context,
+    verbose_logging_enabled,
+)
 from app.db import session as db_session
 from app.api.routes import (
     ai,
@@ -37,7 +44,7 @@ from app.services.encrypted_data_inventory import record_startup_encrypted_data_
 from app.version import get_app_version
 
 settings = get_settings()
-logging.basicConfig(level=getattr(logging, settings.log_level, logging.INFO))
+configure_logging(settings)
 logger = logging.getLogger("threatlens.api")
 _REQUEST_ID_ALLOWED_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
 API_VERSION = "v1"
@@ -89,6 +96,7 @@ def _should_mount_legacy_api_aliases(active_settings: Settings) -> bool:
 
 @asynccontextmanager
 async def app_lifespan(_application: FastAPI):
+    log_configuration_summary(settings, logger=logger)
     if settings.allow_insecure_http_oidc:
         logger.warning(
             "insecure_http_oidc_enabled OIDC authorization codes, tokens, and identity claims may traverse plaintext HTTP"
@@ -148,31 +156,66 @@ if settings.allowed_hosts:
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     request_id = _normalize_request_id(request.headers.get("x-request-id"))
+    request.state.request_id = request_id
+    context_token = set_log_context(request_id=request_id)
     started_at = time.perf_counter()
     try:
-        response = await call_next(request)
-    except Exception:
-        duration_ms = (time.perf_counter() - started_at) * 1000
-        logger.exception(
-            "request_failed method=%s path=%s duration_ms=%.2f request_id=%s",
-            request.method,
-            request.url.path,
-            duration_ms,
-            request_id,
-        )
-        raise
+        if verbose_logging_enabled(settings):
+            logger.debug(
+                "request_started query_keys=%s content_type=%s user_agent=%s",
+                sorted(set(request.query_params.keys())),
+                request.headers.get("content-type", ""),
+                request.headers.get("user-agent", ""),
+                extra=_request_log_fields(request),
+            )
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (time.perf_counter() - started_at) * 1000
+            logger.exception(
+                "request_failed",
+                extra=_request_log_fields(request, duration_ms=duration_ms),
+            )
+            raise
 
-    duration_ms = (time.perf_counter() - started_at) * 1000
-    response.headers["X-Request-ID"] = request_id
-    logger.info(
-        "request_complete method=%s path=%s status=%s duration_ms=%.2f request_id=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration_ms,
-        request_id,
-    )
-    return response
+        duration_ms = (time.perf_counter() - started_at) * 1000
+        response.headers["X-Request-ID"] = request_id
+        completion_level = _request_completion_log_level(response.status_code, duration_ms)
+        logger.log(
+            completion_level,
+            "request_complete",
+            extra=_request_log_fields(request, status=response.status_code, duration_ms=duration_ms),
+        )
+        return response
+    finally:
+        reset_log_context(context_token)
+
+
+def _request_log_fields(
+    request: Request,
+    *,
+    status: int | None = None,
+    duration_ms: float | None = None,
+) -> dict[str, object]:
+    route = request.scope.get("route")
+    fields: dict[str, object] = {
+        "method": request.method,
+        "path": request.url.path,
+        "route": getattr(route, "path", None),
+        "status": status,
+        "duration_ms": round(duration_ms, 2) if duration_ms is not None else None,
+    }
+    if settings.log_include_client_ip:
+        fields["client_ip"] = request.client.host if request.client else "unknown"
+    return fields
+
+
+def _request_completion_log_level(status_code: int, duration_ms: float) -> int:
+    if status_code >= 500:
+        return logging.ERROR
+    if duration_ms >= settings.log_slow_request_ms:
+        return logging.WARNING
+    return logging.INFO
 
 
 def _normalize_request_id(raw_request_id: str | None) -> str:

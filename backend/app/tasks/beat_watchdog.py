@@ -6,18 +6,25 @@ import time
 from collections.abc import Callable, Sequence
 
 from app.core.config import Settings, get_settings
+from app.core.logging_config import configure_logging, log_configuration_summary
 from app.services.beat_heartbeat import BeatHeartbeatSnapshot, read_beat_heartbeat
 
 logger = logging.getLogger(__name__)
 
-BEAT_COMMAND = (
+BEAT_COMMAND_PREFIX = (
     "celery",
     "-A",
     "app.tasks.celery_app.celery_app",
     "beat",
-    "--loglevel=INFO",
-    "--scheduler=app.tasks.beat_scheduler:WatchdogPersistentScheduler",
 )
+
+
+def build_beat_command(settings: Settings) -> tuple[str, ...]:
+    return (
+        *BEAT_COMMAND_PREFIX,
+        f"--loglevel={settings.log_level}",
+        "--scheduler=app.tasks.beat_scheduler:WatchdogPersistentScheduler",
+    )
 
 
 def load_scheduler_heartbeat(settings: Settings) -> BeatHeartbeatSnapshot:
@@ -76,7 +83,7 @@ def monitor_beat_process(
         sleep(check_interval_seconds)
 
 
-def run_beat(settings: Settings, command: Sequence[str] = BEAT_COMMAND) -> int:
+def run_beat(settings: Settings, command: Sequence[str] | None = None) -> int:
     shutdown_signal: int | None = None
     process = None
 
@@ -89,7 +96,7 @@ def run_beat(settings: Settings, command: Sequence[str] = BEAT_COMMAND) -> int:
         for signal_number in (signal.SIGINT, signal.SIGTERM)
     }
     try:
-        process = subprocess.Popen(list(command))
+        process = subprocess.Popen(list(command or build_beat_command(settings)))
         return monitor_beat_process(
             process,
             heartbeat_loader=lambda: load_scheduler_heartbeat(settings),
@@ -123,7 +130,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="Exit based on the current Beat heartbeat.")
     args = parser.parse_args(argv)
     settings = get_settings()
-    logging.basicConfig(level=settings.log_level.upper())
+    configure_logging(settings)
+    log_configuration_summary(settings, logger=logger)
     return check_beat(settings) if args.check else run_beat(settings)
 
 
