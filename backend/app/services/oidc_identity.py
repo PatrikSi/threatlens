@@ -278,12 +278,16 @@ def _normalized_email(
     require_verified: bool,
 ) -> str | None:
     email = claims.get("email")
-    if not isinstance(email, str) or not email.strip():
+    if email is None or (isinstance(email, str) and not email.strip()):
         if required:
             raise OIDCIdentityError(
-                "verified_email_required",
+                "email_required",
                 "The identity provider must return an email address for account provisioning",
             )
+        return None
+    if not isinstance(email, str):
+        if required:
+            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address")
         return None
     if require_verified and claims.get("email_verified") is not True:
         if required:
@@ -296,7 +300,7 @@ def _normalized_email(
         return validate_email(email, check_deliverability=False).normalized.lower()
     except EmailNotValidError as exc:
         if required:
-            raise OIDCIdentityError("verified_email_required", "The identity provider returned an invalid email address") from exc
+            raise OIDCIdentityError("invalid_email", "The identity provider returned an invalid email address") from exc
         return None
 
 

@@ -310,23 +310,44 @@ def test_oidc_jit_can_accept_unverified_email_only_when_provider_policy_allows_i
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.user_id == user.id)) is not None
 
 
-@pytest.mark.parametrize("email", [None, "", "not-an-email"])
+@pytest.mark.parametrize(
+    ("claims", "expected_error", "email_claim_present", "email_value_present", "email_claim_type"),
+    [
+        ({"sub": "subject-1", "email_verified": False}, "email_required", False, False, None),
+        ({"sub": "subject-1", "email": None, "email_verified": False}, "email_required", True, False, None),
+        ({"sub": "subject-1", "email": "", "email_verified": False}, "email_required", True, False, "str"),
+        ({"sub": "subject-1", "email": "not-an-email", "email_verified": False}, "invalid_email", True, True, "str"),
+    ],
+)
 def test_oidc_jit_still_rejects_missing_or_invalid_email_when_verification_is_optional(
     client,
     db_session,
     monkeypatch,
-    email,
+    claims,
+    expected_error,
+    email_claim_present,
+    email_value_present,
+    email_claim_type,
 ):
     _configured_provider(db_session, require_verified_email=False)
-    _mock_oidc_flow(
-        monkeypatch,
-        {"sub": "subject-1", "email": email, "email_verified": False, "groups": []},
-    )
+    _mock_oidc_flow(monkeypatch, claims)
 
     callback = _start_and_complete(client)
 
-    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == ["verified_email_required"]
+    assert parse_qs(urlsplit(callback.headers["location"]).query)["oidc_error"] == [expected_error]
     assert db_session.scalar(select(ExternalIdentity).where(ExternalIdentity.subject == "subject-1")) is None
+    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == "auth.oidc.callback"))
+    assert audit is not None
+    assert audit.metadata_json["error_code"] == expected_error
+    assert audit.metadata_json["claim_diagnostics"] == {
+        "claims_available": True,
+        "email_claim_present": email_claim_present,
+        "email_value_present": email_value_present,
+        "email_claim_type": email_claim_type,
+        "email_verified_claim_present": True,
+        "email_verified": False,
+        "email_verified_claim_type": "bool",
+    }
 
 
 def test_oidc_jit_requires_explicit_link_for_existing_email(client, db_session, seed_users, monkeypatch):
