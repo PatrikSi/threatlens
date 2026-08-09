@@ -1,11 +1,4 @@
 {
   "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
-  "high": true,
-  "allowlist": [
-    // GHSA-qwww-vcr4-c8h2 only affects unstable React Server Components APIs.
-    // ThreatLens is a client-rendered BrowserRouter application and does not use RSC
-    // actions or server functions. Remove this path exception when a patched stable
-    // React Router release (8.3.0 or a backport) is available.
-    "GHSA-qwww-vcr4-c8h2|react-router-dom>react-router"
-  ]
+  "high": true
 }
