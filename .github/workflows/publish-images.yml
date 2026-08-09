@@ -12,6 +12,10 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: patriksi
 
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     name: Required quality gates
