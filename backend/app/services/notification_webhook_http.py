@@ -1,19 +1,34 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Protocol
 from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 
 from app.core.config import get_settings
-from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse
-from app.services.safe_fetch import REDIRECT_STATUS_CODES, RedirectError, SafeFetchError, build_safe_http_client
+from app.schemas.notification import (
+    NotificationWebhookField,
+    NotificationWebhookTestResponse,
+)
+from app.services.safe_fetch import (
+    REDIRECT_STATUS_CODES,
+    RedirectError,
+    SafeFetchError,
+    build_safe_http_client,
+)
 from app.services.url_utils import ensure_runtime_fetchable_url
 
 settings = get_settings()
 MAX_RESPONSE_PREVIEW_CHARS = 4000
 THREATLENS_DELIVERY_ID_HEADER = "X-ThreatLens-Delivery-ID"
+_delivery_lease_heartbeat: ContextVar[Callable[[int], None] | None] = ContextVar(
+    "notification_delivery_lease_heartbeat",
+    default=None,
+)
 BLOCKED_REQUEST_HEADERS = frozenset(
     {
         "connection",
@@ -43,6 +58,17 @@ class RenderedNotificationRequestLike(Protocol):
     json_body: dict | None
     form_body: list[tuple[str, str]] | None
     raw_body: bytes | None
+
+
+@contextmanager
+def notification_delivery_lease_heartbeat(
+    callback: Callable[[int], None] | None,
+) -> Iterator[None]:
+    token = _delivery_lease_heartbeat.set(callback)
+    try:
+        yield
+    finally:
+        _delivery_lease_heartbeat.reset(token)
 
 
 def canonical_header_name(header_name: str) -> str:
@@ -77,11 +103,18 @@ def default_raw_content_type(body_text: str) -> str:
     return "text/plain; charset=utf-8"
 
 
-def read_response_preview(response: httpx.Response, *, max_bytes: int = MAX_RESPONSE_PREVIEW_CHARS) -> str:
+def read_response_preview(
+    response: httpx.Response,
+    *,
+    max_bytes: int = MAX_RESPONSE_PREVIEW_CHARS,
+    lease_timeout_seconds: int | None = None,
+) -> str:
     preview_chunks: list[bytes] = []
     remaining = max_bytes
 
     for chunk in response.iter_bytes():
+        if lease_timeout_seconds is not None:
+            _renew_notification_operation_lease(lease_timeout_seconds)
         if remaining <= 0:
             break
 
@@ -109,6 +142,7 @@ def send_rendered_notification_request(
     started_at = time.perf_counter()
 
     try:
+        _renew_notification_operation_lease(rendered.timeout_seconds)
         with build_safe_http_client(
             timeout=timeout,
             headers={"User-Agent": settings.fetch_user_agent},
@@ -125,7 +159,11 @@ def send_rendered_notification_request(
                 raw_body=rendered.raw_body,
             )
             try:
-                response_body_preview = read_response_preview(response, max_bytes=MAX_RESPONSE_PREVIEW_CHARS)
+                response_body_preview = read_response_preview(
+                    response,
+                    max_bytes=MAX_RESPONSE_PREVIEW_CHARS,
+                    lease_timeout_seconds=rendered.timeout_seconds,
+                )
                 status_code = response.status_code
                 request_url = str(response.request.url)
                 request_method = response.request.method
@@ -181,14 +219,21 @@ def send_request_with_redirects(
     current_params = list(params)
 
     while True:
-        ensure_runtime_fetchable_url(current_url, allow_private_network=settings.allow_private_network_webhooks)
+        client_timeout = getattr(client, "timeout", None)
+        timeout = getattr(client_timeout, "read", None)
+        _renew_notification_operation_lease(timeout)
+        ensure_runtime_fetchable_url(
+            current_url, allow_private_network=settings.allow_private_network_webhooks
+        )
         request_url = _merge_request_url(current_url, current_params)
         request = client.build_request(
             current_method,
             request_url,
             headers=headers,
             json=current_json_body,
-            data=current_form_body if current_form_body is not None else current_raw_body,
+            data=current_form_body
+            if current_form_body is not None
+            else current_raw_body,
         )
         response = client.send(request, stream=True, follow_redirects=False)
         if response.status_code not in REDIRECT_STATUS_CODES:
@@ -218,6 +263,14 @@ def send_request_with_redirects(
             current_raw_body = None
 
 
+def _renew_notification_operation_lease(timeout_seconds: float | int | None) -> None:
+    callback = _delivery_lease_heartbeat.get()
+    if callback is None:
+        return
+    timeout = max(1, int(timeout_seconds or 1))
+    callback(max(30, (timeout * 2) + 15))
+
+
 def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
     if not params:
         return url
@@ -226,7 +279,9 @@ def _merge_request_url(url: str, params: list[tuple[str, str]]) -> str:
     query_pairs = parse_qsl(split.query, keep_blank_values=True)
     query_pairs.extend(params)
     merged_query = urlencode(query_pairs, doseq=True)
-    return urlunsplit((split.scheme, split.netloc, split.path, merged_query, split.fragment))
+    return urlunsplit(
+        (split.scheme, split.netloc, split.path, merged_query, split.fragment)
+    )
 
 
 def _origin_tuple(url: str) -> tuple[str, str, int | None]:

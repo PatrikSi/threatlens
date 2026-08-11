@@ -59,6 +59,9 @@ AI_TRIGGER_SCHEDULED = "scheduled"
 
 AI_DAILY_BRIEF_BACKFILL_SCOPE = "daily_brief_backfill"
 AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY = "parent_progress_eligible"
+AI_PROVIDER_CLAIM_METADATA_KEY = "provider_claim"
+AI_PROVIDER_CLAIM_ITEM_ENRICHMENT = "item_ai_enrichment"
+AI_PROVIDER_CLAIM_DAILY_BRIEF = "daily_brief"
 
 AI_STATUS_QUEUED = "queued"
 AI_STATUS_RUNNING = "running"
@@ -187,7 +190,12 @@ def start_ai_task_run(
     celery_task_id: str | None = None,
     metadata_updates: dict[str, Any] | None = None,
 ) -> AITaskRun | None:
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id).with_for_update())
+    run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if run is None:
         return None
     if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
@@ -230,7 +238,9 @@ def ai_task_run_stop_reason(run: AITaskRun | None) -> str | None:
 def get_ai_task_run_stop_reason(db: Session, *, run_id: uuid.UUID | None) -> str | None:
     if run_id is None:
         return None
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    run = db.scalar(
+        select(AITaskRun).where(AITaskRun.id == run_id).execution_options(populate_existing=True)
+    )
     return ai_task_run_stop_reason(run)
 
 
@@ -253,11 +263,24 @@ def finish_ai_task_run(
     metadata_updates: dict[str, Any] | None = None,
     daily_brief_id: uuid.UUID | None = None,
 ) -> AITaskRun | None:
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if run is None:
         return None
-    if run.finished_at is not None and run.status in AI_TERMINAL_STATUSES:
+    if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
         return run
+    if _is_cancel_requested_run(run):
+        status = AI_STATUS_SKIPPED
+        reason = "canceled"
+        error = None
+        metadata_updates = _merge_metadata(
+            metadata_updates,
+            {"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
+        )
     now = datetime.now(timezone.utc)
     if run.started_at is None:
         run.started_at = _coerce_utc(run.queued_at) if run.queued_at is not None else now
@@ -425,7 +448,7 @@ def cancel_ai_task_run(db: Session, *, run_id: uuid.UUID, actor_user_id: uuid.UU
                 )
             )
         )
-        runs_to_cancel.extend(child_runs)
+        runs_to_cancel = [*child_runs, run]
 
     for target in runs_to_cancel:
         terminate_running_task = bool(target.celery_task_id and target.celery_task_id in active_task_ids)
@@ -763,7 +786,12 @@ def list_daily_brief_source_items(
 def _increment_parent_run_progress(db: Session, *, child_run: AITaskRun) -> None:
     if child_run.parent_run_id is None:
         return
-    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == child_run.parent_run_id).with_for_update())
+    parent = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == child_run.parent_run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if parent is None:
         return
 
@@ -812,7 +840,12 @@ def reconcile_daily_brief_backfill_parent_progress(
     parent_run_id: uuid.UUID,
     reopen_incomplete: bool = False,
 ) -> AITaskRun | None:
-    parent = db.scalar(select(AITaskRun).where(AITaskRun.id == parent_run_id).with_for_update())
+    parent = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == parent_run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if parent is None or not _is_daily_brief_backfill_parent(parent):
         return parent
     _recalculate_daily_brief_backfill_parent_progress(
@@ -951,8 +984,20 @@ def _settle_pending_item_enrichment(
     if status != AI_STATUS_ERROR and reason != "canceled":
         return
 
-    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == run.item_id))
+    enrichment = db.scalar(
+        select(ItemAIEnrichment)
+        .where(ItemAIEnrichment.item_id == run.item_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if enrichment is None or enrichment.status != "pending":
+        return
+    if not _provider_claim_matches(
+        run,
+        resource_type=AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
+        resource_id=run.item_id,
+        resource_updated_at=enrichment.updated_at,
+    ):
         return
 
     enrichment.status = AI_STATUS_ERROR
@@ -975,8 +1020,20 @@ def _settle_pending_daily_brief(
     if status != AI_STATUS_ERROR and reason != "canceled":
         return
 
-    brief = db.scalar(select(AIDailyBrief).where(AIDailyBrief.id == run.daily_brief_id))
+    brief = db.scalar(
+        select(AIDailyBrief)
+        .where(AIDailyBrief.id == run.daily_brief_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if brief is None or brief.status != "pending":
+        return
+    if not _provider_claim_matches(
+        run,
+        resource_type=AI_PROVIDER_CLAIM_DAILY_BRIEF,
+        resource_id=run.daily_brief_id,
+        resource_updated_at=brief.updated_at,
+    ):
         return
 
     brief.status = AI_STATUS_ERROR
@@ -1390,9 +1447,16 @@ def _mark_ai_task_run_cancel_requested(
     terminated_running_task: bool,
     revoke_failed: bool,
 ) -> AITaskRun | None:
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if run is None:
         return None
+    if run.finished_at is not None or run.status in AI_TERMINAL_STATUSES:
+        return run
 
     already_requested = _is_cancel_requested_run(run)
     run.reason = "cancel_requested" if run.finished_at is None else run.reason
@@ -1465,6 +1529,25 @@ def _finish_reconciled_stale_run(
 def _is_cancel_requested_run(run: AITaskRun) -> bool:
     metadata = run.metadata_json or {}
     return bool(metadata.get("cancel_requested_at")) or run.reason == "cancel_requested" or run.reason == "canceled"
+
+
+def _provider_claim_matches(
+    run: AITaskRun,
+    *,
+    resource_type: str,
+    resource_id: uuid.UUID,
+    resource_updated_at: datetime,
+) -> bool:
+    raw_claim = (run.metadata_json or {}).get(AI_PROVIDER_CLAIM_METADATA_KEY)
+    if raw_claim is None:
+        return True
+    if not isinstance(raw_claim, dict):
+        return False
+    return (
+        raw_claim.get("resource_type") == resource_type
+        and raw_claim.get("resource_id") == str(resource_id)
+        and raw_claim.get("updated_at") == _coerce_utc(resource_updated_at).isoformat()
+    )
 
 
 def _build_per_model_usage(events: list[AIUsageEvent]) -> list[AIOverviewPerModelResponse]:

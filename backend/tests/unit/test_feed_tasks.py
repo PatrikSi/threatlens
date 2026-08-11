@@ -1224,6 +1224,9 @@ def test_fetch_feed_persists_new_item_event_when_enqueue_fails(db_session, monke
     assert result["notification_enqueue_failed"] is True
     assert event is not None
     assert event.routing_state == "pending"
+    assert event.schema_version == 2
+    assert event.payload_json["item"]["title"] == "New item 1"
+    assert event.payload_json["feed"]["name"] == feed.name
 
 
 def test_feed_failure_persists_threshold_event_when_enqueue_fails(db_session, monkeypatch):
@@ -1253,6 +1256,9 @@ def test_feed_failure_persists_threshold_event_when_enqueue_fails(db_session, mo
     assert feed.error_count == 3
     assert event is not None
     assert event.routing_state == "pending"
+    assert event.schema_version == 2
+    assert event.payload_json["feed"]["id"] == str(feed.id)
+    assert event.payload_json["feed"]["error_count"] == 3
 
 
 def test_enqueue_notification_webhook_delivery_processing_chunks_large_batches(monkeypatch):

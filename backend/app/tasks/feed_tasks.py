@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.core.redis_client import redis_client_from_url
 from app.models.article import Article
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
@@ -168,7 +169,7 @@ from app.tasks.notification_tasks import (
 from app.tasks.task_session import db_session
 
 settings = get_settings()
-redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = redis_client_from_url(settings.redis_url, decode_responses=True, settings=settings)
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -1494,6 +1495,7 @@ def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, ta
                 )
                 db.commit()
             return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
+        db.commit()
 
         try:
             result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)
