@@ -1,5 +1,5 @@
 # Locked backend runtime dependency set used by backend/Dockerfile.
-# Refresh this file from a backend runtime environment that matches backend/requirements.txt.
+# Validate with generate_runtime_lockfile.py; pass --upgrade to resolve new pins.
 alembic==1.16.4
 amqp==5.3.1
 annotated-doc==0.0.4
