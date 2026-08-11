@@ -570,6 +570,14 @@ def test_first_daily_brief_claim_is_single_winner_across_postgresql_sessions(
             assert briefs[0].status == "ready"
     finally:
         with Session(database_engine) as cleanup:
+            brief_ids = select(AIDailyBrief.id).where(
+                AIDailyBrief.brief_date == reference_time.date()
+            )
+            cleanup.execute(
+                delete(AIUsageEvent).where(
+                    AIUsageEvent.daily_brief_id.in_(brief_ids)
+                )
+            )
             cleanup.execute(
                 delete(AIDailyBrief).where(
                     AIDailyBrief.brief_date == reference_time.date()
