@@ -6,14 +6,12 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.feed import Feed
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
 )
-from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
@@ -52,6 +50,13 @@ logger = logging.getLogger(__name__)
 
 
 class WebhookIntegrationConnector:
+    SUPPORTED_EVENT_TYPES = (
+        "rss_item_new",
+        "alert_match",
+        "feed_failing",
+        "webhook_failed",
+        "daily_digest",
+    )
     definition = IntegrationConnectorDefinition(
         integration_type="webhook",
         direction="destination",
@@ -59,11 +64,22 @@ class WebhookIntegrationConnector:
         description="Deliver ThreatLens events to configurable HTTP endpoints.",
         config_schema_version=WEBHOOK_CONFIG_SCHEMA_VERSION,
         supports_test=True,
+        supported_event_types=SUPPORTED_EVENT_TYPES,
         capabilities=("destination", "http", "test_delivery", "retries", "delivery_history"),
     )
 
-    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
+    def supports_event_type(self, event_type: str) -> bool:
+        return event_type in self.definition.supported_event_types
+
+    def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
         repair_legacy_webhook_integrations(db)
+        webhooks = db.scalars(
+            select(NotificationWebhook).where(NotificationWebhook.event_type == event.event_type)
+        ).all()
+        for webhook in webhooks:
+            ensure_webhook_integration(db, webhook)
+
+    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
         reservation = self._reserve_event_deliveries(db, event=event)
         delivery_ids = self._attach_event_to_deliveries(
             db,
@@ -143,7 +159,12 @@ class WebhookIntegrationConnector:
         *,
         event: IntegrationEvent,
     ) -> NotificationDeliveryReservationBatch:
-        feed_id = _payload_uuid(event, "feed_id", required=False)
+        resources = None
+        if event.event_type in {"rss_item_new", "alert_match", "feed_failing"}:
+            from app.services.integration_events import hydrate_integration_event_resources
+
+            resources = hydrate_integration_event_resources(db, event=event)
+        feed_id = getattr(resources.feed, "id", None) if resources is not None else _payload_uuid(event, "feed_id", required=False)
         owner_user_id = _payload_uuid(event, "owner_user_id", required=False)
         webhooks = self._matching_webhooks(
             db,
@@ -153,23 +174,28 @@ class WebhookIntegrationConnector:
         )
 
         if event.event_type in {"rss_item_new", "alert_match"}:
-            item_id = _payload_uuid(event, "item_id")
-            item = db.get(Item, item_id)
+            item = resources.item if resources is not None else None
             if item is None:
-                raise IntegrationEventContextError(f"Item {item_id} no longer exists")
-            feed = db.get(Feed, feed_id or item.feed_id)
+                raise IntegrationEventContextError(f"{event.event_type} event is missing its item context")
+            feed = resources.feed if resources is not None else None
             if feed is None:
-                raise IntegrationEventContextError(f"Feed {feed_id or item.feed_id} no longer exists")
+                raise IntegrationEventContextError(f"{event.event_type} event is missing its feed context")
             if event.event_type == "rss_item_new":
                 return reserve_new_item_notification_deliveries(db, item=item, feed=feed, webhooks=webhooks)
+            if resources is not None and resources.from_snapshot:
+                return self._reserve_snapshot_alert_deliveries(
+                    db,
+                    item=item,
+                    feed=feed,
+                    resources=resources,
+                    webhooks=webhooks,
+                )
             return reserve_alert_match_notification_deliveries(db, item=item, feed=feed, webhooks=webhooks)
 
         if event.event_type == "feed_failing":
-            if feed_id is None:
-                raise IntegrationEventContextError("feed_failing event is missing feed_id")
-            feed = db.get(Feed, feed_id)
+            feed = resources.feed if resources is not None else None
             if feed is None:
-                raise IntegrationEventContextError(f"Feed {feed_id} no longer exists")
+                raise IntegrationEventContextError("feed_failing event is missing its feed context")
             return reserve_feed_failing_notification_deliveries(db, feed=feed, webhooks=webhooks)
 
         if event.event_type == "webhook_failed":
@@ -183,6 +209,58 @@ class WebhookIntegrationConnector:
             return self._reserve_daily_digest(db, event=event, webhooks=webhooks)
 
         raise IntegrationEventContextError(f"Unsupported integration event type: {event.event_type}")
+
+    def _reserve_snapshot_alert_deliveries(
+        self,
+        db: Session,
+        *,
+        item,
+        feed,
+        resources,
+        webhooks: list[NotificationWebhook],
+    ) -> NotificationDeliveryReservationBatch:
+        delivery_ids: list[uuid.UUID] = []
+        skipped = 0
+        for webhook in webhooks:
+            user = db.get(User, webhook.user_id)
+            if user is None or not user.is_active or not user.is_approved:
+                skipped += 1
+                continue
+            alert_context = resources.alert_context_for_owner(webhook.user_id)
+            if alert_context is None:
+                skipped += 1
+                continue
+            if not try_acquire_notification_delivery_lock(
+                db,
+                webhook_id=webhook.id,
+                event_type="alert_match",
+                item_id=item.id,
+            ):
+                skipped += 1
+                continue
+            if has_recent_notification_delivery(
+                db,
+                webhook_id=webhook.id,
+                event_type="alert_match",
+                item_id=item.id,
+            ):
+                skipped += 1
+                continue
+            delivery = reserve_notification_webhook_delivery(
+                db,
+                webhook=webhook,
+                user=user,
+                event_type="alert_match",
+                item=item,
+                feed=feed,
+                alert_context=alert_context,
+            )
+            delivery_ids.append(delivery.id)
+        return NotificationDeliveryReservationBatch(
+            delivery_ids=delivery_ids,
+            matched_webhooks=len(webhooks),
+            skipped=skipped,
+        )
 
     def _matching_webhooks(
         self,
@@ -278,6 +356,8 @@ class WebhookIntegrationConnector:
         event: IntegrationEvent,
         compatibility_delivery_ids: list[uuid.UUID],
     ) -> list[uuid.UUID]:
+        from app.services.integration_events import delivery_payload_for_owner
+
         generic_ids: list[uuid.UUID] = []
         for legacy_delivery in db.scalars(
             select(NotificationWebhookDelivery).where(
@@ -294,6 +374,11 @@ class WebhookIntegrationConnector:
                 event_id=event.id,
             )
             generic.idempotency_key = f"event:{event.id}:subscription:{generic.subscription_id}:live"
+            generic.payload_json = delivery_payload_for_owner(
+                event,
+                owner_user_id=legacy_delivery.user_id,
+            )
+            generic.payload_json["legacy_webhook_delivery_id"] = str(legacy_delivery.id)
             db.add(generic)
             generic_ids.append(generic.id)
         db.flush()

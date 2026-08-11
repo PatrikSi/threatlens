@@ -1,4 +1,5 @@
 import uuid
+import socket
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -16,10 +17,14 @@ from app.models.item_classification import ItemClassification
 from app.models.user import User
 from app.schemas.integration import SMTPSettingsUpdate
 from app.services.daily_brief_notifications import emit_daily_brief_ready_event
-from app.services.integration_storage import apply_smtp_settings_update, build_active_smtp_settings
+from app.services.integration_storage import (
+    apply_smtp_settings_update,
+    build_active_smtp_settings,
+)
 from app.services.smtp_integration import (
     SMTP_DELIVERY_AUDIT_ACTION,
     dispatch_smtp_notification,
+    send_smtp_notification,
     smtp_notification_event_enabled,
     test_smtp_integration as run_smtp_integration_test,
 )
@@ -107,14 +112,18 @@ def test_dispatch_smtp_notification_sends_and_records_audit(db_session, monkeypa
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    result = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    result = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
     db_session.commit()
 
     assert result.sent is True
     assert len(sent_messages) == 1
     assert sent_messages[0]["To"] == "analyst@example.com, soc@example.com"
     assert sent_messages[0]["Subject"] == "[ThreatLens] Threat report"
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert audit is not None
     assert audit.success is True
     assert audit.resource_id == str(instance.id)
@@ -164,15 +173,21 @@ def test_dispatch_smtp_notification_skips_duplicate_delivery(db_session, monkeyp
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    first = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    first = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
     db_session.commit()
-    second = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    second = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
 
     assert first.sent is True
     assert second.skipped is True
     assert second.reason == "duplicate_delivery"
     assert len(sent_messages) == 1
-    audits = db_session.scalars(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)).all()
+    audits = db_session.scalars(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    ).all()
     assert len(audits) == 1
 
 
@@ -212,12 +227,16 @@ def test_dispatch_smtp_notification_records_failure_audit(db_session, monkeypatc
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    result = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    result = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
     db_session.commit()
 
     assert result.failed is True
     assert result.reason == "connection_error"
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert audit is not None
     assert audit.success is False
     assert audit.metadata_json["error_code"] == "connection_error"
@@ -226,10 +245,55 @@ def test_dispatch_smtp_notification_records_failure_audit(db_session, monkeypatc
     assert instance.last_error == "SMTP connection failed."
 
 
-def test_dispatch_smtp_notification_records_message_build_failures(db_session, monkeypatch):
+def test_smtp_partial_acceptance_records_per_recipient_disposition(monkeypatch):
+    sent_messages: list[EmailMessage] = []
+    active = build_active_smtp_settings(_configured_smtp_instance())
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
-        lambda _active: (_ for _ in ()).throw(AssertionError("SMTP should not open when message building fails")),
+        lambda _active: FakeSMTP(
+            sent_messages,
+            refused={"soc@example.com": (550, b"mailbox unavailable")},
+        ),
+    )
+
+    result = send_smtp_notification(active, event_type="rss_item_new")
+
+    assert result.success is False
+    assert result.delivery_outcome == "partial"
+    assert result.accepted_recipients == ("analyst@example.com",)
+    assert result.refused_recipients == ("soc@example.com",)
+    assert result.unknown_recipients == ()
+
+
+def test_smtp_timeout_after_send_starts_records_unknown_outcome(monkeypatch):
+    class TimeoutSMTP(FakeSMTP):
+        def send_message(self, message):
+            self.sent_messages.append(message)
+            raise socket.timeout("timed out after DATA")
+
+    sent_messages: list[EmailMessage] = []
+    active = build_active_smtp_settings(_configured_smtp_instance())
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: TimeoutSMTP(sent_messages),
+    )
+
+    result = send_smtp_notification(active, event_type="rss_item_new")
+
+    assert result.success is False
+    assert result.error_code == "timeout"
+    assert result.delivery_outcome == "unknown"
+    assert result.unknown_recipients == ("analyst@example.com", "soc@example.com")
+
+
+def test_dispatch_smtp_notification_records_message_build_failures(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _active: (_ for _ in ()).throw(
+            AssertionError("SMTP should not open when message building fails")
+        ),
     )
     instance = _smtp_instance()
     apply_smtp_settings_update(
@@ -263,10 +327,14 @@ def test_dispatch_smtp_notification_records_message_build_failures(db_session, m
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    result = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    result = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
     db_session.commit()
 
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert result.failed is True
     assert result.reason == "render_error"
     assert audit is not None
@@ -276,10 +344,14 @@ def test_dispatch_smtp_notification_records_message_build_failures(db_session, m
     assert instance.health_status == "error"
 
 
-def test_smtp_test_rejects_invalid_message_headers_before_connect(db_session, monkeypatch):
+def test_smtp_test_rejects_invalid_message_headers_before_connect(
+    db_session, monkeypatch
+):
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
-        lambda _active: (_ for _ in ()).throw(AssertionError("SMTP should not open when validation fails")),
+        lambda _active: (_ for _ in ()).throw(
+            AssertionError("SMTP should not open when validation fails")
+        ),
     )
     instance = _smtp_instance()
     apply_smtp_settings_update(
@@ -337,11 +409,17 @@ def test_dispatch_smtp_notification_dedupes_unreadable_secret_failures(db_sessio
     db_session.add_all([instance, feed, item])
     db_session.commit()
 
-    first = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    first = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
     db_session.commit()
-    second = dispatch_smtp_notification(db_session, event_type="rss_item_new", feed=feed, item=item)
+    second = dispatch_smtp_notification(
+        db_session, event_type="rss_item_new", feed=feed, item=item
+    )
 
-    audits = db_session.scalars(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)).all()
+    audits = db_session.scalars(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    ).all()
     assert first.failed is True
     assert first.reason == "secret_error"
     assert second.skipped is True
@@ -375,11 +453,21 @@ def test_smtp_event_enabled_respects_saved_scope_when_secret_is_unreadable(db_se
     db_session.add_all([instance, feed])
     db_session.commit()
 
-    assert smtp_notification_event_enabled(db_session, event_type="rss_item_new", feed=feed) is True
-    assert smtp_notification_event_enabled(db_session, event_type="alert_match", feed=feed) is False
+    assert (
+        smtp_notification_event_enabled(
+            db_session, event_type="rss_item_new", feed=feed
+        )
+        is True
+    )
+    assert (
+        smtp_notification_event_enabled(db_session, event_type="alert_match", feed=feed)
+        is False
+    )
 
 
-def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(db_session, monkeypatch):
+def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(
+    db_session, monkeypatch
+):
     sent_messages: list[EmailMessage] = []
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
@@ -420,7 +508,9 @@ def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(db_ses
 
     result = dispatch_smtp_new_item_notification(str(item.id))
 
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert result["status"] == "sent"
     assert result["sent"] == 1
     assert len(sent_messages) == 1
@@ -429,7 +519,9 @@ def test_dispatch_smtp_new_item_notification_task_sends_and_records_audit(db_ses
     assert audit.metadata_json["event_type"] == "rss_item_new"
 
 
-def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(db_session, monkeypatch):
+def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(
+    db_session, monkeypatch
+):
     sent_messages: list[EmailMessage] = []
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
@@ -502,13 +594,20 @@ def test_dispatch_smtp_alert_match_notification_uses_global_alert_context(db_ses
 
     assert result["status"] == "sent"
     assert len(sent_messages) == 1
-    assert sent_messages[0]["Subject"] == "[ThreatLens] Ransomware Watch: LockBit phishing expands"
-    audit = db_session.scalar(select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION))
+    assert (
+        sent_messages[0]["Subject"]
+        == "[ThreatLens] Ransomware Watch: LockBit phishing expands"
+    )
+    audit = db_session.scalar(
+        select(AuditLog).where(AuditLog.action == SMTP_DELIVERY_AUDIT_ACTION)
+    )
     assert audit is not None
     assert audit.metadata_json["event_type"] == "alert_match"
 
 
-def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_session, monkeypatch):
+def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(
+    db_session, monkeypatch
+):
     sent_messages: list[EmailMessage] = []
     monkeypatch.setattr(
         "app.services.smtp_integration._open_smtp",
@@ -562,7 +661,9 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
         yield db_session
         db_session.expunge_all()
 
-    monkeypatch.setattr("app.tasks.notification_tasks.db_session", _detaching_db_session)
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.db_session", _detaching_db_session
+    )
     queued_event_ids: list[str] = []
     monkeypatch.setattr(
         "app.tasks.feed_tasks.route_integration_event.delay",
@@ -579,7 +680,9 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
 
     result = dispatch_daily_digest_notification_webhooks()
 
-    event = db_session.scalar(select(IntegrationEvent).where(IntegrationEvent.event_type == "daily_digest"))
+    event = db_session.scalar(
+        select(IntegrationEvent).where(IntegrationEvent.event_type == "daily_digest")
+    )
     assert result["smtp_status"] == "queued"
     assert result["smtp_sent"] == 0
     assert sent_messages == []
@@ -591,7 +694,9 @@ def test_dispatch_daily_digest_notification_webhooks_emits_durable_event(db_sess
     assert queued_event_ids == [str(event.id)]
 
 
-def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(db_session, monkeypatch):
+def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(
+    db_session, monkeypatch
+):
     now = datetime.now(timezone.utc)
     brief = AIDailyBrief(
         id=uuid.uuid4(),
@@ -636,7 +741,9 @@ def test_daily_brief_notification_reconciler_does_not_requeue_routed_event(db_se
     assert queued_event_ids == []
 
 
-def test_daily_brief_notification_reconciler_skips_when_ai_is_disabled(db_session, monkeypatch):
+def test_daily_brief_notification_reconciler_skips_when_ai_is_disabled(
+    db_session, monkeypatch
+):
     _use_feed_task_db_session(monkeypatch, db_session)
     monkeypatch.setattr(
         "app.tasks.notification_tasks.load_active_ai_settings",
@@ -669,3 +776,20 @@ def _smtp_instance() -> IntegrationInstance:
         created_at=now,
         updated_at=now,
     )
+
+
+def _configured_smtp_instance() -> IntegrationInstance:
+    instance = _smtp_instance()
+    apply_smtp_settings_update(
+        instance,
+        SMTPSettingsUpdate(
+            enabled=True,
+            host="smtp.example.com",
+            from_email="threatlens@example.com",
+            to_emails=["analyst@example.com", "soc@example.com"],
+            security="none",
+            subject_template="ThreatLens notification",
+            html_template="<p>ThreatLens notification</p>",
+        ),
+    )
+    return instance

@@ -1,13 +1,17 @@
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
+from threading import Barrier, Lock, Thread
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
+from sqlalchemy.orm import Session
 
+import app.services.ai_integration as ai_integration_module
 from app.core.config import get_settings
 from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_daily_brief_source_item import AIDailyBriefSourceItem
+from app.models.ai_settings import AISettings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
@@ -406,6 +410,7 @@ def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_sessio
 
     def _fake_call(active, *, messages):
         _ = active
+        assert not db_session.in_transaction()
         captured["prompt_item_mentions"] = sum(str(message.get("content", "")).count("Daily brief cap item") for message in messages)
         return AICompletionResult(
             payload={
@@ -434,6 +439,146 @@ def test_run_daily_brief_generation_caps_source_rows_before_model_call(db_sessio
     assert len(source_rows) == 6
     assert sum(1 for row in source_rows if row.included) == 5
     assert captured["prompt_item_mentions"] == 5
+
+
+def test_first_daily_brief_claim_is_single_winner_across_postgresql_sessions(
+    database_engine,
+    ai_enabled_env,
+    monkeypatch,
+):
+    reference_time = datetime(2040, 5, 17, 12, 0, tzinfo=timezone.utc)
+    feed_id = uuid.uuid4()
+    item_id = uuid.uuid4()
+    with Session(database_engine) as setup:
+        settings = get_or_create_ai_settings(setup)
+        apply_ai_settings_update(
+            settings,
+            AISettingsUpdate(
+                base_url="http://localhost:11434/v1",
+                model="local-threat-model",
+                daily_brief_enabled=True,
+            ),
+        )
+        setup.add_all(
+            [
+                settings,
+                Feed(
+                    id=feed_id,
+                    name="Concurrent brief feed",
+                    url=f"https://example.com/{feed_id}.xml",
+                ),
+            ]
+        )
+        setup.flush()
+        setup.add(
+            Item(
+                id=item_id,
+                feed_id=feed_id,
+                source_guid=str(item_id),
+                url=f"https://example.com/items/{item_id}",
+                canonical_url=f"https://example.com/items/{item_id}",
+                title="Concurrent brief source",
+                summary="Only one provider request should win the daily claim.",
+                published_at=reference_time - timedelta(minutes=5),
+                first_seen_at=reference_time - timedelta(minutes=4),
+                dedupe_key=f"concurrent-brief:{item_id}",
+                content_hash=uuid.uuid4().hex,
+            )
+        )
+        setup.commit()
+
+    barrier = Barrier(2)
+    result_lock = Lock()
+    results = []
+    errors: list[BaseException] = []
+    provider_calls = 0
+    original_build_messages = ai_integration_module._build_daily_brief_messages
+
+    def _gated_build_messages(*args, **kwargs):
+        barrier.wait(timeout=5)
+        return original_build_messages(*args, **kwargs)
+
+    def _fake_call(_active, *, messages):
+        nonlocal provider_calls
+        assert messages
+        with result_lock:
+            provider_calls += 1
+        return AICompletionResult(
+            payload={
+                "title": "Concurrent Daily Brief",
+                "brief_text": "One durable result.",
+                "key_points": ["One winner"],
+                "recommended_actions": ["Review"],
+            },
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=10,
+            prompt_tokens=10,
+            completion_tokens=10,
+            total_tokens=20,
+        )
+
+    monkeypatch.setattr(
+        ai_integration_module,
+        "_build_daily_brief_messages",
+        _gated_build_messages,
+    )
+    monkeypatch.setattr(ai_integration_module, "_call_ai_json", _fake_call)
+
+    def _generate() -> None:
+        try:
+            with Session(database_engine) as worker:
+                result = run_daily_brief_generation(
+                    worker,
+                    force=True,
+                    reference_time=reference_time,
+                    emit_notification=False,
+                )
+                worker.commit()
+                with result_lock:
+                    results.append(result)
+        except BaseException as exc:
+            with result_lock:
+                errors.append(exc)
+
+    threads = [Thread(target=_generate), Thread(target=_generate)]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert all(not thread.is_alive() for thread in threads)
+        assert errors == []
+        assert len(results) == 2
+        assert provider_calls == 1
+        assert sorted(result.status for result in results) == ["ready", "skipped"]
+        assert {result.reason for result in results} <= {
+            None,
+            "already_generated",
+            "already_running",
+        }
+        with Session(database_engine) as check:
+            briefs = list(
+                check.scalars(
+                    select(AIDailyBrief).where(
+                        AIDailyBrief.brief_date == reference_time.date()
+                    )
+                )
+            )
+            assert len(briefs) == 1
+            assert briefs[0].status == "ready"
+    finally:
+        with Session(database_engine) as cleanup:
+            cleanup.execute(
+                delete(AIDailyBrief).where(
+                    AIDailyBrief.brief_date == reference_time.date()
+                )
+            )
+            cleanup.execute(delete(Item).where(Item.id == item_id))
+            cleanup.execute(delete(Feed).where(Feed.id == feed_id))
+            cleanup.execute(delete(AISettings))
+            cleanup.commit()
 
 
 def test_run_daily_brief_generation_uses_published_at_before_first_seen(db_session, ai_enabled_env, monkeypatch):
@@ -624,6 +769,7 @@ def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_sessi
 
     def _fake_call(active, *, messages):
         _ = (active, messages)
+        assert not db_session.in_transaction()
         return AICompletionResult(
             payload={
                 "summary_text": "AI summary of the exploitation activity.",
@@ -1489,6 +1635,103 @@ def test_run_item_ai_enrichment_discards_provider_result_when_cancel_requested_m
     assert enrichment.relevance_label is None
     assert event is not None
     assert event.payload_json["stage"] == "after_provider_response"
+
+
+def test_run_item_ai_enrichment_discards_result_after_claim_is_superseded(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Unit42",
+        url="https://example.com/unit42.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid="unit42-superseded-claim",
+        url="https://example.com/articles/unit42-superseded-claim",
+        canonical_url="https://example.com/articles/unit42-superseded-claim",
+        title="Superseded provider claim",
+        summary="A newer run should own the enrichment row.",
+        published_at=datetime.now(timezone.utc),
+        dedupe_key="unit42-superseded-claim",
+        content_hash="8" * 64,
+        status="content_fetched",
+    )
+    article = Article(
+        item_id=item.id,
+        final_url=item.url,
+        http_status=200,
+        text="Threat activity targeted edge devices and identity systems.",
+        extraction_method="readable",
+    )
+    _persist_feed_item(db_session, feed, item, article)
+    db_session.commit()
+
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(base_url="http://localhost:11434/v1", model="local-threat-model"),
+    )
+    db_session.add(settings)
+    db_session.commit()
+
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        item_id=item.id,
+    )
+    db_session.commit()
+
+    def _supersede_claim_during_provider_call(active, *, messages):
+        _ = (active, messages)
+        assert not db_session.in_transaction()
+        claim = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+        assert claim is not None
+        db_session.execute(
+            update(ItemAIEnrichment)
+            .where(ItemAIEnrichment.item_id == item.id)
+            .values(
+                source_hash="newer-source-claim",
+                updated_at=claim.updated_at + timedelta(seconds=1),
+            )
+        )
+        db_session.commit()
+        return AICompletionResult(
+            payload={"summary_text": "stale summary", "relevance_score": 0.8, "relevance_reasons": ["stale"]},
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=30,
+            prompt_tokens=40,
+            completion_tokens=10,
+            total_tokens=50,
+        )
+
+    monkeypatch.setattr("app.services.ai_integration._call_ai_json", _supersede_claim_during_provider_call)
+
+    result = run_item_ai_enrichment(db_session, item_id=item.id, force=True, task_run_id=run.id)
+    db_session.commit()
+
+    enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    discarded_event = db_session.scalar(
+        select(AITaskEvent).where(
+            AITaskEvent.task_run_id == run.id,
+            AITaskEvent.event_type == "provider_result_discarded",
+        )
+    )
+    assert result.status == "skipped"
+    assert result.reason == "stale_result_discarded"
+    assert enrichment is not None
+    assert enrichment.status == "pending"
+    assert enrichment.source_hash == "newer-source-claim"
+    assert enrichment.summary_text is None
+    assert discarded_event is not None
+    assert discarded_event.payload_json["reason"] == "stale_claim"
 
 
 def test_run_item_ai_enrichment_discards_provider_result_when_run_terminalizes_midflight(
