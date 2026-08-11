@@ -8,6 +8,7 @@ import {
   buildDashboardSavedViewState,
   createDefaultAlertWindowFilters,
   createDefaultRssWindowFilters,
+  MAX_DASHBOARD_WINDOWS,
   type DashboardWindow,
 } from './dashboardSavedViews'
 import type { SavedView } from '../types/api'
@@ -88,6 +89,7 @@ const dashboardPageDomMocks = vi.hoisted(() => ({
   itemsTotal: null as number | null,
   alertMatchesTotal: null as number | null,
   queryKeys: [] as unknown[][],
+  queryOptions: [] as Array<{ queryKey: unknown[]; enabled: boolean | undefined }>,
   unsavedChangesWarning: vi.fn(),
 }))
 
@@ -184,10 +186,11 @@ vi.mock('@tanstack/react-query', () => ({
 
     return { ...baseResult, data: null }
   },
-  useQueries: ({ queries }: { queries: Array<{ queryKey: unknown }> }) =>
+  useQueries: ({ queries }: { queries: Array<{ queryKey: unknown; enabled?: boolean }> }) =>
     queries.map((query) => {
       const queryKey = Array.isArray(query.queryKey) ? query.queryKey : []
       dashboardPageDomMocks.queryKeys.push(queryKey)
+      dashboardPageDomMocks.queryOptions.push({ queryKey, enabled: query.enabled })
       const key = queryKey[0]
       if (key === 'items' || key === 'alert-matches') {
         const rssQueryParams = key === 'items' && typeof queryKey[1] === 'object'
@@ -372,6 +375,11 @@ function getSelect(label: string) {
   return document.querySelector<HTMLSelectElement>(`[aria-label="${label}"]`)
 }
 
+function latestQueryEnabled(key: string) {
+  const matches = dashboardPageDomMocks.queryOptions.filter((option) => option.queryKey[0] === key)
+  return matches[matches.length - 1]?.enabled
+}
+
 function setInputValue(input: HTMLInputElement | HTMLTextAreaElement, value: string) {
   const prototype =
     input instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype
@@ -434,6 +442,7 @@ beforeEach(() => {
   dashboardPageDomMocks.itemsTotal = null
   dashboardPageDomMocks.alertMatchesTotal = null
   dashboardPageDomMocks.queryKeys = []
+  dashboardPageDomMocks.queryOptions = []
 
   window.localStorage.clear()
   Object.defineProperty(window, 'innerWidth', {
@@ -461,6 +470,7 @@ afterEach(() => {
   dashboardPageDomMocks.saveMutate.mockReset()
   dashboardPageDomMocks.updateMutate.mockReset()
   dashboardPageDomMocks.queryKeys = []
+  dashboardPageDomMocks.queryOptions = []
   dashboardPageDomMocks.unsavedChangesWarning.mockClear()
   dashboardPageDomMocks.queryClient.invalidateQueries.mockReset()
   dashboardPageDomMocks.queryClient.setQueriesData.mockReset()
@@ -797,6 +807,8 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
     expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
     expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).toBeNull()
+    expect(latestQueryEnabled('items')).toBe(true)
+    expect(latestQueryEnabled('alert-matches')).toBe(false)
 
     act(() => {
       setSelectValue(panelSelector!, 'mobile-notes')
@@ -805,6 +817,8 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).toBeNull()
     expect(document.querySelector('[aria-label="Priority alerts dashboard panel"]')).toBeNull()
     expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+    expect(latestQueryEnabled('items')).toBe(false)
+    expect(latestQueryEnabled('alert-matches')).toBe(false)
   })
 
   it('keeps every saved-view panel mounted in the desktop workspace', () => {
@@ -825,6 +839,48 @@ describe('DashboardPage DOM workflows', () => {
     expect(document.querySelector('#mobile-dashboard-panel')).toBeNull()
     expect(document.querySelector('[aria-label="Threat feed dashboard panel"]')).not.toBeNull()
     expect(document.querySelector('[aria-label="Analyst notes dashboard panel"]')).not.toBeNull()
+  })
+
+  it('keeps all configured panel queries enabled on desktop', () => {
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-desktop-queries',
+        'Desktop queries',
+        [createRssWindow('desktop-rss', 'Threat feed'), createAlertWindow('desktop-alerts', 'Priority alerts')],
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-desktop-queries')
+    })
+
+    expect(latestQueryEnabled('items')).toBe(true)
+    expect(latestQueryEnabled('alert-matches')).toBe(true)
+  })
+
+  it('disables panel creation when a saved dashboard reaches the shared limit', () => {
+    dashboardPageDomMocks.views = [
+      createSavedView(
+        'view-at-limit',
+        'Full dashboard',
+        Array.from({ length: MAX_DASHBOARD_WINDOWS }, (_, index) =>
+          createNotesWindow(`notes-${index + 1}`, `Notes ${index + 1}`),
+        ),
+        '2026-04-21T11:00:00.000Z',
+      ),
+    ]
+
+    renderPage()
+    act(() => {
+      setSelectValue(getSelect('Load saved dashboard view')!, 'view-at-limit')
+      getButton('Edit Layout')?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    const addPanelButton = getButton('Add Panel')
+    expect(addPanelButton?.disabled).toBe(true)
+    expect(addPanelButton?.title).toBe('Dashboard panel limit reached.')
   })
 
   it('reports both completed imports and the exact saved view that failed during a partial import', async () => {

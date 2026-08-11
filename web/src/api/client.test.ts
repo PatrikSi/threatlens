@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, ApiTransportError, apiFetch } from './client'
+import { ApiError, ApiRequestError, ApiTransportError, apiFetch } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -152,6 +152,23 @@ describe('apiFetch', () => {
       retryable: true,
       message: 'ThreatLens could not reach the API. Check the network connection and API container health.',
     } satisfies Partial<ApiTransportError>)
+  })
+
+  it('turns malformed CSRF cookies into typed request errors before sending', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('document', { cookie: 'threatlens_csrf=%E0%A4%A' })
+
+    const error = await apiFetch('/feeds/feed-1', { method: 'PATCH', body: '{}' }).catch((caught) => caught)
+
+    expect(error).toBeInstanceOf(ApiRequestError)
+    expect(error).toMatchObject({
+      name: 'ApiRequestError',
+      code: 'invalid_csrf_cookie',
+      path: '/feeds/feed-1',
+      retryable: false,
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('distinguishes request timeouts from other transport failures', async () => {

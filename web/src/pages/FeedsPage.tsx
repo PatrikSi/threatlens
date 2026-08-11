@@ -16,6 +16,7 @@ import {
   ItemListResponse,
 } from '../types/api'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
+import { mapSettledWithConcurrency } from '../utils/boundedConcurrency'
 import {
   FeedEditDraft,
   buildFeedUpdatePayload,
@@ -79,6 +80,7 @@ const FEED_STATUS_BOOTSTRAP_POLL_MS = 60_000
 const FEED_REFRESH_STATUS_POLL_MS = 45_000
 const FEED_STATUS_POLL_INTERVAL_MS = 3_000
 const FEED_REFRESH_FOLLOW_UP_DELAYS_MS = [2_000, 6_000, 12_000, 24_000] as const
+const BULK_FEED_REQUEST_CONCURRENCY = 5
 
 function shouldShowMobileFeedForm(open: boolean, feedCount: number) {
   return open || feedCount === 0
@@ -328,7 +330,9 @@ export function FeedsPage() {
   const bulkRefreshFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-refresh'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await Promise.allSettled(feeds.map((feed) => apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' })))
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
+        apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' }),
+      )
       return summarizeBulkResults(feeds, settled)
     },
     onSuccess: (result) => {
@@ -344,13 +348,14 @@ export function FeedsPage() {
   const bulkSetEnabled = useMutation({
     mutationKey: ['feeds', 'bulk-set-enabled'],
     mutationFn: async (payload: { feeds: Feed[]; enabled: boolean }) => {
-      const settled = await Promise.allSettled(
-        payload.feeds.map((feed) =>
+      const settled = await mapSettledWithConcurrency(
+        payload.feeds,
+        BULK_FEED_REQUEST_CONCURRENCY,
+        (feed) =>
           apiFetch<Feed>(`/feeds/${feed.id}`, {
             method: 'PATCH',
             body: JSON.stringify({ enabled: payload.enabled }),
           }),
-        ),
       )
       return { enabled: payload.enabled, ...summarizeBulkResults(payload.feeds, settled) }
     },
@@ -364,7 +369,9 @@ export function FeedsPage() {
   const bulkDeleteFeeds = useMutation({
     mutationKey: ['feeds', 'bulk-delete'],
     mutationFn: async (feeds: Feed[]) => {
-      const settled = await Promise.allSettled(feeds.map((feed) => apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' })))
+      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
+        apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' }),
+      )
       return summarizeBulkResults(feeds, settled)
     },
   })

@@ -19,6 +19,7 @@ import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
+import { safeLocalStorage } from '../utils/safeStorage'
 import { type ArticlePreviewState } from './DashboardPageComponents'
 import {
   applyDragMagnetSnap,
@@ -36,10 +37,9 @@ import {
   loadStoredTimestamp,
   loadWindowSeenState,
   persistArticlePreviewWidth,
-  resolveItemActionError,
   resolveDashboardViewSaveError,
+  resolveItemActionError,
   resolveWindowTimeFilter,
-  syncItemStateInCache,
 } from './dashboardPageUtils'
 import { DASHBOARD_TIME_INHERIT_VALUE, MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
 import {
@@ -60,6 +60,7 @@ import {
   HIDDEN_TAGS,
   isTimeRangeFilter,
   loadDashboardWindows,
+  MAX_DASHBOARD_WINDOWS,
   normalizeDashboardWindows,
   normalizeRollingDaysInput,
   parseDashboardSavedView,
@@ -90,6 +91,7 @@ import {
   SavedView,
   Tag,
 } from '../types/api'
+import { useDashboardItemActions } from './useDashboardItemActions'
 
 type DashboardEditSessionSnapshot = {
   activeSavedViewId: string | null
@@ -174,6 +176,22 @@ export function useDashboardPageController() {
   const aiRelevanceEnabled = Boolean(aiFeatures?.ai_relevance_enabled)
   const aiDailyBriefEnabled = Boolean(aiFeatures?.ai_daily_brief_enabled)
   const hasProtectedEditSession = isEditMode && editSessionSnapshot !== null
+
+  const {
+    isItemActionPending,
+    markItemReadIfNeeded,
+    retryArticleFetch,
+    updateNote,
+    updateRead,
+    updateStar,
+  } = useDashboardItemActions({
+    canManage,
+    queryClient,
+    savedNoteValuesByItemIdRef,
+    setArticleRetryFeedbackByItemId,
+    setItemActionFeedbackByItemId,
+    setNoteDraftsByItemId,
+  })
 
   const openArticlePreview = (preview: ArticlePreviewState) => {
     setArticlePreviewFrameState('loading')
@@ -291,7 +309,7 @@ export function useDashboardPageController() {
     }
 
     const storageKeys = getDashboardStorageKeys(pending.userId)
-    window.localStorage.setItem(storageKeys.windows, pending.serialized)
+    safeLocalStorage.setItem(storageKeys.windows, pending.serialized)
     pendingWindowPersistenceRef.current = null
   }
 
@@ -380,7 +398,7 @@ export function useDashboardPageController() {
     pendingWindowPersistenceRef.current = { userId, serialized }
 
     windowPersistenceTimeoutRef.current = window.setTimeout(() => {
-      window.localStorage.setItem(storageKeys.windows, serialized)
+      safeLocalStorage.setItem(storageKeys.windows, serialized)
       pendingWindowPersistenceRef.current = null
       windowPersistenceTimeoutRef.current = null
     }, 200)
@@ -413,7 +431,7 @@ export function useDashboardPageController() {
       return
     }
     const storageKeys = getDashboardStorageKeys(userId)
-    window.localStorage.setItem(storageKeys.windowSeenAt, JSON.stringify(windowSeenAt))
+    safeLocalStorage.setItem(storageKeys.windowSeenAt, JSON.stringify(windowSeenAt))
   }, [meQuery.data?.id, windowSeenAt])
 
   useEffect(() => {
@@ -445,7 +463,7 @@ export function useDashboardPageController() {
     setWindows(loadDashboardWindows(storageKeys.windows, width, height))
     setWindowSeenAt(loadWindowSeenState(storageKeys.windowSeenAt))
     setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
-    window.localStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
+    safeLocalStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
     initializedDashboardUserRef.current = userId
   }, [meQuery.data?.id])
 
@@ -491,6 +509,10 @@ export function useDashboardPageController() {
   }, [aiDailyBriefEnabled])
 
   const deferredWindows = useDeferredValue(windows)
+  const resolvedMobileWindowId =
+    mobileActiveWindowId && windows.some((windowLayout) => windowLayout.id === mobileActiveWindowId)
+      ? mobileActiveWindowId
+      : windows[0]?.id ?? null
 
   const dashboardTimeFilter = useMemo<WindowTimeFilter>(
     () => ({
@@ -521,6 +543,14 @@ export function useDashboardPageController() {
     () => deferredWindows.filter((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts'),
     [deferredWindows],
   )
+  const rssPanelsEnabled = isWideLayout || rssWindows.some((windowLayout) => windowLayout.id === resolvedMobileWindowId)
+  const alertPanelsEnabled =
+    isWideLayout || alertWindows.some((windowLayout) => windowLayout.id === resolvedMobileWindowId)
+  const dailyBriefPanelsEnabled =
+    isWideLayout ||
+    deferredWindows.some(
+      (windowLayout) => windowLayout.type === 'daily_brief' && windowLayout.id === resolvedMobileWindowId,
+    )
   const rssDeferredSearchTermsByWindowId = useDeferredValue(
     useMemo(
       () =>
@@ -555,6 +585,7 @@ export function useDashboardPageController() {
   const feedsQuery = useQuery({
     queryKey: ['feeds'],
     queryFn: () => apiFetch<Feed[]>('/feeds'),
+    enabled: rssPanelsEnabled,
     staleTime: 300_000,
     refetchInterval: (query) => {
       const feeds = query.state.data as Feed[] | undefined
@@ -588,12 +619,14 @@ export function useDashboardPageController() {
   const tagsQuery = useQuery({
     queryKey: ['tags'],
     queryFn: () => apiFetch<Tag[]>('/tags'),
+    enabled: rssPanelsEnabled,
     staleTime: 300_000,
   })
 
   const alertInterestsQuery = useQuery({
     queryKey: ['alerts', 'enabled'],
     queryFn: () => apiFetch<AlertInterest[]>('/alerts?include_disabled=false'),
+    enabled: alertPanelsEnabled,
     staleTime: 300_000,
   })
 
@@ -689,165 +722,10 @@ export function useDashboardPageController() {
     },
   })
 
-  const updateRead = useMutation({
-    mutationKey: ['items', 'read'],
-    mutationFn: (payload: { itemId: string; isRead: boolean }) =>
-      apiFetch(`/items/${payload.itemId}/read`, {
-        method: 'POST',
-        body: JSON.stringify({ is_read: payload.isRead }),
-      }),
-    onMutate: ({ itemId }) => {
-      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
-    },
-    onSuccess: (_data, variables) => {
-      syncItemStateInCache(queryClient, variables.itemId, {
-        isRead: variables.isRead,
-      })
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'success',
-          message: variables.isRead ? 'Marked article as read.' : 'Marked article as unread.',
-        },
-      }))
-    },
-    onError: (error, variables) => {
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'error',
-          message: resolveItemActionError(error, 'Unable to update read status right now.'),
-        },
-      }))
-    },
-  })
-
-  const markItemReadIfNeeded = (itemId: string, isRead: boolean) => {
-    if (isRead || !canManage || (updateRead.isPending && updateRead.variables?.itemId === itemId)) {
-      return
-    }
-
-    updateRead.mutate({
-      itemId,
-      isRead: true,
-    })
-  }
-
   const handleOpenArticlePreview = (preview: ArticlePreviewState, isRead: boolean) => {
     openArticlePreview(preview)
     markItemReadIfNeeded(preview.itemId, isRead)
   }
-
-  const updateStar = useMutation({
-    mutationKey: ['items', 'star'],
-    mutationFn: (payload: { itemId: string; isStarred: boolean }) =>
-      apiFetch(`/items/${payload.itemId}/star`, {
-        method: 'POST',
-        body: JSON.stringify({ is_starred: payload.isStarred }),
-      }),
-    onMutate: ({ itemId }) => {
-      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
-    },
-    onSuccess: (_data, variables) => {
-      syncItemStateInCache(queryClient, variables.itemId, {
-        isStarred: variables.isStarred,
-      })
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'success',
-          message: variables.isStarred ? 'Starred article.' : 'Removed star from article.',
-        },
-      }))
-    },
-    onError: (error, variables) => {
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'error',
-          message: resolveItemActionError(error, 'Unable to update star status right now.'),
-        },
-      }))
-    },
-  })
-
-  const updateNote = useMutation({
-    mutationKey: ['items', 'note'],
-    mutationFn: (payload: { itemId: string; note: string | null }) =>
-      apiFetch(`/items/${payload.itemId}/note`, {
-        method: 'POST',
-        body: JSON.stringify({ note: payload.note }),
-      }),
-    onMutate: ({ itemId }) => {
-      clearItemFeedback(setItemActionFeedbackByItemId, itemId)
-    },
-    onSuccess: (_data, variables) => {
-      savedNoteValuesByItemIdRef.current[variables.itemId] = variables.note ?? ''
-      setNoteDraftsByItemId((current) => {
-        const savedNote = variables.note ?? ''
-        if ((current[variables.itemId] ?? '') !== savedNote) {
-          return current
-        }
-        return {
-          ...current,
-          [variables.itemId]: savedNote,
-        }
-      })
-      syncItemStateInCache(queryClient, variables.itemId, {
-        note: variables.note,
-      })
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'success',
-          message: 'Saved analyst notes.',
-        },
-      }))
-    },
-    onError: (error, variables) => {
-      setItemActionFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'error',
-          message: resolveItemActionError(error, 'Unable to save notes right now.'),
-        },
-      }))
-    },
-  })
-
-  const retryArticleFetch = useMutation({
-    mutationKey: ['items', 'retry-article-fetch'],
-    mutationFn: (payload: { itemId: string }) =>
-      apiFetch<{ status: 'queued' }>(`/items/${payload.itemId}/retry-article-fetch`, {
-        method: 'POST',
-      }),
-    onMutate: ({ itemId }) => {
-      setArticleRetryFeedbackByItemId((current) => {
-        const next = { ...current }
-        delete next[itemId]
-        return next
-      })
-    },
-    onSuccess: async (_data, variables) => {
-      setArticleRetryFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'success',
-          message: 'Article fetch queued. Check back in a moment for refreshed content.',
-        },
-      }))
-      await queryClient.invalidateQueries({ queryKey: ['item', variables.itemId] })
-    },
-    onError: (error, variables) => {
-      setArticleRetryFeedbackByItemId((current) => ({
-        ...current,
-        [variables.itemId]: {
-          tone: 'error',
-          message: resolveApiErrorMessage(error, 'Article fetch could not be queued'),
-        },
-      }))
-    },
-  })
   const viewSavePending = saveView.isPending || updateExistingView.isPending
 
   const captureCurrentDashboardViewState = () => {
@@ -925,6 +803,7 @@ export function useDashboardPageController() {
           page: rssFilters.page,
           page_size: effectivePageSize,
         }),
+        enabled: isWideLayout || windowLayout.id === resolvedMobileWindowId,
         retry: 1,
         staleTime: 60_000,
         refetchInterval: rssFilters.page === 1 ? RSS_WINDOW_REFETCH_INTERVAL_MS : false,
@@ -981,6 +860,7 @@ export function useDashboardPageController() {
           alertFilters.page,
           effectivePageSize,
         ],
+        enabled: isWideLayout || windowLayout.id === resolvedMobileWindowId,
         staleTime: 60_000,
         placeholderData: (previousData: AlertMatchListResponse | undefined) => previousData,
         queryFn: () => {
@@ -1108,7 +988,7 @@ export function useDashboardPageController() {
       const expandedItemId = expandedItemIdsByWindowId[windowLayout.id] ?? ''
       return {
         queryKey: ['item', expandedItemId],
-        enabled: Boolean(expandedItemId),
+        enabled: Boolean(expandedItemId) && (isWideLayout || windowLayout.id === resolvedMobileWindowId),
         queryFn: () => apiFetch<ItemDetail>(`/items/${expandedItemId}`),
       }
     }),
@@ -1151,7 +1031,7 @@ export function useDashboardPageController() {
 
   const dailyBriefHistoryQuery = useQuery({
     queryKey: ['ai', 'daily-briefs'],
-    enabled: aiDailyBriefEnabled,
+    enabled: aiDailyBriefEnabled && dailyBriefPanelsEnabled,
     retry: false,
     queryFn: async () => {
       try {
@@ -1192,6 +1072,9 @@ export function useDashboardPageController() {
   }
 
   const openAddWindowMenu = (focusIndex = 0) => {
+    if (windows.length >= MAX_DASHBOARD_WINDOWS) {
+      return
+    }
     pendingAddWindowFocusIndexRef.current = focusIndex
     setShowAddWindowMenu(true)
   }
@@ -1321,6 +1204,9 @@ export function useDashboardPageController() {
   const addWindow = (type: DashboardWindowType) => {
     const { width, height } = getWindowContainerDimensions(rootRef.current)
     setWindows((current) => {
+      if (current.length >= MAX_DASHBOARD_WINDOWS) {
+        return current
+      }
       const nextIndex = current.filter((window) => window.type === type).length + 1
       return [...current, createWindowLayout(type, nextIndex, width, height)]
     })
@@ -1940,10 +1826,6 @@ export function useDashboardPageController() {
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
   const notesWindowCount = windows.filter((window) => window.type === 'notes').length
   const dailyBriefWindowCount = windows.filter((window) => window.type === 'daily_brief').length
-  const resolvedMobileWindowId =
-    mobileActiveWindowId && windows.some((windowLayout) => windowLayout.id === mobileActiveWindowId)
-      ? mobileActiveWindowId
-      : windows[0]?.id ?? null
   const renderedWindows = isWideLayout
     ? windows
     : windows.filter((windowLayout) => windowLayout.id === resolvedMobileWindowId)
@@ -1965,14 +1847,16 @@ export function useDashboardPageController() {
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,
     alertQueriesByWindowId, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch, articlePreview,
     articlePreviewFrameState, articlePreviewWidth, articleRetryFeedbackByItemId, availableAlertCategories, bringWindowToFront,
-    canManage, captureCurrentDashboardViewState, clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
+    canAddWindow: windows.length < MAX_DASHBOARD_WINDOWS, canManage, captureCurrentDashboardViewState,
+    clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
     closeRenameWindow, confirmDiscardUnsavedDashboardChanges, containerDimensions, dailyBriefHistoryQuery, dailyBriefWindowCount,
     dashboardCustomSinceDate, dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeFilter, dashboardTimeRange,
     deleteView, detailQueriesByWindowId, editSessionSnapshot, expandedItemIdsByWindowId, exportAllViews,
     feedsQuery, globalSearchState, handleAddWindowMenuKeyDown, handleAddWindowTriggerKeyDown, handleOpenArticlePreview,
     handleToggleItem, hasProtectedEditSession, hasUnsavedDashboardChanges, importViewsError, importViewsFile,
     importViewsInputRef, importViewsResult, isArticlePreviewResizing, isEditMode, isImportingViews,
-    isWideLayout, itemActionFeedbackByItemId, markWindowSeen, mobileActiveWindowIndex, mobileDashboardViewsOpen,
+    isItemActionPending, isWideLayout, itemActionFeedbackByItemId, markWindowSeen,
+    mobileActiveWindowIndex, mobileDashboardViewsOpen,
     mobileWindowControlsOpenById, noteDraftsByItemId, notesWindowCount, onConfirmDeleteView, onConfirmPendingSavedViewLoad,
     openAddWindowMenu, openImportViewsPicker, openRenameWindow, pendingSavedViewLoad, pendingViewDelete,
     removeWindow, renameWindowDraft, renameWindowInputRef, renamingWindowId, renderedWindows,
