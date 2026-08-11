@@ -6,7 +6,7 @@ import ssl
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from html import unescape
 from email.message import EmailMessage
@@ -42,46 +42,16 @@ from app.services.notification_webhooks import (
     render_notification_template_text,
     try_acquire_notification_delivery_lock,
 )
+from app.services.smtp_delivery_results import (
+    SMTPDispatchResult,
+    SMTPNotificationResult,
+    notification_failure_result as _notification_failure_result,
+    notification_smtp_exception_result as _notification_smtp_exception_result,
+)
 
 HTML_TAG_PATTERN = compile_regex(r"<[^>]+>")
 SMTP_DELIVERY_AUDIT_ACTION = "integrations.smtp.delivery"
 SMTP_DELIVERY_RESOURCE_TYPE = "integration_instance"
-
-
-@dataclass(frozen=True)
-class SMTPNotificationResult:
-    success: bool
-    duration_ms: int
-    recipient_count: int
-    accepted_count: int
-    error_code: str | None
-    error: str | None
-    server_message: str | None
-    attempted_at: datetime
-    delivery_id: uuid.UUID
-    delivery_outcome: str = "unknown"
-    accepted_recipients: tuple[str, ...] = ()
-    refused_recipients: tuple[str, ...] = ()
-    unknown_recipients: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class SMTPDispatchResult:
-    status: str
-    reason: str | None = None
-    delivery: SMTPNotificationResult | None = None
-
-    @property
-    def sent(self) -> bool:
-        return self.status == "sent"
-
-    @property
-    def failed(self) -> bool:
-        return self.status == "failed"
-
-    @property
-    def skipped(self) -> bool:
-        return self.status == "skipped"
 
 
 def test_smtp_integration(
@@ -1014,68 +984,6 @@ def _test_response(
         server_message=server_message,
         tested_at=tested_at,
         used_unsaved_settings=False,
-    )
-
-
-def _notification_smtp_exception_result(
-    *,
-    started_at: float,
-    attempted_at: datetime,
-    delivery_id: uuid.UUID,
-    active: ActiveSMTPSettings,
-    error_code: str,
-    error: str,
-    server_message: str | None,
-    delivery_outcome: str = "not_attempted",
-    accepted_recipients: tuple[str, ...] = (),
-    refused_recipients: tuple[str, ...] = (),
-    unknown_recipients: tuple[str, ...] = (),
-) -> SMTPNotificationResult:
-    return _notification_failure_result(
-        started_at=started_at,
-        attempted_at=attempted_at,
-        delivery_id=delivery_id,
-        recipient_count=len(active.to_emails),
-        accepted_count=0,
-        error_code=error_code,
-        error=error,
-        server_message=server_message,
-        delivery_outcome=delivery_outcome,
-        accepted_recipients=accepted_recipients,
-        refused_recipients=refused_recipients,
-        unknown_recipients=unknown_recipients,
-    )
-
-
-def _notification_failure_result(
-    *,
-    started_at: float,
-    attempted_at: datetime,
-    delivery_id: uuid.UUID,
-    recipient_count: int,
-    accepted_count: int,
-    error_code: str,
-    error: str,
-    server_message: str | None,
-    delivery_outcome: str = "not_attempted",
-    accepted_recipients: tuple[str, ...] = (),
-    refused_recipients: tuple[str, ...] = (),
-    unknown_recipients: tuple[str, ...] = (),
-) -> SMTPNotificationResult:
-    return SMTPNotificationResult(
-        success=False,
-        duration_ms=max(0, int((time.perf_counter() - started_at) * 1000)),
-        recipient_count=recipient_count,
-        accepted_count=accepted_count,
-        error_code=error_code,
-        error=error,
-        server_message=server_message,
-        attempted_at=attempted_at,
-        delivery_id=delivery_id,
-        delivery_outcome=delivery_outcome,
-        accepted_recipients=accepted_recipients,
-        refused_recipients=refused_recipients,
-        unknown_recipients=unknown_recipients,
     )
 
 
