@@ -5185,7 +5185,7 @@ def test_process_reserved_notification_deliveries_schedules_retryable_failures(d
     assert captured["countdown"] == max(1, int(get_settings().notification_delivery_retry_backoff_seconds))
 
 
-def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, monkeypatch):
+def test_webhook_retry_reservation_failure_is_isolated_and_deferred(db_session, monkeypatch):
     user = User(
         id=uuid.uuid4(),
         email="atomic-retry@example.com",
@@ -5248,15 +5248,19 @@ def test_webhook_failure_and_retry_reservation_roll_back_together(db_session, mo
         lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("retry reservation failed")),
     )
 
-    with pytest.raises(RuntimeError, match="retry reservation failed"):
-        _process_reserved_notification_deliveries(db_session, [delivery.id])
-    db_session.rollback()
+    delivered, failed = _process_reserved_notification_deliveries(
+        db_session, [delivery.id]
+    )
     db_session.expire_all()
 
     persisted = db_session.get(NotificationWebhookDelivery, delivery.id)
     generic = db_session.get(IntegrationDelivery, persisted.integration_delivery_id)
-    assert persisted.delivery_state == "sending"
-    assert generic is not None and generic.state == "sending"
+    assert delivered == 0
+    assert failed == 1
+    assert persisted.delivery_state == "pending"
+    assert persisted.not_before is not None
+    assert "retry reservation failed" in (persisted.error or "")
+    assert generic is not None and generic.state == "retry_wait"
     assert db_session.scalar(
         select(NotificationWebhookDelivery.id).where(
             NotificationWebhookDelivery.source_delivery_id == delivery.id
