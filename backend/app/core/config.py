@@ -164,6 +164,7 @@ class Settings(BaseSettings):
     auth_csrf_header_name: str = "x-csrf-token"
     auth_require_csrf: bool = True
     trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
+    trusted_proxy_hosts: Annotated[list[str], NoDecode] = []
     allowed_hosts: Annotated[list[str], NoDecode] = ["api", "localhost", "127.0.0.1", "::1", "testserver"]
 
     admin_email: str = "admin@example.com"
@@ -189,8 +190,14 @@ class Settings(BaseSettings):
     outbound_max_redirects: int = 5
     per_domain_concurrency: int = 2
     auth_login_max_attempts: int = 8
+    auth_login_ip_max_attempts: int = 50
     auth_login_window_seconds: int = 300
     auth_login_lockout_seconds: int = 900
+    redis_connect_timeout_seconds: float = 2.0
+    redis_socket_timeout_seconds: float = 2.0
+    database_connect_timeout_seconds: int = 5
+    database_statement_timeout_ms: int = 30_000
+    database_pool_timeout_seconds: int = 10
     api_token_last_used_update_interval_seconds: int = 300
     oidc_transaction_cookie_name: str = "threatlens_oidc_transaction"
     oidc_transaction_ttl_seconds: int = 600
@@ -264,6 +271,7 @@ class Settings(BaseSettings):
     @field_validator(
         "cors_origins",
         "trusted_proxy_cidrs",
+        "trusted_proxy_hosts",
         "allowed_hosts",
         "app_data_encryption_previous_keys",
         "log_level_overrides",
@@ -313,6 +321,32 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("OIDC timeout values must be greater than zero")
         return value
+
+    @field_validator("redis_connect_timeout_seconds", "redis_socket_timeout_seconds")
+    @classmethod
+    def _validate_positive_redis_timeouts(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("Redis timeout values must be greater than zero")
+        return value
+
+    @field_validator(
+        "auth_login_max_attempts",
+        "auth_login_ip_max_attempts",
+        "database_connect_timeout_seconds",
+        "database_statement_timeout_ms",
+        "database_pool_timeout_seconds",
+    )
+    @classmethod
+    def _validate_positive_operational_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Authentication and database limits must be greater than zero")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_login_ip_threshold(self):
+        if self.auth_login_ip_max_attempts < self.auth_login_max_attempts:
+            raise ValueError("auth_login_ip_max_attempts must be at least auth_login_max_attempts")
+        return self
 
     @field_validator("log_level", mode="before")
     @classmethod

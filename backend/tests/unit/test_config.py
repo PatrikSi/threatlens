@@ -41,6 +41,17 @@ def test_trusted_proxy_cidrs_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch
     assert settings.trusted_proxy_cidrs == ["127.0.0.1/32", "::1/128", "172.16.0.0/12"]
 
 
+def test_trusted_proxy_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("TRUSTED_PROXY_HOSTS", "web, edge-proxy")
+    settings = Settings(_env_file=None)
+    assert settings.trusted_proxy_hosts == ["web", "edge-proxy"]
+
+
+def test_ip_login_threshold_cannot_be_lower_than_account_threshold():
+    with pytest.raises(ValueError, match="auth_login_ip_max_attempts"):
+        isolated_settings(auth_login_max_attempts=10, auth_login_ip_max_attempts=9)
+
+
 def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOWED_HOSTS", "api, threatlens.example.com")
     settings = Settings(_env_file=None)

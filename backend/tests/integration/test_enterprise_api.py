@@ -519,6 +519,7 @@ def test_register_is_throttled_after_anonymous_attempts(client: TestClient, monk
     )
     monkeypatch.setattr("app.api.routes.auth.resolve_client_ip", lambda _request: "203.0.113.10")
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_ip_max_attempts", 1)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
