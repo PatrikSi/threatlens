@@ -27,7 +27,7 @@ from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.schemas.user import UserUpdateRequest
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
 from app.services.feed_probe import FeedProbeResult
@@ -593,6 +593,36 @@ def test_login_with_invalid_password_hash_returns_401(client: TestClient, db_ses
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid email or password"
+
+
+def test_login_upgrades_existing_bcrypt_sha256_password_hash(
+    client: TestClient,
+    db_session,
+):
+    legacy_hash = (
+        "$bcrypt-sha256$v=2,t=2b,r=12$yjf1YwjNMpg6qj6gz9EIwe$"
+        "OE8Ps.Ull5TCbxx5DaDH7n02bicnVKG"
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="legacy-hash@example.com",
+        password_hash=legacy_hash,
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={"email": user.email, "password": "hello"},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(user)
+    assert user.password_hash.startswith("$argon2id$")
+    assert verify_password("hello", user.password_hash) is True
 
 
 def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient, db_session, seed_users):

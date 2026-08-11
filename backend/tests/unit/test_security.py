@@ -1,4 +1,9 @@
-from app.core.security import get_password_hash, pwd_context, verify_password
+from app.core.security import (
+    get_password_hash,
+    pwd_context,
+    verify_password,
+    verify_password_and_update,
+)
 
 
 def test_new_password_hashes_use_argon2_without_bcrypt_truncation():
@@ -27,3 +32,7 @@ def test_existing_passlib_bcrypt_sha256_hashes_remain_valid():
 
     assert verify_password("hello", existing_hash) is True
     assert verify_password("not-hello", existing_hash) is False
+    verified, replacement = verify_password_and_update("hello", existing_hash)
+    assert verified is True
+    assert replacement is not None
+    assert pwd_context.identify(replacement) == "argon2"

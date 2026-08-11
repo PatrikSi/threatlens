@@ -63,14 +63,26 @@ pwd_context = _PasswordContextCompatibility()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    verified, _replacement_hash = verify_password_and_update(
+        plain_password,
+        hashed_password,
+    )
+    return verified
+
+
+def verify_password_and_update(
+    plain_password: str,
+    hashed_password: str,
+) -> tuple[bool, str | None]:
     if hashed_password.startswith(LEGACY_BCRYPT_SHA256_PREFIX):
-        return _verify_legacy_bcrypt_sha256(plain_password, hashed_password)
+        verified = _verify_legacy_bcrypt_sha256(plain_password, hashed_password)
+        return verified, get_password_hash(plain_password) if verified else None
     if _is_legacy_bcrypt_hash(hashed_password) and len(plain_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
-        return False
+        return False, None
     try:
-        return _password_hash.verify(plain_password, hashed_password)
+        return _password_hash.verify_and_update(plain_password, hashed_password)
     except (TypeError, UnknownHashError, ValueError):
-        return False
+        return False, None
 
 
 def get_password_hash(password: str) -> str:
