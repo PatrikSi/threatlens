@@ -266,6 +266,11 @@ class Settings(BaseSettings):
     integration_delivery_retention_days: int = 90
     integration_event_retention_days: int = 30
     integration_metrics_retention_days: int = 730
+    audit_log_retention_days: int = 730
+    ai_task_history_retention_days: int = 180
+    ai_usage_retention_days: int = 730
+    tag_feedback_retention_days: int = 730
+    integration_run_retention_days: int = 180
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000", "http://127.0.0.1:3000"]
 
     @field_validator(

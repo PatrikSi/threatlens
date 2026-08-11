@@ -142,13 +142,14 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.record_beat_heartbeat": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.history_maintenance_tasks.maintain_application_history": {"queue": QUEUE_MAINTENANCE},
 }
 
 celery_app = Celery(
     "threatlens",
     broker=settings.redis_url,
     backend=settings.redis_url,
-    include=["app.tasks.feed_tasks"],
+    include=["app.tasks.feed_tasks", "app.tasks.history_maintenance_tasks"],
 )
 
 celery_app.conf.update(
@@ -211,6 +212,10 @@ celery_app.conf.update(
         },
         "maintain-integration-delivery-history": {
             "task": "app.tasks.feed_tasks.maintain_integration_delivery_history",
+            "schedule": 3600.0,
+        },
+        "maintain-application-history": {
+            "task": "app.tasks.history_maintenance_tasks.maintain_application_history",
             "schedule": 3600.0,
         },
         "dispatch-daily-ai-brief-generation": {
