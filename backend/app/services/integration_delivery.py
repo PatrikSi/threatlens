@@ -18,6 +18,7 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_compat import ensure_webhook_integration
+from app.services.integration_delivery_replay import smtp_replay_recipient_override
 
 settings = get_settings()
 
@@ -638,7 +639,7 @@ def replay_dead_letter_delivery(
     if legacy_source is not None:
         replay_payload["legacy_webhook_delivery_id"] = str(replay_id)
     elif source.connector_type == "smtp":
-        recipient_override = _smtp_replay_recipient_override(db, source=source)
+        recipient_override = smtp_replay_recipient_override(db, source=source)
         if recipient_override:
             replay_payload["smtp_recipient_override"] = recipient_override
     replay = IntegrationDelivery(
@@ -662,44 +663,6 @@ def replay_dead_letter_delivery(
         db.add(_clone_webhook_replay(source=legacy_source, replay_id=replay.id))
         db.flush()
     return replay
-
-
-def _smtp_replay_recipient_override(
-    db: Session, *, source: IntegrationDelivery
-) -> list[str]:
-    attempt = db.scalar(
-        select(IntegrationAttempt)
-        .where(IntegrationAttempt.delivery_id == source.id)
-        .order_by(IntegrationAttempt.attempt_number.desc())
-        .limit(1)
-    )
-    response = (
-        attempt.response_json
-        if attempt is not None and isinstance(attempt.response_json, dict)
-        else {}
-    )
-    accepted = _recipient_disposition_values(response.get("accepted_recipients"))
-    refused = _recipient_disposition_values(response.get("refused_recipients"))
-    if not accepted or not refused:
-        return []
-    return refused
-
-
-def _recipient_disposition_values(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    recipients: list[str] = []
-    seen: set[str] = set()
-    for entry in value:
-        if not isinstance(entry, str):
-            continue
-        recipient = entry.strip()
-        normalized = recipient.casefold()
-        if not recipient or normalized in seen:
-            continue
-        seen.add(normalized)
-        recipients.append(recipient)
-    return recipients
 
 
 def _webhook_replay_source(
