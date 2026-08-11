@@ -1,99 +1,22 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
-import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
-import { ConfirmDialog, DialogSurface } from '../components/ConfirmDialog'
-import { useCurrentUser } from '../hooks/useCurrentUser'
-import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
-import {
-  EncryptedDataInventoryResponse,
-  Feed,
-  FeedExportResponse,
-  FeedImportEntry,
-  FeedImportResponse,
-  FeedMetadataResponse,
-  ItemListResponse,
-} from '../types/api'
+import { FeedDetailDialog } from './FeedDetailDialog'
+import { FeedManagementDialogs } from './FeedManagementDialogs'
 import { feedHealthBadgeClass, resolveFeedHealth } from '../utils/feedHealth'
-import { mapSettledWithConcurrency } from '../utils/boundedConcurrency'
+import { DEFAULT_SCHEDULE_CRON, feedToScheduleDraft, isFeedScheduleDraftDirty, validateFeedScheduleDraft } from './feedScheduleDraft'
+import { feedSaveStatusClass, feedSaveStatusText, formatDate, resolveMutationError } from './feedPageUtils'
 import {
-  FeedEditDraft,
-  buildFeedUpdatePayload,
-  feedToEditDraft,
-  isFeedEditDraftDirty,
-  validateFeedEditDraft,
-} from './feedEditDraft'
-import {
-  collectDirtyFeedScheduleDrafts,
-  DEFAULT_SCHEDULE_CRON,
-  FeedScheduleDraft,
-  feedToScheduleDraft,
-  getFeedScheduleDraftStorageKey,
-  isFeedScheduleDraftDirty,
-  migrateLegacyFeedScheduleDraftStorage,
-  normalizeFeedScheduleDraft,
-  readPersistedFeedScheduleDrafts,
-  validateFeedScheduleDraft,
-} from './feedScheduleDraft'
-import {
-  buildFeedImportPreviewSummary,
-  downloadFeedExport,
-  feedSaveStatusClass,
-  feedSaveStatusText,
-  findDuplicateUrls,
-  formatBulkResultNotice,
-  formatDate,
-  formatFeedExportNotice,
-  isNewFeedFormDirty,
-  parseImportEntries,
-  resolveMutationError,
-  summarizeBulkResults,
-  timestamp,
-  type FeedImportPreviewSummary,
-  type FeedSaveState,
-} from './feedPageUtils'
-
-type FeedSort = 'name_asc' | 'name_desc' | 'last_fetch_desc' | 'last_fetch_asc' | 'created_desc'
-type FeedFetchMode = FeedScheduleDraft['fetchMode']
-type FeedStatusFilter = 'all' | 'enabled' | 'disabled' | 'broken'
-type PendingBulkSetEnabledAction = {
-  enabled: boolean
-  feeds: Feed[]
-}
-
-type PendingBulkDeleteAction = {
-  feeds: Feed[]
-  kind: 'disabled' | 'broken'
-}
-
-type DetectedFeedMetadata = {
-  sourceUrl: string
-  name: string
-  description: string
-  siteUrl: string
-  language: string
-}
-
-const MAX_FEED_IMPORT_FILE_BYTES = 2_000_000
-const FEED_STATUS_BOOTSTRAP_POLL_MS = 60_000
-const FEED_REFRESH_STATUS_POLL_MS = 45_000
-const FEED_STATUS_POLL_INTERVAL_MS = 3_000
-const FEED_REFRESH_FOLLOW_UP_DELAYS_MS = [2_000, 6_000, 12_000, 24_000] as const
-const BULK_FEED_REQUEST_CONCURRENCY = 5
-
-function shouldShowMobileFeedForm(open: boolean, feedCount: number) {
-  return open || feedCount === 0
-}
+  type FeedFetchMode,
+  type FeedSort,
+  type FeedStatusFilter,
+  useFeedsPageController,
+} from './useFeedsPageController'
 
 function mobileDisclosureClass(open: boolean) {
   return open ? 'block' : 'hidden'
 }
-
 function mobileFeedToggleLabel(open: boolean) {
   return open ? 'Hide' : 'New feed'
 }
-
 function mobileFeedToggleVisibilityClass(feedCount: number) {
   return feedCount === 0 ? 'hidden' : 'block'
 }
@@ -103,720 +26,110 @@ function mobileImportActionVisibilityClass(hasImportData: boolean) {
 }
 
 export function FeedsPage() {
-  const queryClient = useQueryClient()
-  const meQuery = useCurrentUser()
-  const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
-  const canDelete = meQuery.data?.role === 'admin'
-  const canBackup = meQuery.data?.role === 'admin'
-  const feedScheduleDraftStorageKey = meQuery.data?.id ? getFeedScheduleDraftStorageKey(meQuery.data.id) : null
-
-  const [name, setName] = useState('')
-  const [url, setUrl] = useState('')
-  const [description, setDescription] = useState('')
-  const [siteUrl, setSiteUrl] = useState('')
-  const [language, setLanguage] = useState('')
-  const [fetchMode, setFetchMode] = useState<FeedFetchMode>('interval')
-  const [interval, setInterval] = useState(1800)
-  const [scheduleCron, setScheduleCron] = useState('0 * * * *')
-
-  const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<FeedSort>('created_desc')
-  const [statusFilter, setStatusFilter] = useState<FeedStatusFilter>('all')
-
-  const [overwriteExisting, setOverwriteExisting] = useState(false)
-  const [importData, setImportData] = useState<FeedImportEntry[] | null>(null)
-  const [importFilename, setImportFilename] = useState('')
-  const [importError, setImportError] = useState<string>('')
-  const [importWarning, setImportWarning] = useState<string>('')
-  const [lastImportResult, setLastImportResult] = useState<FeedImportResponse | null>(null)
-  const [managementNotice, setManagementNotice] = useState('')
-  const [exportNotice, setExportNotice] = useState('')
-  const [pendingDeleteFeed, setPendingDeleteFeed] = useState<Feed | null>(null)
-  const [pendingBulkDeleteFeeds, setPendingBulkDeleteFeeds] = useState<PendingBulkDeleteAction | null>(null)
-  const [pendingBulkSetEnabled, setPendingBulkSetEnabled] = useState<PendingBulkSetEnabledAction | null>(null)
-  const [pendingImportReview, setPendingImportReview] = useState<FeedImportPreviewSummary | null>(null)
-  const [feedDrafts, setFeedDrafts] = useState<Record<string, FeedScheduleDraft>>({})
-  const [feedSaveState, setFeedSaveState] = useState<Record<string, FeedSaveState>>({})
-  const [feedDraftHydratedStorageKey, setFeedDraftHydratedStorageKey] = useState<string | null>(null)
-  const [feedStatusPollUntil, setFeedStatusPollUntil] = useState(() => Date.now() + FEED_STATUS_BOOTSTRAP_POLL_MS)
-  const [detectedMetadata, setDetectedMetadata] = useState<DetectedFeedMetadata | null>(null)
-  const [editingFeedId, setEditingFeedId] = useState<string | null>(null)
-  const [feedEditDraft, setFeedEditDraft] = useState<FeedEditDraft | null>(null)
-  const [mobileAddFeedOpen, setMobileAddFeedOpen] = useState(false)
-  const [mobileBulkActionsOpen, setMobileBulkActionsOpen] = useState(false)
-  const [mobileScheduleFeedId, setMobileScheduleFeedId] = useState<string | null>(null)
-  const persistedFeedDraftsRef = useRef<Record<string, FeedScheduleDraft>>({})
-  const loadedFeedDraftStorageKeyRef = useRef<string | null>(null)
-  const importFileInputRef = useRef<HTMLInputElement | null>(null)
-  const feedRefreshFollowUpTimeoutsRef = useRef<number[]>([])
-
-  const clearFeedRefreshFollowUps = () => {
-    for (const timeoutId of feedRefreshFollowUpTimeoutsRef.current) {
-      window.clearTimeout(timeoutId)
-    }
-    feedRefreshFollowUpTimeoutsRef.current = []
-  }
-
-  const invalidateFeedDependentQueries = () => {
-    void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-    void queryClient.invalidateQueries({ queryKey: ['items'] })
-  }
-
-  const scheduleFeedRefreshFollowUps = () => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    clearFeedRefreshFollowUps()
-    setFeedStatusPollUntil(Date.now() + FEED_REFRESH_STATUS_POLL_MS)
-    for (const delayMs of FEED_REFRESH_FOLLOW_UP_DELAYS_MS) {
-      const timeoutId = window.setTimeout(invalidateFeedDependentQueries, delayMs)
-      feedRefreshFollowUpTimeoutsRef.current.push(timeoutId)
-    }
-  }
-
-  const feedsQuery = useQuery({
-    queryKey: ['feeds'],
-    queryFn: () => apiFetch<Feed[]>('/feeds'),
-    refetchInterval: (query) => {
-      const feeds = query.state.data as Feed[] | undefined
-      const hasRefreshableUnhealthyFeeds =
-        feeds?.some((feed) => {
-          const status = resolveFeedHealth(feed).status
-          return status === 'stale' || status === 'failing'
-        }) ?? false
-      return hasRefreshableUnhealthyFeeds && Date.now() < feedStatusPollUntil ? FEED_STATUS_POLL_INTERVAL_MS : false
-    },
-  })
-
-  const encryptedDataHealthQuery = useQuery({
-    queryKey: ['health', 'encrypted-data'],
-    queryFn: async () => {
-      try {
-        return await apiFetch<EncryptedDataInventoryResponse>('/health/encrypted-data')
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 503 && error.detail && typeof error.detail === 'object') {
-          return error.detail as EncryptedDataInventoryResponse
-        }
-        throw error
-      }
-    },
-    enabled: canDelete,
-    refetchInterval: 60_000,
-  })
-
-  const feedArticlesQuery = useQuery({
-    queryKey: ['items', 'feed-detail', editingFeedId],
-    queryFn: () =>
-      apiFetch<ItemListResponse>(
-        `/items?feed_id=${encodeURIComponent(editingFeedId ?? '')}&page=1&page_size=10&sort=published_at_desc`,
-      ),
-    enabled: Boolean(editingFeedId),
-  })
-
-  const detectMetadata = useMutation({
-    mutationFn: (feedUrl: string) =>
-      apiFetch<FeedMetadataResponse>('/feeds/metadata', {
-        method: 'POST',
-        body: JSON.stringify({ url: feedUrl }),
-      }),
-    onSuccess: (metadata, feedUrl) => {
-      const nextDetectedMetadata: DetectedFeedMetadata = {
-        sourceUrl: feedUrl.trim(),
-        name: metadata.name?.trim() ?? '',
-        description: metadata.description?.trim() ?? '',
-        siteUrl: metadata.site_url?.trim() ?? '',
-        language: metadata.language?.trim() ?? '',
-      }
-      setDetectedMetadata(nextDetectedMetadata)
-      if (!name.trim() && metadata.name) {
-        setName(metadata.name)
-      }
-      if (!description.trim() && metadata.description) {
-        setDescription(metadata.description)
-      }
-      if (!siteUrl.trim() && metadata.site_url) {
-        setSiteUrl(metadata.site_url)
-      }
-      if (!language.trim() && metadata.language) {
-        setLanguage(metadata.language)
-      }
-    },
-  })
-
-  const createFeed = useMutation({
-    mutationFn: () =>
-      apiFetch<Feed>('/feeds', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: name.trim() || null,
-          url,
-          description: description.trim() || null,
-          site_url: siteUrl.trim() || null,
-          language: language.trim() || null,
-          fetch_mode: fetchMode,
-          fetch_interval_seconds: fetchMode === 'interval' ? interval : null,
-          schedule_cron: fetchMode === 'schedule' ? scheduleCron.trim() : null,
-          enabled: true,
-        }),
-      }),
-    onSuccess: () => {
-      setName('')
-      setUrl('')
-      setDescription('')
-      setSiteUrl('')
-      setLanguage('')
-      setFetchMode('interval')
-      setInterval(1800)
-      setScheduleCron('0 * * * *')
-      setDetectedMetadata(null)
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-    },
-  })
-
-  const updateFeed = useMutation({
-    mutationFn: (payload: { id: string; body: Record<string, unknown> }) =>
-      apiFetch<Feed>(`/feeds/${payload.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(payload.body),
-      }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['feeds'] }),
-  })
-
-  const updateFeedDetails = useMutation({
-    mutationKey: ['feeds', 'detail-update'],
-    mutationFn: ({ feed, draft }: { feed: Feed; draft: FeedEditDraft }) =>
-      apiFetch<Feed>(`/feeds/${feed.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(buildFeedUpdatePayload(feed, draft)),
-      }),
-    onSuccess: (updatedFeed) => {
-      setManagementNotice('Feed updated.')
-      queryClient.setQueryData<Feed[]>(['feeds'], (current) =>
-        current?.map((feed) => (feed.id === updatedFeed.id ? updatedFeed : feed)) ?? current,
-      )
-      setFeedEditDraft(feedToEditDraft(updatedFeed))
-      setFeedDrafts((previous) => ({
-        ...previous,
-        [updatedFeed.id]: feedToScheduleDraft(updatedFeed),
-      }))
-      setFeedSaveState((previous) => ({
-        ...previous,
-        [updatedFeed.id]: { status: 'idle' },
-      }))
-      invalidateFeedDependentQueries()
-    },
-  })
-
-  const refreshFeed = useMutation({
-    mutationFn: (id: string) => apiFetch(`/feeds/${id}/refresh`, { method: 'POST' }),
-    onSuccess: () => {
-      setManagementNotice('Refresh queued. Feed health will update automatically as the worker finishes.')
-      invalidateFeedDependentQueries()
-      scheduleFeedRefreshFollowUps()
-    },
-  })
-
-  const deleteFeed = useMutation({
-    mutationKey: ['feeds', 'delete'],
-    mutationFn: (id: string) => apiFetch<void>(`/feeds/${id}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      setManagementNotice('Feed deleted.')
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-      void queryClient.invalidateQueries({ queryKey: ['health', 'encrypted-data'] })
-    },
-  })
-
-  const bulkRefreshFeeds = useMutation({
-    mutationKey: ['feeds', 'bulk-refresh'],
-    mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch(`/feeds/${feed.id}/refresh`, { method: 'POST' }),
-      )
-      return summarizeBulkResults(feeds, settled)
-    },
-    onSuccess: (result) => {
-      const followUpHint = result.succeeded > 0 ? ' Feed health will update automatically as workers finish.' : ''
-      setManagementNotice(`${formatBulkResultNotice('Refresh queued for', result)}${followUpHint}`)
-      invalidateFeedDependentQueries()
-      if (result.succeeded > 0) {
-        scheduleFeedRefreshFollowUps()
-      }
-    },
-  })
-
-  const bulkSetEnabled = useMutation({
-    mutationKey: ['feeds', 'bulk-set-enabled'],
-    mutationFn: async (payload: { feeds: Feed[]; enabled: boolean }) => {
-      const settled = await mapSettledWithConcurrency(
-        payload.feeds,
-        BULK_FEED_REQUEST_CONCURRENCY,
-        (feed) =>
-          apiFetch<Feed>(`/feeds/${feed.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify({ enabled: payload.enabled }),
-          }),
-      )
-      return { enabled: payload.enabled, ...summarizeBulkResults(payload.feeds, settled) }
-    },
-    onSuccess: (result) => {
-      const actionLabel = result.enabled ? 'Enabled' : 'Disabled'
-      setManagementNotice(formatBulkResultNotice(actionLabel, result))
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-    },
-  })
-
-  const bulkDeleteFeeds = useMutation({
-    mutationKey: ['feeds', 'bulk-delete'],
-    mutationFn: async (feeds: Feed[]) => {
-      const settled = await mapSettledWithConcurrency(feeds, BULK_FEED_REQUEST_CONCURRENCY, (feed) =>
-        apiFetch<void>(`/feeds/${feed.id}`, { method: 'DELETE' }),
-      )
-      return summarizeBulkResults(feeds, settled)
-    },
-  })
-
-  const importFeeds = useMutation({
-    mutationKey: ['feeds', 'import'],
-    mutationFn: () =>
-      apiFetch<FeedImportResponse>('/feeds/import', {
-        method: 'POST',
-        body: JSON.stringify({
-          feeds: importData ?? [],
-          overwrite_existing: overwriteExisting,
-        }),
-      }),
-    onSuccess: (result) => {
-      setLastImportResult(result)
-      setImportData(null)
-      setImportFilename('')
-      setImportError('')
-      setImportWarning('')
-      setPendingImportReview(null)
-      void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-    },
-  })
-
-  const exportFeeds = useMutation({
-    mutationFn: () => apiFetch<FeedExportResponse>('/feeds/export/backup'),
-    onSuccess: (payload) => {
-      downloadFeedExport(payload)
-      setExportNotice(formatFeedExportNotice(payload))
-    },
-  })
-
-  useEffect(() => {
-    return () => {
-      for (const timeoutId of feedRefreshFollowUpTimeoutsRef.current) {
-        window.clearTimeout(timeoutId)
-      }
-      feedRefreshFollowUpTimeoutsRef.current = []
-    }
-  }, [])
-
-  const filteredFeeds = useMemo(() => {
-    const term = search.trim().toLowerCase()
-    const source = feedsQuery.data ?? []
-    const filteredByStatus = source.filter((feed) => {
-      if (statusFilter === 'enabled') return feed.enabled
-      if (statusFilter === 'disabled') return !feed.enabled
-      if (statusFilter === 'broken') return feed.has_unreadable_url
-      return true
-    })
-
-    const filtered = term
-      ? filteredByStatus.filter((feed) => {
-          const haystack = [
-            feed.name,
-            feed.url,
-            feed.description || '',
-            feed.site_url || '',
-            feed.language || '',
-            feed.last_error || '',
-          ]
-            .join(' ')
-            .toLowerCase()
-          return haystack.includes(term)
-        })
-      : filteredByStatus.slice()
-
-    filtered.sort((a, b) => {
-      if (sort === 'name_asc') return a.name.localeCompare(b.name)
-      if (sort === 'name_desc') return b.name.localeCompare(a.name)
-      if (sort === 'last_fetch_asc') return timestamp(a.last_fetch_at) - timestamp(b.last_fetch_at)
-      if (sort === 'last_fetch_desc') return timestamp(b.last_fetch_at) - timestamp(a.last_fetch_at)
-      return timestamp(b.created_at) - timestamp(a.created_at)
-    })
-
-    return filtered
-  }, [feedsQuery.data, search, sort, statusFilter])
-
-  const feedStats = useMemo(() => {
-    const allFeeds = feedsQuery.data ?? []
-    const enabled = allFeeds.filter((feed) => feed.enabled).length
-    const unhealthy = allFeeds.filter((feed) => Boolean(feed.last_error) || feed.error_count > 0).length
-    const broken = allFeeds.filter((feed) => feed.has_unreadable_url).length
-    return {
-      total: allFeeds.length,
-      enabled,
-      disabled: allFeeds.length - enabled,
-      unhealthy,
-      broken,
-    }
-  }, [feedsQuery.data])
-
-  const editingFeed = useMemo(
-    () => (feedsQuery.data ?? []).find((feed) => feed.id === editingFeedId) ?? null,
-    [editingFeedId, feedsQuery.data],
-  )
-  const feedEditValidation = editingFeed && feedEditDraft ? validateFeedEditDraft(editingFeed, feedEditDraft) : null
-  const feedEditDirty = editingFeed && feedEditDraft ? isFeedEditDraftDirty(editingFeed, feedEditDraft) : false
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    if (!feedScheduleDraftStorageKey || !meQuery.data?.id) {
-      persistedFeedDraftsRef.current = {}
-      loadedFeedDraftStorageKeyRef.current = null
-      setFeedDraftHydratedStorageKey(null)
-      setFeedDrafts({})
-      setFeedSaveState({})
-      return
-    }
-
-    if (loadedFeedDraftStorageKeyRef.current === feedScheduleDraftStorageKey) {
-      return
-    }
-
-    migrateLegacyFeedScheduleDraftStorage(window.sessionStorage, meQuery.data.id)
-    persistedFeedDraftsRef.current = readPersistedFeedScheduleDrafts(window.sessionStorage, feedScheduleDraftStorageKey)
-    loadedFeedDraftStorageKeyRef.current = feedScheduleDraftStorageKey
-    setFeedDraftHydratedStorageKey(null)
-    setFeedDrafts({})
-    setFeedSaveState({})
-  }, [feedScheduleDraftStorageKey, meQuery.data?.id])
-
-  useEffect(() => {
-    if (feedScheduleDraftStorageKey && loadedFeedDraftStorageKeyRef.current !== feedScheduleDraftStorageKey) {
-      return
-    }
-
-    const feeds = feedsQuery.data ?? []
-    const validIds = new Set(feeds.map((feed) => feed.id))
-
-    setFeedDrafts((previous) => {
-      const next: Record<string, FeedScheduleDraft> = {}
-      for (const feed of feeds) {
-        const previousDraft =
-          feedDraftHydratedStorageKey === feedScheduleDraftStorageKey ? previous[feed.id] : undefined
-        const draft = persistedFeedDraftsRef.current[feed.id] ?? previousDraft
-        next[feed.id] = draft && isFeedScheduleDraftDirty(feed, draft) ? draft : feedToScheduleDraft(feed)
-      }
-      return next
-    })
-
-    setFeedSaveState((previous) => {
-      const next: Record<string, FeedSaveState> = {}
-      for (const [feedId, state] of Object.entries(previous)) {
-        if (validIds.has(feedId)) {
-          next[feedId] = state
-        }
-      }
-      return next
-    })
-
-    setFeedDraftHydratedStorageKey(feedScheduleDraftStorageKey)
-  }, [feedDraftHydratedStorageKey, feedScheduleDraftStorageKey, feedsQuery.data])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    if (!feedsQuery.data || !feedScheduleDraftStorageKey || feedDraftHydratedStorageKey !== feedScheduleDraftStorageKey) {
-      return
-    }
-
-    const dirtyDrafts = collectDirtyFeedScheduleDrafts(feedsQuery.data, feedDrafts)
-    persistedFeedDraftsRef.current = dirtyDrafts
-
-    try {
-      if (Object.keys(dirtyDrafts).length > 0) {
-        window.sessionStorage.setItem(feedScheduleDraftStorageKey, JSON.stringify(dirtyDrafts))
-      } else {
-        window.sessionStorage.removeItem(feedScheduleDraftStorageKey)
-      }
-    } catch {
-      // Ignore storage write failures and keep editing in memory.
-    }
-  }, [feedDraftHydratedStorageKey, feedDrafts, feedScheduleDraftStorageKey, feedsQuery.data])
-
-  useEffect(() => {
-    if (!detectedMetadata) {
-      return
-    }
-
-    const trimmedUrl = url.trim()
-    if (!trimmedUrl || trimmedUrl === detectedMetadata.sourceUrl) {
-      return
-    }
-
-    if (name === detectedMetadata.name) {
-      setName('')
-    }
-    if (description === detectedMetadata.description) {
-      setDescription('')
-    }
-    if (siteUrl === detectedMetadata.siteUrl) {
-      setSiteUrl('')
-    }
-    if (language === detectedMetadata.language) {
-      setLanguage('')
-    }
-    setDetectedMetadata(null)
-  }, [description, detectedMetadata, language, name, siteUrl, url])
-
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault()
-    createFeed.mutate()
-  }
-
-  const onDetectMetadata = () => {
-    if (!url.trim()) return
-    detectMetadata.mutate(url.trim())
-  }
-
-  const onConfirmDeleteFeed = () => {
-    if (!pendingDeleteFeed) {
-      return
-    }
-
-    const feedId = pendingDeleteFeed.id
-    setPendingDeleteFeed(null)
-    setManagementNotice('')
-    deleteFeed.mutate(feedId)
-  }
-
-  const onConfirmBulkDeleteFeeds = () => {
-    if (!pendingBulkDeleteFeeds?.feeds.length) {
-      return
-    }
-
-    const { feeds, kind } = pendingBulkDeleteFeeds
-    setPendingBulkDeleteFeeds(null)
-    setManagementNotice('')
-    bulkDeleteFeeds.mutate(feeds, {
-      onSuccess: (result) => {
-        const actionLabel = kind === 'broken' ? 'Deleted broken' : 'Deleted'
-        setManagementNotice(formatBulkResultNotice(actionLabel, result))
-        void queryClient.invalidateQueries({ queryKey: ['feeds'] })
-        void queryClient.invalidateQueries({ queryKey: ['health', 'encrypted-data'] })
-      },
-    })
-  }
-
-  const onConfirmBulkSetEnabled = () => {
-    if (!pendingBulkSetEnabled?.feeds.length) {
-      return
-    }
-
-    const feeds = pendingBulkSetEnabled.feeds
-    const enabled = pendingBulkSetEnabled.enabled
-    setPendingBulkSetEnabled(null)
-    setManagementNotice('')
-    bulkSetEnabled.mutate({ feeds, enabled })
-  }
-
-  const onImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-
-    setImportError('')
-    setImportWarning('')
-    setLastImportResult(null)
-
-    if (file.size > MAX_FEED_IMPORT_FILE_BYTES) {
-      setImportData(null)
-      setImportFilename('')
-      setImportError('Import file is too large. Maximum supported size is 2 MB.')
-      event.target.value = ''
-      return
-    }
-
-    try {
-      const text = await file.text()
-      const parsed = JSON.parse(text) as unknown
-      const entries = parseImportEntries(parsed)
-      const duplicateUrls = findDuplicateUrls(entries)
-      setImportData(entries)
-      setImportFilename(file.name)
-      if (duplicateUrls.length) {
-        setImportWarning(`Duplicate feed URLs in import file: ${duplicateUrls.join(', ')}`)
-      }
-    } catch (error) {
-      setImportData(null)
-      setImportFilename('')
-      setImportError((error as Error).message)
-    } finally {
-      event.target.value = ''
-    }
-  }
-
-  const persistFeedSchedule = async (feedId: string, draft: FeedScheduleDraft) => {
-    const feed = (feedsQuery.data ?? []).find((entry) => entry.id === feedId)
-    if (!feed) return
-
-    const validationError = validateFeedScheduleDraft(draft)
-    if (validationError) {
-      setFeedSaveState((previous) => ({
-        ...previous,
-        [feedId]: { status: 'error', message: validationError },
-      }))
-      return
-    }
-
-    const normalizedDraft = normalizeFeedScheduleDraft(draft)
-    const body: Record<string, unknown> = { fetch_mode: normalizedDraft.fetchMode }
-    if (normalizedDraft.fetchMode === 'interval') {
-      body.fetch_interval_seconds = Number(normalizedDraft.intervalSeconds)
-    } else {
-      body.schedule_cron = normalizedDraft.scheduleCron
-    }
-
-    setFeedDrafts((previous) => ({
-      ...previous,
-      [feedId]: normalizedDraft,
-    }))
-
-    if (!isFeedScheduleDraftDirty(feed, normalizedDraft)) {
-      setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
-      return
-    }
-
-    setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saving' } }))
-
-    try {
-      await apiFetch<Feed>(`/feeds/${feedId}`, {
-        method: 'PATCH',
-        body: JSON.stringify(body),
-      })
-      setFeedSaveState((previous) => ({ ...previous, [feedId]: { status: 'saved' } }))
-      await queryClient.invalidateQueries({ queryKey: ['feeds'] })
-    } catch (error) {
-      setFeedSaveState((previous) => ({
-        ...previous,
-        [feedId]: { status: 'error', message: resolveMutationError(error, 'Feed schedule could not be updated') },
-      }))
-    }
-  }
-
-  const updateFeedDraft = (feed: Feed, patch: Partial<FeedScheduleDraft>) => {
-    const currentDraft = feedDrafts[feed.id] ?? feedToScheduleDraft(feed)
-    const nextDraft = { ...currentDraft, ...patch }
-    setFeedDrafts((previous) => ({ ...previous, [feed.id]: nextDraft }))
-    setFeedSaveState((previous) => ({ ...previous, [feed.id]: { status: 'idle' } }))
-  }
-
-  const resetFeedDraft = (feed: Feed) => {
-    setFeedDrafts((previous) => ({ ...previous, [feed.id]: feedToScheduleDraft(feed) }))
-    setFeedSaveState((previous) => ({ ...previous, [feed.id]: { status: 'idle' } }))
-  }
-
-  const visibleFeedIds = filteredFeeds.map((feed) => feed.id)
-  const visibleDisabledFeedIds = filteredFeeds.filter((feed) => !feed.enabled).map((feed) => feed.id)
-  const visibleEnabledFeedIds = filteredFeeds.filter((feed) => feed.enabled).map((feed) => feed.id)
-  const visibleBrokenFeedIds = filteredFeeds.filter((feed) => feed.has_unreadable_url).map((feed) => feed.id)
-  const brokenFeeds = (feedsQuery.data ?? []).filter((feed) => feed.has_unreadable_url)
-  const unreadableFeedInventoryCount = encryptedDataHealthQuery.data?.feeds.unreadable_records ?? brokenFeeds.length
-  const hasUnreadableFeedWarning = unreadableFeedInventoryCount > 0
-  const showDerivedKeyWarning =
-    canDelete && encryptedDataHealthQuery.data?.using_derived_app_data_encryption_key && !encryptedDataHealthQuery.isError
-  const importPreviewSummary = useMemo(
-    () => buildFeedImportPreviewSummary(importData, feedsQuery.data ?? [], overwriteExisting),
-    [feedsQuery.data, importData, overwriteExisting],
-  )
-  const hasUnsavedCreateFeedChanges = isNewFeedFormDirty({
+  const {
+    canManage,
+    canDelete,
+    canBackup,
     name,
+    setName,
     url,
+    setUrl,
     description,
+    setDescription,
     siteUrl,
+    setSiteUrl,
     language,
+    setLanguage,
     fetchMode,
+    setFetchMode,
     interval,
+    setInterval,
     scheduleCron,
-  })
-  const hasUnsavedFeedScheduleChanges = (feedsQuery.data ?? []).some((feed) =>
-    isFeedScheduleDraftDirty(feed, feedDrafts[feed.id] ?? feedToScheduleDraft(feed)),
-  )
-  const confirmDiscardUnsavedFeedScheduleChanges = useUnsavedChangesWarning(
-    hasUnsavedFeedScheduleChanges || hasUnsavedCreateFeedChanges || feedEditDirty,
-    'You have unsaved feed changes. Leave without saving?',
-  )
-
-  const onRequestDeleteFeed = (feed: Feed) => {
-    confirmDiscardUnsavedFeedScheduleChanges(() => {
-      setPendingDeleteFeed(feed)
-    })
-  }
-
-  const onRequestBulkDeleteFeeds = (feeds: Feed[]) => {
-    confirmDiscardUnsavedFeedScheduleChanges(() => {
-      setPendingBulkDeleteFeeds({ feeds, kind: 'disabled' })
-    })
-  }
-
-  const onRequestBulkDeleteBrokenFeeds = (feeds: Feed[]) => {
-    confirmDiscardUnsavedFeedScheduleChanges(() => {
-      setPendingBulkDeleteFeeds({ feeds, kind: 'broken' })
-    })
-  }
-
-  const onRequestImportReview = () => {
-    if (!importPreviewSummary) {
-      return
-    }
-
-    confirmDiscardUnsavedFeedScheduleChanges(() => {
-      setPendingImportReview(importPreviewSummary)
-    })
-  }
-
-  const onConfirmImportReview = () => {
-    if (!pendingImportReview) {
-      return
-    }
-    setPendingImportReview(null)
-    importFeeds.mutate()
-  }
-
-  const openFeedDetail = (feed: Feed) => {
-    setEditingFeedId(feed.id)
-    setFeedEditDraft(feedToEditDraft(feed))
-  }
-
-  const closeFeedDetail = () => {
-    if (feedEditDirty && typeof window !== 'undefined' && !window.confirm('Discard unsaved feed edits?')) {
-      return
-    }
-    setEditingFeedId(null)
-    setFeedEditDraft(null)
-  }
-
-  const updateFeedEditDraft = (patch: Partial<FeedEditDraft>) => {
-    setFeedEditDraft((current) => (current ? { ...current, ...patch } : current))
-  }
-
-  const onSaveFeedDetail = () => {
-    if (!editingFeed || !feedEditDraft || feedEditValidation || !feedEditDirty) {
-      return
-    }
-    updateFeedDetails.mutate({ feed: editingFeed, draft: feedEditDraft })
-  }
-
-  const showMobileAddFeedForm = shouldShowMobileFeedForm(mobileAddFeedOpen, feedStats.total)
-  const managementError =
-    bulkRefreshFeeds.error || bulkSetEnabled.error || bulkDeleteFeeds.error || deleteFeed.error
+    setScheduleCron,
+    search,
+    setSearch,
+    sort,
+    setSort,
+    statusFilter,
+    setStatusFilter,
+    overwriteExisting,
+    setOverwriteExisting,
+    importData,
+    importFilename,
+    importError,
+    importWarning,
+    lastImportResult,
+    managementNotice,
+    setManagementNotice,
+    exportNotice,
+    pendingDeleteFeed,
+    setPendingDeleteFeed,
+    pendingBulkDeleteFeeds,
+    setPendingBulkDeleteFeeds,
+    pendingBulkSetEnabled,
+    setPendingBulkSetEnabled,
+    pendingImportReview,
+    setPendingImportReview,
+    feedDrafts,
+    feedSaveState,
+    feedEditDraft,
+    mobileAddFeedOpen,
+    setMobileAddFeedOpen,
+    mobileBulkActionsOpen,
+    setMobileBulkActionsOpen,
+    mobileScheduleFeedId,
+    setMobileScheduleFeedId,
+    importFileInputRef,
+    feedsQuery,
+    encryptedDataHealthQuery,
+    feedArticlesQuery,
+    detectMetadata,
+    createFeed,
+    updateFeed,
+    updateFeedDetails,
+    refreshFeed,
+    deleteFeed,
+    bulkRefreshFeeds,
+    bulkSetEnabled,
+    bulkDeleteFeeds,
+    importFeeds,
+    exportFeeds,
+    filteredFeeds,
+    feedStats,
+    editingFeed,
+    feedEditValidation,
+    feedEditDirty,
+    onSubmit,
+    onDetectMetadata,
+    onConfirmDeleteFeed,
+    onConfirmBulkDeleteFeeds,
+    onConfirmBulkSetEnabled,
+    onImportFile,
+    persistFeedSchedule,
+    updateFeedDraft,
+    resetFeedDraft,
+    visibleFeedIds,
+    visibleDisabledFeedIds,
+    visibleEnabledFeedIds,
+    visibleBrokenFeedIds,
+    brokenFeeds,
+    unreadableFeedInventoryCount,
+    hasUnreadableFeedWarning,
+    showDerivedKeyWarning,
+    importPreviewSummary,
+    confirmDiscardUnsavedFeedScheduleChanges,
+    onRequestDeleteFeed,
+    onRequestBulkDeleteFeeds,
+    onRequestBulkDeleteBrokenFeeds,
+    onRequestImportReview,
+    onConfirmImportReview,
+    closeFeedDetail,
+    updateFeedEditDraft,
+    onSaveFeedDetail,
+    openFeedDetail,
+    showMobileAddFeedForm,
+    managementError,
+  } = useFeedsPageController()
 
   return (
     <div className="grid gap-4 lg:grid-cols-[460px_1fr]">
@@ -1524,410 +837,37 @@ export function FeedsPage() {
         </div>
       </section>
 
-      <DialogSurface
-        open={Boolean(editingFeed && feedEditDraft)}
-        title={editingFeed?.name ?? 'Feed Details'}
-        description="Update feed settings and review the latest ingested articles from this source."
-        panelClassName="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden"
-        bodyClassName="mt-4 min-h-0 space-y-5 overflow-auto text-sm text-slate dark:text-white/75"
-        footerClassName="mt-5 flex flex-wrap items-center justify-between gap-2"
-        ariaBusy={updateFeedDetails.isPending}
-        dismissDisabled={updateFeedDetails.isPending}
-        onClose={closeFeedDetail}
-        footer={
-          <>
-            <div className="min-h-5 text-xs">
-              {feedEditValidation && <span className="text-red-600">{feedEditValidation}</span>}
-              {!feedEditValidation && feedEditDirty && (
-                <span className="text-amber-700 dark:text-amber-300">Unsaved feed edits.</span>
-              )}
-              {!feedEditValidation && !feedEditDirty && (
-                <span className="text-slate dark:text-slate-300">No unsaved feed edits.</span>
-              )}
-            </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className="rounded border border-slate/20 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate/5 dark:border-cyan-900/40 dark:text-slate-100 dark:hover:bg-white/[0.04]"
-                onClick={closeFeedDetail}
-                disabled={updateFeedDetails.isPending}
-              >
-                Cancel
-              </button>
-              {canManage && (
-                <button
-                  type="button"
-                  className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white hover:bg-slate-900 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-cyan dark:text-[#053c2e] dark:hover:bg-cyan/90"
-                  onClick={onSaveFeedDetail}
-                  disabled={updateFeedDetails.isPending || Boolean(feedEditValidation) || !feedEditDirty}
-                >
-                  {updateFeedDetails.isPending ? 'Saving...' : 'Save feed'}
-                </button>
-              )}
-            </div>
-          </>
-        }
-      >
-        {editingFeed && feedEditDraft && (
-          <>
-            <section className="space-y-3 rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                <div>
-                  <label htmlFor="feed-edit-url" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    RSS URL
-                  </label>
-                  <input
-                    id="feed-edit-url"
-                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.url}
-                    onChange={(event) => updateFeedEditDraft({ url: event.target.value })}
-                    disabled={!canManage}
-                    placeholder={editingFeed.has_unreadable_url ? 'Enter a replacement RSS URL' : 'https://example.com/feed.xml'}
-                  />
-                  {editingFeed.url.includes('REDACTED') && (
-                    <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-                      Sensitive URL parts are redacted. Leave this field unchanged unless replacing the full feed URL.
-                    </p>
-                  )}
-                </div>
-                <label className="flex items-end gap-2 text-sm font-semibold text-slate dark:text-slate-200">
-                  <input
-                    type="checkbox"
-                    checked={feedEditDraft.enabled}
-                    onChange={(event) => updateFeedEditDraft({ enabled: event.target.checked })}
-                    disabled={!canManage}
-                  />
-                  Enabled
-                </label>
-              </div>
 
-              <div className="grid gap-3 md:grid-cols-2">
-                <div>
-                  <label htmlFor="feed-edit-name" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    Name
-                  </label>
-                  <input
-                    id="feed-edit-name"
-                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.name}
-                    onChange={(event) => updateFeedEditDraft({ name: event.target.value })}
-                    disabled={!canManage}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="feed-edit-site-url" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    Site URL
-                  </label>
-                  <input
-                    id="feed-edit-site-url"
-                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.siteUrl}
-                    onChange={(event) => updateFeedEditDraft({ siteUrl: event.target.value })}
-                    disabled={!canManage}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
-                <div>
-                  <label htmlFor="feed-edit-description" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    Description
-                  </label>
-                  <textarea
-                    id="feed-edit-description"
-                    className="mt-1 h-20 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.description}
-                    onChange={(event) => updateFeedEditDraft({ description: event.target.value })}
-                    disabled={!canManage}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="feed-edit-language" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    Language
-                  </label>
-                  <input
-                    id="feed-edit-language"
-                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.language}
-                    onChange={(event) => updateFeedEditDraft({ language: event.target.value })}
-                    disabled={!canManage}
-                    placeholder="en-US"
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-3 md:grid-cols-[180px_1fr]">
-                <div>
-                  <label htmlFor="feed-edit-fetch-mode" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                    Fetch Mode
-                  </label>
-                  <select
-                    id="feed-edit-fetch-mode"
-                    className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                    value={feedEditDraft.fetchMode}
-                    onChange={(event) => {
-                      const nextMode = event.target.value as FeedFetchMode
-                      updateFeedEditDraft({
-                        fetchMode: nextMode,
-                        intervalSeconds: feedEditDraft.intervalSeconds || '1800',
-                        scheduleCron:
-                          nextMode === 'schedule'
-                            ? feedEditDraft.scheduleCron || DEFAULT_SCHEDULE_CRON
-                            : feedEditDraft.scheduleCron,
-                      })
-                    }}
-                    disabled={!canManage}
-                  >
-                    <option value="interval">Interval</option>
-                    <option value="schedule">Schedule</option>
-                  </select>
-                </div>
-
-                {feedEditDraft.fetchMode === 'interval' ? (
-                  <div>
-                    <label htmlFor="feed-edit-interval" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                      Fetch Interval
-                    </label>
-                    <div className="mt-1 flex items-center gap-2">
-                      <input
-                        id="feed-edit-interval"
-                        className="w-36 rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                        type="number"
-                        min={60}
-                        value={feedEditDraft.intervalSeconds}
-                        onChange={(event) => updateFeedEditDraft({ intervalSeconds: event.target.value })}
-                        disabled={!canManage}
-                      />
-                      <span className="text-xs text-slate dark:text-slate-300">seconds</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div>
-                    <label htmlFor="feed-edit-cron" className="text-xs font-semibold uppercase text-slate dark:text-slate-300">
-                      Cron Schedule
-                    </label>
-                    <input
-                      id="feed-edit-cron"
-                      className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 font-mono text-sm dark:border-cyan-900/40 dark:bg-[#072019]"
-                      value={feedEditDraft.scheduleCron}
-                      onChange={(event) => updateFeedEditDraft({ scheduleCron: event.target.value })}
-                      disabled={!canManage}
-                      placeholder="0 * * * *"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {updateFeedDetails.isError && (
-                <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-                  {resolveMutationError(updateFeedDetails.error, 'Feed details could not be updated')}
-                </p>
-              )}
-            </section>
-
-            <section aria-labelledby="feed-recent-articles-heading" className="space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <h4 id="feed-recent-articles-heading" className="font-display text-lg text-ink dark:text-white">
-                  Recent Articles
-                </h4>
-                {feedArticlesQuery.data && (
-                  <span className="text-xs text-slate dark:text-slate-300">
-                    Showing {feedArticlesQuery.data.items.length} of {feedArticlesQuery.data.total}
-                  </span>
-                )}
-              </div>
-
-              {feedArticlesQuery.isLoading && <p className="text-sm text-slate dark:text-slate-300">Loading recent articles...</p>}
-              {feedArticlesQuery.isError && (
-                <p role="alert" aria-live="assertive" aria-atomic="true" className="text-sm text-red-600">
-                  {resolveApiErrorMessage(feedArticlesQuery.error, 'Recent feed articles could not be loaded')}
-                </p>
-              )}
-              {!feedArticlesQuery.isLoading && !feedArticlesQuery.isError && !feedArticlesQuery.data?.items.length && (
-                <p className="rounded border border-slate/20 bg-slate/5 p-3 text-sm text-slate dark:border-cyan-900/40 dark:bg-white/[0.03] dark:text-slate-300">
-                  No articles have been ingested from this feed yet.
-                </p>
-              )}
-              <div className="space-y-2">
-                {(feedArticlesQuery.data?.items ?? []).map((item) => (
-                  <article key={item.id} className="rounded border border-slate/20 bg-white/70 p-3 dark:border-cyan-900/40 dark:bg-[#072019]">
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <a
-                          className="break-words text-sm font-semibold text-ink hover:text-cyan dark:text-white dark:hover:text-cyan-100"
-                          href={item.url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          {item.title}
-                        </a>
-                        <p className="mt-1 text-xs text-slate dark:text-slate-300">
-                          Published {formatDate(item.published_at)} · Seen {formatDate(item.first_seen_at)}
-                        </p>
-                      </div>
-                      <span className="tl-chip">{item.status}</span>
-                    </div>
-                    {item.summary && <p className="mt-2 line-clamp-2 text-sm text-slate dark:text-slate-300">{item.summary}</p>}
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {item.classification && <span className="tl-chip tl-chip-info">{item.classification}</span>}
-                      {item.tags.slice(0, 5).map((tag) => (
-                        <span key={tag} className="tl-chip">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          </>
-        )}
-      </DialogSurface>
-
-      <ConfirmDialog
-        open={Boolean(pendingImportReview)}
-        title={pendingImportReview?.overwriteCount ? 'Overwrite existing feeds from import?' : 'Run feed import?'}
-        description="Review the import preflight summary before applying the file to this workspace."
-        confirmLabel={pendingImportReview?.overwriteCount ? 'Run overwrite import' : 'Run import'}
-        confirmTone="primary"
-        onCancel={() => setPendingImportReview(null)}
-        onConfirm={onConfirmImportReview}
-        confirmDisabled={importFeeds.isPending || !pendingImportReview}
-        isConfirming={importFeeds.isPending}
-      >
-        {pendingImportReview && (
-          <div className="space-y-3">
-            <div className="grid gap-2 text-sm sm:grid-cols-2">
-              <p>
-                <span className="font-semibold text-ink dark:text-white">{pendingImportReview.totalEntries}</span> file entr
-                {pendingImportReview.totalEntries === 1 ? 'y' : 'ies'}
-              </p>
-              <p>
-                <span className="font-semibold text-ink dark:text-white">{pendingImportReview.uniqueEntries}</span> unique URL
-                {pendingImportReview.uniqueEntries === 1 ? '' : 's'}
-              </p>
-              <p>
-                <span className="font-semibold text-emerald-700 dark:text-emerald-300">{pendingImportReview.createCount}</span>{' '}
-                new feed{pendingImportReview.createCount === 1 ? '' : 's'}
-              </p>
-              <p>
-                <span className="font-semibold text-amber-700 dark:text-amber-300">{pendingImportReview.overwriteCount}</span>{' '}
-                feed{pendingImportReview.overwriteCount === 1 ? '' : 's'} overwritten
-              </p>
-              <p>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{pendingImportReview.skipCount}</span>{' '}
-                feed{pendingImportReview.skipCount === 1 ? '' : 's'} skipped
-              </p>
-              <p>
-                <span className="font-semibold text-slate-700 dark:text-slate-200">{pendingImportReview.duplicateEntries}</span>{' '}
-                duplicate entr{pendingImportReview.duplicateEntries === 1 ? 'y' : 'ies'}
-              </p>
-            </div>
-            {pendingImportReview.matchingExistingFeeds.length > 0 && (
-              <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-                <p className="mb-2 text-xs font-semibold uppercase text-slate dark:text-white/60">
-                  Existing feeds in scope
-                </p>
-                <ul className="space-y-1">
-                  {pendingImportReview.matchingExistingFeeds.map((feed) => (
-                    <li key={feed.id} className="space-y-0.5">
-                      <p className="text-sm font-semibold text-ink dark:text-white">{feed.name}</p>
-                      <p className="break-all font-mono text-[11px] text-slate dark:text-white/65">
-                        {feed.url.trim() || 'URL unavailable until the original encryption key is restored.'}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={Boolean(pendingBulkSetEnabled?.feeds.length)}
-        title={pendingBulkSetEnabled?.enabled ? 'Enable filtered feeds?' : 'Disable filtered feeds?'}
-        description="Review the feeds in the current filtered view before applying this bulk status change."
-        confirmLabel={pendingBulkSetEnabled?.enabled ? 'Enable feeds' : 'Disable feeds'}
-        onCancel={() => setPendingBulkSetEnabled(null)}
-        onConfirm={onConfirmBulkSetEnabled}
-        confirmDisabled={bulkSetEnabled.isPending || !pendingBulkSetEnabled?.feeds.length}
-        isConfirming={bulkSetEnabled.isPending}
-      >
-        {pendingBulkSetEnabled && (
-          <div className="space-y-3">
-            <p>
-              You are about to {pendingBulkSetEnabled.enabled ? 'enable' : 'disable'}{' '}
-              <span className="font-semibold text-ink dark:text-white">{pendingBulkSetEnabled.feeds.length}</span> filtered
-              feed{pendingBulkSetEnabled.feeds.length === 1 ? '' : 's'}.
-            </p>
-            <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-              <ul className="space-y-1">
-                {pendingBulkSetEnabled.feeds.map((feed) => (
-                  <li key={feed.id} className="break-all font-mono text-xs text-slate-700 dark:text-white/70">
-                    {feed.name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={Boolean(pendingDeleteFeed)}
-        title="Delete feed?"
-        description="This removes the feed, its related items, and its fetch history."
-        confirmLabel="Delete feed"
-        onCancel={() => setPendingDeleteFeed(null)}
-        onConfirm={onConfirmDeleteFeed}
-        confirmDisabled={deleteFeed.isPending}
-        isConfirming={deleteFeed.isPending}
-      >
-        {pendingDeleteFeed && (
-          <div className="space-y-2">
-            <p className="font-semibold text-ink dark:text-white">{pendingDeleteFeed.name}</p>
-            <p className="break-all font-mono text-xs text-slate dark:text-white/65">
-              {pendingDeleteFeed.url.trim() || 'URL unavailable until the original encryption key is restored.'}
-            </p>
-          </div>
-        )}
-      </ConfirmDialog>
-
-      <ConfirmDialog
-        open={Boolean(pendingBulkDeleteFeeds?.feeds.length)}
-        title={pendingBulkDeleteFeeds?.kind === 'broken' ? 'Delete broken feeds?' : 'Delete filtered disabled feeds?'}
-        description={
-          pendingBulkDeleteFeeds?.kind === 'broken'
-            ? 'This permanently removes feeds whose stored URLs can no longer be decrypted.'
-            : 'This permanently removes every disabled feed in the current filtered view.'
-        }
-        confirmLabel="Delete feeds"
-        onCancel={() => setPendingBulkDeleteFeeds(null)}
-        onConfirm={onConfirmBulkDeleteFeeds}
-        confirmDisabled={bulkDeleteFeeds.isPending}
-        isConfirming={bulkDeleteFeeds.isPending}
-      >
-        {pendingBulkDeleteFeeds && (
-          <div className="space-y-3">
-            <p>
-              You are about to delete{' '}
-              <span className="font-semibold text-ink dark:text-white">{pendingBulkDeleteFeeds.feeds.length}</span>{' '}
-              {pendingBulkDeleteFeeds.kind === 'broken' ? 'broken' : 'disabled'} feed
-              {pendingBulkDeleteFeeds.feeds.length === 1 ? '' : 's'} from this view.
-            </p>
-            <div className="max-h-48 overflow-auto rounded border border-slate/20 bg-slate/5 p-3 dark:border-cyan-900/40 dark:bg-white/[0.03]">
-              <ul className="space-y-1">
-                {pendingBulkDeleteFeeds.feeds.map((feed) => (
-                  <li key={feed.id} className="break-all font-mono text-xs text-slate-700 dark:text-white/70">
-                    {feed.name}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        )}
-      </ConfirmDialog>
+      <FeedDetailDialog
+        editingFeed={editingFeed}
+        feedEditDraft={feedEditDraft}
+        closeFeedDetail={closeFeedDetail}
+        canManage={canManage}
+        feedEditDirty={feedEditDirty}
+        updateFeedDetails={updateFeedDetails}
+        feedEditValidation={feedEditValidation}
+        onSaveFeedDetail={onSaveFeedDetail}
+        updateFeedEditDraft={updateFeedEditDraft}
+        feedArticlesQuery={feedArticlesQuery}
+      />
+      <FeedManagementDialogs
+        pendingImportReview={pendingImportReview}
+        setPendingImportReview={setPendingImportReview}
+        onConfirmImportReview={onConfirmImportReview}
+        importFeeds={importFeeds}
+        pendingBulkSetEnabled={pendingBulkSetEnabled}
+        setPendingBulkSetEnabled={setPendingBulkSetEnabled}
+        onConfirmBulkSetEnabled={onConfirmBulkSetEnabled}
+        bulkSetEnabled={bulkSetEnabled}
+        pendingDeleteFeed={pendingDeleteFeed}
+        setPendingDeleteFeed={setPendingDeleteFeed}
+        onConfirmDeleteFeed={onConfirmDeleteFeed}
+        deleteFeed={deleteFeed}
+        pendingBulkDeleteFeeds={pendingBulkDeleteFeeds}
+        setPendingBulkDeleteFeeds={setPendingBulkDeleteFeeds}
+        onConfirmBulkDeleteFeeds={onConfirmBulkDeleteFeeds}
+        bulkDeleteFeeds={bulkDeleteFeeds}
+      />
       {confirmDiscardUnsavedFeedScheduleChanges.discardDialog}
     </div>
   )
