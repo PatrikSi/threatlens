@@ -1,7 +1,6 @@
 import {
   ChangeEvent,
   KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
   useDeferredValue,
   useEffect,
   useId,
@@ -19,36 +18,20 @@ import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useCurrentUser } from '../hooks/useCurrentUser'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
-import { safeLocalStorage } from '../utils/safeStorage'
 import { type ArticlePreviewState } from './DashboardPageComponents'
 import {
-  applyDragMagnetSnap,
   buildDashboardItemsQueryKey,
-  clamp,
-  clampArticlePreviewWidth,
-  clearItemFeedback,
   deriveTimeWindow,
   formatSavedViewImportFailure,
   formatSavedViewImportResult,
   getRelativeTimeAnchorMs,
   getWindowContainerDimensions,
   isRelativeTimeRange,
-  loadArticlePreviewWidth,
-  loadStoredTimestamp,
-  loadWindowSeenState,
-  persistArticlePreviewWidth,
   resolveDashboardViewSaveError,
   resolveItemActionError,
   resolveWindowTimeFilter,
 } from './dashboardPageUtils'
-import { DASHBOARD_TIME_INHERIT_VALUE, MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
-import {
-  getDashboardStorageKeys,
-  migrateLegacyDashboardStorage,
-} from './dashboardStorage'
-import {
-  summarizeGlobalSearchAcrossWindows,
-} from './dashboardState'
+import { MOBILE_DASHBOARD_PAGE_SIZE } from './dashboardPanelPresentation'
 import {
   buildSavedViewPreview,
   buildDashboardSavedViewState,
@@ -56,28 +39,13 @@ import {
   createDefaultRssWindowFilters,
   createWindowLayout,
   DEFAULT_ROLLING_DAYS,
-  getSnapRect,
   HIDDEN_TAGS,
-  isTimeRangeFilter,
-  loadDashboardWindows,
   MAX_DASHBOARD_WINDOWS,
-  normalizeDashboardWindows,
-  normalizeRollingDaysInput,
   parseDashboardSavedView,
   parseImportedSavedViews,
-  resolveFloatingPanelRect,
-  resolveWindowRect,
-  serializeDashboardWindowLayouts,
-  withPanelRectPercentages,
-  WINDOW_MIN_HEIGHT,
-  WINDOW_MIN_WIDTH,
   type DashboardSavedViewPreview,
-  type DashboardAlertWindowFilters,
-  type DashboardRssWindowFilters,
   type DashboardSavedViewState,
   type DashboardWindow,
-  type DashboardWindowSnap,
-  type DashboardWindowType,
   type TimeRangeFilter,
   type WindowTimeFilter,
 } from './dashboardSavedViews'
@@ -91,7 +59,11 @@ import {
   SavedView,
   Tag,
 } from '../types/api'
+import { useArticlePreview } from './useArticlePreview'
 import { useDashboardItemActions } from './useDashboardItemActions'
+import { useDashboardWindowActions } from './useDashboardWindowActions'
+import { useDashboardWindowFilters } from './useDashboardWindowFilters'
+import { useDashboardWorkspacePersistence } from './useDashboardWorkspacePersistence'
 
 type DashboardEditSessionSnapshot = {
   activeSavedViewId: string | null
@@ -146,22 +118,24 @@ export function useDashboardPageController() {
   const [articleRetryFeedbackByItemId, setArticleRetryFeedbackByItemId] = useState<
     Record<string, { tone: 'success' | 'error'; message: string }>
   >({})
-  const [articlePreview, setArticlePreview] = useState<ArticlePreviewState | null>(null)
-  const [articlePreviewFrameState, setArticlePreviewFrameState] = useState<'loading' | 'loaded' | 'possibly_blocked'>(
-    'loading',
-  )
-  const [articlePreviewWidth, setArticlePreviewWidth] = useState(() => loadArticlePreviewWidth())
-  const [isArticlePreviewResizing, setIsArticlePreviewResizing] = useState(false)
+  const {
+    adjustArticlePreviewWidth,
+    articlePreview,
+    articlePreviewFrameState,
+    articlePreviewWidth,
+    closeArticlePreview,
+    isArticlePreviewResizing,
+    openArticlePreview,
+    setArticlePreviewFrameState,
+    setArticlePreviewWidth,
+    startArticlePreviewResize,
+  } = useArticlePreview()
   const [isPhoneLayout, setIsPhoneLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth < 640 : false)
 
   const [windows, setWindows] = useState<DashboardWindow[]>(() => [createWindowLayout('rss', 1, 1380, 760, 'full')])
   const [windowSeenAt, setWindowSeenAt] = useState<Record<string, string>>({})
   const [rssLastOpenedAt, setRssLastOpenedAt] = useState('')
   const [isWideLayout, setIsWideLayout] = useState<boolean>(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true)
-  const initializedDashboardUserRef = useRef<string | null>(null)
-  const windowPersistenceTimeoutRef = useRef<number | null>(null)
-  const pendingWindowPersistenceRef = useRef<{ userId: string; serialized: string } | null>(null)
-  const persistedWindowUserIdRef = useRef<string | null>(null)
   const renameWindowInputRef = useRef<HTMLInputElement | null>(null)
   const addWindowTriggerRef = useRef<HTMLButtonElement | null>(null)
   const addWindowMenuRef = useRef<HTMLDivElement | null>(null)
@@ -169,7 +143,6 @@ export function useDashboardPageController() {
   const pendingAddWindowFocusIndexRef = useRef<number | null>(null)
   const importViewsInputRef = useRef<HTMLInputElement | null>(null)
   const savedNoteValuesByItemIdRef = useRef<Record<string, string>>({})
-  const articlePreviewResizeCleanupRef = useRef<(() => void) | null>(null)
 
   const canManage = meQuery.data?.role === 'admin' || meQuery.data?.role === 'analyst'
   const aiSummaryEnabled = Boolean(aiFeatures?.ai_summary_enabled)
@@ -193,87 +166,6 @@ export function useDashboardPageController() {
     setNoteDraftsByItemId,
   })
 
-  const openArticlePreview = (preview: ArticlePreviewState) => {
-    setArticlePreviewFrameState('loading')
-    setArticlePreview(preview)
-  }
-
-  const closeArticlePreview = () => {
-    setArticlePreview(null)
-  }
-
-  const updateArticlePreviewWidth = (width: number) => {
-    const nextWidth = clampArticlePreviewWidth(width)
-    setArticlePreviewWidth(nextWidth)
-    persistArticlePreviewWidth(nextWidth)
-  }
-
-  const adjustArticlePreviewWidth = (delta: number) => {
-    updateArticlePreviewWidth(articlePreviewWidth + delta)
-  }
-
-  const startArticlePreviewResize = (event: ReactPointerEvent<HTMLElement>) => {
-    event.preventDefault()
-    event.stopPropagation()
-
-    articlePreviewResizeCleanupRef.current?.()
-
-    const resizeHandle = event.currentTarget
-    const pointerId = event.pointerId
-    const startX = event.clientX
-    const startWidth = articlePreviewWidth
-    const previousCursor = document.body.style.cursor
-    const previousUserSelect = document.body.style.userSelect
-
-    try {
-      resizeHandle.setPointerCapture(pointerId)
-    } catch {
-      // Pointer capture is best-effort in tests and older browser engines.
-    }
-
-    document.body.style.cursor = 'ew-resize'
-    document.body.style.userSelect = 'none'
-    setIsArticlePreviewResizing(true)
-
-    const handlePointerMove = (moveEvent: PointerEvent) => {
-      if (moveEvent.pointerId !== pointerId) return
-      moveEvent.preventDefault()
-      updateArticlePreviewWidth(startWidth + startX - moveEvent.clientX)
-    }
-
-    const cleanup = () => {
-      document.removeEventListener('pointermove', handlePointerMove, true)
-      document.removeEventListener('pointerup', handlePointerEnd, true)
-      document.removeEventListener('pointercancel', handlePointerEnd, true)
-      resizeHandle.removeEventListener('lostpointercapture', cleanup)
-      window.removeEventListener('blur', cleanup)
-      try {
-        if (resizeHandle.hasPointerCapture(pointerId)) {
-          resizeHandle.releasePointerCapture(pointerId)
-        }
-      } catch {
-        // The browser may already have released capture by this point.
-      }
-      document.body.style.cursor = previousCursor
-      document.body.style.userSelect = previousUserSelect
-      setIsArticlePreviewResizing(false)
-      articlePreviewResizeCleanupRef.current = null
-    }
-
-    const handlePointerEnd = (endEvent: PointerEvent) => {
-      if (endEvent.pointerId === pointerId) {
-        cleanup()
-      }
-    }
-
-    articlePreviewResizeCleanupRef.current = cleanup
-    document.addEventListener('pointermove', handlePointerMove, true)
-    document.addEventListener('pointerup', handlePointerEnd, true)
-    document.addEventListener('pointercancel', handlePointerEnd, true)
-    resizeHandle.addEventListener('lostpointercapture', cleanup)
-    window.addEventListener('blur', cleanup)
-  }
-
   const hasUnsavedNoteDrafts = useMemo(
     () =>
       Object.entries(noteDraftsByItemId).some(
@@ -289,224 +181,26 @@ export function useDashboardPageController() {
       : 'You have unsaved dashboard note drafts. Leave without saving?',
   )
 
-  const flushPendingWindowPersistence = (targetUserId?: string | null) => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const pending = pendingWindowPersistenceRef.current
-    if (!pending) {
-      return
-    }
-
-    if (targetUserId !== undefined && pending.userId !== targetUserId) {
-      return
-    }
-
-    if (windowPersistenceTimeoutRef.current !== null) {
-      window.clearTimeout(windowPersistenceTimeoutRef.current)
-      windowPersistenceTimeoutRef.current = null
-    }
-
-    const storageKeys = getDashboardStorageKeys(pending.userId)
-    safeLocalStorage.setItem(storageKeys.windows, pending.serialized)
-    pendingWindowPersistenceRef.current = null
-  }
-
-  useEffect(() => {
-    const syncLayout = () => {
-      const nextWide = window.innerWidth >= 1024
-      setIsWideLayout(nextWide)
-      setIsPhoneLayout(window.innerWidth < 640)
-      setArticlePreviewWidth((current) => clampArticlePreviewWidth(current))
-
-      if (!nextWide) {
-        return
-      }
-
-      const { width, height } = getWindowContainerDimensions(rootRef.current)
-      setWindows((current) => normalizeDashboardWindows(current, width, height))
-    }
-
-    syncLayout()
-    window.addEventListener('resize', syncLayout)
-    return () => window.removeEventListener('resize', syncLayout)
-  }, [])
-
-  useEffect(() => {
-    if (isWideLayout) {
-      return
-    }
-
-    setMobileActiveWindowId((current) => {
-      if (current && windows.some((windowLayout) => windowLayout.id === current)) {
-        return current
-      }
-      return windows[0]?.id ?? null
-    })
-  }, [isWideLayout, windows])
-
-  useEffect(() => () => articlePreviewResizeCleanupRef.current?.(), [])
-
-  useEffect(() => {
-    if (isWideLayout || Object.keys(expandedItemIdsByWindowId).length === 0) {
-      return
-    }
-
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.body.style.overflow = previousOverflow
-    }
-  }, [expandedItemIdsByWindowId, isWideLayout])
-
-  useEffect(() => {
-    if (!articlePreview) {
-      return
-    }
-
-    const blockedNoticeTimeout = window.setTimeout(() => {
-      setArticlePreviewFrameState((current) => (current === 'loading' ? 'possibly_blocked' : current))
-    }, 5000)
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setArticlePreview(null)
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => {
-      window.clearTimeout(blockedNoticeTimeout)
-      window.removeEventListener('keydown', handleKeyDown)
-    }
-  }, [articlePreview])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    const userId = meQuery.data?.id
-    if (!userId || initializedDashboardUserRef.current !== userId) {
-      return
-    }
-    const storageKeys = getDashboardStorageKeys(userId)
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-    const serialized = JSON.stringify(serializeDashboardWindowLayouts(windows, { width, height }))
-    if (windowPersistenceTimeoutRef.current !== null) {
-      window.clearTimeout(windowPersistenceTimeoutRef.current)
-    }
-    pendingWindowPersistenceRef.current = { userId, serialized }
-
-    windowPersistenceTimeoutRef.current = window.setTimeout(() => {
-      safeLocalStorage.setItem(storageKeys.windows, serialized)
-      pendingWindowPersistenceRef.current = null
-      windowPersistenceTimeoutRef.current = null
-    }, 200)
-
-    return () => {
-      if (windowPersistenceTimeoutRef.current !== null) {
-        window.clearTimeout(windowPersistenceTimeoutRef.current)
-        windowPersistenceTimeoutRef.current = null
-      }
-    }
-  }, [meQuery.data?.id, windows])
-
-  useEffect(() => {
-    const userId = meQuery.data?.id ?? null
-    const previousUserId = persistedWindowUserIdRef.current
-    if (previousUserId && previousUserId !== userId) {
-      flushPendingWindowPersistence(previousUserId)
-    }
-    persistedWindowUserIdRef.current = userId
-  }, [meQuery.data?.id])
-
-  useEffect(() => () => flushPendingWindowPersistence(), [])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-    const userId = meQuery.data?.id
-    if (!userId || initializedDashboardUserRef.current !== userId) {
-      return
-    }
-    const storageKeys = getDashboardStorageKeys(userId)
-    safeLocalStorage.setItem(storageKeys.windowSeenAt, JSON.stringify(windowSeenAt))
-  }, [meQuery.data?.id, windowSeenAt])
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      return
-    }
-
-    const userId = meQuery.data?.id
-    if (!userId) {
-      initializedDashboardUserRef.current = null
-      setWindows([createWindowLayout('rss', 1, 1380, 760, 'full')])
-      setWindowSeenAt({})
-      setRssLastOpenedAt('')
-      setExpandedItemIdsByWindowId({})
-      setNoteDraftsByItemId({})
-      savedNoteValuesByItemIdRef.current = {}
-      setItemActionFeedbackByItemId({})
-      return
-    }
-
-    migrateLegacyDashboardStorage(userId)
-
-    if (initializedDashboardUserRef.current === userId) {
-      return
-    }
-
-    const storageKeys = getDashboardStorageKeys(userId)
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setWindows(loadDashboardWindows(storageKeys.windows, width, height))
-    setWindowSeenAt(loadWindowSeenState(storageKeys.windowSeenAt))
-    setRssLastOpenedAt(loadStoredTimestamp(storageKeys.lastOpenedAt))
-    safeLocalStorage.setItem(storageKeys.lastOpenedAt, new Date().toISOString())
-    initializedDashboardUserRef.current = userId
-  }, [meQuery.data?.id])
-
-  useEffect(() => {
-    setWindowSeenAt((current) => {
-      const next: Record<string, string> = {}
-      let changed = false
-      const seed = new Date().toISOString()
-      for (const layout of windows) {
-        if (layout.type !== 'alerts') {
-          continue
-        }
-        if (current[layout.id]) {
-          next[layout.id] = current[layout.id]
-          continue
-        }
-        next[layout.id] = seed
-        changed = true
-      }
-      if (!changed && Object.keys(next).length === Object.keys(current).length) {
-        return current
-      }
-      return next
-    })
-  }, [windows])
-
-  useEffect(() => {
-    if (aiDailyBriefEnabled) {
-      return
-    }
-
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setWindows((current) => {
-      const filtered = current.filter((window) => window.type !== 'daily_brief')
-      if (filtered.length === current.length) {
-        return current
-      }
-      if (!filtered.length) {
-        return [createWindowLayout('rss', 1, width, height, 'full')]
-      }
-      return normalizeDashboardWindows(filtered, width, height)
-    })
-  }, [aiDailyBriefEnabled])
+  useDashboardWorkspacePersistence({
+    aiDailyBriefEnabled,
+    expandedItemIdsByWindowId,
+    isWideLayout,
+    rootRef,
+    savedNoteValuesByItemIdRef,
+    setArticlePreviewWidth,
+    setExpandedItemIdsByWindowId,
+    setIsPhoneLayout,
+    setIsWideLayout,
+    setItemActionFeedbackByItemId,
+    setMobileActiveWindowId,
+    setNoteDraftsByItemId,
+    setRssLastOpenedAt,
+    setWindowSeenAt,
+    setWindows,
+    userId: meQuery.data?.id ?? null,
+    windowSeenAt,
+    windows,
+  })
 
   const deferredWindows = useDeferredValue(windows)
   const resolvedMobileWindowId =
@@ -1156,254 +850,38 @@ export function useDashboardPageController() {
     }
   }, [showAddWindowMenu])
 
-  const handleToggleItem = (windowId: string, itemId: string, isRead: boolean) => {
-    const isOpening = expandedItemIdsByWindowId[windowId] !== itemId
-    clearItemFeedback(setItemActionFeedbackByItemId, itemId)
-    clearItemFeedback(setArticleRetryFeedbackByItemId, itemId)
-    setExpandedItemIdsByWindowId((current) => {
-      if (current[windowId] === itemId) {
-        const next = { ...current }
-        delete next[windowId]
-        return next
-      }
-      return {
-        ...current,
-        [windowId]: itemId,
-      }
-    })
-    if (isOpening) {
-      markItemReadIfNeeded(itemId, isRead)
-    }
-  }
-
-  const setWindowSnap = (windowId: string, snap: DashboardWindowSnap) => {
-    if (!isWideLayout) return
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId) return window
-        if (snap === 'free') {
-          const resolvedRect = resolveWindowRect(window, width, height)
-          return {
-            ...window,
-            snap,
-            rect: withPanelRectPercentages(resolvedRect, width, height),
-          }
-        }
-
-        return {
-          ...window,
-          snap,
-          rect: getSnapRect(snap, width, height),
-        }
-      }),
-    )
-  }
-
-  const addWindow = (type: DashboardWindowType) => {
-    const { width, height } = getWindowContainerDimensions(rootRef.current)
-    setWindows((current) => {
-      if (current.length >= MAX_DASHBOARD_WINDOWS) {
-        return current
-      }
-      const nextIndex = current.filter((window) => window.type === type).length + 1
-      return [...current, createWindowLayout(type, nextIndex, width, height)]
-    })
-    closeAddWindowMenu(true)
-  }
-
-  const removeWindow = (windowId: string) => {
-    setWindows((current) => {
-      if (current.length <= 1) {
-        return current
-      }
-      return current.filter((window) => window.id !== windowId)
-    })
-  }
-
-  const openRenameWindow = (windowId: string) => {
-    const target = windows.find((window) => window.id === windowId)
-    if (!target) return
-
-    setOpenWindowMenuId(null)
-    setRenamingWindowId(windowId)
-    setRenameWindowDraft(target.title)
-  }
-
-  const closeRenameWindow = () => {
-    setRenamingWindowId(null)
-    setRenameWindowDraft('')
-  }
-
-  const saveRenamedWindow = () => {
-    if (!renamingWindowId) {
-      return
-    }
-
-    const normalized = renameWindowDraft.trim().slice(0, 80)
-    if (!normalized) {
-      return
-    }
-
-    setWindows((current) =>
-      current.map((window) => (window.id === renamingWindowId ? { ...window, title: normalized } : window)),
-    )
-    closeRenameWindow()
-  }
-
-  const toggleWindowControls = (windowId: string) => {
-    setWindows((current) =>
-      current.map((window) =>
-        window.id === windowId ? { ...window, controls_collapsed: !window.controls_collapsed } : window,
-      ),
-    )
-  }
-
-  const toggleMobileWindowControls = (windowId: string) => {
-    setMobileWindowControlsOpenById((current) => ({
-      ...current,
-      [windowId]: !current[windowId],
-    }))
-  }
-
-  const updateWindowScratchNote = (windowId: string, scratchNote: string) => {
-    setWindows((current) =>
-      current.map((window) => (window.id === windowId ? { ...window, scratch_note: scratchNote } : window)),
-    )
-  }
-
-  const bringWindowToFront = (windowId: string) => {
-    setWindows((current) => {
-      const target = current.find((entry) => entry.id === windowId)
-      if (!target) return current
-      const rest = current.filter((entry) => entry.id !== windowId)
-      return [...rest, target]
-    })
-  }
-
-  const startWindowDrag = (event: React.MouseEvent<HTMLDivElement>, windowId: string) => {
-    if (!isWideLayout) return
-
-    const rootBounds = rootRef.current?.getBoundingClientRect()
-    if (!rootBounds) return
-
-    const targetWindow = windows.find((entry) => entry.id === windowId)
-    if (!targetWindow || targetWindow.snap !== 'free') {
-      return
-    }
-
-    event.preventDefault()
-
-    const startMouseX = event.clientX
-    const startMouseY = event.clientY
-    const startRect = resolveFloatingPanelRect(targetWindow.rect, rootBounds.width, rootBounds.height)
-
-    const onMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startMouseX
-      const deltaY = moveEvent.clientY - startMouseY
-
-      const maxX = Math.max(0, rootBounds.width - startRect.width)
-      const maxY = Math.max(0, rootBounds.height - startRect.height)
-      const candidateX = clamp(startRect.x + deltaX, 0, maxX)
-      const candidateY = clamp(startRect.y + deltaY, 0, maxY)
-      setWindows((current) => {
-        const otherRects = current
-          .filter((layout) => layout.id !== windowId)
-          .map((layout) => resolveWindowRect(layout, rootBounds.width, rootBounds.height))
-
-        const snapped = applyDragMagnetSnap(
-          {
-            x: candidateX,
-            y: candidateY,
-            width: startRect.width,
-            height: startRect.height,
-          },
-          otherRects,
-          rootBounds.width,
-          rootBounds.height,
-          maxX,
-          maxY,
-        )
-
-        return current.map((window) => {
-          if (window.id !== windowId) return window
-          return {
-            ...window,
-            rect: withPanelRectPercentages(
-              {
-                ...startRect,
-                x: snapped.x,
-                y: snapped.y,
-              },
-              rootBounds.width,
-              rootBounds.height,
-            ),
-          }
-        })
-      })
-    }
-
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  const startWindowResize = (event: React.MouseEvent<HTMLButtonElement>, windowId: string) => {
-    if (!isWideLayout) return
-
-    const rootBounds = rootRef.current?.getBoundingClientRect()
-    if (!rootBounds) return
-
-    const targetWindow = windows.find((entry) => entry.id === windowId)
-    if (!targetWindow || targetWindow.snap !== 'free') {
-      return
-    }
-
-    event.preventDefault()
-    event.stopPropagation()
-
-    const startMouseX = event.clientX
-    const startMouseY = event.clientY
-    const startRect = resolveFloatingPanelRect(targetWindow.rect, rootBounds.width, rootBounds.height)
-
-    const onMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startMouseX
-      const deltaY = moveEvent.clientY - startMouseY
-
-      const maxWidth = rootBounds.width - startRect.x
-      const maxHeight = rootBounds.height - startRect.y
-      setWindows((current) =>
-        current.map((window) => {
-          if (window.id !== windowId) return window
-          return {
-            ...window,
-            rect: withPanelRectPercentages(
-              {
-                ...startRect,
-                width: clamp(startRect.width + deltaX, WINDOW_MIN_WIDTH, maxWidth),
-                height: clamp(startRect.height + deltaY, WINDOW_MIN_HEIGHT, maxHeight),
-              },
-              rootBounds.width,
-              rootBounds.height,
-            ),
-          }
-        }),
-      )
-    }
-
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
+  const {
+    addWindow,
+    bringWindowToFront,
+    closeRenameWindow,
+    handleToggleItem,
+    openRenameWindow,
+    removeWindow,
+    saveRenamedWindow,
+    setWindowSnap,
+    startWindowDrag,
+    startWindowResize,
+    toggleMobileWindowControls,
+    toggleWindowControls,
+    updateWindowScratchNote,
+  } = useDashboardWindowActions({
+    closeAddWindowMenu,
+    expandedItemIdsByWindowId,
+    isWideLayout,
+    markItemReadIfNeeded,
+    renameWindowDraft,
+    renamingWindowId,
+    rootRef,
+    setArticleRetryFeedbackByItemId,
+    setExpandedItemIdsByWindowId,
+    setItemActionFeedbackByItemId,
+    setMobileWindowControlsOpenById,
+    setOpenWindowMenuId,
+    setRenameWindowDraft,
+    setRenamingWindowId,
+    setWindows,
+    windows,
+  })
 
   const saveCurrentView = () => {
     const name = savedViewName.trim()
@@ -1553,274 +1031,30 @@ export function useDashboardPageController() {
     importViewsInputRef.current?.click()
   }
 
-  const updateWindowRssFilters = (
-    windowId: string,
-    updater: (current: DashboardRssWindowFilters) => DashboardRssWindowFilters,
-    resetPage = true,
-  ) => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.type !== 'rss') {
-          return window
-        }
-
-        const nextFilters = updater(window.rss_filters ?? createDefaultRssWindowFilters())
-        return {
-          ...window,
-          rss_filters: {
-            ...nextFilters,
-            page: resetPage ? 1 : nextFilters.page,
-          },
-        }
-      }),
-    )
-  }
-
-  const updateWindowAlertFilters = (
-    windowId: string,
-    updater: (current: DashboardAlertWindowFilters) => DashboardAlertWindowFilters,
-    resetPage = true,
-  ) => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.type !== 'alerts') {
-          return window
-        }
-
-        const nextFilters = updater(window.alert_filters ?? createDefaultAlertWindowFilters())
-        return {
-          ...window,
-          alert_filters: {
-            ...nextFilters,
-            page: resetPage ? 1 : nextFilters.page,
-          },
-        }
-      }),
-    )
-  }
-
-  const updateWindowDailyBriefSelection = (windowId: string, selectedDailyBriefId: string) => {
-    setWindows((current) =>
-      current.map((window) =>
-        window.id === windowId && window.type === 'daily_brief'
-          ? { ...window, selected_daily_brief_id: selectedDailyBriefId || null }
-          : window,
-      ),
-    )
-  }
-
-  const markWindowSeen = (windowId: string) => {
-    setWindowSeenAt((current) => ({
-      ...current,
-      [windowId]: new Date().toISOString(),
-    }))
-  }
-
-  const resetAllWindowPages = () => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.type === 'rss') {
-          return {
-            ...window,
-            rss_filters: {
-              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-              page: 1,
-            },
-          }
-        }
-
-        if (window.type === 'alerts') {
-          return {
-            ...window,
-            alert_filters: {
-              ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-              page: 1,
-            },
-          }
-        }
-
-        return window
-      }),
-    )
-  }
-
-  const updateDashboardTimeRange = (nextRange: TimeRangeFilter) => {
-    resetAllWindowPages()
-    setDashboardTimeRange(nextRange)
-  }
-
-  const updateDashboardCustomSinceDate = (nextDate: string) => {
-    resetAllWindowPages()
-    setDashboardCustomSinceDate(nextDate)
-  }
-
-  const updateDashboardCustomUntilDate = (nextDate: string) => {
-    resetAllWindowPages()
-    setDashboardCustomUntilDate(nextDate)
-  }
-
-  const updateDashboardRollingDaysValue = (nextValue: string) => {
-    resetAllWindowPages()
-    setDashboardTimeRange('days')
-    setDashboardRollingDays(normalizeRollingDaysInput(nextValue))
-  }
-
-  const updateWindowTimeRange = (windowId: string, nextValue: string) => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
-          return window
-        }
-
-        if (nextValue === DASHBOARD_TIME_INHERIT_VALUE) {
-          return {
-            ...window,
-            time_override: null,
-          }
-        }
-
-        if (!isTimeRangeFilter(nextValue)) {
-          return window
-        }
-
-        const base = window.time_override ?? dashboardTimeFilter
-        if (window.type === 'rss') {
-          return {
-            ...window,
-            rss_filters: {
-              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-              page: 1,
-            },
-            time_override: {
-              ...base,
-              time_range: nextValue,
-            },
-          }
-        }
-
-        return {
-          ...window,
-          alert_filters: {
-            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-            page: 1,
-          },
-          time_override: {
-            ...base,
-            time_range: nextValue,
-          },
-        }
-      }),
-    )
-  }
-
-  const updateWindowCustomTimeDate = (windowId: string, key: 'custom_since_date' | 'custom_until_date', value: string) => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
-          return window
-        }
-
-        const base = window.time_override ?? dashboardTimeFilter
-        if (window.type === 'rss') {
-          return {
-            ...window,
-            rss_filters: {
-              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-              page: 1,
-            },
-            time_override: {
-              ...base,
-              time_range: 'custom',
-              [key]: value,
-            },
-          }
-        }
-
-        return {
-          ...window,
-          alert_filters: {
-            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-            page: 1,
-          },
-          time_override: {
-            ...base,
-            time_range: 'custom',
-            [key]: value,
-          },
-        }
-      }),
-    )
-  }
-
-  const updateWindowRollingDays = (windowId: string, value: string) => {
-    const normalized = normalizeRollingDaysInput(value)
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.id !== windowId || window.type === 'notes' || window.type === 'daily_brief') {
-          return window
-        }
-
-        const base = window.time_override ?? dashboardTimeFilter
-        if (window.type === 'rss') {
-          return {
-            ...window,
-            rss_filters: {
-              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-              page: 1,
-            },
-            time_override: {
-              ...base,
-              time_range: 'days',
-              rolling_days: normalized,
-            },
-          }
-        }
-
-        return {
-          ...window,
-          alert_filters: {
-            ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-            page: 1,
-          },
-          time_override: {
-            ...base,
-            time_range: 'days',
-            rolling_days: normalized,
-          },
-        }
-      }),
-    )
-  }
-
-  const applyGlobalSearch = (query: string) => {
-    setWindows((current) =>
-      current.map((window) => {
-        if (window.type === 'rss') {
-          return {
-            ...window,
-            rss_filters: {
-              ...(window.rss_filters ?? createDefaultRssWindowFilters()),
-              q: query,
-              page: 1,
-            },
-          }
-        }
-        if (window.type === 'alerts') {
-          return {
-            ...window,
-            alert_filters: {
-              ...(window.alert_filters ?? createDefaultAlertWindowFilters()),
-              q: query,
-              page: 1,
-            },
-          }
-        }
-        return window
-      }),
-    )
-  }
-
-  const globalSearchState = useMemo(() => summarizeGlobalSearchAcrossWindows(windows), [windows])
+  const {
+    applyGlobalSearch,
+    globalSearchState,
+    markWindowSeen,
+    updateDashboardCustomSinceDate,
+    updateDashboardCustomUntilDate,
+    updateDashboardRollingDaysValue,
+    updateDashboardTimeRange,
+    updateWindowAlertFilters,
+    updateWindowCustomTimeDate,
+    updateWindowDailyBriefSelection,
+    updateWindowRollingDays,
+    updateWindowRssFilters,
+    updateWindowTimeRange,
+  } = useDashboardWindowFilters({
+    dashboardTimeFilter,
+    setDashboardCustomSinceDate,
+    setDashboardCustomUntilDate,
+    setDashboardRollingDays,
+    setDashboardTimeRange,
+    setWindowSeenAt,
+    setWindows,
+    windows,
+  })
 
   const rssWindowCount = windows.filter((window) => window.type === 'rss').length
   const alertWindowCount = windows.filter((window) => window.type === 'alerts').length
