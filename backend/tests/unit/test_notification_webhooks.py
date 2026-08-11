@@ -13,9 +13,14 @@ from app.models.item import Item
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.schemas.notification import NotificationWebhookField, NotificationWebhookTestResponse, NotificationWebhookWrite
+from app.schemas.notification import (
+    NotificationWebhookField,
+    NotificationWebhookTestResponse,
+    NotificationWebhookWrite,
+)
 from app.services.notification_webhook_http import (
     RedirectError,
+    notification_delivery_lease_heartbeat,
     read_response_preview,
     send_rendered_notification_request,
     send_request_with_redirects,
@@ -53,7 +58,10 @@ def _persist_rows(db_session, *rows):
 
 @pytest.fixture
 def stub_smtp_enqueue(monkeypatch):
-    monkeypatch.setattr("app.tasks.notification_tasks._safe_enqueue_smtp_task", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks._safe_enqueue_smtp_task",
+        lambda *_args, **_kwargs: True,
+    )
 
 
 def test_validate_notification_webhook_payload_rejects_unknown_template_variables():
@@ -73,7 +81,10 @@ def test_validate_notification_webhook_payload_rejects_unknown_template_variable
 
 
 def test_validate_notification_webhook_payload_rejects_public_http_targets(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhooks.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.settings.allow_private_network_webhooks",
+        False,
+    )
 
     payload = NotificationWebhookWrite(
         name="Example",
@@ -139,9 +150,13 @@ def test_validate_notification_webhook_payload_for_actor_rejects_viewers_and_ina
     )
 
     with pytest.raises(ValueError, match="no longer authorized"):
-        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=viewer)
+        validate_notification_webhook_payload_for_actor(
+            payload, set(), actor_user=viewer
+        )
     with pytest.raises(ValueError, match="no longer active and approved"):
-        validate_notification_webhook_payload_for_actor(payload, set(), actor_user=inactive_analyst)
+        validate_notification_webhook_payload_for_actor(
+            payload, set(), actor_user=inactive_analyst
+        )
 
 
 def test_notification_webhook_write_extracts_query_params_from_url_template():
@@ -161,7 +176,9 @@ def test_notification_webhook_write_extracts_query_params_from_url_template():
     ]
 
 
-def test_list_recoverable_notification_delivery_ids_only_returns_stale_pending_or_sending(db_session):
+def test_list_recoverable_notification_delivery_ids_only_returns_stale_pending_or_sending(
+    db_session,
+):
     now = datetime(2026, 4, 18, 21, 45, tzinfo=timezone.utc)
     user = User(
         id=uuid.uuid4(),
@@ -393,7 +410,9 @@ def test_process_notification_webhook_delivery_marks_unclaimed_attempts(db_sessi
     assert attempt.delivery.delivery_state == "sending"
 
 
-def test_process_notification_webhook_delivery_does_not_claim_retry_before_not_before(db_session, monkeypatch):
+def test_process_notification_webhook_delivery_does_not_claim_retry_before_not_before(
+    db_session, monkeypatch
+):
     now = datetime.now(timezone.utc)
     user = User(
         id=uuid.uuid4(),
@@ -447,7 +466,9 @@ def test_process_notification_webhook_delivery_does_not_claim_retry_before_not_b
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delayed retry should not send early")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("delayed retry should not send early")
+        ),
     )
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
@@ -475,8 +496,21 @@ def test_render_notification_request_expands_templates_into_json_body():
 
     rendered = render_notification_request(
         payload,
-        user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
-        feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+        user=User(
+            id=uuid.uuid4(),
+            email="viewer@example.com",
+            password_hash="x",
+            role="viewer",
+            is_active=True,
+            is_approved=True,
+        ),
+        feed=Feed(
+            id=uuid.uuid4(),
+            name="Unit42",
+            url="https://example.com/feed.xml",
+            enabled=True,
+            fetch_interval_seconds=1800,
+        ),
         item=Item(
             id=uuid.uuid4(),
             feed_id=uuid.uuid4(),
@@ -513,7 +547,14 @@ def test_render_notification_request_redacts_feed_url_template_values():
 
     rendered = render_notification_request(
         payload,
-        user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
+        user=User(
+            id=uuid.uuid4(),
+            email="viewer@example.com",
+            password_hash="x",
+            role="viewer",
+            is_active=True,
+            is_approved=True,
+        ),
         feed=Feed(
             id=uuid.uuid4(),
             name="Secure Feed",
@@ -541,7 +582,9 @@ def test_render_notification_request_redacts_feed_url_template_values():
     }
 
 
-def test_test_notification_webhook_redacts_sensitive_request_and_response_previews(db_session, monkeypatch):
+def test_test_notification_webhook_redacts_sensitive_request_and_response_previews(
+    db_session, monkeypatch
+):
     request_body = '{"signature":"top-secret"}'
     response_body = '{"ok":true,"token":"secret"}'
     user = User(
@@ -556,7 +599,9 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
         name="Example",
         url_template="https://hooks.example.com/notify?token=abc123",
         method="POST",
-        headers=[NotificationWebhookField(key="Authorization", value="Bearer secret-token")],
+        headers=[
+            NotificationWebhookField(key="Authorization", value="Bearer secret-token")
+        ],
         body_mode="raw",
         body_template=request_body,
     )
@@ -583,14 +628,24 @@ def test_test_notification_webhook_redacts_sensitive_request_and_response_previe
 
     assert result.success is True
     assert result.rendered_url == "https://hooks.example.com/notify?token=REDACTED"
-    assert any(header.key == "Authorization" and header.value == "REDACTED" for header in result.rendered_headers)
+    assert any(
+        header.key == "Authorization" and header.value == "REDACTED"
+        for header in result.rendered_headers
+    )
     assert all("secret-token" not in header.value for header in result.rendered_headers)
-    assert result.rendered_query_params == [NotificationWebhookField(key="token", value="REDACTED")]
+    assert result.rendered_query_params == [
+        NotificationWebhookField(key="token", value="REDACTED")
+    ]
     assert result.rendered_body == f"Stored body withheld ({len(request_body)} chars)"
-    assert result.response_body_preview == f"Stored body withheld ({len(response_body)} chars)"
+    assert (
+        result.response_body_preview
+        == f"Stored body withheld ({len(response_body)} chars)"
+    )
 
 
-def test_send_rendered_notification_request_reads_preview_before_client_closes(monkeypatch):
+def test_send_rendered_notification_request_reads_preview_before_client_closes(
+    monkeypatch,
+):
     client_closed = {"value": False}
     request = httpx.Request("POST", "https://hooks.example.com/notify")
 
@@ -621,26 +676,29 @@ def test_send_rendered_notification_request_reads_preview_before_client_closes(m
         lambda *_args, **_kwargs: response,
     )
 
-    result = send_rendered_notification_request(
-        SimpleNamespace(
-            timeout_seconds=10,
-            url="https://hooks.example.com/notify",
-            method="POST",
-            headers=[],
-            query_params=[],
-            body=None,
-            headers_dict={},
-            query_param_pairs=[],
-            json_body=None,
-            form_body=None,
-            raw_body=None,
+    lease_seconds: list[int] = []
+    with notification_delivery_lease_heartbeat(lease_seconds.append):
+        result = send_rendered_notification_request(
+            SimpleNamespace(
+                timeout_seconds=10,
+                url="https://hooks.example.com/notify",
+                method="POST",
+                headers=[],
+                query_params=[],
+                body=None,
+                headers_dict={},
+                query_param_pairs=[],
+                json_body=None,
+                form_body=None,
+                raw_body=None,
+            )
         )
-    )
 
     assert result.success is True
     assert result.status_code == 204
     assert result.response_body_preview == '{"ok":true}'
     assert client_closed["value"] is True
+    assert lease_seconds == [35, 35]
 
 
 def test_render_notification_request_defaults_raw_json_to_application_json():
@@ -655,8 +713,21 @@ def test_render_notification_request_defaults_raw_json_to_application_json():
 
     rendered = render_notification_request(
         payload,
-        user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
-        feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+        user=User(
+            id=uuid.uuid4(),
+            email="viewer@example.com",
+            password_hash="x",
+            role="viewer",
+            is_active=True,
+            is_approved=True,
+        ),
+        feed=Feed(
+            id=uuid.uuid4(),
+            name="Unit42",
+            url="https://example.com/feed.xml",
+            enabled=True,
+            fetch_interval_seconds=1800,
+        ),
         item=Item(
             id=uuid.uuid4(),
             feed_id=uuid.uuid4(),
@@ -672,7 +743,9 @@ def test_render_notification_request_defaults_raw_json_to_application_json():
 
     assert rendered.headers_dict["Content-Type"] == "application/json"
     assert rendered.headers_dict["X-ThreatLens-Delivery-ID"]
-    assert ("Content-Type", "application/json") in [(field.key, field.value) for field in rendered.headers]
+    assert ("Content-Type", "application/json") in [
+        (field.key, field.value) for field in rendered.headers
+    ]
 
 
 def test_render_notification_request_rejects_duplicate_headers_case_insensitively():
@@ -690,8 +763,21 @@ def test_render_notification_request_rejects_duplicate_headers_case_insensitivel
     with pytest.raises(ValueError, match="Duplicate header"):
         render_notification_request(
             payload,
-            user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
-            feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+            user=User(
+                id=uuid.uuid4(),
+                email="viewer@example.com",
+                password_hash="x",
+                role="viewer",
+                is_active=True,
+                is_approved=True,
+            ),
+            feed=Feed(
+                id=uuid.uuid4(),
+                name="Unit42",
+                url="https://example.com/feed.xml",
+                enabled=True,
+                fetch_interval_seconds=1800,
+            ),
             item=Item(
                 id=uuid.uuid4(),
                 feed_id=uuid.uuid4(),
@@ -718,8 +804,21 @@ def test_render_notification_request_rejects_host_header_override():
     with pytest.raises(ValueError, match="Header is not allowed"):
         render_notification_request(
             payload,
-            user=User(id=uuid.uuid4(), email="viewer@example.com", password_hash="x", role="viewer", is_active=True, is_approved=True),
-            feed=Feed(id=uuid.uuid4(), name="Unit42", url="https://example.com/feed.xml", enabled=True, fetch_interval_seconds=1800),
+            user=User(
+                id=uuid.uuid4(),
+                email="viewer@example.com",
+                password_hash="x",
+                role="viewer",
+                is_active=True,
+                is_approved=True,
+            ),
+            feed=Feed(
+                id=uuid.uuid4(),
+                name="Unit42",
+                url="https://example.com/feed.xml",
+                enabled=True,
+                fetch_interval_seconds=1800,
+            ),
             item=Item(
                 id=uuid.uuid4(),
                 feed_id=uuid.uuid4(),
@@ -734,14 +833,21 @@ def test_render_notification_request_rejects_host_header_override():
         )
 
 
-def test_send_request_with_redirects_does_not_replay_original_query_params_after_redirect(monkeypatch):
+def test_send_request_with_redirects_does_not_replay_original_query_params_after_redirect(
+    monkeypatch,
+):
     seen_urls: list[str] = []
-    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
+        lambda *args, **kwargs: None,
+    )
 
     def _handler(request: httpx.Request) -> httpx.Response:
         seen_urls.append(str(request.url))
         if request.url.path == "/start":
-            return httpx.Response(302, headers={"Location": "https://hooks.example.com/final?server=1"})
+            return httpx.Response(
+                302, headers={"Location": "https://hooks.example.com/final?server=1"}
+            )
         return httpx.Response(204, request=request)
 
     transport = httpx.MockTransport(_handler)
@@ -765,14 +871,21 @@ def test_send_request_with_redirects_does_not_replay_original_query_params_after
 
 
 def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
+        lambda *args, **kwargs: None,
+    )
 
     def _handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(302, headers={"Location": "https://other.example.com/final"})
+        return httpx.Response(
+            302, headers={"Location": "https://other.example.com/final"}
+        )
 
     transport = httpx.MockTransport(_handler)
     with httpx.Client(transport=transport) as client:
-        with pytest.raises(RedirectError, match="Cross-origin redirects are not allowed"):
+        with pytest.raises(
+            RedirectError, match="Cross-origin redirects are not allowed"
+        ):
             send_request_with_redirects(
                 client,
                 method="POST",
@@ -785,12 +898,19 @@ def test_send_request_with_redirects_blocks_cross_origin_redirects(monkeypatch):
             )
 
 
-def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_default_port(monkeypatch):
-    monkeypatch.setattr("app.services.notification_webhook_http.ensure_runtime_fetchable_url", lambda *args, **kwargs: None)
+def test_send_request_with_redirects_allows_same_origin_redirect_with_explicit_default_port(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
+        lambda *args, **kwargs: None,
+    )
 
     def _handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/start":
-            return httpx.Response(302, headers={"Location": "https://hooks.example.com:443/final"})
+            return httpx.Response(
+                302, headers={"Location": "https://hooks.example.com:443/final"}
+            )
         return httpx.Response(204, request=request)
 
     transport = httpx.MockTransport(_handler)
@@ -820,15 +940,28 @@ def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch
             _ = (exc_type, exc, tb)
             return False
 
-    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_fetch", True)
-    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.settings.allow_private_network_fetch",
+        True,
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.settings.allow_private_network_webhooks",
+        False,
+    )
     monkeypatch.setattr(
         "app.services.notification_webhook_http.build_safe_http_client",
-        lambda *args, **kwargs: captured.setdefault("allow_private_network", kwargs["allow_private_network"]) or _Client(),
+        lambda *args, **kwargs: (
+            captured.setdefault(
+                "allow_private_network", kwargs["allow_private_network"]
+            )
+            or _Client()
+        ),
     )
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_request_with_redirects",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(httpx.ConnectError("stop after client setup")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            httpx.ConnectError("stop after client setup")
+        ),
     )
 
     result = send_rendered_notification_request(
@@ -855,14 +988,24 @@ def test_notification_webhooks_use_dedicated_private_network_setting(monkeypatch
     assert captured["allow_private_network"] is False
 
 
-def test_webhook_redirect_validation_uses_dedicated_private_network_setting(monkeypatch):
+def test_webhook_redirect_validation_uses_dedicated_private_network_setting(
+    monkeypatch,
+):
     observed: list[bool] = []
 
-    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_fetch", True)
-    monkeypatch.setattr("app.services.notification_webhook_http.settings.allow_private_network_webhooks", False)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.settings.allow_private_network_fetch",
+        True,
+    )
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.settings.allow_private_network_webhooks",
+        False,
+    )
     monkeypatch.setattr(
         "app.services.notification_webhook_http.ensure_runtime_fetchable_url",
-        lambda _url, *, allow_private_network=False: observed.append(allow_private_network),
+        lambda _url, *, allow_private_network=False: observed.append(
+            allow_private_network
+        ),
     )
 
     def _handler(request: httpx.Request) -> httpx.Response:
@@ -891,7 +1034,9 @@ def test_read_response_preview_caps_body_size():
     assert read_response_preview(response, max_bytes=4000) == "a" * 4000
 
 
-def test_send_notification_webhook_for_item_records_delivery_history(db_session, monkeypatch):
+def test_send_notification_webhook_for_item_records_delivery_history(
+    db_session, monkeypatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -952,12 +1097,21 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
 
-    result = send_notification_webhook_for_item(db_session, webhook=webhook, item=item, feed=feed, user=user)
+    result = send_notification_webhook_for_item(
+        db_session, webhook=webhook, item=item, feed=feed, user=user
+    )
 
     assert result.success is True
-    delivery = db_session.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.webhook_id == webhook.id))
+    delivery = db_session.scalar(
+        select(NotificationWebhookDelivery).where(
+            NotificationWebhookDelivery.webhook_id == webhook.id
+        )
+    )
     assert delivery is not None
     assert delivery.event_type_snapshot == "rss_item_new"
     assert delivery.delivery_kind == "live"
@@ -970,10 +1124,15 @@ def test_send_notification_webhook_for_item_records_delivery_history(db_session,
     assert delivery.status_code == 202
     assert decrypt_text(delivery.response_body_preview) == "accepted"
     rendered_headers = decrypt_json(delivery.rendered_headers_json)
-    assert any(header["key"] == "X-ThreatLens-Delivery-ID" for header in (rendered_headers or []))
+    assert any(
+        header["key"] == "X-ThreatLens-Delivery-ID"
+        for header in (rendered_headers or [])
+    )
 
 
-def test_process_notification_webhook_delivery_revalidates_runtime_url_safety(db_session, monkeypatch):
+def test_process_notification_webhook_delivery_revalidates_runtime_url_safety(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",
@@ -1024,19 +1183,26 @@ def test_process_notification_webhook_delivery_revalidates_runtime_url_safety(db
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("delivery should be blocked before send")
+        ),
     )
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
 
     assert attempt.claimed is True
     assert attempt.result.success is False
-    assert attempt.result.error == "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
+    assert (
+        attempt.result.error
+        == "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
+    )
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None
 
 
-def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner(db_session, monkeypatch):
+def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",
@@ -1088,20 +1254,30 @@ def test_process_notification_webhook_delivery_fails_closed_for_offboarded_owner
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("delivery should be blocked before send")
+        ),
     )
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
 
     assert attempt.claimed is True
     assert attempt.result.success is False
-    assert attempt.result.error == "Webhook owner is no longer active and approved for outbound delivery"
+    assert (
+        attempt.result.error
+        == "Webhook owner is no longer active and approved for outbound delivery"
+    )
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None
-    assert attempt.delivery.error == "policy_error:Webhook owner is no longer active and approved for outbound delivery"
+    assert (
+        attempt.delivery.error
+        == "policy_error:Webhook owner is no longer active and approved for outbound delivery"
+    )
 
 
-def test_process_notification_webhook_delivery_fails_closed_for_downgraded_owner_role(db_session, monkeypatch):
+def test_process_notification_webhook_delivery_fails_closed_for_downgraded_owner_role(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="analyst@example.com",
@@ -1153,17 +1329,25 @@ def test_process_notification_webhook_delivery_fails_closed_for_downgraded_owner
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("delivery should be blocked before send")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("delivery should be blocked before send")
+        ),
     )
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
 
     assert attempt.claimed is True
     assert attempt.result.success is False
-    assert attempt.result.error == "Webhook owner is no longer authorized to manage outbound deliveries"
+    assert (
+        attempt.result.error
+        == "Webhook owner is no longer authorized to manage outbound deliveries"
+    )
     assert attempt.delivery.delivery_state == "failed"
     assert attempt.delivery.status_code is None
-    assert attempt.delivery.error == "policy_error:Webhook owner is no longer authorized to manage outbound deliveries"
+    assert (
+        attempt.delivery.error
+        == "policy_error:Webhook owner is no longer authorized to manage outbound deliveries"
+    )
 
 
 def test_presend_render_failures_stay_pending_until_processed(db_session, monkeypatch):
@@ -1216,7 +1400,9 @@ def test_presend_render_failures_stay_pending_until_processed(db_session, monkey
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("pre-send render failure should not reach sender")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("pre-send render failure should not reach sender")
+        ),
     )
 
     reserved = reserve_notification_webhook_delivery(
@@ -1307,11 +1493,23 @@ def test_presend_and_policy_failures_are_not_auto_retryable(db_session):
     _persist_rows(db_session, webhook, render_failure, policy_failure)
     db_session.commit()
 
-    assert reserve_retryable_notification_webhook_delivery(db_session, webhook=webhook, delivery=render_failure) is None
-    assert reserve_retryable_notification_webhook_delivery(db_session, webhook=webhook, delivery=policy_failure) is None
+    assert (
+        reserve_retryable_notification_webhook_delivery(
+            db_session, webhook=webhook, delivery=render_failure
+        )
+        is None
+    )
+    assert (
+        reserve_retryable_notification_webhook_delivery(
+            db_session, webhook=webhook, delivery=policy_failure
+        )
+        is None
+    )
 
 
-def test_process_notification_webhook_delivery_preserves_original_request_snapshot(db_session, monkeypatch):
+def test_process_notification_webhook_delivery_preserves_original_request_snapshot(
+    db_session, monkeypatch
+):
     now = datetime.now(timezone.utc)
     user = User(
         id=uuid.uuid4(),
@@ -1377,19 +1575,26 @@ def test_process_notification_webhook_delivery_preserves_original_request_snapsh
             error="HTTP 500",
         )
 
-    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
 
     attempt = process_notification_webhook_delivery(db_session, delivery_id=delivery.id)
 
     assert attempt.result.success is False
     assert decrypt_text(attempt.delivery.rendered_url) == "https://example.com/hook"
-    assert decrypt_json(attempt.delivery.rendered_query_params_json) == [{"key": "token", "value": "abc"}]
+    assert decrypt_json(attempt.delivery.rendered_query_params_json) == [
+        {"key": "token", "value": "abc"}
+    ]
     assert decrypt_text(attempt.delivery.rendered_body) == '{"title":"ThreatLens"}'
     assert attempt.delivery.status_code == 500
     assert decrypt_text(attempt.delivery.response_body_preview) == "server error"
 
 
-def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_context_available(db_session, monkeypatch):
+def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_context_available(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",
@@ -1480,9 +1685,14 @@ def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_cont
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
 
-    retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
+    retried = retry_notification_webhook_delivery(
+        db_session, webhook=webhook, delivery=original_delivery
+    )
 
     assert captured["url"] == "https://example.com/hook"
     assert captured["query_param_pairs"] == [("token", "fresh")]
@@ -1497,19 +1707,28 @@ def test_retry_notification_webhook_delivery_rerenders_current_webhook_when_cont
     assert retried.feed_name_snapshot == "Unit42"
     assert retried.success is True
     assert retried.rendered_method == "PATCH"
-    assert any(header.key == "X-ThreatLens-Delivery-ID" for header in captured["rendered_headers"])
+    assert any(
+        header.key == "X-ThreatLens-Delivery-ID"
+        for header in captured["rendered_headers"]
+    )
     assert any(
         header.key == "X-ThreatLens-Delivery-ID" and header.value == str(retried.id)
         for header in captured["rendered_headers"]
     )
-    assert any(header.key == "X-Retry" and header.value == "Threat report" for header in captured["rendered_headers"])
     assert any(
-        header.key == "X-ThreatLens-Source-Delivery-ID" and header.value == str(original_delivery.id)
+        header.key == "X-Retry" and header.value == "Threat report"
+        for header in captured["rendered_headers"]
+    )
+    assert any(
+        header.key == "X-ThreatLens-Source-Delivery-ID"
+        and header.value == str(original_delivery.id)
         for header in captured["rendered_headers"]
     )
 
 
-def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_context_is_missing(db_session, monkeypatch):
+def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_context_is_missing(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",
@@ -1581,9 +1800,14 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
             error=None,
         )
 
-    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
 
-    retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
+    retried = retry_notification_webhook_delivery(
+        db_session, webhook=webhook, delivery=original_delivery
+    )
 
     assert captured["url"] == "https://example.com/historical"
     assert captured["query_param_pairs"] == [("token", "abc")]
@@ -1595,12 +1819,15 @@ def test_retry_notification_webhook_delivery_falls_back_to_saved_request_when_co
         for header in captured["rendered_headers"]
     )
     assert any(
-        header.key == "X-ThreatLens-Source-Delivery-ID" and header.value == str(original_delivery.id)
+        header.key == "X-ThreatLens-Source-Delivery-ID"
+        and header.value == str(original_delivery.id)
         for header in captured["rendered_headers"]
     )
 
 
-def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(db_session, monkeypatch):
+def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="notify@example.com",
@@ -1670,10 +1897,14 @@ def test_retry_notification_webhook_delivery_reuses_existing_successful_retry(db
 
     monkeypatch.setattr(
         "app.services.notification_webhook_http.send_rendered_notification_request",
-        lambda _rendered: (_ for _ in ()).throw(AssertionError("existing retry should be reused")),
+        lambda _rendered: (_ for _ in ()).throw(
+            AssertionError("existing retry should be reused")
+        ),
     )
 
-    retried = retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
+    retried = retry_notification_webhook_delivery(
+        db_session, webhook=webhook, delivery=original_delivery
+    )
 
     assert retried.id == successful_retry.id
     assert retried.delivery_state == "succeeded"
@@ -1734,8 +1965,12 @@ def test_retry_notification_webhook_delivery_raises_when_retry_lock_is_busy_with
         lambda *_args, **_kwargs: False,
     )
 
-    with pytest.raises(NotificationWebhookRetryInProgressError, match="already queued or in progress"):
-        retry_notification_webhook_delivery(db_session, webhook=webhook, delivery=original_delivery)
+    with pytest.raises(
+        NotificationWebhookRetryInProgressError, match="already queued or in progress"
+    ):
+        retry_notification_webhook_delivery(
+            db_session, webhook=webhook, delivery=original_delivery
+        )
 
 
 def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_user(
@@ -1842,7 +2077,9 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
     )
 
     _persist_rows(db_session, feed, other_feed, user, inactive_user)
-    _persist_rows(db_session, item, deliver_all, deliver_selected, skip_other_feed, skip_inactive)
+    _persist_rows(
+        db_session, item, deliver_all, deliver_selected, skip_other_feed, skip_inactive
+    )
     db_session.commit()
 
     delivered_ids: list[uuid.UUID] = []
@@ -1859,15 +2096,24 @@ def test_dispatch_new_item_notification_webhooks_matches_feed_scope_and_active_u
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),
-            delivery=SimpleNamespace(id=delivery_id, event_type_snapshot="rss_item_new", webhook_id=reserved_webhook_ids[delivery_id]),
+            delivery=SimpleNamespace(
+                id=delivery_id,
+                event_type_snapshot="rss_item_new",
+                webhook_id=reserved_webhook_ids[delivery_id],
+            ),
         )
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
-    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _process)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
+        _reserve,
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.process_notification_webhook_delivery", _process
+    )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -1960,7 +2206,9 @@ def test_dispatch_new_item_notification_webhooks_skips_duplicate_successful_deli
 
     monkeypatch.setattr(
         "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate rss_item_new delivery should have been skipped")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("duplicate rss_item_new delivery should have been skipped")
+        ),
     )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
@@ -2026,10 +2274,15 @@ def test_dispatch_new_item_notification_webhooks_skips_when_delivery_lock_is_una
         yield db_session
 
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
-    monkeypatch.setattr("app.services.notification_webhooks.try_acquire_notification_delivery_lock", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.try_acquire_notification_delivery_lock",
+        lambda *_args, **_kwargs: False,
+    )
     monkeypatch.setattr(
         "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("reserve should not run when lock is unavailable")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("reserve should not run when lock is unavailable")
+        ),
     )
 
     result = dispatch_new_item_notification_webhooks(str(item.id))
@@ -2202,7 +2455,9 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
     delivered_ids: list[uuid.UUID] = []
     reserved_webhook_ids: dict[uuid.UUID, uuid.UUID] = {}
 
-    def _reserve(_db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs):
+    def _reserve(
+        _db, *, webhook, user, event_type, feed, item, alert_context=None, **_kwargs
+    ):
         assert event_type == "alert_match"
         assert alert_context is not None
         delivery_id = uuid.uuid4()
@@ -2214,15 +2469,24 @@ def test_dispatch_alert_match_notification_webhooks_only_delivers_for_matching_u
         delivered_ids.append(reserved_webhook_ids[delivery_id])
         return SimpleNamespace(
             result=SimpleNamespace(success=True, status_code=204, error=None),
-            delivery=SimpleNamespace(id=delivery_id, event_type_snapshot="alert_match", webhook_id=reserved_webhook_ids[delivery_id]),
+            delivery=SimpleNamespace(
+                id=delivery_id,
+                event_type_snapshot="alert_match",
+                webhook_id=reserved_webhook_ids[delivery_id],
+            ),
         )
 
     @contextmanager
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.services.notification_webhooks.reserve_notification_webhook_delivery", _reserve)
-    monkeypatch.setattr("app.tasks.notification_tasks.process_notification_webhook_delivery", _process)
+    monkeypatch.setattr(
+        "app.services.notification_webhooks.reserve_notification_webhook_delivery",
+        _reserve,
+    )
+    monkeypatch.setattr(
+        "app.tasks.notification_tasks.process_notification_webhook_delivery", _process
+    )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_alert_match_notification_webhooks(str(item.id))
@@ -2311,7 +2575,9 @@ def test_dispatch_feed_failing_notification_webhooks_respects_recent_cooldown(
     assert result["skipped"] == 1
 
 
-def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successful_source_delivery(db_session, monkeypatch):
+def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successful_source_delivery(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="viewer@example.com",
@@ -2416,7 +2682,9 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
     monkeypatch.setattr(
         "app.services.notification_webhooks.reserve_notification_webhook_delivery",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("duplicate failure notice should be skipped")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("duplicate failure notice should be skipped")
+        ),
     )
 
     result = dispatch_webhook_failed_notification_webhooks(str(failed_delivery.id))
@@ -2427,7 +2695,9 @@ def test_dispatch_webhook_failed_notification_webhooks_skips_duplicate_successfu
     assert result["skipped"] == 1
 
 
-def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows(db_session, monkeypatch):
+def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows(
+    db_session, monkeypatch
+):
     user = User(
         id=uuid.uuid4(),
         email="viewer@example.com",
@@ -2493,7 +2763,10 @@ def test_dispatch_pending_notification_webhook_deliveries_recovers_reserved_rows
     def _db_session_override():
         yield db_session
 
-    monkeypatch.setattr("app.services.notification_webhook_http.send_rendered_notification_request", _fake_send)
+    monkeypatch.setattr(
+        "app.services.notification_webhook_http.send_rendered_notification_request",
+        _fake_send,
+    )
     monkeypatch.setattr("app.tasks.notification_tasks.db_session", _db_session_override)
 
     result = dispatch_pending_notification_webhook_deliveries()
@@ -2631,7 +2904,10 @@ def test_get_notification_analytics_summarizes_delivery_history(db_session):
     assert analytics.success_rate_pct == 50.0
     assert analytics.most_failing_webhook is not None
     assert analytics.most_failing_webhook.webhook_id == webhook.id
-    assert [(entry.event_type, entry.total_deliveries, entry.failed_deliveries) for entry in analytics.events] == [
+    assert [
+        (entry.event_type, entry.total_deliveries, entry.failed_deliveries)
+        for entry in analytics.events
+    ] == [
         ("alert_match", 1, 1),
         ("rss_item_new", 1, 0),
     ]
