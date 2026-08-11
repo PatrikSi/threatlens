@@ -1,4 +1,7 @@
+import base64
 import hashlib
+import hmac
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -6,31 +9,105 @@ from typing import Any
 from fastapi import Response
 import jwt
 from jwt import InvalidTokenError
-from passlib.context import CryptContext
+from pwdlib import PasswordHash
+from pwdlib.exceptions import UnknownHashError
+from pwdlib.hashers.argon2 import Argon2Hasher
+from pwdlib.hashers.bcrypt import BcryptHasher
 
 from app.core.config import get_settings
 
-pwd_context = CryptContext(schemes=["bcrypt_sha256", "bcrypt"], deprecated=["bcrypt"])
+_argon2_hasher = Argon2Hasher()
+_bcrypt_hasher = BcryptHasher(rounds=12, prefix="2b")
+_password_hash = PasswordHash((_argon2_hasher, _bcrypt_hasher))
 API_TOKEN_MARKER = "tlp"
 LEGACY_BCRYPT_PREFIXES = ("$2a$", "$2b$", "$2x$", "$2y$")
+LEGACY_BCRYPT_SHA256_PREFIX = "$bcrypt-sha256$"
 BCRYPT_MAX_PASSWORD_BYTES = 72
+_BCRYPT_SHA256_V2_RE = re.compile(
+    r"^\$bcrypt-sha256\$v=(?P<version>\d+),t=(?P<type>2b),r=(?P<rounds>\d{1,2})"
+    r"\$(?P<salt>[^$]{22})\$(?P<checksum>[^$]{31})$"
+)
+_BCRYPT_SHA256_V1_RE = re.compile(
+    r"^\$bcrypt-sha256\$(?P<type>2[ab]),(?P<rounds>\d{1,2})"
+    r"\$(?P<salt>[^$]{22})\$(?P<checksum>[^$]{31})$"
+)
+
+
+class _PasswordContextCompatibility:
+    """Small compatibility surface for callers that used Passlib's context."""
+
+    @staticmethod
+    def identify(hashed_password: str) -> str | None:
+        if hashed_password.startswith("$argon2"):
+            return "argon2"
+        if hashed_password.startswith(LEGACY_BCRYPT_SHA256_PREFIX):
+            return "bcrypt_sha256"
+        if hashed_password.startswith(LEGACY_BCRYPT_PREFIXES):
+            return "bcrypt"
+        return None
+
+    @staticmethod
+    def hash(password: str, *, scheme: str | None = None) -> str:
+        if scheme is None or scheme == "argon2":
+            return _argon2_hasher.hash(password)
+        if scheme == "bcrypt":
+            return _bcrypt_hasher.hash(password)
+        raise ValueError(f"Unsupported password hash scheme: {scheme}")
+
+    @staticmethod
+    def verify(password: str, hashed_password: str) -> bool:
+        return verify_password(password, hashed_password)
+
+
+pwd_context = _PasswordContextCompatibility()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
+    if hashed_password.startswith(LEGACY_BCRYPT_SHA256_PREFIX):
+        return _verify_legacy_bcrypt_sha256(plain_password, hashed_password)
     if _is_legacy_bcrypt_hash(hashed_password) and len(plain_password.encode("utf-8")) > BCRYPT_MAX_PASSWORD_BYTES:
         return False
     try:
-        return pwd_context.verify(plain_password, hashed_password)
-    except (TypeError, ValueError):
+        return _password_hash.verify(plain_password, hashed_password)
+    except (TypeError, UnknownHashError, ValueError):
         return False
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return _argon2_hasher.hash(password)
 
 
 def _is_legacy_bcrypt_hash(hashed_password: str) -> bool:
     return hashed_password.startswith(LEGACY_BCRYPT_PREFIXES)
+
+
+def _verify_legacy_bcrypt_sha256(
+    plain_password: str,
+    hashed_password: str,
+) -> bool:
+    match = _BCRYPT_SHA256_V2_RE.fullmatch(hashed_password)
+    version = 2
+    if match is None:
+        match = _BCRYPT_SHA256_V1_RE.fullmatch(hashed_password)
+        version = 1
+    if match is None or (version == 2 and match.group("version") != "2"):
+        return False
+
+    password_bytes = plain_password.encode("utf-8")
+    salt = match.group("salt")
+    if version == 2:
+        digest = hmac.new(salt.encode("ascii"), password_bytes, hashlib.sha256).digest()
+    else:
+        digest = hashlib.sha256(password_bytes).digest()
+    bcrypt_password = base64.b64encode(digest)
+    bcrypt_hash = (
+        f"${match.group('type')}${int(match.group('rounds')):02d}$"
+        f"{salt}{match.group('checksum')}"
+    )
+    try:
+        return _bcrypt_hasher.verify(bcrypt_password, bcrypt_hash)
+    except (TypeError, ValueError):
+        return False
 
 
 def create_access_token(subject: str, *, token_version: int = 0) -> str:
