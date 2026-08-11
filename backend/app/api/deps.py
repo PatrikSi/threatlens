@@ -1,4 +1,7 @@
 import logging
+import socket
+import threading
+import time
 import uuid
 from ipaddress import ip_address, ip_network
 from datetime import datetime, timezone
@@ -31,6 +34,9 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 logger = logging.getLogger(__name__)
+_PROXY_HOST_CACHE_TTL_SECONDS = 30.0
+_proxy_host_cache_lock = threading.Lock()
+_proxy_host_cache: dict[str, tuple[float, frozenset[str]]] = {}
 
 
 
@@ -272,7 +278,8 @@ def resolve_client_ip(request: Request) -> str:
     if candidate_ip == "unknown":
         return candidate_ip
 
-    if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs):
+    trusted_proxy_hosts = getattr(settings, "trusted_proxy_hosts", [])
+    if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs, trusted_proxy_hosts):
         return candidate_ip
 
     forwarded_for = request.headers.get("x-forwarded-for")
@@ -280,7 +287,7 @@ def resolve_client_ip(request: Request) -> str:
         return candidate_ip
 
     for forwarded_ip in reversed(_parse_forwarded_for_ips(forwarded_for)):
-        if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs):
+        if not _is_trusted_proxy(candidate_ip, settings.trusted_proxy_cidrs, trusted_proxy_hosts):
             break
         candidate_ip = forwarded_ip
 
@@ -301,10 +308,11 @@ def _parse_forwarded_for_ips(forwarded_for: str) -> list[str]:
     return parsed_hops
 
 
-def _is_trusted_proxy(remote_ip: str, trusted_proxy_cidrs: list[str]) -> bool:
-    if not trusted_proxy_cidrs:
-        return False
-
+def _is_trusted_proxy(
+    remote_ip: str,
+    trusted_proxy_cidrs: list[str],
+    trusted_proxy_hosts: list[str] | None = None,
+) -> bool:
     try:
         parsed_remote_ip = ip_address(remote_ip)
     except ValueError:
@@ -317,4 +325,31 @@ def _is_trusted_proxy(remote_ip: str, trusted_proxy_cidrs: list[str]) -> bool:
             continue
         if parsed_remote_ip in network:
             return True
-    return False
+    return remote_ip in _trusted_proxy_host_addresses(trusted_proxy_hosts or [])
+
+
+def _trusted_proxy_host_addresses(hosts: list[str]) -> frozenset[str]:
+    addresses: set[str] = set()
+    now = time.monotonic()
+    for host in hosts:
+        normalized = host.strip().lower()
+        if not normalized:
+            continue
+        with _proxy_host_cache_lock:
+            cached = _proxy_host_cache.get(normalized)
+        if cached is not None and cached[0] > now:
+            addresses.update(cached[1])
+            continue
+        try:
+            resolved = frozenset(
+                entry[4][0]
+                for entry in socket.getaddrinfo(normalized, None, type=socket.SOCK_STREAM)
+                if entry[4] and entry[4][0]
+            )
+        except OSError as exc:
+            logger.warning("trusted_proxy_host_resolution_failed host=%s error=%s", normalized, exc)
+            resolved = frozenset()
+        with _proxy_host_cache_lock:
+            _proxy_host_cache[normalized] = (now + _PROXY_HOST_CACHE_TTL_SECONDS, resolved)
+        addresses.update(resolved)
+    return frozenset(addresses)

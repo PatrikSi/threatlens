@@ -9,11 +9,12 @@ from contextlib import contextmanager
 import redis
 
 from app.core.config import get_settings
+from app.core.redis_client import redis_client_from_url
 
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = redis_client_from_url(settings.redis_url, decode_responses=True, settings=settings)
 
 DOMAIN_SLOT_TTL_SECONDS = 30
 DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2

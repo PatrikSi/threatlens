@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, require_token_scopes
@@ -94,7 +95,11 @@ def create_user(
         approved_at=datetime.now(timezone.utc) if payload.is_approved else None,
     )
     db.add(user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use") from exc
     record_audit(
         db,
         actor_user_id=admin.id,
@@ -108,7 +113,11 @@ def create_user(
             "provisioning_source": user.provisioning_source,
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use") from exc
     db.refresh(user)
     return _user_admin_response(user, UserManagementContext())
 
@@ -181,7 +190,11 @@ def update_user(
             "revoked_api_tokens": int(revoked_api_tokens),
         },
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use") from exc
     db.refresh(user)
     return _user_admin_response(user, management)
 

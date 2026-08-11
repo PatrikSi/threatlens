@@ -2,6 +2,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, resolve_client_ip
@@ -112,7 +113,11 @@ def register(payload: RegisterRequest, request: Request, db: Session = Depends(g
         approved_at=None,
     )
     db.add(user)
-    db.flush()
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already in use") from exc
     record_audit(
         db,
         actor_user_id=user.id,
