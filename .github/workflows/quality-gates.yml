@@ -6,6 +6,12 @@ on:
     branches:
       - dev
   workflow_call:
+    inputs:
+      run_container_smoke:
+        description: Build, scan, and smoke-test local Compose images.
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -14,6 +20,7 @@ jobs:
   hygiene:
     name: Repository diff hygiene
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository history
         uses: actions/checkout@v6
@@ -41,6 +48,7 @@ jobs:
   backend:
     name: Backend tests and contract
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -55,7 +63,7 @@ jobs:
             backend/requirements-dev.txt
 
       - name: Install backend dependencies
-        run: python -m pip install -r backend/requirements-dev.txt
+        run: timeout 10m python -m pip install -r backend/requirements-dev.txt
 
       - name: Compile backend
         run: python -m compileall -q backend/app backend/alembic
@@ -68,7 +76,7 @@ jobs:
 
       - name: Run backend tests
         working-directory: backend
-        run: python -m pytest
+        run: timeout 25m python -m pytest
 
       - name: Verify generated API contract
         run: |
@@ -77,17 +85,18 @@ jobs:
 
       - name: Verify runtime lockfile
         run: |
-          python backend/scripts/generate_runtime_lockfile.py --output /tmp/requirements-lock.txt
+          timeout 6m python backend/scripts/generate_runtime_lockfile.py --output /tmp/requirements-lock.txt
           diff -u backend/requirements-lock.txt /tmp/requirements-lock.txt
 
       - name: Audit Python runtime dependencies
         run: |
-          python -m pip install pip-audit
-          python -m pip_audit -r backend/requirements-lock.txt
+          timeout 5m python -m pip install pip-audit
+          timeout 5m python -m pip_audit -r backend/requirements-lock.txt
 
   frontend:
     name: Frontend tests and build
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -101,11 +110,11 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: web
-        run: npm ci
+        run: timeout 10m npm ci
 
       - name: Run frontend tests
         working-directory: web
-        run: npm test
+        run: timeout 10m npm test
 
       - name: Lint frontend
         working-directory: web
@@ -113,15 +122,16 @@ jobs:
 
       - name: Build frontend
         working-directory: web
-        run: npm run build
+        run: timeout 10m npm run build
 
       - name: Audit frontend dependencies
         working-directory: web
-        run: npm run audit
+        run: timeout 5m npm run audit
 
   migrations:
     name: PostgreSQL migration round trip
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:16
@@ -155,24 +165,29 @@ jobs:
           cache-dependency-path: backend/requirements-lock.txt
 
       - name: Install backend dependencies
-        run: python -m pip install -r backend/requirements-lock.txt
+        run: timeout 10m python -m pip install -r backend/requirements-lock.txt
 
       - name: Verify a single migration head
         working-directory: backend
         run: test "$(python -m alembic heads | wc -l)" -eq 1
 
-      - name: Exercise upgrade and downgrade path
+      - name: Exercise populated upgrade and downgrade path
         working-directory: backend
         run: |
-          python -m alembic upgrade head
+          timeout 5m python -m alembic upgrade 0042_user_source
+          python scripts/upgrade_compatibility_fixture.py seed
+          timeout 5m python -m alembic upgrade head
+          python scripts/upgrade_compatibility_fixture.py verify
           python -m alembic current | grep -F '(head)'
-          python -m alembic downgrade base
-          python -m alembic upgrade head
+          python -m alembic check
+          timeout 5m python -m alembic downgrade base
+          timeout 5m python -m alembic upgrade head
           python -m alembic current | grep -F '(head)'
 
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       security-events: write
@@ -198,11 +213,13 @@ jobs:
 
   container-smoke:
     name: Container smoke and image scan
+    if: github.event_name != 'workflow_call' || inputs.run_container_smoke
     needs:
       - backend
       - frontend
       - migrations
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -211,24 +228,24 @@ jobs:
         env:
           ADMIN_EMAIL: admin@example.com
           ADMIN_PASSWORD: ci-admin-password-with-sufficient-length
-        run: ./bootstrap.sh --force
+        run: timeout 3m ./bootstrap.sh --force
 
       - name: Validate Compose configuration
-        run: docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
+        run: timeout 1m docker compose -f docker-compose.yml -f docker-compose.build.yml config --quiet
 
       - name: Build and start stack
         env:
           BUILD_DATE: 1970-01-01T00:00:00Z
           VCS_REF: ${{ github.sha }}
         run: |
-          APP_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
-          APP_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait
+          APP_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
+          APP_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
 
       - name: Verify running stack
         run: |
           readiness_url="http://localhost:3000/api/v1/health"
           for attempt in {1..24}; do
-            if readiness="$(curl --fail --silent --show-error "$readiness_url" 2>&1)"; then
+            if readiness="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$readiness_url" 2>&1)"; then
               printf '%s\n' "$readiness"
               break
             fi
@@ -239,8 +256,8 @@ jobs:
             fi
             sleep 5
           done
-          test "$(curl --fail --silent http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
-          docker compose exec -T api python -m alembic current | grep -F '(head)'
+          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+          timeout 1m docker compose exec -T api python -m alembic current | grep -F '(head)'
           docker compose ps
 
       - name: Scan backend image
@@ -263,8 +280,8 @@ jobs:
 
       - name: Show container logs after failure
         if: failure()
-        run: docker compose logs --no-color
+        run: timeout 2m docker compose logs --no-color
 
       - name: Stop stack
         if: always()
-        run: docker compose down -v --remove-orphans
+        run: timeout 3m docker compose down -v --remove-orphans
