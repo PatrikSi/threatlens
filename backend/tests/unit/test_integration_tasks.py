@@ -6,6 +6,7 @@ from sqlalchemy import select
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
 )
@@ -16,6 +17,7 @@ from app.services.integration_delivery import (
 )
 from app.tasks.integration_tasks import (
     dispatch_pending_integration_deliveries,
+    dispatch_pending_integration_events,
     process_integration_deliveries,
 )
 
@@ -94,6 +96,44 @@ def test_failed_recovery_enqueue_releases_publication_reservation(
     }
     assert first.claimed_at is None
     assert second.claimed_at is None
+
+
+def test_failed_event_enqueue_releases_publication_reservation(
+    db_session, monkeypatch
+):
+    events = tuple(
+        IntegrationEvent(
+            event_type="rss_item_new",
+            source_type="test",
+            idempotency_key=f"event-enqueue:{uuid.uuid4()}",
+            payload_json={},
+        )
+        for _ in range(2)
+    )
+    db_session.add_all(events)
+    db_session.commit()
+
+    @contextmanager
+    def _db_session():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.integration_tasks.db_session", _db_session)
+    monkeypatch.setattr(
+        "app.tasks.integration_tasks.route_integration_event.delay",
+        lambda _event_id: (_ for _ in ()).throw(RuntimeError("broker unavailable")),
+    )
+
+    result = dispatch_pending_integration_events.run()
+
+    for event in events:
+        db_session.refresh(event)
+        assert event.claimed_at is None
+    assert result == {
+        "status": "ok",
+        "scanned": 2,
+        "queued": 0,
+        "enqueue_failed": 2,
+    }
 
 
 def _persist_deliveries(db_session) -> tuple[IntegrationDelivery, IntegrationDelivery]:

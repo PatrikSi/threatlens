@@ -23,6 +23,7 @@ from app.services.integration_compat import ensure_webhook_integration
 from app.services.integration_events import (
     emit_integration_event,
     list_recoverable_integration_event_ids,
+    reserve_recoverable_integration_events,
     route_integration_event,
 )
 from app.services.integration_storage import apply_smtp_settings_update, get_or_create_smtp_integration
@@ -638,6 +639,35 @@ def test_recoverable_event_scan_excludes_future_routed_and_dead_letter_events(db
     event_ids = list_recoverable_integration_event_ids(db_session, now=now)
 
     assert set(event_ids) == {due.id, failed.id, stale_routing.id}
+
+
+def test_event_recovery_reservation_suppresses_duplicate_publication_sweeps(
+    db_session, monkeypatch
+):
+    monkeypatch.setattr(
+        "app.services.integration_events.settings.integration_event_routing_stale_after_seconds",
+        30,
+    )
+    now = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
+    due = _persist_event(
+        db_session,
+        state="pending",
+        available_at=now - timedelta(seconds=1),
+    )
+
+    first = reserve_recoverable_integration_events(db_session, now=now)
+    db_session.commit()
+    second = reserve_recoverable_integration_events(
+        db_session,
+        now=now + timedelta(seconds=10),
+    )
+
+    assert first.event_ids == (due.id,)
+    assert second.event_ids == ()
+    assert due.id in list_recoverable_integration_event_ids(
+        db_session,
+        now=now + timedelta(seconds=31),
+    )
 
 
 def test_route_event_rejects_non_scalar_uuid_payload_with_context_error(db_session):

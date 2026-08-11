@@ -55,6 +55,12 @@ class RoutedIntegrationEvent:
 
 
 @dataclass(frozen=True)
+class IntegrationEventRecoveryReservation:
+    event_ids: tuple[uuid.UUID, ...]
+    reserved_at: datetime
+
+
+@dataclass(frozen=True)
 class IntegrationEventResources:
     item: Item | SimpleNamespace | None
     feed: Feed | SimpleNamespace | None
@@ -249,26 +255,89 @@ def list_recoverable_integration_event_ids(
     now: datetime | None = None,
 ) -> list[uuid.UUID]:
     current_time = now or datetime.now(timezone.utc)
-    stale_cutoff = current_time - timedelta(seconds=settings.integration_event_routing_stale_after_seconds)
     batch_size = max(1, int(limit or settings.integration_event_routing_batch_size))
     return list(
         db.scalars(
             select(IntegrationEvent.id)
-            .where(
-                or_(
-                    and_(
-                        IntegrationEvent.routing_state.in_([EVENT_PENDING, EVENT_FAILED]),
-                        IntegrationEvent.available_at <= current_time,
-                    ),
-                    and_(
-                        IntegrationEvent.routing_state == EVENT_ROUTING,
-                        or_(IntegrationEvent.claimed_at.is_(None), IntegrationEvent.claimed_at < stale_cutoff),
-                    ),
-                )
-            )
+            .where(_recoverable_event_predicate(current_time))
             .order_by(IntegrationEvent.available_at.asc(), IntegrationEvent.created_at.asc())
             .limit(batch_size)
         ).all()
+    )
+
+
+def reserve_recoverable_integration_events(
+    db: Session,
+    *,
+    limit: int | None = None,
+    now: datetime | None = None,
+) -> IntegrationEventRecoveryReservation:
+    """Reserve routing publication so concurrent sweeps do not amplify queue work."""
+    current_time = now or datetime.now(timezone.utc)
+    batch_size = max(1, int(limit or settings.integration_event_routing_batch_size))
+    events = list(
+        db.scalars(
+            select(IntegrationEvent)
+            .where(_recoverable_event_predicate(current_time))
+            .order_by(
+                IntegrationEvent.available_at.asc(),
+                IntegrationEvent.created_at.asc(),
+            )
+            .with_for_update(skip_locked=True)
+            .limit(batch_size)
+        ).all()
+    )
+    for event in events:
+        event.claimed_at = current_time
+        db.add(event)
+    return IntegrationEventRecoveryReservation(
+        event_ids=tuple(event.id for event in events),
+        reserved_at=current_time,
+    )
+
+
+def release_integration_event_publications(
+    db: Session,
+    *,
+    event_ids: list[uuid.UUID] | tuple[uuid.UUID, ...],
+    reserved_at: datetime,
+) -> None:
+    if not event_ids:
+        return
+    events = db.scalars(
+        select(IntegrationEvent)
+        .where(IntegrationEvent.id.in_(event_ids))
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).all()
+    for event in events:
+        if (
+            event.routing_state in {EVENT_PENDING, EVENT_FAILED}
+            and _coerce_utc(event.claimed_at) == reserved_at
+        ):
+            event.claimed_at = None
+            db.add(event)
+
+
+def _recoverable_event_predicate(current_time: datetime):
+    stale_after = max(10, int(settings.integration_event_routing_stale_after_seconds))
+    stale_cutoff = current_time - timedelta(seconds=stale_after)
+    return or_(
+        and_(
+            IntegrationEvent.routing_state.in_([EVENT_PENDING, EVENT_FAILED]),
+            IntegrationEvent.available_at <= current_time,
+            or_(
+                IntegrationEvent.claimed_at.is_(None),
+                IntegrationEvent.claimed_at < stale_cutoff,
+            ),
+        ),
+        and_(
+            IntegrationEvent.routing_state == EVENT_ROUTING,
+            or_(
+                IntegrationEvent.claimed_at.is_(None),
+                IntegrationEvent.claimed_at < stale_cutoff,
+            ),
+        ),
     )
 
 
@@ -599,6 +668,14 @@ def _isoformat_optional(value: datetime | None) -> str | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc).isoformat()
+
+
+def _coerce_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _format_routing_errors(errors: list[ConnectorRoutingError]) -> str:

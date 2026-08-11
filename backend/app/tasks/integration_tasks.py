@@ -14,8 +14,9 @@ from app.services.integration_delivery import (
 )
 from app.services.integration_events import (
     IntegrationEventContextError,
-    list_recoverable_integration_event_ids,
     record_integration_event_failure,
+    release_integration_event_publications,
+    reserve_recoverable_integration_events,
     route_integration_event as route_pending_integration_event,
 )
 from app.services.integration_maintenance import run_integration_delivery_maintenance
@@ -282,16 +283,32 @@ def route_integration_event(event_id: str):
 )
 def dispatch_pending_integration_events():
     with db_session() as db:
-        event_ids = list_recoverable_integration_event_ids(db)
+        reservation = reserve_recoverable_integration_events(db)
+        db.commit()
 
     queued = 0
-    for event_id in event_ids:
+    failed_ids: list[uuid.UUID] = []
+    for event_id in reservation.event_ids:
         try:
             route_integration_event.delay(str(event_id))
         except Exception as exc:
+            failed_ids.append(event_id)
             logger.exception(
                 "integration_event_enqueue_failed event_id=%s error=%s", event_id, exc
             )
             continue
         queued += 1
-    return {"status": "ok", "scanned": len(event_ids), "queued": queued}
+    if failed_ids:
+        with db_session() as db:
+            release_integration_event_publications(
+                db,
+                event_ids=failed_ids,
+                reserved_at=reservation.reserved_at,
+            )
+            db.commit()
+    return {
+        "status": "ok",
+        "scanned": len(reservation.event_ids),
+        "queued": queued,
+        "enqueue_failed": len(failed_ids),
+    }
