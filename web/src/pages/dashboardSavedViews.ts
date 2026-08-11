@@ -18,6 +18,7 @@ import type {
   SavedViewWindowTimeFilter,
   SavedViewWindowType,
 } from '../types/api'
+import { safeLocalStorage } from '../utils/safeStorage'
 
 export type TimeRangeFilter = SavedViewTimeRange
 export type ReadStatusFilter = SavedViewReadStatus
@@ -69,6 +70,7 @@ export const DEFAULT_ROLLING_DAYS = '7'
 export const HIDDEN_TAGS = new Set(['content_fetched', 'priority'])
 export const PAGE_SIZE_OPTIONS = [10, 25, 50, 100] as const
 export const MAX_IMPORTED_VIEWS = 250
+export const MAX_DASHBOARD_WINDOWS = 12
 
 export function isTimeRangeFilter(value: unknown): value is TimeRangeFilter {
   return value === 'all' || value === '24h' || value === '7d' || value === '30d' || value === 'days' || value === 'custom'
@@ -432,7 +434,7 @@ export function normalizeDashboardWindows(windows: DashboardWindow[], containerW
     return [createWindowLayout('rss', 1, containerWidth, containerHeight, 'full')]
   }
 
-  return windows.map((window) => {
+  return windows.slice(0, MAX_DASHBOARD_WINDOWS).map((window) => {
     if (window.snap === 'free') {
       return {
         ...window,
@@ -568,7 +570,7 @@ export function parseDashboardSavedView(raw: unknown, containerWidth: number, co
 
   const parsedWindows: DashboardWindow[] = []
   if (Array.isArray(source.windows)) {
-    for (const entry of source.windows) {
+    for (const entry of source.windows.slice(0, MAX_DASHBOARD_WINDOWS)) {
       const parsed = parseDashboardWindowCandidate(entry, parsedWindows.length + 1, {
         rssFiltersFallback: { ...rssFilters, page: 1 },
         alertFiltersFallback: { ...alertFilters, page: 1 },
@@ -613,8 +615,13 @@ export function buildDashboardSavedViewState(
   dashboardTimeFilter: WindowTimeFilter,
   containerDimensions?: DashboardWindowContainerDimensions,
 ): DashboardSavedViewState {
-  const firstRssWindow = windows.find((window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss')
-  const firstAlertWindow = windows.find((window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts')
+  const boundedWindows = windows.slice(0, MAX_DASHBOARD_WINDOWS)
+  const firstRssWindow = boundedWindows.find(
+    (window): window is DashboardWindow & { type: 'rss' } => window.type === 'rss',
+  )
+  const firstAlertWindow = boundedWindows.find(
+    (window): window is DashboardWindow & { type: 'alerts' } => window.type === 'alerts',
+  )
   const rssWindowFilters = parseRssWindowFiltersCandidate(firstRssWindow?.rss_filters ?? null)
   const alertWindowFilters = parseAlertWindowFiltersCandidate(firstAlertWindow?.alert_filters ?? null)
 
@@ -623,7 +630,7 @@ export function buildDashboardSavedViewState(
     version: DASHBOARD_VIEW_VERSION,
     rss_filters: buildSavedViewRssFilters(rssWindowFilters, dashboardTimeFilter),
     alert_filters: buildSavedViewAlertFilters(alertWindowFilters, dashboardTimeFilter),
-    windows: windows.map((window) => buildSavedViewWindowState(window, containerDimensions)),
+    windows: boundedWindows.map((window) => buildSavedViewWindowState(window, containerDimensions)),
     ui: {
       show_advanced_filters: rssWindowFilters.show_advanced_filters,
     },
@@ -686,7 +693,7 @@ export function serializeDashboardWindowLayouts(
   windows: DashboardWindow[],
   containerDimensions?: DashboardWindowContainerDimensions,
 ): DashboardWindow[] {
-  return windows.map((window) => {
+  return windows.slice(0, MAX_DASHBOARD_WINDOWS).map((window) => {
     const base = {
       id: window.id,
       title: window.title,
@@ -831,7 +838,7 @@ export function loadDashboardWindows(storageKey: string, containerWidth: number,
     return [createDefaultDashboardWindow(containerWidth, containerHeight)]
   }
 
-  const raw = window.localStorage.getItem(storageKey)
+  const raw = safeLocalStorage.getItem(storageKey)
   if (!raw) {
     return [createDefaultDashboardWindow(containerWidth, containerHeight)]
   }
@@ -843,6 +850,7 @@ export function loadDashboardWindows(storageKey: string, containerWidth: number,
     }
 
     const windows = parsed
+      .slice(0, MAX_DASHBOARD_WINDOWS)
       .map((entry, index) => parseDashboardWindowCandidate(entry, index + 1))
       .filter((entry): entry is DashboardWindow => entry !== null)
 
@@ -894,6 +902,9 @@ export function parseImportedSavedViews(raw: unknown): ImportedSavedViewEntry[] 
     const queryJson = isRecord(entry.query_json) ? entry.query_json : null
     if (!name || !queryJson) {
       continue
+    }
+    if (Array.isArray(queryJson.windows) && queryJson.windows.length > MAX_DASHBOARD_WINDOWS) {
+      throw new Error(`Saved view "${name}" contains too many panels. Maximum allowed is ${MAX_DASHBOARD_WINDOWS}.`)
     }
 
     entries.push({

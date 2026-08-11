@@ -69,12 +69,14 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
     adjustArticlePreviewWidth, aiDailyBriefEnabled, aiRelevanceEnabled, aiSummaryEnabled, alertInterestsQuery,
     alertQueriesByWindowId, alertWindowCount, applyDashboardSavedViewState, applyGlobalSearch, articlePreview,
     articlePreviewFrameState, articlePreviewWidth, articleRetryFeedbackByItemId, availableAlertCategories, bringWindowToFront,
-    canManage, captureCurrentDashboardViewState, clearActiveSavedViewSelection, closeAddWindowMenu, closeArticlePreview,
+    canAddWindow, canManage, captureCurrentDashboardViewState, clearActiveSavedViewSelection, closeAddWindowMenu,
+    closeArticlePreview,
     confirmDiscardUnsavedDashboardChanges, containerDimensions, dailyBriefHistoryQuery, dailyBriefWindowCount, dashboardCustomSinceDate,
     dashboardCustomUntilDate, dashboardRollingDays, dashboardTimeFilter, dashboardTimeRange, detailQueriesByWindowId,
     editSessionSnapshot, expandedItemIdsByWindowId, feedsQuery, globalSearchState, handleAddWindowMenuKeyDown,
     handleAddWindowTriggerKeyDown, handleOpenArticlePreview, handleToggleItem, hasUnsavedDashboardChanges,
-    isArticlePreviewResizing, isEditMode, isWideLayout, itemActionFeedbackByItemId, markWindowSeen,
+    isArticlePreviewResizing, isEditMode, isItemActionPending, isWideLayout, itemActionFeedbackByItemId,
+    markWindowSeen,
     mobileActiveWindowIndex, mobileDashboardViewsOpen, mobileWindowControlsOpenById, noteDraftsByItemId, notesWindowCount,
     openAddWindowMenu, openRenameWindow, removeWindow, renderedWindows, requestSavedViewLoad,
     resolvedMobileWindowId, retryArticleFetch, rootRef, rssLastOpenedAt, rssQueriesByWindowId,
@@ -292,7 +294,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                 <button
                   type="button"
                   ref={addWindowTriggerRef}
-                  className="h-8 w-full rounded border border-slate/20 px-3 text-xs sm:w-auto dark:border-cyan-900/40"
+                  className="h-8 w-full rounded border border-slate/20 px-3 text-xs disabled:opacity-50 sm:w-auto dark:border-cyan-900/40"
                   onClick={() => {
                     if (showAddWindowMenu) {
                       closeAddWindowMenu()
@@ -304,6 +306,8 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                   aria-haspopup="menu"
                   aria-expanded={showAddWindowMenu}
                   aria-controls={showAddWindowMenu ? addWindowMenuId : undefined}
+                  disabled={!canAddWindow}
+                  title={!canAddWindow ? 'Dashboard panel limit reached.' : undefined}
                 >
                   Add Panel
                 </button>
@@ -1096,7 +1100,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                       )}
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage || (updateRead.isPending && updateRead.variables?.itemId === detail.id)}
+                                        disabled={!canManage || isItemActionPending('read', detail.id)}
                                         onClick={() =>
                                           updateRead.mutate({
                                             itemId: detail.id,
@@ -1104,7 +1108,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                           })
                                         }
                                       >
-                                        {updateRead.isPending && updateRead.variables?.itemId === detail.id
+                                        {isItemActionPending('read', detail.id)
                                           ? 'Saving...'
                                           : detail.state.is_read
                                             ? 'Mark Unread'
@@ -1112,7 +1116,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                       </button>
                                       <button
                                         className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40"
-                                        disabled={!canManage || (updateStar.isPending && updateStar.variables?.itemId === detail.id)}
+                                        disabled={!canManage || isItemActionPending('star', detail.id)}
                                         onClick={() =>
                                           updateStar.mutate({
                                             itemId: detail.id,
@@ -1120,7 +1124,7 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                           })
                                         }
                                       >
-                                        {updateStar.isPending && updateStar.variables?.itemId === detail.id
+                                        {isItemActionPending('star', detail.id)
                                           ? 'Saving...'
                                           : detail.state.is_starred
                                             ? 'Unstar'
@@ -1224,11 +1228,11 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                             className="rounded border border-slate/20 px-2 py-1 text-xs dark:border-cyan-900/40 disabled:opacity-50"
                                             disabled={
                                               !canManage ||
-                                              (retryArticleFetch.isPending && retryArticleFetch.variables?.itemId === detail.id)
+                                              isItemActionPending('retry', detail.id)
                                             }
                                             onClick={() => retryArticleFetch.mutate({ itemId: detail.id })}
                                           >
-                                            {retryArticleFetch.isPending && retryArticleFetch.variables?.itemId === detail.id
+                                            {isItemActionPending('retry', detail.id)
                                               ? 'Queueing...'
                                               : detail.article?.error
                                                 ? 'Retry Article Fetch'
@@ -1278,9 +1282,9 @@ export function DashboardPageView({ controller }: { controller: DashboardPageCon
                                               note: (noteDraftsByItemId[detail.id] ?? detail.state.note ?? '') || null,
                                             })
                                           }
-                                          disabled={!canManage || (updateNote.isPending && updateNote.variables?.itemId === detail.id)}
+                                          disabled={!canManage || isItemActionPending('note', detail.id)}
                                         >
-                                          {updateNote.isPending && updateNote.variables?.itemId === detail.id ? 'Saving...' : 'Save Notes'}
+                                          {isItemActionPending('note', detail.id) ? 'Saving...' : 'Save Notes'}
                                         </button>
                                         {!canManage && <span className="text-xs text-slate dark:text-slate-300">Read-only for viewer role.</span>}
                                       </div>

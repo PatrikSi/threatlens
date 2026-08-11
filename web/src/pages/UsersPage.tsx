@@ -5,6 +5,7 @@ import { apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useCurrentUser } from '../hooks/useCurrentUser'
+import { usePendingEntityActions } from '../hooks/usePendingEntityActions'
 import { useUnsavedChangesWarning } from '../hooks/useUnsavedChangesWarning'
 import { AdminUser, User, UserCreateRequest, UserUpdateRequest } from '../types/api'
 import { formatDateTime } from '../utils/datetime'
@@ -64,6 +65,7 @@ const DEFAULT_CREATE_USER_FORM: UserCreateRequest = {
 export function UsersPage() {
   const queryClient = useQueryClient()
   const currentUserQuery = useCurrentUser()
+  const userUpdatePending = usePendingEntityActions()
   const [search, setSearch] = useState('')
   const [accountFilter, setAccountFilter] = useState<'all' | 'local' | 'oidc' | 'hybrid'>('all')
   const [rowNoticeByUserId, setRowNoticeByUserId] = useState<
@@ -89,6 +91,7 @@ export function UsersPage() {
   })
 
   const createUser = useMutation({
+    mutationKey: ['users', 'create'],
     mutationFn: (payload: UserCreateRequest) =>
       apiFetch<AdminUser>('/users', {
         method: 'POST',
@@ -102,12 +105,14 @@ export function UsersPage() {
   })
 
   const updateUser = useMutation({
+    mutationKey: ['users', 'update'],
     mutationFn: (payload: { id: string; body: UserUpdateRequest }) =>
       apiFetch<AdminUser>(`/users/${payload.id}`, {
         method: 'PATCH',
         body: JSON.stringify(payload.body),
       }),
     onMutate: (payload) => {
+      userUpdatePending.begin('update', payload.id)
       setRowNoticeByUserId((current) => {
         const next = { ...current }
         delete next[payload.id]
@@ -143,6 +148,9 @@ export function UsersPage() {
           action: payload.body.password ? 'password' : 'settings',
         },
       }))
+    },
+    onSettled: (_data, _error, payload) => {
+      userUpdatePending.finish('update', payload.id)
     },
   })
 
@@ -423,7 +431,7 @@ export function UsersPage() {
               }
               actingUser={currentUserQuery.data ?? null}
               onSave={(body) => updateUser.mutate({ id: user.id, body })}
-              saving={updateUser.isPending && updateUser.variables?.id === user.id}
+              saving={userUpdatePending.isPending('update', user.id)}
               notice={rowNoticeByUserId[user.id] ?? null}
             />
           ))}
