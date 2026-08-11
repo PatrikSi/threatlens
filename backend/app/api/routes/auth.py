@@ -15,6 +15,7 @@ from app.core.security import (
     get_password_hash,
     set_auth_cookies,
     verify_password,
+    verify_password_and_update,
 )
 from app.db.session import get_db
 from app.models.user import PROVISIONING_SOURCE_OIDC, User
@@ -147,7 +148,14 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
 
     user = db.scalar(select(User).where(User.email == email))
-    if user is None or not user.password_login_enabled or not verify_password(payload.password, user.password_hash):
+    password_valid = False
+    replacement_hash = None
+    if user is not None and user.password_login_enabled:
+        password_valid, replacement_hash = verify_password_and_update(
+            payload.password,
+            user.password_hash,
+        )
+    if user is None or not user.password_login_enabled or not password_valid:
         record_login_failure(email, client_ip)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
@@ -160,6 +168,9 @@ def login(payload: LoginRequest, request: Request, response: Response, db: Sessi
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is inactive")
 
+    if replacement_hash is not None:
+        user.password_hash = replacement_hash
+        db.add(user)
     clear_login_failures(email, client_ip)
     token = create_access_token(str(user.id), token_version=int(user.auth_token_version or 0))
     csrf_token = generate_csrf_token()
