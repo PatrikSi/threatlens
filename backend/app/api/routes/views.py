@@ -13,10 +13,20 @@ from app.schemas.view import SavedViewCreate, SavedViewResponse, SavedViewUpdate
 from app.services.audit import record_audit
 
 router = APIRouter(prefix="/views", tags=["views"])
+MAX_SAVED_VIEW_WINDOWS = 12
 
 
 def _serialize_saved_view(view: SavedView) -> SavedViewResponse:
     return SavedViewResponse.model_validate(view)
+
+
+def _ensure_saved_view_window_limit(payload: SavedViewCreate | SavedViewUpdate) -> None:
+    query = payload.query_json
+    if query is not None and len(query.windows) > MAX_SAVED_VIEW_WINDOWS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Saved views can contain at most {MAX_SAVED_VIEW_WINDOWS} panels",
+        )
 
 
 @router.get("", response_model=list[SavedViewResponse])
@@ -38,6 +48,7 @@ def create_view(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
 ):
+    _ensure_saved_view_window_limit(payload)
     view = SavedView(
         user_id=user.id,
         name=payload.name,
@@ -65,6 +76,7 @@ def update_view(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_VIEWS)),
 ):
+    _ensure_saved_view_window_limit(payload)
     view = db.scalar(select(SavedView).where(SavedView.id == view_id, SavedView.user_id == user.id))
     if view is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="View not found")

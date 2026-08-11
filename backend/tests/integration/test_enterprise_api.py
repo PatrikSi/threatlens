@@ -296,6 +296,23 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
     assert invalid_update.status_code == 422
 
 
+def test_saved_view_writes_reject_more_than_twelve_panels(client: TestClient, auth_headers):
+    payload = _saved_view_query_payload()
+    payload["windows"] = [
+        {**payload["windows"][0], "id": f"rss-{index}", "title": f"RSS Panel {index}"}
+        for index in range(1, 14)
+    ]
+
+    response = client.post(
+        "/views",
+        json={"name": "Oversized layout", "query_json": payload},
+        headers=auth_headers["viewer"],
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Saved views can contain at most 12 panels"
+
+
 def test_saved_view_listing_normalizes_legacy_payloads(client: TestClient, auth_headers, db_session, seed_users):
     viewer = seed_users["viewer"]
     legacy_view = SavedView(
