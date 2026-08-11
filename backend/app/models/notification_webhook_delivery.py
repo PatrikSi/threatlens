@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,16 @@ from app.db.base import Base
 
 class NotificationWebhookDelivery(Base):
     __tablename__ = "notification_webhook_deliveries"
+    __table_args__ = (
+        Index(
+            "ix_notification_webhook_deliveries_webhook_attempted_id",
+            "webhook_id",
+            text("attempted_at DESC"),
+            text("id DESC"),
+        ),
+        Index("ix_notification_webhook_deliveries_item_id", "item_id"),
+        Index("ix_notification_webhook_deliveries_feed_id", "feed_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     integration_delivery_id: Mapped[uuid.UUID | None] = mapped_column(

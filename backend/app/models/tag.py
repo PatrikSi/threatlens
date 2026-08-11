@@ -26,6 +26,7 @@ class ItemTag(Base):
             name="ck_item_tags_source",
         ),
         Index("ix_item_tags_item_source", "item_id", "source"),
+        Index("ix_item_tags_tag_id", "tag_id"),
     )
 
     item_id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), ForeignKey("items.id", ondelete="CASCADE"), nullable=False)
@@ -50,6 +51,7 @@ class TagFeedbackEvent(Base):
         ),
         Index("ix_tag_feedback_events_tag_name", "tag_name"),
         Index("ix_tag_feedback_events_item_id", "item_id"),
+        Index("ix_tag_feedback_events_user_id", "user_id"),
         Index("ix_tag_feedback_events_created_at", "created_at"),
     )
 
