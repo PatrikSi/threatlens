@@ -1,23 +1,23 @@
-C:Q1w/GDpV9zgBiQMDY0VAzxyEUwzBc=
+C:Q1KC1mQsyshyN+Q6hkFZ1zz1q+dVA=
 P:libintl
-V:0.22.5-r0
+V:1.0-r0
 A:x86_64
-S:31093
-I:67280
+S:39537
+I:136912
 T:GNU gettext runtime library
 U:https://www.gnu.org/software/gettext/gettext.html
 L:LGPL-2.1-or-later
 o:gettext
 m:Carlo Landmeter <clandmeter@alpinelinux.org>
-t:1711559489
-c:c49ded5d54b708768165f7a99589464cd5c5eeee
+t:1776548958
+c:a0b12dbf67fb047e79a1b76c6dfe6f2904d0d391
 D:so:libc.musl-x86_64.so.1
-p:so:libintl.so.8=8.4.0
+p:so:libintl.so.8=8.4.6
 F:usr
 F:usr/lib
 R:libintl.so.8
 a:0:0:777
-Z:Q1DScolbd8q6GOS7Qv2TyKytxtL2o=
-R:libintl.so.8.4.0
+Z:Q1Btx7jVIEBMSwkZhpFkKBOs6lDcg=
+R:libintl.so.8.4.6
 a:0:0:755
-Z:Q1ZVbiLw42BiukusLUSnNCZPIKDIk=
+Z:Q1Ql6II1H1BKMPwGEm6HjzJ1u82nY=

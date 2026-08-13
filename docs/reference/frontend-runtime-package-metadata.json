@@ -116,7 +116,7 @@
   },
   {
     "name": "react-router",
-    "version": "7.14.0",
+    "version": "7.18.2",
     "license": "MIT",
     "description": "Declarative routing for React",
     "homepage": null,
@@ -132,14 +132,14 @@
         "kind": "license",
         "file_name": "LICENSE.md",
         "source_path": "node_modules/react-router/LICENSE.md",
-        "artifact_path": "react-router/7.14.0/LICENSE.md",
+        "artifact_path": "react-router/7.18.2/LICENSE.md",
         "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
       }
     ]
   },
   {
     "name": "react-router-dom",
-    "version": "7.14.0",
+    "version": "7.18.2",
     "license": "MIT",
     "description": "Declarative routing for React web applications",
     "homepage": null,
@@ -155,7 +155,7 @@
         "kind": "license",
         "file_name": "LICENSE.md",
         "source_path": "node_modules/react-router-dom/LICENSE.md",
-        "artifact_path": "react-router-dom/7.14.0/LICENSE.md",
+        "artifact_path": "react-router-dom/7.18.2/LICENSE.md",
         "sha256": "77c9ee6a9c5d5782fb0c50b50d101189116314c14f7df0a1b0d385fc96a7ba49"
       }
     ]

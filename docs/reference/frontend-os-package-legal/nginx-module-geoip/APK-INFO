@@ -1,18 +1,17 @@
-C:Q1WKoLyHISTFis7BDQtmQn3hhljmg=
+C:Q1v2olKFeNV1JMkoZY2+wZgVH9ruQ=
 P:nginx-module-geoip
-V:1.27.5-r1
+V:1.31.3-r1
 A:x86_64
-S:10160
+S:10199
 I:64313
 T:nginx GeoIP dynamic modules
 U:https://nginx.org/
 L:2-clause BSD-like license
 o:nginx-module-geoip
 m:NGINX Packaging <nginx-packaging@f5.com>
-t:1744808183
-c:
-D:nginx~1.27.5 nginx-r1.27.5 /bin/sh so:libGeoIP.so.1 so:libc.musl-x86_64.so.1
-p:nginx-module-geoip-r1.27.5
+t:1784134621
+D:nginx~1.31.3 nginx-r1.31.3 /bin/sh so:libGeoIP.so.1 so:libc.musl-x86_64.so.1
+p:nginx-module-geoip-r1.31.3
 r:nginx-mod-http-geoip
 F:usr
 F:usr/lib
@@ -20,16 +19,16 @@ F:usr/lib/nginx
 F:usr/lib/nginx/modules
 R:ngx_http_geoip_module-debug.so
 a:0:0:755
-Z:Q1L2xjZGKq/3rTpCVABWeiH31mKLA=
+Z:Q1YkdX1t7lbH2lXpqRwPH8e4sDhzM=
 R:ngx_http_geoip_module.so
 a:0:0:755
-Z:Q1wrESW+yy4pwmH5VqWn1hc10Hc00=
+Z:Q1MnH0eVeHXtc6y77ZcMe/DGJZq9U=
 R:ngx_stream_geoip_module-debug.so
 a:0:0:755
-Z:Q1nw5i/cWXVrXD4+XviuMmNljxUGc=
+Z:Q1DUxS5dnanHwmGt/otD/ccM0a/x4=
 R:ngx_stream_geoip_module.so
 a:0:0:755
-Z:Q10+JpzaymF7xxeHoPJLHc0SSg60w=
+Z:Q1pVxJvoED2UGWXRVKkIc5UIcSU1Q=
 F:usr/share
 F:usr/share/licenses
 F:usr/share/licenses/nginx-module-geoip

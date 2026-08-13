@@ -1,30 +1,26 @@
-C:Q1kQFL/boOf3tFBRWUZunxmHFgalk=
+C:Q12Na4DlPAWad+SRXaeLqWTz/+okA=
 P:alpine-keys
-V:2.5-r0
+V:2.6-r0
 A:x86_64
-S:13327
-I:14212
+S:12200
+I:12961
 T:Public keys for Alpine Linux packages
 U:https://alpinelinux.org
 L:MIT
 o:alpine-keys
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1723638620
-c:6d473fb38effb2389f567b29fb7eb27039b3a279
+t:1758215632
+c:b9f23becced4d7b3ccc0fa0f28530243ccd314a0
 r:alpine-base
 F:etc
 F:etc/apk
 F:etc/apk/keys
 R:alpine-devel@lists.alpinelinux.org-4a6a0840.rsa.pub
 Z:Q1OvCFSO94z97c80mIDCxqGkh2Og4=
-R:alpine-devel@lists.alpinelinux.org-5243ef4b.rsa.pub
-Z:Q1v7YWZYzAWoclaLDI45jEguI7YN0=
 R:alpine-devel@lists.alpinelinux.org-5261cecb.rsa.pub
 Z:Q1NnGuDsdQOx4ZNYfB3N97eLyGPkI=
 R:alpine-devel@lists.alpinelinux.org-6165ee59.rsa.pub
 Z:Q1lZlTESNrelWTNkL/oQzmAU8a99A=
-R:alpine-devel@lists.alpinelinux.org-61666e3f.rsa.pub
-Z:Q1WNW6Sy87HpJ3IdemQy8pju33Kms=
 F:usr
 F:usr/share
 F:usr/share/apk

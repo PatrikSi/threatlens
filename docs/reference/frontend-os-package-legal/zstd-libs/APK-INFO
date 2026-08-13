@@ -1,23 +1,23 @@
-C:Q1l09OQ4pRN3DHjihtrlUgP8OGBNs=
+C:Q1lWnOOpfEEJ6OU93enz4b0nJhNUA=
 P:zstd-libs
-V:1.5.6-r2
+V:1.5.7-r2
 A:x86_64
-S:375122
+S:376646
 I:714432
 T:Zstandard - Fast real-time compression algorithm (libraries)
 U:https://facebook.github.io/zstd/
 L:BSD-3-Clause OR GPL-2.0-or-later
 o:zstd
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1735110852
-c:5c2ddf18f193dafdd25ae7391d96c7e30766eecd
+t:1753704404
+c:3c6e2ee2b16f403d53eab39c4426eb61f003c322
 D:so:libc.musl-x86_64.so.1
-p:so:libzstd.so.1=1.5.6
+p:so:libzstd.so.1=1.5.7
 F:usr
 F:usr/lib
 R:libzstd.so.1
 a:0:0:777
-Z:Q17PLA2myOYGwlyoyd8Z7p1J0nvBQ=
-R:libzstd.so.1.5.6
+Z:Q1AZb7n4ySmGzGV+JSB5vAJcht86U=
+R:libzstd.so.1.5.7
 a:0:0:755
-Z:Q1tx7BQIMUuE8nn0YIuvruPdhkikM=
+Z:Q1Sx9kXlvLt400YW9EmKkjwetNSg4=

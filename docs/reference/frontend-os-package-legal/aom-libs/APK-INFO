@@ -1,23 +1,23 @@
-C:Q13RbS7ZwsLsZcHlMqFIOk1HI5T2Q=
+C:Q1+owZ+EjlRnyn+TuagGVfzNRP3fQ=
 P:aom-libs
-V:3.11.0-r0
+V:3.14.1-r0
 A:x86_64
-S:2960069
-I:7777312
+S:3213951
+I:8376736
 T:Alliance for Open Media (AOM) AV1 codec SDK (libraries)
 U:https://aomedia.org/
 L:BSD-2-Clause AND custom
 o:aom
 m:Oleg Titov <oleg.titov@gmail.com>
-t:1731878614
-c:566a03ffbe0922833d0cc76ee4f93a44df5dfb93
+t:1779657834
+c:ca6a710df98ad5e2b596cf06b44cd82a5ceefc4e
 D:so:libc.musl-x86_64.so.1
-p:so:libaom.so.3=3.11.0
+p:so:libaom.so.3=3.14.1
 F:usr
 F:usr/lib
 R:libaom.so.3
 a:0:0:777
-Z:Q1EYbp5sVgaqTFk3p+31gGDnhrJ4U=
-R:libaom.so.3.11.0
+Z:Q1y+YRr4kuuf2D37qJKNCCZDJObqc=
+R:libaom.so.3.14.1
 a:0:0:755
-Z:Q1cqm1ZuCZJm1f55U8CBmhqY/DiM0=
+Z:Q1OOuLXo+JNEHKqN/MmBnbPoiDJdw=

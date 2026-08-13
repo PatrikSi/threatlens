@@ -1,23 +1,23 @@
-C:Q1tVP7+nnJpBHhRvXzsaOoy6NdOYI=
+C:Q1JB+v1cBXvVXlQqgzLnQ9LL8QYYM=
 P:libavif
-V:1.0.4-r0
+V:1.4.1-r0
 A:x86_64
-S:78819
-I:157520
+S:121307
+I:251824
 T:Library for encoding and decoding .avif files
 U:https://aomediacodec.github.io/av1-avif/
 L:BSD-2-Clause
 o:libavif
 m:Bart Ribbers <bribbers@disroot.org>
-t:1707417145
-c:b957b6e51ead6a412cb11ecc63a77e3a70edbfd5
-D:so:libaom.so.3 so:libc.musl-x86_64.so.1 so:libdav1d.so.7 so:libsharpyuv.so.0
-p:so:libavif.so.16=16.0.4
+t:1775808608
+c:7c091e42619c47958002c5de53dd7f02dd4c83ac
+D:so:libaom.so.3 so:libc.musl-x86_64.so.1 so:libdav1d.so.7 so:libyuv.so
+p:so:libavif.so.16=16.4.1
 F:usr
 F:usr/lib
 R:libavif.so.16
 a:0:0:777
-Z:Q1YOHy44L/qQcFWgC6vdU+lqml0NE=
-R:libavif.so.16.0.4
+Z:Q18Iw9+FqL5l+5HptvffN5+9RS8RM=
+R:libavif.so.16.4.1
 a:0:0:755
-Z:Q1/rpcO7Rzb6hiMVoTtxTrKdvvHdM=
+Z:Q10TyggEqFmvIFhL8Pr6LzPVbRVbs=

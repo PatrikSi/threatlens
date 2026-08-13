@@ -1,17 +1,17 @@
-C:Q1AEKibslQPRcpnSfQVJMUoTRzPKs=
+C:Q1kWLikI3vZbo+rk2WpjPdC46aSJg=
 P:libgd
-V:2.3.3-r9
+V:2.3.3-r10
 A:x86_64
-S:111474
-I:348280
+S:115705
+I:352376
 T:Library for the dynamic creation of images by programmers (libraries)
 U:https://libgd.github.io/
 L:GD
 o:gd
 m:Carlo Landmeter <clandmeter@alpinelinux.org>
-t:1716365628
-c:21d29cabd99e7ff6534d2e99601cbd77abf30f8a
-D:so:libXpm.so.4 so:libavif.so.16 so:libc.musl-x86_64.so.1 so:libfontconfig.so.1 so:libfreetype.so.6 so:libjpeg.so.8 so:libpng16.so.16 so:libtiff.so.6 so:libwebp.so.7
+t:1753970706
+c:bf4ebac970366eda6cc26aa61c8dddae0d6916ee
+D:so:libXpm.so.4 so:libavif.so.16 so:libc.musl-x86_64.so.1 so:libfontconfig.so.1 so:libfreetype.so.6 so:libjpeg.so.8 so:libpng16.so.16 so:libtiff.so.6 so:libwebp.so.7 so:libz.so.1
 p:so:libgd.so.3=3.0.11
 F:usr
 F:usr/lib
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q17Ik6u5xEmJGh0L9WRdoxIA4PFGI=
 R:libgd.so.3.0.11
 a:0:0:755
-Z:Q1IPb0swVqyey+xQv74eOg1BFayls=
+Z:Q1xeMugB1RkvDOJHQbAik7MwO8EQE=
