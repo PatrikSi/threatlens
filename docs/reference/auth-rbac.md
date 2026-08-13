@@ -146,6 +146,7 @@ Resource scopes:
 - `read:audit`
 - `read:stats`
 - `read:integrations`, `write:integrations`
+- `read:reports`, `write:reports`
 - `read:health`
 
 Wildcard/admin scopes:
@@ -181,6 +182,9 @@ Paths below are relative to the published `/api/v1` base.
 | `/feeds` read/export/metadata | authenticated user | `read:feeds` |
 | `/items` read ops | authenticated user | `read:items` |
 | `/exports`, `/exports/preview`, `/exports/capabilities` | authenticated user | `read:items` |
+| `/reports`, `/reports/{id}`, report downloads, templates read | authenticated user | `read:reports` |
+| report preview/generate and private templates | `admin` or `analyst`; owner-only retry/delete unless admin | `write:reports` |
+| report schedules and shared-template mutation | `admin` | `write:reports` |
 | `/items` mutate triage (`read/star/note/tags`) | `admin` or `analyst` | `write:items` |
 | `/alerts` read | authenticated user | `read:alerts` |
 | `/alerts` mutate | authenticated user | `write:alerts` |

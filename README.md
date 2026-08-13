@@ -24,6 +24,7 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 - API tokens and audit logs
 - Durable integration outbox, bounded retries, dead-letter replay, circuit breaking, and delivery metrics
 - Optional AI summaries, relevance scoring, task history, and daily briefs
+- Prompted, sourced intelligence reports with templates, schedules, context-safe chunking, and Markdown/HTML/PDF artifacts
 
 ## Quick Start
 
@@ -149,6 +150,7 @@ View logs:
 ```bash
 docker compose logs -f api
 docker compose logs -f worker
+docker compose logs -f worker-ai
 docker compose logs -f worker-maintenance
 docker compose logs -f worker-notifications
 docker compose logs -f beat
@@ -198,7 +200,8 @@ Worker and scheduler:
 
 ```bash
 cd backend
-./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing,ai -n 'worker@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=default,ingest,processing -n 'worker@%h'
+./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --concurrency=1 --queues=ai -n 'ai@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=maintenance -n 'maintenance@%h'
 ./.venv/bin/celery -A app.tasks.celery_app.celery_app worker --loglevel="${LOG_LEVEL:-INFO}" --queues=notifications -n 'notifications@%h'
 ./.venv/bin/python -m app.tasks.beat_watchdog

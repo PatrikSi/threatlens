@@ -27,6 +27,8 @@ Route tree:
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
   - `/export` -> `ExportPage`
+  - `/reporting` -> `ReportingPage`
+  - `/reporting/:reportId` -> `ReportingPage` report detail
   - `/ai` -> redirect to `/settings/ai`
   - `/settings` -> `SettingsLayout`
     - index -> redirect to `/settings/account`
@@ -96,6 +98,7 @@ Top navigation links:
 - `Feeds`
 - `Stats`
 - `Export`
+- `Reporting`
 - `Settings`
 
 Top-right controls:
@@ -372,6 +375,36 @@ API calls:
 - `POST /exports/preview`
 - `POST /exports`
 
+### `ReportingPage`
+
+UI elements:
+
+- Reports, templates, and admin-only schedules views
+- Filtered seven-day builder with source inclusion controls
+- Audience, objective, tone, detail, company-context, focus, exclusion, and custom-instruction controls
+- Ordered/enabled report sections
+- Live context, source, batch, model-call, and coverage estimates
+- Private/shared template save, immutable built-in clone, and template delete controls
+- Report library with queued, running, ready, skipped, and error states
+- Report detail with stage progress, coverage warnings, source evidence, owner/admin retry/delete, and Markdown/HTML/PDF downloads
+- Weekly/monthly IANA-time-zone schedule create/edit/pause/run/delete controls
+- Optional `report_ready` SMTP/webhook delivery using link, summary, or bounded full content
+
+API calls:
+
+- `GET /reports/capabilities`
+- `POST /reports/preview`
+- `GET|POST /reports/templates`
+- `PUT|DELETE /reports/templates/{template_id}`
+- `POST /reports/templates/{template_id}/clone`
+- `GET|POST /reports`
+- `GET|DELETE /reports/{report_id}`
+- `POST /reports/{report_id}/retry`
+- `GET /reports/{report_id}/download`
+- `GET|POST /reports/schedules`
+- `PUT|DELETE /reports/schedules/{schedule_id}`
+- `POST /reports/schedules/{schedule_id}/run`
+
 ### `SettingsLayout`
 
 UI elements:
@@ -571,6 +604,18 @@ API calls:
 | `pages/ExportPage.tsx` | `GET` | `/exports/capabilities` |
 | `pages/ExportPage.tsx` | `POST` | `/exports/preview` |
 | `pages/ExportPage.tsx` | `POST` | `/exports` |
+| `pages/useReportingController.ts` | `GET` | `/reports/capabilities` |
+| `pages/useReportingController.ts` | `POST` | `/reports/preview` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports` |
+| `pages/useReportingController.ts` | `GET`, `DELETE` | `/reports/{report_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/{report_id}/retry` |
+| `pages/useReportingController.ts` | `GET` | `/reports/{report_id}/download` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports/templates` |
+| `pages/useReportingController.ts` | `PUT`, `DELETE` | `/reports/templates/{template_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/templates/{template_id}/clone` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports/schedules` |
+| `pages/useReportingController.ts` | `PUT`, `DELETE` | `/reports/schedules/{schedule_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/schedules/{schedule_id}/run` |
 | `pages/NotificationsPage.tsx` | `GET` | `/feeds` |
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/template-variables` |
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks` |

@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.5.0`
-- OpenAPI contract anchor: `openapi-sha256:627868ff46e5ebb542b63fdd6d896849ff7bbea4336a4e587673e79eea2615e9`
+- OpenAPI contract anchor: `openapi-sha256:d7686bf589a2ac8da98a6993b40d93c99a0b92c6c4ca877d54a1e4093deaa915`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -670,6 +670,126 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `webhook_id` (path, required): string
   - `delivery_id` (path, required): string
 - Responses: `200` `application/json` -> NotificationWebhookDeliveryResponse, `404`, `409`, `422`
+
+## Reports
+
+### `GET /v1/reports`
+- Summary: List Reports
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:reports`
+- Parameters:
+  - `status` (query, optional): Status
+  - `limit` (query, optional): integer
+  - `offset` (query, optional): integer
+- Responses: `200` `application/json` -> array[ReportListItem], `422` `application/json` -> HTTPValidationError
+### `POST /v1/reports`
+- Summary: Create Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Request body: `application/json` -> ReportCreateRequest
+- Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/reports/capabilities`
+- Summary: Get Report Capabilities
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:reports`
+- Responses: `200` `application/json` -> ReportCapabilitiesResponse
+### `POST /v1/reports/preview`
+- Summary: Preview Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Request body: `application/json` -> ReportPreviewRequest
+- Responses: `200` `application/json` -> ReportPreviewResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/reports/schedules`
+- Summary: List Schedules
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:reports`
+- Responses: `200` `application/json` -> array[ReportScheduleResponse]
+### `POST /v1/reports/schedules`
+- Summary: Create Schedule
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Request body: `application/json` -> ReportScheduleCreate
+- Responses: `201` `application/json` -> ReportScheduleResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/reports/schedules/{schedule_id}`
+- Summary: Remove Schedule
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `schedule_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `PUT /v1/reports/schedules/{schedule_id}`
+- Summary: Update Schedule
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `schedule_id` (path, required): string
+- Request body: `application/json` -> ReportScheduleUpdate
+- Responses: `200` `application/json` -> ReportScheduleResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/reports/schedules/{schedule_id}/run`
+- Summary: Run Schedule
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `schedule_id` (path, required): string
+- Responses: `202` `application/json` -> array[ReportQueueResponse], `422` `application/json` -> HTTPValidationError
+### `GET /v1/reports/templates`
+- Summary: List Report Templates
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:reports`
+- Responses: `200` `application/json` -> array[ReportTemplateResponse]
+### `POST /v1/reports/templates`
+- Summary: Create Template
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Request body: `application/json` -> ReportTemplateCreate
+- Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/reports/templates/{template_id}`
+- Summary: Remove Template
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `template_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `PUT /v1/reports/templates/{template_id}`
+- Summary: Update Template
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `template_id` (path, required): string
+- Request body: `application/json` -> ReportTemplateUpdate
+- Responses: `200` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
+### `POST /v1/reports/templates/{template_id}/clone`
+- Summary: Clone Template
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `write:reports`
+- Parameters:
+  - `template_id` (path, required): string
+- Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
+### `DELETE /v1/reports/{report_id}`
+- Summary: Remove Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `report_id` (path, required): string
+- Responses: `204`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/reports/{report_id}`
+- Summary: Get Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `report_id` (path, required): string
+- Responses: `200` `application/json` -> ReportDetailResponse, `422` `application/json` -> HTTPValidationError
+### `GET /v1/reports/{report_id}/download`
+- Summary: Download Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `report_id` (path, required): string
+  - `format` (query, optional): string
+- Responses: `200` `application/json` -> unspecified, `422` `application/json` -> HTTPValidationError
+### `POST /v1/reports/{report_id}/retry`
+- Summary: Retry Report
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Parameters:
+  - `report_id` (path, required): string
+- Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> HTTPValidationError
 
 ## Stats
 

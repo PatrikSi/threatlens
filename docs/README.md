@@ -33,6 +33,7 @@ This documentation covers:
 - [Frontend Reference](./reference/frontend.md)
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
 - [Integration Event and Delivery Platform ADR](./architecture/0001-integration-event-delivery-platform.md)
+- [Bounded AI Report Generation ADR](./architecture/0002-bounded-ai-report-generation.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)
@@ -49,6 +50,7 @@ This documentation covers:
 - [Alerts](./pages/alerts.md)
 - [Feeds](./pages/feeds.md)
 - [Export](./pages/export.md)
+- [Reporting](./pages/reporting.md)
 - [Stats](./pages/stats.md)
 - [Settings](./pages/settings.md) including integrations, tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
