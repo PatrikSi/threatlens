@@ -10,7 +10,7 @@ from app.services.api_contract import build_openapi_schema_document, render_api_
 REPO_ROOT = Path(__file__).resolve().parents[3]
 API_REFERENCE_PATH = REPO_ROOT / "docs" / "reference" / "api.md"
 OPENAPI_SCHEMA_PATH = REPO_ROOT / "docs" / "reference" / "openapi.json"
-FRONTEND_TYPES_PATH = REPO_ROOT / "web" / "src" / "types" / "api.ts"
+FRONTEND_NOTIFICATION_TYPES_PATH = REPO_ROOT / "web" / "src" / "types" / "notifications.ts"
 
 
 def test_api_reference_markdown_describes_published_auth_contract():
@@ -90,7 +90,7 @@ def test_frontend_notification_delivery_type_includes_not_before_contract_field(
     delivery_schema = app.openapi()["components"]["schemas"]["NotificationWebhookDeliveryResponse"]
 
     assert "not_before" in delivery_schema["properties"]
-    delivery_type = FRONTEND_TYPES_PATH.read_text(encoding="utf-8")
+    delivery_type = FRONTEND_NOTIFICATION_TYPES_PATH.read_text(encoding="utf-8")
     match = re.search(r"export interface NotificationWebhookDelivery \{(?P<body>.*?)\n\}", delivery_type, re.DOTALL)
     assert match is not None
     assert "not_before: string | null" in match.group("body")
