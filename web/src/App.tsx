@@ -24,6 +24,7 @@ const AiSettingsPage = lazy(() => import('./pages/AiSettingsPage').then((module)
 const AlertsPage = lazy(() => import('./pages/AlertsPage').then((module) => ({ default: module.AlertsPage })))
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then((module) => ({ default: module.AuditLogsPage })))
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })))
+const ExportPage = lazy(() => import('./pages/ExportPage').then((module) => ({ default: module.ExportPage })))
 const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ default: module.FeedsPage })))
 const IntegrationsSettingsPage = lazy(() =>
   import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.SMTPIntegrationSettingsPage })),
@@ -95,6 +96,7 @@ function createAppRouter() {
           <Route path="alerts" element={suspenseRoute(<AlertsPage />, 'Loading alerts...')} />
           <Route path="feeds" element={suspenseRoute(<FeedsPage />, 'Loading feeds...')} />
           <Route path="stats" element={suspenseRoute(<StatsPage />, 'Loading statistics...')} />
+          <Route path="export" element={suspenseRoute(<ExportPage />, 'Loading export workspace...')} />
           <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
             <Route index element={<Navigate to="account" replace />} />
