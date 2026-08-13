@@ -187,6 +187,10 @@ describe('ExportPage', () => {
     expect(view.querySelector('article')?.parentElement?.className).toContain('sm:hidden')
     expect(view.querySelector<HTMLInputElement>('#export-search')).not.toBeNull()
     expect(view.querySelectorAll('input[name="article-export-format"]')).toHaveLength(3)
+    const generateButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Generate CSV'))
+    const previewHeading = Array.from(view.querySelectorAll('h2')).find((heading) => heading.textContent === 'Matching articles')
+    const documentPosition = generateButton && previewHeading ? generateButton.compareDocumentPosition(previewHeading) : 0
+    expect(documentPosition & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
   it('loads format-specific options and limits', async () => {

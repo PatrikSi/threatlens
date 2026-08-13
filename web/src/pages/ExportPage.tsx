@@ -54,9 +54,7 @@ export function ExportPage() {
             </div>
           </div>
 
-          <ExportPreviewPanel controller={controller} />
-
-          <section className="sticky bottom-2 z-10 rounded-lg border border-slate/25 bg-white/95 px-3 py-3 shadow-sm backdrop-blur dark:border-cyan-900/50 dark:bg-[#041612]/95 sm:static sm:px-4 sm:py-4 sm:backdrop-blur-none">
+          <section className="rounded-lg border border-slate/25 bg-white/90 px-3 py-3 dark:border-cyan-900/50 dark:bg-[#041612]/90 sm:px-4 sm:py-4">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div aria-live="polite" className="min-w-0 text-xs text-slate dark:text-slate-300">
                 {exportError && <p role="alert" className="text-sm text-red-700 dark:text-red-300">{exportError}</p>}
@@ -79,6 +77,8 @@ export function ExportPage() {
               </button>
             </div>
           </section>
+
+          <ExportPreviewPanel controller={controller} />
         </>
       )}
     </div>
