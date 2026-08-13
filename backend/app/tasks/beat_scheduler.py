@@ -5,6 +5,7 @@ import redis
 from celery.beat import PersistentScheduler
 
 from app.core.config import get_settings
+from app.core.redis_client import redis_client_from_url
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ class WatchdogPersistentScheduler(PersistentScheduler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         settings = get_settings()
-        self._heartbeat_client = redis.Redis.from_url(settings.redis_url)
+        self._heartbeat_client = redis_client_from_url(settings.redis_url, settings=settings)
         self._heartbeat_key = settings.beat_scheduler_heartbeat_key
         self._heartbeat_ttl_seconds = settings.beat_heartbeat_ttl_seconds
 

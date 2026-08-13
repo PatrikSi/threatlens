@@ -1,16 +1,16 @@
-C:Q1rjtkE0rSpjcYJp2sKCa8UUo0ReI=
+C:Q1WADRTOieFhSPTMwt90I1znrt+AA=
 P:libidn2
-V:2.3.7-r0
+V:2.3.8-r0
 A:x86_64
-S:104380
+S:104623
 I:198632
 T:Encode/Decode library for internationalized domain names
 U:https://www.gnu.org/software/libidn#libidn2
 L:GPL-2.0-or-later OR LGPL-3.0-or-later
 o:libidn2
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1706477859
-c:1cdcdd0eccbee1f60078417a7aaf83f92f6e6754
+t:1751290607
+c:8240e09aa2fdd8f9979b2016be082273965aff0c
 D:so:libc.musl-x86_64.so.1 so:libunistring.so.5
 p:so:libidn2.so.0=0.4.0
 F:usr
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1zWJFGHJoB28flxvcZ6l/It9e9M0=
 R:libidn2.so.0.4.0
 a:0:0:755
-Z:Q14W4nSjhADER+t+CNviEwpVz6GPM=
+Z:Q1fn2WPS20INtUYnHWfmzf0bphYXQ=

@@ -1,32 +1,32 @@
-C:Q1BSXTL5byVtIbMEPG0Rx5hvrgUwc=
+C:Q1mkib0a0p0aADr0NacGlJVgtT1jo=
 P:geoip
-V:1.6.12-r5
+V:1.6.12-r6
 A:x86_64
-S:84153
-I:227048
+S:84181
+I:231144
 T:Lookup countries by IP addresses
 U:http://www.maxmind.com/app/ip-location
 L:LGPL-2.1-or-later
 o:geoip
 m:Leonardo Arena <rnalrd@alpinelinux.org>
-t:1710257622
-c:fc95c59998285564fbcb0bfb2443898c62e10171
+t:1739178277
+c:6db81e6559d66572861f28962c24459c4a583da1
 D:so:libc.musl-x86_64.so.1
-p:so:libGeoIP.so.1=1.6.12 cmd:geoiplookup6=1.6.12-r5 cmd:geoiplookup=1.6.12-r5
+p:cmd:geoiplookup6=1.6.12-r6 cmd:geoiplookup=1.6.12-r6 so:libGeoIP.so.1=1.6.12
 F:usr
 F:usr/bin
 R:geoiplookup
 a:0:0:755
-Z:Q1Jp1mnfxj0+NUdbHOHd3eiNprteo=
+Z:Q1vOIeMefaXDZnlmJw6SRMTq6LC8Q=
 R:geoiplookup6
 a:0:0:755
-Z:Q1Vm46cUGR8krpEdmA9Y91qoOtDPM=
+Z:Q1m+VMUpjE4ML7SreHVdnnfYvoncg=
 F:usr/lib
 R:libGeoIP.so.1
 a:0:0:777
 Z:Q1Vx1Dh0iVnIq1W3BWxJdWFwxG7j8=
 R:libGeoIP.so.1.6.12
 a:0:0:755
-Z:Q10gSsBS27+JBdYfZvZiOk/AZUCM8=
+Z:Q19H0G7syNoK7Yhciplohj2p0BmwE=
 F:usr/share
 F:usr/share/GeoIP

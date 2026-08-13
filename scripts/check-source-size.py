@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "backend" / "app", ROOT / "web" / "src")
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx"}
-DEFAULT_MAX_LINES = 2_000
+DEFAULT_MAX_LINES = 1_200
 FILE_MAX_LINES: dict[str, int] = {}
 
 

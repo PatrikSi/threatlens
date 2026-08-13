@@ -8,9 +8,11 @@ import {
   buildSavedViewPreview,
   buildDashboardSavedViewState,
   loadDashboardWindows,
+  MAX_DASHBOARD_WINDOWS,
   normalizeDashboardWindows,
   normalizePanelRect,
   parseDashboardSavedView,
+  parseImportedSavedViews,
   resolveWindowRect,
   resolveSavedViewSelectionChange,
   serializeDashboardWindowLayouts,
@@ -19,7 +21,7 @@ import {
 import { parseArticleBlocks, sanitizeHref } from './dashboardContent'
 import { summarizeGlobalSearchAcrossWindows } from './dashboardState'
 import type { SavedView } from '../types/api'
-import type { DashboardAlertWindowFilters, DashboardRssWindowFilters } from './dashboardSavedViews'
+import type { DashboardAlertWindowFilters, DashboardRssWindowFilters, DashboardWindow } from './dashboardSavedViews'
 
 function createLocalStorageMock() {
   const store = new Map<string, string>()
@@ -41,6 +43,22 @@ function createLocalStorageMock() {
 }
 
 let localStorageMock = createLocalStorageMock()
+
+function createNotesWindow(index: number): DashboardWindow {
+  return {
+    id: `notes-${index}`,
+    type: 'notes',
+    title: `Notes Panel ${index}`,
+    snap: 'full',
+    rect: { x: 0, y: 0, width: 1200, height: 720 },
+    controls_collapsed: false,
+    scratch_note: '',
+    time_override: null,
+    rss_filters: null,
+    alert_filters: null,
+    selected_daily_brief_id: null,
+  }
+}
 
 beforeEach(() => {
   localStorageMock = createLocalStorageMock()
@@ -94,6 +112,37 @@ describe('migrateLegacyDashboardStorage', () => {
     expect(localStorageMock.getItem(keys.windows)).toBe(JSON.stringify([{ id: 'scoped-window' }]))
     expect(localStorageMock.getItem(keys.windowSeenAt)).toBe(JSON.stringify({ 'scoped-window': '2026-04-11T02:00:00.000Z' }))
     expect(localStorageMock.getItem(keys.lastOpenedAt)).toBe('2026-04-11T03:00:00.000Z')
+  })
+})
+
+describe('dashboard panel resource bounds', () => {
+  const oversizedWindows = Array.from({ length: MAX_DASHBOARD_WINDOWS + 3 }, (_, index) => createNotesWindow(index + 1))
+
+  it('caps normalized, parsed, serialized, and hydrated dashboard windows consistently', () => {
+    localStorageMock.setItem('bounded-dashboard', JSON.stringify(oversizedWindows))
+
+    expect(normalizeDashboardWindows(oversizedWindows, 1200, 720)).toHaveLength(MAX_DASHBOARD_WINDOWS)
+    expect(parseDashboardSavedView({ windows: oversizedWindows }, 1200, 720).windows).toHaveLength(
+      MAX_DASHBOARD_WINDOWS,
+    )
+    expect(serializeDashboardWindowLayouts(oversizedWindows)).toHaveLength(MAX_DASHBOARD_WINDOWS)
+    expect(loadDashboardWindows('bounded-dashboard', 1200, 720)).toHaveLength(MAX_DASHBOARD_WINDOWS)
+  })
+
+  it('rejects imported views that exceed the dashboard panel limit', () => {
+    expect(() =>
+      parseImportedSavedViews({
+        views: [{ name: 'Oversized dashboard', query_json: { windows: oversizedWindows } }],
+      }),
+    ).toThrow(`Saved view "Oversized dashboard" contains too many panels. Maximum allowed is ${MAX_DASHBOARD_WINDOWS}.`)
+  })
+
+  it('keeps valid imported views unchanged', () => {
+    const queryJson = { windows: oversizedWindows.slice(0, MAX_DASHBOARD_WINDOWS) }
+
+    expect(parseImportedSavedViews([{ name: 'Valid dashboard', query_json: queryJson }])).toEqual([
+      { name: 'Valid dashboard', query_json: queryJson },
+    ])
   })
 })
 

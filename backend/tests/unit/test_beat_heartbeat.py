@@ -61,7 +61,7 @@ def test_read_beat_heartbeat_reports_redis_failure(monkeypatch):
     def fail_to_connect(*_args, **_kwargs):
         raise ConnectionError("redis unavailable")
 
-    monkeypatch.setattr(beat_heartbeat.redis.Redis, "from_url", fail_to_connect)
+    monkeypatch.setattr(beat_heartbeat, "redis_client_from_url", fail_to_connect)
 
     snapshot = beat_heartbeat.read_beat_heartbeat(
         redis_url="redis://redis:6379/0",
@@ -85,7 +85,7 @@ def test_read_beat_heartbeat_closes_redis_client(monkeypatch):
             self.closed = True
 
     client = _RedisClient()
-    monkeypatch.setattr(beat_heartbeat.redis.Redis, "from_url", lambda *_args, **_kwargs: client)
+    monkeypatch.setattr(beat_heartbeat, "redis_client_from_url", lambda *_args, **_kwargs: client)
 
     snapshot = beat_heartbeat.read_beat_heartbeat(
         redis_url="redis://redis:6379/0",

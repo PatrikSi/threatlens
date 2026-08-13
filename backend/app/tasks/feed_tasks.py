@@ -1,22 +1,17 @@
-import time
 import uuid
 import logging
+import sys
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urljoin, urlsplit
 
-import httpx
 import redis
 from celery.exceptions import MaxRetriesExceededError
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models.article import Article
+from app.core.redis_client import redis_client_from_url
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
-from app.models.ioc import ItemIOC
 from app.models.item import Item
-from app.models.item_classification import ItemClassification
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_integration import run_item_ai_enrichment
 from app.services.ai_ops import (
@@ -57,9 +52,30 @@ from app.services.integration_events import (
 )
 from app.services.notification_webhooks import build_alert_match_context_for_item
 from app.services.tag_feedback import load_feedback_adjustments
-from app.services.safe_fetch import RedirectError, SafeFetchError, build_safe_http_client, safe_stream_with_redirects
+from app.services.safe_fetch import (
+    RedirectError,
+    SafeFetchError,
+    build_safe_http_client,
+    safe_stream_with_redirects,
+)
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
 from app.tasks.celery_app import celery_app
+from app.tasks.article_fetch_tasks import run_fetch_article as _run_fetch_article
+from app.tasks.feed_fetch_tasks import (
+    run_backfill_feed_metadata as _run_backfill_feed_metadata,
+    run_fetch_feed as _run_fetch_feed,
+)
+from app.tasks.item_ai_tasks import (
+    parse_datetime_text as _parse_datetime_text_impl,
+    parse_uuid_text_list as _parse_uuid_text_list_impl,
+    run_generate_item_ai_enrichment as _run_generate_item_ai_enrichment,
+    run_reprocess_recent_ai_items as _run_reprocess_recent_ai_items,
+)
+from app.tasks.item_processing_tasks import (
+    run_classify_item as _run_classify_item,
+    run_extract_item_iocs as _run_extract_item_iocs,
+    run_reapply_recent_item_tags as _run_reapply_recent_item_tags,
+)
 from app.tasks.ai_brief_tasks import (
     DAILY_BRIEF_STALE_RETRY_WINDOW,
     _daily_brief_backfill_attempt_is_settled,
@@ -168,7 +184,9 @@ from app.tasks.notification_tasks import (
 from app.tasks.task_session import db_session
 
 settings = get_settings()
-redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = redis_client_from_url(
+    settings.redis_url, decode_responses=True, settings=settings
+)
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -255,7 +273,9 @@ def _enqueue_classification_task(item_id: str) -> bool:
     try:
         classify_item.delay(item_id)
     except Exception as exc:
-        logger.exception("item_classification_enqueue_failed item_id=%s error=%s", item_id, exc)
+        logger.exception(
+            "item_classification_enqueue_failed item_id=%s error=%s", item_id, exc
+        )
         return False
     return True
 
@@ -288,7 +308,9 @@ def enqueue_article_fetch_processing(item_ids: list[uuid.UUID]) -> bool:
             fetch_article.delay(str(item_id))
         except Exception as exc:
             all_enqueued = False
-            logger.exception("article_fetch_enqueue_failed item_id=%s error=%s", item_id, exc)
+            logger.exception(
+                "article_fetch_enqueue_failed item_id=%s error=%s", item_id, exc
+            )
     return all_enqueued
 
 
@@ -303,7 +325,9 @@ def _claim_feed_for_dispatch(db: Session, *, feed_id: uuid.UUID, now: datetime) 
     )
 
 
-def _list_item_ids_missing_articles(db: Session, *, limit: int, now: datetime | None = None) -> list[uuid.UUID]:
+def _list_item_ids_missing_articles(
+    db: Session, *, limit: int, now: datetime | None = None
+) -> list[uuid.UUID]:
     return _list_item_ids_missing_articles_impl(
         db,
         limit=limit,
@@ -324,7 +348,9 @@ def _update_task_run_celery_id(run_id: uuid.UUID, celery_task_id: str | None) ->
         db.commit()
 
 
-def _task_run_claimed_by_current_worker(run: AITaskRun | None, *, celery_task_id: str | None) -> bool:
+def _task_run_claimed_by_current_worker(
+    run: AITaskRun | None, *, celery_task_id: str | None
+) -> bool:
     if run is None:
         return False
     if celery_task_id is None:
@@ -358,7 +384,9 @@ def _queue_item_ai_enrichment_run(
         db.commit()
         run_id = run.id
     try:
-        task = generate_item_ai_enrichment_task.delay(str(item_id), force=force, task_run_id=str(run_id))
+        task = generate_item_ai_enrichment_task.delay(
+            str(item_id), force=force, task_run_id=str(run_id)
+        )
     except Exception:
         with db_session() as db:
             finish_ai_task_run(
@@ -440,7 +468,9 @@ def _auto_ai_enrich_new_item_cutoff(now: datetime | None = None) -> datetime:
     return current_time - timedelta(hours=_auto_ai_enrich_new_item_window_hours())
 
 
-def _item_is_recent_auto_ai_enrichment_candidate(item: Item, *, now: datetime | None = None) -> bool:
+def _item_is_recent_auto_ai_enrichment_candidate(
+    item: Item, *, now: datetime | None = None
+) -> bool:
     cutoff = _auto_ai_enrich_new_item_cutoff(now)
     published_at = _coerce_utc(item.published_at)
     first_seen_at = _coerce_utc(item.first_seen_at)
@@ -487,8 +517,6 @@ def _record_skipped_item_ai_enrichment_run(
         )
         db.commit()
         return run.id
-
-
 
 
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_feeds")
@@ -564,9 +592,13 @@ def dispatch_feed_metadata_backfill():
 def record_beat_heartbeat():
     now = datetime.now(timezone.utc).isoformat()
     try:
-        redis_client.set(settings.beat_heartbeat_key, now, ex=settings.beat_heartbeat_ttl_seconds)
+        redis_client.set(
+            settings.beat_heartbeat_key, now, ex=settings.beat_heartbeat_ttl_seconds
+        )
     except redis.RedisError as exc:
-        logger.warning("beat_heartbeat_write_failed error_type=%s", _exception_type_name(exc))
+        logger.warning(
+            "beat_heartbeat_write_failed error_type=%s", _exception_type_name(exc)
+        )
         return {"status": "error", "reason": "redis_unavailable"}
     return {"status": "ok", "at": now}
 
@@ -577,50 +609,7 @@ def record_beat_heartbeat():
     reject_on_worker_lost=True,
 )
 def backfill_feed_metadata(feed_id: str):
-    try:
-        with feed_lock(feed_id) as acquired:
-            if not acquired:
-                return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
-
-            with db_session() as db:
-                try:
-                    parsed_feed_id = uuid.UUID(feed_id)
-                except ValueError:
-                    return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
-
-                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-                if feed is None or not feed.enabled:
-                    return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
-
-                if feed.url_decryption_error:
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed.url_decryption_error)
-                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
-
-                if not _needs_feed_metadata_backfill(feed):
-                    return {"status": "skipped", "reason": "metadata_present", "feed_id": feed_id}
-
-                feed_url, feed_url_error = _resolve_feed_runtime_url(feed)
-                if feed_url_error is not None:
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed_url_error)
-                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
-
-                try:
-                    metadata = probe_feed_metadata(feed_url)
-                except FeedProbeError as exc:
-                    return {"status": "error", "feed_id": feed_id, "reason": str(exc)}
-
-                changed = _apply_probe_metadata(feed, metadata)
-                if changed:
-                    db.add(feed)
-                    db.commit()
-                return {"status": "ok", "feed_id": feed_id, "updated": changed}
-    except CoordinationUnavailableError as exc:
-        logger.warning(
-            "backfill_feed_metadata_coordination_unavailable feed_id=%s error_type=%s",
-            feed_id,
-            _exception_type_name(exc),
-        )
-        return {"status": "error", "reason": "coordination_unavailable", "feed_id": feed_id}
+    return _run_backfill_feed_metadata(feed_id, runtime=sys.modules[__name__])
 
 
 @celery_app.task(
@@ -630,292 +619,7 @@ def backfill_feed_metadata(feed_id: str):
     reject_on_worker_lost=True,
 )
 def fetch_feed(self, feed_id: str, force: bool = False):
-    try:
-        with feed_lock(feed_id) as acquired:
-            if not acquired:
-                return {"status": "skipped", "reason": "already_fetching", "feed_id": feed_id}
-
-            integration_event_ids: list[uuid.UUID] = []
-            with db_session() as db:
-                try:
-                    parsed_feed_id = uuid.UUID(feed_id)
-                except ValueError:
-                    return {"status": "skipped", "reason": "invalid_feed_id", "feed_id": feed_id}
-
-                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-                if feed is None or not feed.enabled:
-                    if feed is not None:
-                        _clear_feed_dispatch_claim(feed)
-                        feed.next_fetch_at = None
-                        db.add(feed)
-                        db.commit()
-                    return {"status": "skipped", "reason": "not_found_or_disabled", "feed_id": feed_id}
-                now = datetime.now(timezone.utc)
-                is_retry_attempt = int(getattr(self.request, "retries", 0) or 0) > 0
-                if not force and not is_retry_attempt and not _is_feed_due(feed, now):
-                    _clear_feed_dispatch_claim(feed)
-                    _refresh_feed_next_fetch_at(feed, now)
-                    db.add(feed)
-                    db.commit()
-                    return {"status": "skipped", "reason": "not_due", "feed_id": feed_id}
-
-                headers: dict[str, str] = {}
-                if feed.etag:
-                    headers["If-None-Match"] = feed.etag
-                if feed.last_modified:
-                    headers["If-Modified-Since"] = feed.last_modified
-
-                feed_url, feed_url_error = _resolve_feed_runtime_url(feed)
-                if feed_url_error is not None:
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, feed_url_error)
-                    return {"status": "error", "feed_id": feed_id, "reason": "feed_url_unavailable"}
-                feed_url_digest_at_start = feed.url_digest
-
-                if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, "unsafe_feed_url")
-                    return {"status": "error", "feed_id": feed_id}
-
-                try:
-                    timeout = httpx.Timeout(
-                        connect=settings.feed_connect_timeout_seconds,
-                        read=settings.feed_read_timeout_seconds,
-                        write=settings.feed_read_timeout_seconds,
-                        pool=settings.feed_connect_timeout_seconds,
-                    )
-                    with build_safe_http_client(
-                        timeout=timeout,
-                        headers={"User-Agent": settings.fetch_user_agent},
-                        allow_private_network=settings.allow_private_network_fetch,
-                    ) as client:
-                        response = safe_stream_with_redirects(
-                            client,
-                            "GET",
-                            feed_url,
-                            headers=headers,
-                            allow_private_network=settings.allow_private_network_fetch,
-                            max_redirects=settings.outbound_max_redirects,
-                        )
-                        try:
-                            status_code = response.status_code
-                            final_url = str(response.url)
-
-                            if status_code == 304:
-                                if not _feed_url_digest_still_current(
-                                    db,
-                                    feed_id=parsed_feed_id,
-                                    expected_url_digest=feed_url_digest_at_start,
-                                ):
-                                    db.rollback()
-                                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                                now = datetime.now(timezone.utc)
-                                feed.last_fetch_at = now
-                                feed.last_success_at = now
-                                feed.error_count = 0
-                                feed.last_error = None
-                                _clear_feed_dispatch_claim(feed)
-                                _refresh_feed_next_fetch_at(feed, now)
-                                db.add(feed)
-                                db.commit()
-                                return {"status": "not_modified", "feed_id": feed_id}
-
-                            if status_code != 200:
-                                if not _feed_url_digest_still_current(
-                                    db,
-                                    feed_id=parsed_feed_id,
-                                    expected_url_digest=feed_url_digest_at_start,
-                                ):
-                                    db.rollback()
-                                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                                _mark_feed_failure_and_enqueue_notifications(db, feed, f"http_status:{status_code}")
-                                return {"status": "error", "feed_id": feed_id}
-
-                            body_chunks: list[bytes] = []
-                            body_size = 0
-                            for chunk in response.iter_bytes():
-                                body_size += len(chunk)
-                                if body_size > settings.feed_max_bytes:
-                                    raise FeedResponseTooLargeError("feed response exceeds configured cap")
-                                body_chunks.append(chunk)
-                            body_bytes = b"".join(body_chunks)
-                            response_etag = response.headers.get("etag")
-                            response_last_modified = response.headers.get("last-modified")
-                        finally:
-                            response.close()
-                except CoordinationUnavailableError as exc:
-                    if not _feed_url_digest_still_current(
-                        db,
-                        feed_id=parsed_feed_id,
-                        expected_url_digest=feed_url_digest_at_start,
-                    ):
-                        db.rollback()
-                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                    try:
-                        logger.warning(
-                            "feed_fetch_retrying feed_id=%s retries=%s error_code=coordination_unavailable error_type=%s",
-                            feed_id,
-                            self.request.retries,
-                            _exception_type_name(exc),
-                        )
-                        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-                    except MaxRetriesExceededError:
-                        logger.error(
-                            "feed_fetch_coordination_retries_exhausted feed_id=%s error_type=%s",
-                            feed_id,
-                            _exception_type_name(exc),
-                        )
-                        _reschedule_feed_after_coordination_failure(db, feed)
-                        return {"status": "error", "feed_id": feed_id, "reason": "coordination_unavailable"}
-                except (httpx.HTTPError, SafeFetchError, RedirectError, TimeoutError) as exc:
-                    if not _feed_url_digest_still_current(
-                        db,
-                        feed_id=parsed_feed_id,
-                        expected_url_digest=feed_url_digest_at_start,
-                    ):
-                        db.rollback()
-                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                    error_code = _safe_feed_fetch_error_code(exc)
-                    try:
-                        logger.warning(
-                            "feed_fetch_retrying feed_id=%s retries=%s error_code=%s error_type=%s",
-                            feed_id,
-                            self.request.retries,
-                            error_code,
-                            _exception_type_name(exc),
-                        )
-                        raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-                    except MaxRetriesExceededError:
-                        logger.error(
-                            "feed_fetch_failed feed_id=%s error_code=%s error_type=%s",
-                            feed_id,
-                            error_code,
-                            _exception_type_name(exc),
-                        )
-                        _mark_feed_failure_and_enqueue_notifications(db, feed, error_code)
-                        return {"status": "error", "feed_id": feed_id}
-                except FeedResponseTooLargeError as exc:
-                    if not _feed_url_digest_still_current(
-                        db,
-                        feed_id=parsed_feed_id,
-                        expected_url_digest=feed_url_digest_at_start,
-                    ):
-                        db.rollback()
-                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                    logger.error("feed_fetch_too_large feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, "feed_response_too_large")
-                    return {"status": "error", "feed_id": feed_id}
-
-                if not _feed_url_digest_still_current(
-                    db,
-                    feed_id=parsed_feed_id,
-                    expected_url_digest=feed_url_digest_at_start,
-                ):
-                    db.rollback()
-                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-
-                connector = RSSConnector()
-                try:
-                    parsed_items, _ = connector.poll({"body": body_bytes}, None)
-                except RSSFeedParseError as exc:
-                    if not _feed_url_digest_still_current(
-                        db,
-                        feed_id=parsed_feed_id,
-                        expected_url_digest=feed_url_digest_at_start,
-                    ):
-                        db.rollback()
-                        return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                    logger.warning("feed_fetch_invalid_content feed_id=%s error_type=%s", feed_id, _exception_type_name(exc))
-                    _mark_feed_failure_and_enqueue_notifications(db, feed, "invalid_feed_content")
-                    return {"status": "error", "feed_id": feed_id}
-                if not _feed_url_digest_still_current(
-                    db,
-                    feed_id=parsed_feed_id,
-                    expected_url_digest=feed_url_digest_at_start,
-                ):
-                    db.rollback()
-                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-                _backfill_feed_metadata_from_body(feed, body_bytes)
-
-                changed_item_ids: list[uuid.UUID] = []
-                new_items: list[Item] = []
-                for parsed in parsed_items:
-                    item, changed, is_new = _upsert_item_from_parsed(db, feed, parsed)
-                    if changed:
-                        changed_item_ids.append(item.id)
-                    if is_new:
-                        new_items.append(item)
-
-                if not _feed_url_digest_still_current(
-                    db,
-                    feed_id=parsed_feed_id,
-                    expected_url_digest=feed_url_digest_at_start,
-                ):
-                    db.rollback()
-                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-
-                for new_item in new_items:
-                    integration_event_ids.append(
-                        _emit_item_integration_event(
-                            db,
-                            event_type="rss_item_new",
-                            item=new_item,
-                            feed=feed,
-                        )
-                    )
-
-                if not _feed_url_digest_still_current(
-                    db,
-                    feed_id=parsed_feed_id,
-                    expected_url_digest=feed_url_digest_at_start,
-                ):
-                    db.rollback()
-                    return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
-
-                now = datetime.now(timezone.utc)
-                feed.etag = response_etag or feed.etag
-                feed.last_modified = response_last_modified or feed.last_modified
-                feed.last_success_at = now
-                feed.last_fetch_at = now
-                feed.error_count = 0
-                feed.last_error = None
-                _clear_feed_dispatch_claim(feed)
-                _refresh_feed_next_fetch_at(feed, now)
-
-                db.add(feed)
-                db.commit()
-
-            article_enqueue_ok = enqueue_article_fetch_processing(changed_item_ids)
-            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
-
-            return {
-                "status": "ok",
-                "feed_id": feed_id,
-                "new_or_updated_items": len(changed_item_ids),
-                "new_items": len(new_items),
-                "final_url": final_url,
-                "article_enqueue_failed": bool(changed_item_ids) and not article_enqueue_ok,
-                "notification_deliveries_reserved": len(integration_event_ids),
-                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-                "smtp_notifications_queued": len(integration_event_ids),
-                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-            }
-    except CoordinationUnavailableError as exc:
-        logger.warning(
-            "feed_fetch_coordination_unavailable feed_id=%s error_type=%s",
-            feed_id,
-            _exception_type_name(exc),
-        )
-        try:
-            raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-        except MaxRetriesExceededError:
-            with db_session() as db:
-                try:
-                    parsed_feed_id = uuid.UUID(feed_id)
-                except ValueError:
-                    return {"status": "error", "feed_id": feed_id}
-                feed = db.scalar(select(Feed).where(Feed.id == parsed_feed_id))
-                if feed is not None:
-                    _reschedule_feed_after_coordination_failure(db, feed)
-            return {"status": "error", "feed_id": feed_id, "reason": "coordination_unavailable"}
+    return _run_fetch_feed(self, feed_id, force, runtime=sys.modules[__name__])
 
 
 @celery_app.task(
@@ -925,315 +629,7 @@ def fetch_feed(self, feed_id: str, force: bool = False):
     reject_on_worker_lost=True,
 )
 def fetch_article(self, item_id: str, force: bool = False):
-    with db_session() as db:
-        try:
-            parsed_item_id = uuid.UUID(item_id)
-        except ValueError:
-            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
-
-        item = db.scalar(
-            select(Item)
-            .where(Item.id == parsed_item_id)
-            .with_for_update(skip_locked=True)
-        )
-        if item is None:
-            unlocked_item = db.scalar(select(Item).where(Item.id == parsed_item_id))
-            if unlocked_item is None:
-                return {"status": "skipped", "reason": "not_found", "item_id": item_id}
-            return {"status": "skipped", "reason": "concurrent_fetch_in_progress", "item_id": item_id}
-
-        existing_article = db.scalar(select(Article).where(Article.item_id == item.id))
-        if existing_article is not None and item.status == "content_fetched" and not force:
-            if existing_article.text:
-                _enqueue_classification_task(item_id)
-                reason = "already_fetched" if not existing_article.error else "degraded_article_cached"
-                return {"status": "skipped", "reason": reason, "item_id": item_id}
-
-        candidate_urls: list[str] = []
-        for candidate in (item.canonical_url, item.url):
-            if not candidate:
-                continue
-            normalized_candidate = normalize_url(candidate)
-            if normalized_candidate and normalized_candidate not in candidate_urls:
-                candidate_urls.append(normalized_candidate)
-
-        if not candidate_urls:
-            _store_article_error(
-                db,
-                item,
-                final_url="",
-                http_status=0,
-                content_type=None,
-                fetch_ms=0,
-                error="missing_article_url",
-            )
-            _enqueue_classification_task(item_id)
-            return _article_fetch_error_result(item, item_id)
-
-        start = time.perf_counter()
-
-        last_attempt_url = candidate_urls[0]
-        last_response_error: tuple[str, int, str | None, str] | None = None
-        last_retryable_error: Exception | None = None
-        status_code = 0
-        content_type: str | None = None
-        final_url = candidate_urls[0]
-        body_bytes = b""
-        selected_url: str | None = None
-
-        for index, target_url in enumerate(candidate_urls):
-            last_attempt_url = target_url
-            if not is_fetchable_url(target_url, allow_private_network=settings.allow_private_network_fetch):
-                last_response_error = (target_url, 0, None, "unsafe_article_url")
-                continue
-
-            domain = urlsplit(target_url).hostname or "unknown"
-            try:
-                with domain_slot(domain):
-                    timeout = httpx.Timeout(
-                        connect=settings.article_connect_timeout_seconds,
-                        read=settings.article_read_timeout_seconds,
-                        write=settings.article_read_timeout_seconds,
-                        pool=settings.article_connect_timeout_seconds,
-                    )
-                    with build_safe_http_client(
-                        timeout=timeout,
-                        headers={"User-Agent": settings.fetch_user_agent},
-                        allow_private_network=settings.allow_private_network_fetch,
-                    ) as client:
-                        response = safe_stream_with_redirects(
-                            client,
-                            "GET",
-                            target_url,
-                            allow_private_network=settings.allow_private_network_fetch,
-                            max_redirects=settings.outbound_max_redirects,
-                        )
-                        try:
-                            status_code = response.status_code
-                            content_type = response.headers.get("content-type")
-                            final_url = normalize_url(str(response.url)) or ""
-
-                            body_chunks = []
-                            body_size = 0
-                            for chunk in response.iter_bytes():
-                                body_size += len(chunk)
-                                if body_size > settings.article_max_bytes:
-                                    raise ResponseTooLargeError("response body exceeds configured cap")
-                                body_chunks.append(chunk)
-
-                            body_bytes = b"".join(body_chunks)
-                        finally:
-                            response.close()
-            except (httpx.HTTPError, TimeoutError, SafeFetchError, RedirectError, CoordinationUnavailableError) as exc:
-                last_retryable_error = exc
-                if index + 1 < len(candidate_urls):
-                    logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=%s error_type=%s",
-                        item_id,
-                        target_url,
-                        candidate_urls[index + 1],
-                        _safe_article_fetch_error_code(exc),
-                        _exception_type_name(exc),
-                    )
-                    continue
-                try:
-                    logger.warning(
-                        "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
-                        item_id,
-                        self.request.retries,
-                        _safe_article_fetch_error_code(exc),
-                        _exception_type_name(exc),
-                    )
-                    raise self.retry(exc=exc, countdown=min(2**self.request.retries, 300), max_retries=3)
-                except MaxRetriesExceededError:
-                    error_code = _safe_article_fetch_error_code(exc)
-                    logger.error(
-                        "article_fetch_failed item_id=%s error_code=%s error_type=%s",
-                        item_id,
-                        error_code,
-                        _exception_type_name(exc),
-                    )
-                    fetch_ms = int((time.perf_counter() - start) * 1000)
-                    _store_article_error(
-                        db,
-                        item,
-                        final_url=last_attempt_url,
-                        http_status=0,
-                        content_type=None,
-                        fetch_ms=fetch_ms,
-                        error=error_code,
-                    )
-                    _enqueue_classification_task(item_id)
-                    return _article_fetch_error_result(item, item_id)
-            except ResponseTooLargeError as exc:
-                logger.error(
-                    "article_fetch_too_large item_id=%s target_url=%s error_type=%s",
-                    item_id,
-                    target_url,
-                    _exception_type_name(exc),
-                )
-                last_response_error = (target_url, 0, None, "response_too_large")
-                if index + 1 < len(candidate_urls):
-                    logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s error_code=response_too_large error_type=%s",
-                        item_id,
-                        target_url,
-                        candidate_urls[index + 1],
-                        _exception_type_name(exc),
-                    )
-                    continue
-                fetch_ms = int((time.perf_counter() - start) * 1000)
-                _store_article_error(
-                    db,
-                    item,
-                    final_url=target_url,
-                    http_status=0,
-                    content_type=None,
-                    fetch_ms=fetch_ms,
-                    error="response_too_large",
-                )
-                _enqueue_classification_task(item_id)
-                return _article_fetch_error_result(item, item_id)
-
-            if status_code != 200:
-                last_response_error = (final_url, status_code, content_type, f"http_status:{status_code}")
-                if index + 1 < len(candidate_urls):
-                    logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=http_status:%s",
-                        item_id,
-                        target_url,
-                        candidate_urls[index + 1],
-                        status_code,
-                    )
-                    continue
-                break
-
-            if "text/html" not in (content_type or "").lower():
-                last_response_error = (final_url, status_code, content_type, "non_html_response")
-                if index + 1 < len(candidate_urls):
-                    logger.info(
-                        "article_fetch_fallback item_id=%s from_url=%s to_url=%s reason=non_html_response",
-                        item_id,
-                        target_url,
-                        candidate_urls[index + 1],
-                    )
-                    continue
-                break
-
-            selected_url = target_url
-            break
-
-        if selected_url is None:
-            fetch_ms = int((time.perf_counter() - start) * 1000)
-            if last_response_error is not None:
-                _store_article_error(
-                    db,
-                    item,
-                    final_url=last_response_error[0],
-                    http_status=last_response_error[1],
-                    content_type=last_response_error[2],
-                    fetch_ms=fetch_ms,
-                    error=last_response_error[3],
-                )
-            elif last_retryable_error is not None:
-                error_code = _safe_article_fetch_error_code(last_retryable_error)
-                _store_article_error(
-                    db,
-                    item,
-                    final_url=last_attempt_url,
-                    http_status=0,
-                    content_type=None,
-                    fetch_ms=fetch_ms,
-                    error=error_code,
-                )
-            else:
-                _store_article_error(
-                    db,
-                    item,
-                    final_url=last_attempt_url,
-                    http_status=0,
-                    content_type=None,
-                    fetch_ms=fetch_ms,
-                    error="article_fetch_failed",
-                )
-            _enqueue_classification_task(item_id)
-            return _article_fetch_error_result(item, item_id)
-
-        fetch_ms = int((time.perf_counter() - start) * 1000)
-
-        if status_code != 200:
-            _store_article_error(
-                db,
-                item,
-                final_url=final_url,
-                http_status=status_code,
-                content_type=content_type,
-                fetch_ms=fetch_ms,
-                error=f"http_status:{status_code}",
-            )
-            _enqueue_classification_task(item_id)
-            return _article_fetch_error_result(item, item_id)
-
-        if "text/html" not in (content_type or "").lower():
-            _store_article_error(
-                db,
-                item,
-                final_url=final_url,
-                http_status=status_code,
-                content_type=content_type,
-                fetch_ms=fetch_ms,
-                error="non_html_response",
-            )
-            _enqueue_classification_task(item_id)
-            return _article_fetch_error_result(item, item_id)
-
-        html = body_bytes.decode("utf-8", errors="ignore")
-        canonical = extract_canonical_url(html)
-        if canonical:
-            canonical = normalize_url(urljoin(final_url, canonical))
-
-        extracted = extract_readable_text(html)
-
-        article = db.scalar(select(Article).where(Article.item_id == item.id))
-        if article is None:
-            article = Article(item_id=item.id, final_url=final_url, http_status=status_code)
-
-        article.final_url = final_url
-        article.retrieved_at = datetime.now(timezone.utc)
-        article.http_status = status_code
-        article.content_type = content_type
-        article.title_extracted = extracted.get("title")
-        article.text = extracted.get("text")
-        article.extraction_method = extracted.get("method")
-        article.language = extracted.get("language")
-        article.word_count = extracted.get("word_count")
-        article.fetch_ms = fetch_ms
-        article.error = extracted.get("error")
-
-        if canonical and is_fetchable_url(canonical, allow_private_network=settings.allow_private_network_fetch):
-            item.canonical_url = canonical
-        item.url_domain = extract_url_domain(item.canonical_url or item.url)
-
-        if article.text:
-            item.status = "content_fetched"
-            item.ioc_extraction_state = None
-            item.last_error = None
-        elif _apply_article_summary_fallback(
-            article,
-            item,
-            str(article.error or "no_extractor_succeeded"),
-        ):
-            article.error = str(article.error or "no_extractor_succeeded")
-        else:
-            item.status = "error"
-            item.last_error = article.error
-
-        db.add(article)
-        db.add(item)
-        db.commit()
-
-    _enqueue_classification_task(item_id)
-    return {"status": "ok", "item_id": item_id}
+    return _run_fetch_article(self, item_id, force, runtime=sys.modules[__name__])
 
 
 @celery_app.task(
@@ -1242,191 +638,7 @@ def fetch_article(self, item_id: str, force: bool = False):
     reject_on_worker_lost=True,
 )
 def classify_item(item_id: str):
-    integration_event_ids: list[uuid.UUID] = []
-    with db_session() as db:
-        try:
-            parsed_item_id = uuid.UUID(item_id)
-        except ValueError:
-            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
-
-        item, claim_reason = _claim_item_article_processing_target(db, item_id=parsed_item_id)
-        if item is None:
-            return {"status": "skipped", "reason": claim_reason or "not_found", "item_id": item_id}
-
-        article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
-        article_freshness_token = _load_article_freshness_token(db, item_id=parsed_item_id)
-        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-        feed_name = feed.name if feed is not None else ""
-        feed_url = feed.url if feed is not None else ""
-        active_ai_settings = load_active_ai_settings(db)
-        ai_enrichment_skip_reason = None
-        if not active_ai_settings.ai_enabled:
-            ai_enrichment_skip_reason = "ai_disabled"
-        elif not active_ai_settings.ai_configured:
-            ai_enrichment_skip_reason = "ai_not_configured"
-        elif not active_ai_settings.auto_enrich_new_items:
-            ai_enrichment_skip_reason = "auto_enrich_disabled"
-        elif article is None:
-            ai_enrichment_skip_reason = "no_article"
-        elif not (article.text or "").strip():
-            ai_enrichment_skip_reason = "no_article_text"
-        elif not _item_is_recent_auto_ai_enrichment_candidate(item):
-            ai_enrichment_skip_reason = AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON
-        queue_ai_enrichment = ai_enrichment_skip_reason is None
-
-        result = classify_item_content(
-            title=item.title,
-            summary=item.summary,
-            article_text=article.text if article else None,
-            feed_name=feed_name,
-        )
-
-        if _article_was_refetched(db, item_id=parsed_item_id, expected_token=article_freshness_token):
-            logger.info("classification_stale_article_discarded item_id=%s", parsed_item_id)
-            return {"status": "skipped", "reason": ARTICLE_REFRESHED_SKIP_REASON, "item_id": item_id}
-
-        row = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
-        if row is not None and row.source_hash == result.source_hash and row.rules_version == result.rules_version:
-            feedback_adjustments = load_feedback_adjustments(
-                db,
-                tag_names=[row.primary_category, *(row.secondary_categories or [])],
-            )
-            sync_item_algorithm_tags(
-                db,
-                item_id=parsed_item_id,
-                primary_category=row.primary_category,
-                secondary_categories=row.secondary_categories,
-                feed_id=item.feed_id,
-                classification_confidence=row.confidence,
-                title=item.title,
-                summary=item.summary,
-                article_text=article.text if article else None,
-                feed_name=feed_name,
-                feed_url=feed_url,
-                feedback_adjustments=feedback_adjustments,
-            )
-            if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
-                integration_event_ids.append(
-                    _emit_item_integration_event(
-                        db,
-                        event_type="alert_match",
-                        item=item,
-                        feed=feed,
-                    )
-                )
-            db.commit()
-            notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
-            if integration_event_ids and not notification_enqueue_ok:
-                logger.warning(
-                    "classification_notification_enqueue_failed item_id=%s event_count=%s",
-                    parsed_item_id,
-                    len(integration_event_ids),
-                )
-            ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
-            if queue_ai_enrichment:
-                ai_enqueue_ok = _safe_queue_item_ai_enrichment_run(
-                    item_id=parsed_item_id,
-                    trigger_source=AI_TRIGGER_AUTO,
-                    reason=None,
-                    model=getattr(active_ai_settings, "model", None),
-                    metadata={"category": row.primary_category, "feed_name": feed_name, "force": False},
-                )
-            else:
-                ai_enqueue_ok = True
-                _record_skipped_item_ai_enrichment_run(
-                    item_id=parsed_item_id,
-                    trigger_source=AI_TRIGGER_AUTO,
-                    reason=ai_enrichment_skip_reason or "not_eligible",
-                    model=getattr(active_ai_settings, "model", None),
-                    metadata={"category": row.primary_category, "feed_name": feed_name},
-                )
-            return {
-                "status": "skipped",
-                "reason": "up_to_date",
-                "item_id": item_id,
-                "category": row.primary_category,
-                "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-                "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-                "ioc_enqueue_failed": not ioc_enqueue_ok,
-                "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
-            }
-
-        if row is None:
-            row = ItemClassification(item_id=parsed_item_id)
-
-        row.primary_category = result.primary_category
-        row.secondary_categories = result.secondary_categories
-        row.confidence = result.confidence
-        row.scores_json = result.scores
-        row.matched_terms_json = result.matched_terms
-        row.source_hash = result.source_hash
-        row.rules_version = result.rules_version
-        row.classified_at = datetime.now(timezone.utc)
-
-        db.add(row)
-        feedback_adjustments = load_feedback_adjustments(
-            db,
-            tag_names=[result.primary_category, *(result.secondary_categories or [])],
-        )
-        sync_item_algorithm_tags(
-            db,
-            item_id=parsed_item_id,
-            primary_category=result.primary_category,
-            secondary_categories=result.secondary_categories,
-            feed_id=item.feed_id,
-            classification_confidence=result.confidence,
-            title=item.title,
-            summary=item.summary,
-            article_text=article.text if article else None,
-            feed_name=feed_name,
-            feed_url=feed_url,
-            feedback_adjustments=feedback_adjustments,
-        )
-        if feed is not None and build_alert_match_context_for_item(db, item=item) is not None:
-            integration_event_ids.append(
-                _emit_item_integration_event(
-                    db,
-                    event_type="alert_match",
-                    item=item,
-                    feed=feed,
-                )
-            )
-        db.commit()
-
-    notification_enqueue_ok = enqueue_integration_event_routing(integration_event_ids)
-    if integration_event_ids and not notification_enqueue_ok:
-        logger.warning(
-            "classification_notification_enqueue_failed item_id=%s event_count=%s",
-            parsed_item_id,
-            len(integration_event_ids),
-        )
-    ioc_enqueue_ok = _safe_enqueue_item_iocs(parsed_item_id)
-    if queue_ai_enrichment:
-        ai_enqueue_ok = _safe_queue_item_ai_enrichment_run(
-            item_id=parsed_item_id,
-            trigger_source=AI_TRIGGER_AUTO,
-            reason=None,
-            model=getattr(active_ai_settings, "model", None),
-            metadata={"category": result.primary_category, "feed_name": feed_name, "force": False},
-        )
-    else:
-        ai_enqueue_ok = True
-        _record_skipped_item_ai_enrichment_run(
-            item_id=parsed_item_id,
-            trigger_source=AI_TRIGGER_AUTO,
-            reason=ai_enrichment_skip_reason or "not_eligible",
-            model=getattr(active_ai_settings, "model", None),
-            metadata={"category": result.primary_category, "feed_name": feed_name},
-        )
-    return {
-        "status": "ok",
-        "item_id": item_id,
-        "category": result.primary_category,
-        "notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-        "smtp_notification_enqueue_failed": bool(integration_event_ids) and not notification_enqueue_ok,
-        "ioc_enqueue_failed": not ioc_enqueue_ok,
-        "ai_enqueue_failed": queue_ai_enrichment and not ai_enqueue_ok,
-    }
+    return _run_classify_item(item_id, runtime=sys.modules[__name__])
 
 
 @celery_app.task(
@@ -1435,134 +647,27 @@ def classify_item(item_id: str):
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def generate_item_ai_enrichment_task(self, item_id: str, force: bool = False, task_run_id: str | None = None):
-    with db_session() as db:
-        parsed_run_id = None
-        if task_run_id:
-            try:
-                parsed_run_id = uuid.UUID(task_run_id)
-            except ValueError:
-                parsed_run_id = None
-        if parsed_run_id:
-            started_run = start_ai_task_run(
-                db,
-                run_id=parsed_run_id,
-                worker_name=getattr(self.request, "hostname", None),
-                celery_task_id=getattr(self.request, "id", None),
-                metadata_updates={"force": bool(force)},
-            )
-            db.commit()
-            if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
-                return {"status": "skipped", "reason": "already_running", "item_id": item_id}
-            stop_reason = ai_task_run_stop_reason(started_run)
-            if stop_reason is not None:
-                if stop_reason == "canceled":
-                    finish_ai_task_run(
-                        db,
-                        run_id=parsed_run_id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="canceled",
-                        worker_name=getattr(self.request, "hostname", None),
-                        metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
-                    )
-                    db.commit()
-                return {"status": "skipped", "reason": stop_reason, "item_id": item_id}
-
-        try:
-            parsed_item_id = uuid.UUID(item_id)
-        except ValueError:
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="invalid_item_id",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
-
-        _claimed_item, claim_reason = _claim_item_ai_enrichment_target(db, item_id=parsed_item_id)
-        if claim_reason is not None:
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason=claim_reason,
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            return {"status": "skipped", "reason": claim_reason, "item_id": item_id}
-
-        try:
-            result = run_item_ai_enrichment(db, item_id=parsed_item_id, force=force, task_run_id=parsed_run_id)
-        except Exception:
-            db.rollback()
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_ERROR,
-                    reason="unexpected_error",
-                    error="unexpected_error",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            logger.exception("AI enrichment task failed unexpectedly for item %s", item_id)
-            return {"status": "error", "reason": "unexpected_error", "item_id": item_id}
-        if parsed_run_id:
-            finish_ai_task_run(
-                db,
-                run_id=parsed_run_id,
-                status=AI_STATUS_READY if result.status == "ready" else AI_STATUS_ERROR if result.status == "error" else AI_STATUS_SKIPPED,
-                reason=result.reason,
-                error=result.enrichment.error if result.enrichment is not None and result.status == "error" else None,
-                worker_name=getattr(self.request, "hostname", None),
-                model=result.enrichment.model if result.enrichment is not None else None,
-                prompt_tokens=result.enrichment.prompt_tokens if result.enrichment is not None else None,
-                completion_tokens=result.enrichment.completion_tokens if result.enrichment is not None else None,
-                total_tokens=result.enrichment.total_tokens if result.enrichment is not None else None,
-                latency_ms=result.enrichment.latency_ms if result.enrichment is not None else None,
-                prompt_char_count=result.prompt_char_count,
-                response_char_count=result.response_char_count,
-                input_text_chars=result.input_text_chars,
-                metadata_updates={
-                    "summary_available": bool(result.enrichment.summary_text) if result.enrichment is not None else False,
-                    "relevance_label": result.enrichment.relevance_label if result.enrichment is not None else None,
-                },
-            )
-        db.commit()
-        if result.enrichment is None:
-            return {"status": "skipped", "reason": result.reason or "not_eligible", "item_id": item_id}
-        return {"status": result.status, "reason": result.reason, "item_id": item_id}
+def generate_item_ai_enrichment_task(
+    self,
+    item_id: str,
+    force: bool = False,
+    task_run_id: str | None = None,
+):
+    return _run_generate_item_ai_enrichment(
+        self,
+        item_id,
+        force,
+        task_run_id,
+        runtime=sys.modules[__name__],
+    )
 
 
 def _parse_uuid_text_list(values: list[str] | None) -> list[uuid.UUID]:
-    parsed: list[uuid.UUID] = []
-    seen: set[uuid.UUID] = set()
-    for raw in values or []:
-        try:
-            candidate = uuid.UUID(str(raw))
-        except (TypeError, ValueError):
-            continue
-        if candidate in seen:
-            continue
-        seen.add(candidate)
-        parsed.append(candidate)
-    return parsed
+    return _parse_uuid_text_list_impl(values)
 
 
 def _parse_datetime_text(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+    return _parse_datetime_text_impl(value)
 
 
 @celery_app.task(
@@ -1582,215 +687,18 @@ def reprocess_recent_ai_items(
     task_run_id: str | None = None,
     actor_user_id: str | None = None,
 ):
-    runtime_settings = get_settings()
-    effective_limit = max(1, min(int(limit), int(runtime_settings.dispatch_ai_reprocess_batch_size)))
-    parsed_start_time = _parse_datetime_text(start_time)
-    parsed_end_time = _parse_datetime_text(end_time)
-    parsed_feed_ids = _parse_uuid_text_list(feed_ids)
-    parsed_item_ids = _parse_uuid_text_list(item_ids)
-    requested_item_count = len(parsed_item_ids)
-    if requested_item_count > effective_limit:
-        parsed_item_ids = parsed_item_ids[:effective_limit]
-    cutoff = None
-    if parsed_start_time is None and parsed_end_time is None and not parsed_item_ids:
-        cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(days or 7)))
-
-    with db_session() as db:
-        parsed_run_id = None
-        parsed_actor_user_id = None
-        if task_run_id:
-            try:
-                parsed_run_id = uuid.UUID(task_run_id)
-            except ValueError:
-                parsed_run_id = None
-        if actor_user_id:
-            try:
-                parsed_actor_user_id = uuid.UUID(actor_user_id)
-            except ValueError:
-                parsed_actor_user_id = None
-        if parsed_run_id:
-            started_run = start_ai_task_run(
-                db,
-                run_id=parsed_run_id,
-                worker_name=getattr(self.request, "hostname", None),
-                celery_task_id=getattr(self.request, "id", None),
-                metadata_updates={
-                    "days": int(days or 0) if days is not None else None,
-                    "limit": int(limit),
-                    "effective_limit": effective_limit,
-                    "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
-                    "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
-                    "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
-                    "explicit_item_count": len(parsed_item_ids),
-                    "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
-                    "date_basis": "published_at_or_first_seen_at",
-                },
-            )
-            db.commit()
-            if not _task_run_claimed_by_current_worker(started_run, celery_task_id=getattr(self.request, "id", None)):
-                return {"queued": 0, "queue_errors": 0, "run_id": task_run_id, "reason": "already_running"}
-            stop_reason = ai_task_run_stop_reason(started_run)
-            if stop_reason is not None:
-                if stop_reason == "canceled":
-                    finish_ai_task_run(
-                        db,
-                        run_id=parsed_run_id,
-                        status=AI_STATUS_SKIPPED,
-                        reason="canceled",
-                        worker_name=getattr(self.request, "hostname", None),
-                        metadata_updates={"cancel_observed_at": datetime.now(timezone.utc).isoformat()},
-                    )
-                    db.commit()
-                return {"queued": 0, "reason": stop_reason}
-
-        active_ai_settings = load_active_ai_settings(db)
-        if not active_ai_settings.ai_enabled:
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="ai_disabled",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            return {"queued": 0, "reason": "ai_disabled"}
-        if not active_ai_settings.ai_configured:
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="ai_not_configured",
-                    worker_name=getattr(self.request, "hostname", None),
-                )
-                db.commit()
-            return {"queued": 0, "reason": "ai_not_configured"}
-
-        reprocess_timeline_at = func.coalesce(Item.published_at, Item.first_seen_at)
-        selection_query = select(Item.id).join(Article, Article.item_id == Item.id).where(Article.text.is_not(None))
-        if parsed_item_ids:
-            selection_query = selection_query.where(Item.id.in_(parsed_item_ids))
-            selected_item_ids = set(db.scalars(selection_query).all())
-            item_ids = [item_id for item_id in parsed_item_ids if item_id in selected_item_ids]
-        else:
-            if cutoff is not None:
-                selection_query = selection_query.where(reprocess_timeline_at >= cutoff)
-            if parsed_start_time is not None:
-                selection_query = selection_query.where(reprocess_timeline_at >= parsed_start_time)
-            if parsed_end_time is not None:
-                selection_query = selection_query.where(reprocess_timeline_at <= parsed_end_time)
-            if parsed_feed_ids:
-                selection_query = selection_query.where(Item.feed_id.in_(parsed_feed_ids))
-            selection_query = selection_query.limit(effective_limit)
-            item_ids = db.scalars(selection_query.order_by(reprocess_timeline_at.desc(), Item.first_seen_at.desc())).all()
-
-        if parsed_run_id:
-            run = db.scalar(select(AITaskRun).where(AITaskRun.id == parsed_run_id))
-            if run is not None:
-                run.target_count = len(item_ids)
-                db.add(run)
-                record_ai_task_event(
-                    db,
-                    run_id=parsed_run_id,
-                    event_type="selection_complete",
-                    payload={
-                        "target_count": len(item_ids),
-                        "days": int(days or 0) if days is not None else None,
-                        "limit": int(limit),
-                        "effective_limit": effective_limit,
-                        "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
-                        "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
-                        "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
-                        "explicit_item_count": len(parsed_item_ids),
-                        "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
-                        "date_basis": "published_at_or_first_seen_at",
-                    },
-                )
-                db.commit()
-        if not item_ids:
-            if parsed_run_id:
-                finish_ai_task_run(
-                    db,
-                    run_id=parsed_run_id,
-                    status=AI_STATUS_SKIPPED,
-                    reason="no_items",
-                    worker_name=getattr(self.request, "hostname", None),
-                    metadata_updates={
-                        "days": int(days or 0) if days is not None else None,
-                        "limit": int(limit),
-                        "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
-                        "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
-                        "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
-                        "explicit_item_count": len(parsed_item_ids),
-                        "truncated_item_count": max(0, requested_item_count - len(parsed_item_ids)),
-                        "date_basis": "published_at_or_first_seen_at",
-                    },
-                )
-                db.commit()
-            return {"queued": 0, "reason": "no_items"}
-
-    queued = 0
-    queue_errors = 0
-    for item_id_value in item_ids:
-        stop_reason = _get_ai_run_stop_reason(parsed_run_id)
-        if stop_reason is not None:
-            if parsed_run_id:
-                with db_session() as db:
-                    record_ai_task_event(
-                        db,
-                        run_id=parsed_run_id,
-                        event_type="queueing_stopped",
-                        payload={"reason": stop_reason, "queued": queued, "queue_errors": queue_errors},
-                    )
-                    if stop_reason == "canceled":
-                        finish_ai_task_run(
-                            db,
-                            run_id=parsed_run_id,
-                            status=AI_STATUS_SKIPPED,
-                            reason="canceled",
-                            worker_name=getattr(self.request, "hostname", None),
-                            metadata_updates={
-                                "queued": queued,
-                                "queue_errors": queue_errors,
-                                "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
-                            },
-                        )
-                    db.commit()
-            return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id, "reason": stop_reason}
-        queued_ok = _safe_queue_item_ai_enrichment_run(
-            item_id=item_id_value,
-            trigger_source=AI_TRIGGER_MANUAL,
-            reason=None,
-            actor_user_id=parsed_actor_user_id,
-            parent_run_id=parsed_run_id,
-            force=True,
-            model=active_ai_settings.model,
-            metadata={
-                "days": int(days or 0) if days is not None else None,
-                "limit": int(limit),
-                "parent_task": "reprocess",
-                "start_time": parsed_start_time.isoformat() if parsed_start_time else None,
-                "end_time": parsed_end_time.isoformat() if parsed_end_time else None,
-                "feed_ids": [str(feed_id) for feed_id in parsed_feed_ids],
-                "explicit_item_count": len(parsed_item_ids),
-                "date_basis": "published_at_or_first_seen_at",
-            },
-        )
-        if queued_ok:
-            queued += 1
-        else:
-            queue_errors += 1
-    if parsed_run_id:
-        with db_session() as db:
-            record_ai_task_event(
-                db,
-                run_id=parsed_run_id,
-                event_type="children_queued",
-                payload={"queued": queued, "queue_errors": queue_errors},
-            )
-            db.commit()
-    return {"queued": queued, "queue_errors": queue_errors, "run_id": task_run_id}
+    return _run_reprocess_recent_ai_items(
+        self,
+        days,
+        limit,
+        start_time,
+        end_time,
+        feed_ids,
+        item_ids,
+        task_run_id,
+        actor_user_id,
+        runtime=sys.modules[__name__],
+    )
 
 
 @celery_app.task(
@@ -1799,109 +707,7 @@ def reprocess_recent_ai_items(
     reject_on_worker_lost=True,
 )
 def extract_item_iocs(item_id: str):
-    with db_session() as db:
-        try:
-            parsed_item_id = uuid.UUID(item_id)
-        except ValueError:
-            return {"status": "skipped", "reason": "invalid_item_id", "item_id": item_id}
-
-        item, claim_reason = _claim_item_article_processing_target(db, item_id=parsed_item_id)
-        if item is None:
-            return {"status": "skipped", "reason": claim_reason or "not_found", "item_id": item_id}
-
-        article = db.scalar(select(Article).where(Article.item_id == parsed_item_id))
-        article_freshness_token = _load_article_freshness_token(db, item_id=parsed_item_id)
-        extracted = extract_iocs(
-            title=item.title,
-            summary=item.summary,
-            article_text=article.text if article else None,
-        )
-
-        by_key: dict[tuple[str, str], dict[str, object]] = {}
-        for match in extracted:
-            key = (match.type, match.value_norm)
-            record = by_key.get(key)
-            if record is None:
-                by_key[key] = {
-                    "value_raw": match.value_raw,
-                    "source_sections": {match.source_section},
-                    "occurrences": 1,
-                    "confidence": match.confidence,
-                }
-                continue
-
-            record["source_sections"] = set(record["source_sections"]).union({match.source_section})
-            record["occurrences"] = int(record["occurrences"]) + 1
-            record["confidence"] = max(float(record["confidence"]), match.confidence)
-
-        if _article_was_refetched(db, item_id=parsed_item_id, expected_token=article_freshness_token):
-            logger.info("ioc_extraction_stale_article_discarded item_id=%s", parsed_item_id)
-            return {"status": "skipped", "reason": ARTICLE_REFRESHED_SKIP_REASON, "item_id": item_id}
-
-        linked_ioc_ids: set[uuid.UUID] = set()
-        ioc_values_by_type: dict[str, list[str]] = {}
-        now = datetime.now(timezone.utc)
-        for (ioc_type, ioc_value_norm), info in by_key.items():
-            ioc_values_by_type.setdefault(ioc_type, []).append(ioc_value_norm)
-            ioc = _get_or_create_ioc(
-                db,
-                ioc_type=ioc_type,
-                ioc_value_norm=ioc_value_norm,
-                ioc_value_raw=str(info["value_raw"]),
-                now=now,
-            )
-
-            linked_ioc_ids.add(ioc.id)
-            source_sections = ",".join(sorted(set(info["source_sections"])))
-            link = db.scalar(select(ItemIOC).where(ItemIOC.item_id == parsed_item_id, ItemIOC.ioc_id == ioc.id))
-            if link is None:
-                link = ItemIOC(item_id=parsed_item_id, ioc_id=ioc.id)
-
-            link.source_section = source_sections
-            link.occurrences = int(info["occurrences"])
-            link.confidence = float(info["confidence"])
-            db.add(link)
-
-        if linked_ioc_ids:
-            db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id, ItemIOC.ioc_id.notin_(linked_ioc_ids)).delete(
-                synchronize_session=False
-            )
-        else:
-            db.query(ItemIOC).filter(ItemIOC.item_id == parsed_item_id).delete(synchronize_session=False)
-        item.ioc_extraction_state = (
-            IOC_EXTRACTION_STATE_COMPLETED if linked_ioc_ids else IOC_EXTRACTION_STATE_COMPLETED_EMPTY
-        )
-        db.add(item)
-
-        classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == parsed_item_id))
-        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-        feedback_hints = [
-            classification.primary_category if classification else "",
-            *((classification.secondary_categories or []) if classification else []),
-        ]
-        for ioc_type, values in ioc_values_by_type.items():
-            feedback_hints.append(f"ioc:{ioc_type}")
-            feedback_hints.extend(values[:6])
-        feedback_adjustments = load_feedback_adjustments(db, tag_names=feedback_hints)
-        sync_item_algorithm_tags(
-            db,
-            item_id=parsed_item_id,
-            primary_category=classification.primary_category if classification else "threat_intelligence_research",
-            secondary_categories=classification.secondary_categories if classification else [],
-            feed_id=item.feed_id,
-            classification_confidence=classification.confidence if classification else 0.35,
-            ioc_values_by_type=ioc_values_by_type,
-            title=item.title,
-            summary=item.summary,
-            article_text=article.text if article else None,
-            feed_name=feed.name if feed else "",
-            feed_url=feed.url if feed else "",
-            feedback_adjustments=feedback_adjustments,
-        )
-
-        db.commit()
-
-    return {"status": "ok", "item_id": item_id, "ioc_count": len(by_key)}
+    return _run_extract_item_iocs(item_id, runtime=sys.modules[__name__])
 
 
 @celery_app.task(
@@ -1909,89 +715,75 @@ def extract_item_iocs(item_id: str):
     acks_late=True,
     reject_on_worker_lost=True,
 )
-def reapply_recent_item_tags(days: int = 30, limit: int = 0, dispatch_token: str | None = None):
-    if days <= 0:
-        return {"status": "skipped", "reason": "invalid_days", "days": days}
-    if limit < 0:
-        return {"status": "skipped", "reason": "invalid_limit", "limit": limit}
+def reapply_recent_item_tags(
+    days: int = 30, limit: int = 0, dispatch_token: str | None = None
+):
+    return _run_reapply_recent_item_tags(
+        days,
+        limit,
+        dispatch_token,
+        runtime=sys.modules[__name__],
+    )
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-    processed = 0
 
-    try:
-        with tagging_reapply_lock(token=dispatch_token) as acquired:
-            if not acquired:
-                return {"status": "skipped", "reason": "already_running", "days": days, "limit": limit}
-
-            with db_session() as db:
-                query = (
-                    select(Item.id)
-                    .where(Item.first_seen_at >= cutoff)
-                    .order_by(Item.first_seen_at.desc())
-                )
-                if limit:
-                    query = query.limit(limit)
-
-                for item_id_value in db.scalars(query):
-                    item = db.scalar(select(Item).where(Item.id == item_id_value))
-                    if item is None:
-                        continue
-
-                    article = db.scalar(select(Article).where(Article.item_id == item.id))
-                    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item.id))
-                    feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-                    if feed is None:
-                        continue
-
-                    if classification is None:
-                        result = classify_item_content(
-                            title=item.title,
-                            summary=item.summary,
-                            article_text=article.text if article else None,
-                            feed_name=feed.name,
-                        )
-                        classification = ItemClassification(item_id=item.id)
-                        classification.primary_category = result.primary_category
-                        classification.secondary_categories = result.secondary_categories
-                        classification.confidence = result.confidence
-                        classification.scores_json = result.scores
-                        classification.matched_terms_json = result.matched_terms
-                        classification.source_hash = result.source_hash
-                        classification.rules_version = result.rules_version
-                        classification.classified_at = datetime.now(timezone.utc)
-                        db.add(classification)
-
-                    feedback_adjustments = load_feedback_adjustments(
-                        db,
-                        tag_names=[classification.primary_category, *(classification.secondary_categories or [])],
-                    )
-                    sync_item_algorithm_tags(
-                        db,
-                        item_id=item.id,
-                        primary_category=classification.primary_category,
-                        secondary_categories=classification.secondary_categories,
-                        feed_id=item.feed_id,
-                        classification_confidence=classification.confidence,
-                        title=item.title,
-                        summary=item.summary,
-                        article_text=article.text if article else None,
-                        feed_name=feed.name,
-                        feed_url=feed.url,
-                        feedback_adjustments=feedback_adjustments,
-                    )
-                    processed += 1
-
-                    if processed % TAGGING_REAPPLY_COMMIT_INTERVAL == 0:
-                        db.commit()
-                        db.expire_all()
-
-                db.commit()
-    except CoordinationUnavailableError:
-        return {"status": "error", "reason": "coordination_unavailable", "days": days, "limit": limit}
-
-    return {
-        "status": "ok",
-        "days": days,
-        "limit": limit,
-        "processed": processed,
-    }
+# Extracted runners resolve these through this module so legacy monkeypatch and import paths keep working.
+_EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
+    AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON,
+    AI_STATUS_ERROR,
+    AI_STATUS_READY,
+    AI_STATUS_SKIPPED,
+    AI_TRIGGER_AUTO,
+    AI_TRIGGER_MANUAL,
+    ARTICLE_REFRESHED_SKIP_REASON,
+    CoordinationUnavailableError,
+    FeedProbeError,
+    FeedResponseTooLargeError,
+    IOC_EXTRACTION_STATE_COMPLETED,
+    IOC_EXTRACTION_STATE_COMPLETED_EMPTY,
+    MaxRetriesExceededError,
+    RSSConnector,
+    RSSFeedParseError,
+    RedirectError,
+    ResponseTooLargeError,
+    SafeFetchError,
+    TAGGING_REAPPLY_COMMIT_INTERVAL,
+    _apply_article_summary_fallback,
+    _apply_probe_metadata,
+    _article_fetch_error_result,
+    _article_was_refetched,
+    _backfill_feed_metadata_from_body,
+    _claim_item_ai_enrichment_target,
+    _claim_item_article_processing_target,
+    _feed_url_digest_still_current,
+    _get_or_create_ioc,
+    _load_article_freshness_token,
+    _mark_feed_failure_and_enqueue_notifications,
+    _refresh_feed_next_fetch_at,
+    _resolve_feed_runtime_url,
+    _safe_article_fetch_error_code,
+    _safe_feed_fetch_error_code,
+    _store_article_error,
+    _upsert_item_from_parsed,
+    ai_task_run_stop_reason,
+    build_alert_match_context_for_item,
+    build_safe_http_client,
+    classify_item_content,
+    domain_slot,
+    enqueue_integration_event_routing,
+    extract_canonical_url,
+    extract_iocs,
+    extract_readable_text,
+    extract_url_domain,
+    feed_lock,
+    is_fetchable_url,
+    load_active_ai_settings,
+    load_feedback_adjustments,
+    normalize_url,
+    probe_feed_metadata,
+    record_ai_task_event,
+    run_item_ai_enrichment,
+    safe_stream_with_redirects,
+    start_ai_task_run,
+    sync_item_algorithm_tags,
+    tagging_reapply_lock,
+)

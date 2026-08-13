@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { resolveApiErrorMessage } from '../api/errors'
 import { AIDailyBrief, ItemDetail, ItemListResponse } from '../types/api'
 import { formatDateOnly, formatDateTime } from '../utils/datetime'
+import { safeLocalStorage } from '../utils/safeStorage'
 import {
   DEFAULT_ROLLING_DAYS,
   WINDOW_MIN_HEIGHT,
@@ -376,15 +377,11 @@ export function loadArticlePreviewWidth() {
     return ARTICLE_PREVIEW_DEFAULT_WIDTH
   }
 
-  try {
-    const stored = window.localStorage.getItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY)
-    if (!stored) {
-      return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
-    }
-    return clampArticlePreviewWidth(Number(stored))
-  } catch {
+  const stored = safeLocalStorage.getItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY)
+  if (!stored) {
     return clampArticlePreviewWidth(ARTICLE_PREVIEW_DEFAULT_WIDTH)
   }
+  return clampArticlePreviewWidth(Number(stored))
 }
 
 export function persistArticlePreviewWidth(width: number) {
@@ -392,11 +389,7 @@ export function persistArticlePreviewWidth(width: number) {
     return
   }
 
-  try {
-    window.localStorage.setItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY, String(width))
-  } catch {
-    // Ignore storage failures; the in-memory width still works for this session.
-  }
+  safeLocalStorage.setItem(ARTICLE_PREVIEW_WIDTH_STORAGE_KEY, String(width))
 }
 
 export function countActiveWindowFilters(
@@ -462,7 +455,7 @@ export function loadStoredTimestampMap(storageKey: string): Record<string, strin
     return {}
   }
 
-  const raw = window.localStorage.getItem(storageKey)
+  const raw = safeLocalStorage.getItem(storageKey)
   if (!raw) {
     return {}
   }
@@ -487,12 +480,8 @@ export function loadStoredTimestamp(storageKey: string): string {
     return ''
   }
 
-  try {
-    const value = window.localStorage.getItem(storageKey)
-    return typeof value === 'string' ? value : ''
-  } catch {
-    return ''
-  }
+  const value = safeLocalStorage.getItem(storageKey)
+  return typeof value === 'string' ? value : ''
 }
 
 export function countNewEntriesSince<T extends { first_seen_at: string }>(entries: T[], lastSeenAtIso: string): number {

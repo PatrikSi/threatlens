@@ -1,29 +1,29 @@
-C:Q1rH4mM74meQT5DSqFDqQ9OTWDsWA=
+C:Q1itYRmkomBEkiuWzY4vyC82olbeg=
 P:pcre2
-V:10.43-r0
+V:10.47-r1
 A:x86_64
-S:286504
-I:724368
+S:319843
+I:794272
 T:Perl-compatible regular expression library
 U:https://pcre.org/
 L:BSD-3-Clause
 o:pcre2
 m:Jakub Jirutka <jakub@jirutka.cz>
-t:1715637586
-c:0826e91f0c743946bdc6ffa51fe90479bf4a83da
+t:1777708640
+c:5e1b822309fb17cc2ebd46d6fbacb1763acbcdd1
 D:so:libc.musl-x86_64.so.1
-p:so:libpcre2-8.so.0=0.12.0 so:libpcre2-posix.so.3=3.0.5
+p:so:libpcre2-8.so.0=0.15.0 so:libpcre2-posix.so.3=3.0.7
 F:usr
 F:usr/lib
 R:libpcre2-8.so.0
 a:0:0:777
-Z:Q1gSubOgr7M351HBCTZtqihKb/plU=
-R:libpcre2-8.so.0.12.0
+Z:Q1reYowVwWeiQeoBrPzV81i716wdo=
+R:libpcre2-8.so.0.15.0
 a:0:0:755
-Z:Q1ujY5PuNoMHRqNnHFbNcy8Jrqd7Q=
+Z:Q1SxipBYUJ4OMRHeUCfba52VlpHdE=
 R:libpcre2-posix.so.3
 a:0:0:777
-Z:Q1jBDsifcJjH/m5mtbckUZFgFEq7M=
-R:libpcre2-posix.so.3.0.5
+Z:Q1lgE+ochTCfvEBVoah96H4mv5QRc=
+R:libpcre2-posix.so.3.0.7
 a:0:0:755
-Z:Q1fS59F+eev1p5Q5KNRJrz5wUwE/c=
+Z:Q1CQBC3BbJJuuAD/paxRVxDzMdCc4=

@@ -1,23 +1,23 @@
-C:Q14s7Nvk/I1Qne9alfp4KziEntOCE=
+C:Q1d8WdZ98T6Nq+XC6pRkVy4SkZ/RI=
 P:tiff
-V:4.7.0-r0
+V:4.7.1-r0
 A:x86_64
-S:165017
-I:468920
-T:Provides support for the Tag Image File Format or TIFF
+S:166478
+I:464824
+T:Support for the Tag Image File Format or TIFF
 U:https://gitlab.com/libtiff/libtiff
 L:libtiff
 o:tiff
 m:Michael Mason <ms13sp@gmail.com>
-t:1729055319
-c:cb62264d3973d8a6ffb6b9b97ddf44705183bd54
+t:1758322629
+c:259914876552dabe6576835e874adc99129b58ae
 D:so:libc.musl-x86_64.so.1 so:libjpeg.so.8 so:libwebp.so.7 so:libz.so.1 so:libzstd.so.1
-p:so:libtiff.so.6=6.1.0
+p:so:libtiff.so.6=6.2.0
 F:usr
 F:usr/lib
 R:libtiff.so.6
 a:0:0:777
-Z:Q1LgzB4nGmm9WuO/+S2nuQOereWxY=
-R:libtiff.so.6.1.0
+Z:Q10/ufuXJj0CafpjJZyq4bR8uBs1I=
+R:libtiff.so.6.2.0
 a:0:0:755
-Z:Q1YEtBLKInpc0G2uIAjc/RAAHEAEg=
+Z:Q1gQUIV6HUKCGq9+fYDtXfQ8YjFIU=

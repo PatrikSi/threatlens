@@ -1,0 +1,24 @@
+C:Q13MXzWFdDE6yRn5ZCgTgx7zABbbA=
+P:libyuv
+V:0.0.1928-r0
+A:x86_64
+S:714677
+I:2027264
+T:Library for YUV scaling
+U:https://chromium.googlesource.com/libyuv/libyuv/
+L:BSD-3-Clause
+o:libyuv
+m:Andy Postnikov <apostnikov@gmail.com>
+t:1776554978
+c:6d055fa770a2fbbd807ee496c4dc8c69d00fbee4
+D:so:libc.musl-x86_64.so.1 so:libgcc_s.so.1 so:libjpeg.so.8 so:libstdc++.so.6
+p:cmd:yuvconvert=0.0.1928-r0 so:libyuv.so=0
+F:usr
+F:usr/bin
+R:yuvconvert
+a:0:0:755
+Z:Q14E1DAlkTtu1w0gMLn3p8TYs5oxo=
+F:usr/lib
+R:libyuv.so
+a:0:0:755
+Z:Q1ZDaiJXgunV6M54L+iG/2eVy7aBg=

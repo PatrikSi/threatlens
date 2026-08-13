@@ -1,18 +1,17 @@
-C:Q18nNQ5OFoEcR+zP7Gcn4SyNN+ozY=
+C:Q1+7fTrCuwRn7A9w/hzaYV0u2sQtg=
 P:nginx-module-xslt
-V:1.27.5-r1
+V:1.31.3-r1
 A:x86_64
-S:11286
-I:48065
+S:12063
+I:48129
 T:nginx xslt dynamic module
 U:https://nginx.org/
 L:2-clause BSD-like license
 o:nginx-module-xslt
 m:NGINX Packaging <nginx-packaging@f5.com>
-t:1744808389
-c:
-D:nginx~1.27.5 nginx-r1.27.5 /bin/sh so:libc.musl-x86_64.so.1 so:libexslt.so.0 so:libxml2.so.2 so:libxslt.so.1
-p:nginx-module-xslt-r1.27.5
+t:1784134830
+D:nginx~1.31.3 nginx-r1.31.3 /bin/sh so:libc.musl-x86_64.so.1 so:libexslt.so.0 so:libxml2.so.2 so:libxslt.so.1
+p:nginx-module-xslt-r1.31.3
 r:nginx-mod-http-xslt-filter
 F:usr
 F:usr/lib
@@ -20,10 +19,10 @@ F:usr/lib/nginx
 F:usr/lib/nginx/modules
 R:ngx_http_xslt_filter_module-debug.so
 a:0:0:755
-Z:Q1K/Yrc7z/g52tcNqWuodPVHkRq8I=
+Z:Q1cuAncJbxxbpQqBB7Y9ToqZzoR6M=
 R:ngx_http_xslt_filter_module.so
 a:0:0:755
-Z:Q1TlLBtETXS3t0+w3NqsPubZWYuvI=
+Z:Q1xTdxL5983gfjBtP1pSccaUNT40c=
 F:usr/share
 F:usr/share/licenses
 F:usr/share/licenses/nginx-module-xslt

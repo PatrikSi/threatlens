@@ -5,13 +5,20 @@ from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
-from app.models.integration import IntegrationAttempt, IntegrationDelivery, IntegrationInstance, IntegrationSubscription
+from app.models.integration import (
+    IntegrationAttempt,
+    IntegrationDelivery,
+    IntegrationInstance,
+    IntegrationSubscription,
+)
 from app.models.item import Item
 from app.services.integration_processors import process_smtp_integration_delivery
 from app.services.smtp_integration import SMTPNotificationResult
 
 
-def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(db_session, monkeypatch):
+def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(
+    db_session, monkeypatch
+):
     feed, item, delivery = _persist_smtp_delivery(db_session)
     attempted_at = datetime(2026, 7, 14, 12, 0, tzinfo=timezone.utc)
 
@@ -33,7 +40,9 @@ def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(db_session, 
     result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
 
     db_session.refresh(delivery)
-    attempt = db_session.scalar(select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id))
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
     audit = db_session.scalar(
         select(AuditLog).where(
             AuditLog.action == "integrations.smtp.delivery",
@@ -52,7 +61,9 @@ def test_smtp_delivery_uses_generic_claim_attempt_and_audit_history(db_session, 
     assert audit.metadata_json["feed_id"] == str(feed.id)
 
 
-def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(db_session):
+def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(
+    db_session,
+):
     _feed, _item, delivery = _persist_smtp_delivery(db_session)
     delivery.payload_json = {"item_id": str(uuid.uuid4())}
     db_session.add(delivery)
@@ -64,6 +75,104 @@ def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(db
     assert result.status == "dead_letter"
     assert delivery.last_error_code == "context_error"
     assert "Referenced item" in (delivery.last_error_message or "")
+
+
+def test_smtp_delivery_uses_v2_snapshot_when_source_rows_are_unavailable(
+    db_session, monkeypatch
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    item_id = uuid.uuid4()
+    feed_id = uuid.uuid4()
+    delivery.payload_json = {
+        "schema_version": 2,
+        "item_id": str(item_id),
+        "feed_id": str(feed_id),
+        "item": {
+            "id": str(item_id),
+            "feed_id": str(feed_id),
+            "title": "Immutable SMTP item",
+            "url": "https://snapshot.example/item",
+            "canonical_url": "https://snapshot.example/item",
+            "summary": "Persisted delivery context",
+            "published_at": "2026-07-14T12:00:00+00:00",
+            "first_seen_at": "2026-07-14T12:01:00+00:00",
+            "status": "content_fetched",
+        },
+        "feed": {
+            "id": str(feed_id),
+            "name": "Immutable SMTP feed",
+            "url": "https://snapshot.example/feed.xml",
+            "site_url": "https://snapshot.example",
+            "error_count": 0,
+            "last_error": None,
+            "last_fetch_at": None,
+            "last_success_at": None,
+        },
+    }
+    db_session.add(delivery)
+    db_session.commit()
+    captured: dict[str, str] = {}
+
+    def _send(_active, **kwargs):
+        captured["item_title"] = kwargs["item"].title
+        captured["feed_name"] = kwargs["feed"].name
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=12,
+            recipient_count=2,
+            accepted_count=2,
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    assert result.status == "succeeded"
+    assert captured == {
+        "item_title": "Immutable SMTP item",
+        "feed_name": "Immutable SMTP feed",
+    }
+
+
+def test_smtp_unknown_acceptance_outcome_requires_explicit_replay(
+    db_session, monkeypatch
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        lambda *_args, **kwargs: SMTPNotificationResult(
+            success=False,
+            duration_ms=10_000,
+            recipient_count=2,
+            accepted_count=0,
+            error_code="timeout",
+            error="SMTP delivery timed out after DATA.",
+            server_message=None,
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+            delivery_outcome="unknown",
+            unknown_recipients=("soc@example.com", "ir@example.com"),
+        ),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    assert result.status == "dead_letter"
+    assert delivery.state == "dead_letter"
+    assert delivery.last_error_retryable is False
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert attempt is not None
+    assert attempt.response_json["delivery_outcome"] == "unknown"
+    assert attempt.response_json["external_side_effect_possible"] is True
 
 
 def test_smtp_delivery_with_non_scalar_uuid_is_terminal_context_error(db_session):
@@ -81,7 +190,51 @@ def test_smtp_delivery_with_non_scalar_uuid_is_terminal_context_error(db_session
     assert delivery.last_error_message == "Invalid item_id"
 
 
-def test_smtp_daily_digest_delivery_uses_persisted_ai_brief_snapshot(db_session, monkeypatch):
+def test_smtp_replay_recipient_override_sends_only_still_refused_recipients(
+    db_session, monkeypatch
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    delivery.delivery_kind = "replay"
+    delivery.payload_json = {
+        **delivery.payload_json,
+        "smtp_recipient_override": ["ir@example.com"],
+    }
+    db_session.add(delivery)
+    db_session.commit()
+    captured_recipients: list[list[str]] = []
+
+    def _send(active, **kwargs):
+        captured_recipients.append(list(active.to_emails))
+        return SMTPNotificationResult(
+            success=True,
+            duration_ms=10,
+            recipient_count=1,
+            accepted_count=1,
+            error_code=None,
+            error=None,
+            server_message="250 accepted",
+            attempted_at=datetime.now(timezone.utc),
+            delivery_id=kwargs["delivery_id"],
+            delivery_outcome="accepted",
+            accepted_recipients=("ir@example.com",),
+        )
+
+    monkeypatch.setattr("app.services.smtp_integration.send_smtp_notification", _send)
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    assert result.status == "succeeded"
+    assert captured_recipients == [["ir@example.com"]]
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert attempt is not None
+    assert attempt.response_json["accepted_recipients"] == ["ir@example.com"]
+
+
+def test_smtp_daily_digest_delivery_uses_persisted_ai_brief_snapshot(
+    db_session, monkeypatch
+):
     generated_at = datetime(2026, 7, 18, 9, 0, 5, tzinfo=timezone.utc)
     instance = IntegrationInstance(
         id=uuid.uuid4(),
@@ -173,7 +326,9 @@ def test_smtp_daily_digest_delivery_uses_persisted_ai_brief_snapshot(db_session,
 
 
 def _persist_smtp_delivery(db_session) -> tuple[Feed, Item, IntegrationDelivery]:
-    feed = Feed(id=uuid.uuid4(), name="SMTP feed", url=f"https://example.com/{uuid.uuid4()}.xml")
+    feed = Feed(
+        id=uuid.uuid4(), name="SMTP feed", url=f"https://example.com/{uuid.uuid4()}.xml"
+    )
     item = Item(
         id=uuid.uuid4(),
         feed_id=feed.id,

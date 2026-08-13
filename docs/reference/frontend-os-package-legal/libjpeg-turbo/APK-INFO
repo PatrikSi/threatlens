@@ -1,16 +1,16 @@
-C:Q1q7nHOCy2S+BYBiBxtyckILVZoL0=
+C:Q1XoUYPAUnQ5Fs2YfIwwW3cJrMu9k=
 P:libjpeg-turbo
-V:3.0.4-r0
+V:3.1.3-r0
 A:x86_64
-S:225128
-I:644944
+S:203552
+I:657232
 T:Accelerated baseline JPEG compression and decompression library
 U:https://libjpeg-turbo.org/
 L:BSD-3-Clause AND IJG AND Zlib
 o:libjpeg-turbo
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1726581022
-c:30b4b4d47dba66db916d78a58ea7a4639447a04f
+t:1765490795
+c:5fe6bebf850fc964a8525c81548397c39cb6f7cd
 D:so:libc.musl-x86_64.so.1
 p:so:libjpeg.so.8=8.3.2
 r:libjpeg
@@ -21,4 +21,4 @@ a:0:0:777
 Z:Q14qrYpijhyo8FraG3El3TvkYQO/k=
 R:libjpeg.so.8.3.2
 a:0:0:755
-Z:Q1zH36Vs54X9everllkRAbZFo0zxs=
+Z:Q1AwVNUCWPsQxp7kpcnZWLES9AeMc=

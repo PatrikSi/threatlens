@@ -50,3 +50,29 @@ class Item(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+
+
+Index(
+    "ix_items_title_trgm",
+    func.lower(Item.title).label("title_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"title_lower": "gin_trgm_ops"},
+)
+Index(
+    "ix_items_summary_trgm",
+    func.lower(func.coalesce(Item.summary, "")).label("summary_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"summary_lower": "gin_trgm_ops"},
+)
+Index(
+    "ix_items_url_trgm",
+    func.lower(Item.url).label("url_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"url_lower": "gin_trgm_ops"},
+)
+Index(
+    "ix_items_canonical_url_trgm",
+    func.lower(func.coalesce(Item.canonical_url, "")).label("canonical_url_lower"),
+    postgresql_using="gin",
+    postgresql_ops={"canonical_url_lower": "gin_trgm_ops"},
+)

@@ -35,6 +35,7 @@ def emit_daily_brief_ready_event(db: Session, *, brief: AIDailyBrief) -> Integra
         source_id=brief.id,
         idempotency_key=f"ai_daily_brief:{brief.id}:ready:v{DAILY_BRIEF_EVENT_SCHEMA_VERSION}",
         payload=payload,
+        schema_version=DAILY_BRIEF_EVENT_SCHEMA_VERSION,
     )
 
 
@@ -60,6 +61,7 @@ def build_daily_brief_event_payload(db: Session, *, brief: AIDailyBrief) -> dict
     generated_at = brief.generated_at or brief.window_end or datetime.now(timezone.utc)
     scope_key = f"ai_daily_brief:{brief.brief_date.isoformat()}"
     return {
+        "schema_version": DAILY_BRIEF_EVENT_SCHEMA_VERSION,
         "daily_brief_id": str(brief.id),
         "brief_date": brief.brief_date.isoformat(),
         "scope_key": scope_key,

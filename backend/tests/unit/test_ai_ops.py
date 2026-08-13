@@ -1,9 +1,12 @@
 import uuid
+from threading import Barrier, Event, Lock, Thread
+from time import sleep
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.item import Item
@@ -21,6 +24,7 @@ from app.services.ai_ops import (
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
     _load_live_task_snapshot,
+    _mark_ai_task_run_cancel_requested,
     cancel_ai_task_run,
     finish_ai_task_run,
     get_ai_connection_test_workload,
@@ -377,6 +381,168 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
     assert refreshed.reason == "canceled"
     assert refreshed.worker_name == "api"
     assert refreshed.celery_task_id is None
+
+
+def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine):
+    parent_id = uuid.uuid4()
+    child_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    with Session(database_engine) as setup:
+        setup.add_all(
+            [
+                AITaskRun(
+                    id=parent_id,
+                    task_type=AI_TASK_TYPE_REPROCESS,
+                    trigger_source=AI_TRIGGER_MANUAL,
+                    status=AI_STATUS_RUNNING,
+                    metadata_json={},
+                    target_count=1,
+                    started_at=now,
+                    queued_at=now,
+                ),
+                AITaskRun(
+                    id=child_id,
+                    task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+                    trigger_source=AI_TRIGGER_MANUAL,
+                    status=AI_STATUS_RUNNING,
+                    metadata_json={},
+                    parent_run_id=parent_id,
+                    started_at=now,
+                    queued_at=now,
+                ),
+            ]
+        )
+        setup.commit()
+
+    barrier = Barrier(2)
+    result_lock = Lock()
+    outcomes: list[str] = []
+    errors: list[BaseException] = []
+
+    def finish(status: str, reason: str | None) -> None:
+        try:
+            with Session(database_engine) as worker:
+                barrier.wait(timeout=5)
+                result = finish_ai_task_run(worker, run_id=child_id, status=status, reason=reason)
+                worker.commit()
+                assert result is not None
+                with result_lock:
+                    outcomes.append(result.status)
+        except BaseException as exc:
+            with result_lock:
+                errors.append(exc)
+
+    threads = [
+        Thread(target=finish, args=(AI_STATUS_READY, None)),
+        Thread(target=finish, args=(AI_STATUS_ERROR, "stale_task_lost")),
+    ]
+    try:
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=10)
+
+        assert all(not thread.is_alive() for thread in threads)
+        assert errors == []
+        assert len(outcomes) == 2
+
+        with Session(database_engine) as check:
+            child = check.get(AITaskRun, child_id)
+            parent = check.get(AITaskRun, parent_id)
+            terminal_events = list(
+                check.scalars(
+                    select(AITaskEvent).where(
+                        AITaskEvent.task_run_id == child_id,
+                        AITaskEvent.event_type.in_(["completed", "failed", "skipped"]),
+                    )
+                )
+            )
+            assert child is not None
+            assert parent is not None
+            assert outcomes == [child.status, child.status]
+            assert len(terminal_events) == 1
+            assert parent.processed_count == 1
+            assert parent.success_count == int(child.status == AI_STATUS_READY)
+            assert parent.error_count == int(child.status == AI_STATUS_ERROR)
+    finally:
+        with Session(database_engine) as cleanup:
+            cleanup.execute(delete(AITaskRun).where(AITaskRun.id.in_([child_id, parent_id])))
+            cleanup.commit()
+
+
+def test_cancel_request_wins_when_committed_before_terminal_transition(database_engine):
+    run_id = uuid.uuid4()
+    now = datetime.now(timezone.utc)
+    with Session(database_engine) as setup:
+        setup.add(
+            AITaskRun(
+                id=run_id,
+                task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
+                trigger_source=AI_TRIGGER_MANUAL,
+                status=AI_STATUS_RUNNING,
+                metadata_json={},
+                started_at=now,
+                queued_at=now,
+            )
+        )
+        setup.commit()
+
+    cancel_session = Session(database_engine)
+    completion_finished = Event()
+    errors: list[BaseException] = []
+
+    def complete() -> None:
+        try:
+            with Session(database_engine) as worker:
+                finish_ai_task_run(worker, run_id=run_id, status=AI_STATUS_READY)
+                worker.commit()
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            completion_finished.set()
+
+    thread = Thread(target=complete)
+    try:
+        requested = _mark_ai_task_run_cancel_requested(
+            cancel_session,
+            run_id=run_id,
+            actor_user_id=None,
+            removed_from_queue=False,
+            terminated_running_task=True,
+            revoke_failed=False,
+        )
+        assert requested is not None
+        thread.start()
+        sleep(0.1)
+        assert not completion_finished.is_set()
+        cancel_session.commit()
+        thread.join(timeout=10)
+
+        assert not thread.is_alive()
+        assert errors == []
+        with Session(database_engine) as check:
+            run = check.get(AITaskRun, run_id)
+            terminal_events = list(
+                check.scalars(
+                    select(AITaskEvent).where(
+                        AITaskEvent.task_run_id == run_id,
+                        AITaskEvent.event_type.in_(["completed", "failed", "skipped"]),
+                    )
+                )
+            )
+            assert run is not None
+            assert run.status == AI_STATUS_SKIPPED
+            assert run.reason == "canceled"
+            assert len(terminal_events) == 1
+            assert terminal_events[0].event_type == "skipped"
+    finally:
+        cancel_session.rollback()
+        cancel_session.close()
+        if thread.is_alive():
+            thread.join(timeout=10)
+        with Session(database_engine) as cleanup:
+            cleanup.execute(delete(AITaskRun).where(AITaskRun.id == run_id))
+            cleanup.commit()
 
 
 def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_observes_it(db_session, monkeypatch):

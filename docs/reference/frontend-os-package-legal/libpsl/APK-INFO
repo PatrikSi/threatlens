@@ -1,16 +1,16 @@
-C:Q1nSGpzyDRZepo6vx1ZqXaFs6eq/w=
+C:Q1pVHd1dbLORPhofR7AvIa4Gi16Qo=
 P:libpsl
 V:0.21.5-r3
 A:x86_64
-S:54649
+S:54692
 I:75536
 T:C library for the Publix Suffix List
 U:https://rockdaboot.github.io/libpsl
 L:MIT
 o:libpsl
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1728132068
-c:398a5aee3025ec8a4d0d761e448dc86ac777fa09
+t:1746823694
+c:6bd45b53fb316dc01bda59f5feaf1e127eb64f22
 D:so:libc.musl-x86_64.so.1 so:libidn2.so.0 so:libunistring.so.5
 p:so:libpsl.so.5=5.3.5
 F:usr
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q12ex75lbc3hzvFGh3oTzq3KFRNnA=
 R:libpsl.so.5.3.5
 a:0:0:755
-Z:Q19mIKPVmOU6xyS00iSETuh+G+xa8=
+Z:Q1jUEz8hC9Nn4QpNy0nunNjVjFTOs=

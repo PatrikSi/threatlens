@@ -1,0 +1,24 @@
+C:Q1X3oq12RhKLoCzA1vuUZytoRWSNU=
+P:libstdc++
+V:15.2.0-r5
+A:x86_64
+S:961295
+I:2804104
+T:GNU C++ standard runtime library
+U:https://gcc.gnu.org
+L:GPL-2.0-or-later AND LGPL-2.1-or-later
+o:gcc
+m:Ariadne Conill <ariadne@dereferenced.org>
+t:1780084766
+c:423a8ad043d07f2c7546c8ec3e2b0384cda360ae
+D:so:libc.musl-x86_64.so.1 so:libgcc_s.so.1
+p:so:libstdc++.so.6=6.0.34
+r:libstdc++ binutils
+F:usr
+F:usr/lib
+R:libstdc++.so.6
+a:0:0:777
+Z:Q13xodqmmp7grmddqTm/uStPQKf24=
+R:libstdc++.so.6.0.34
+a:0:0:755
+Z:Q1unuAPJi9Fj6rgGn3m5bzVgt6vdc=

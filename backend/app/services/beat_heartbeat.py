@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
-import redis
+from app.core.redis_client import redis_client_from_url
 
 _FUTURE_TOLERANCE_SECONDS = 5
 
@@ -39,7 +39,7 @@ def read_beat_heartbeat(
 ) -> BeatHeartbeatSnapshot:
     client = None
     try:
-        client = redis.Redis.from_url(redis_url, decode_responses=True)
+        client = redis_client_from_url(redis_url, decode_responses=True)
         heartbeat_raw = client.get(heartbeat_key)
     except Exception:
         return BeatHeartbeatSnapshot(False, None, None, "redis_unavailable")

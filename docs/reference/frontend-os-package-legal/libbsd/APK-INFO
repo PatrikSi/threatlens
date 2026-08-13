@@ -1,8 +1,8 @@
-C:Q1AjFTovKNW6IfJSz72giTFDHL040=
+C:Q1gkX/ff7mAMnaZ+N1ehVr2FJ2QlE=
 P:libbsd
 V:0.12.2-r0
 A:x86_64
-S:30417
+S:30407
 I:64272
 T:commonly-used BSD functions not implemented by all libcs
 U:https://libbsd.freedesktop.org/
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1I4i5gV280vKV0pXBsDUEE9pkOM8=
 R:libbsd.so.0.12.2
 a:0:0:755
-Z:Q1NYDhNaNQleDViS03ZwS7E/246GQ=
+Z:Q1a3oneuLsW20llxAG1s+CNL1TB14=

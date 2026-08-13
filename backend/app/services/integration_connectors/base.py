@@ -22,6 +22,7 @@ class IntegrationConnectorDefinition:
     description: str
     config_schema_version: int
     supports_test: bool
+    supported_event_types: tuple[str, ...] = ()
     capabilities: tuple[str, ...] = ()
 
     def to_response(self) -> IntegrationConnectorResponse:
@@ -61,6 +62,10 @@ class ConnectorDeliveryResult:
 @runtime_checkable
 class IntegrationConnector(Protocol):
     definition: IntegrationConnectorDefinition
+
+    def supports_event_type(self, event_type: str) -> bool: ...
+
+    def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None: ...
 
     def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult: ...
 

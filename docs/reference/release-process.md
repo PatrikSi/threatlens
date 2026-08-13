@@ -43,7 +43,7 @@ Public release tags must use `vX.Y.Z` and must match the checked-in `VERSION` va
 
 ## Container Image Publishing
 
-`.github/workflows/publish-images.yml` publishes multi-architecture Linux images to GitHub Container Registry on pushes to `main`, tags matching `v*.*.*`, and manual workflow runs.
+`.github/workflows/publish-images.yml` publishes multi-architecture Linux images to GitHub Container Registry on pushes to `main`, tags matching `v*.*.*`, and manual workflow runs. It first pushes untagged per-platform digests, scans every digest, and smoke-tests the exact backend/web pair for both supported architectures (using QEMU for arm64 on hosted runners). A single promotion job assembles those same digests into multi-architecture manifests and assigns public tags only after all checks pass.
 
 Published images:
 
@@ -55,6 +55,7 @@ Tag behavior:
 - `main` branch builds publish `:latest`, `:main`, and `:sha-<commit>`.
 - Version tags such as `v1.0.0` publish `:v1.0.0`, `:1.0.0`, `:1.0`, `:latest`, and `:sha-<commit>`.
 - Both images are built for `linux/amd64` and `linux/arm64`.
+- Immutable `:sha-<full-commit>` manifests are created for the backend and web before mutable channel aliases are moved.
 - Built images receive `org.opencontainers.image.version`, `org.opencontainers.image.created`, and `org.opencontainers.image.revision` labels.
 - Tag builds publish or update a GitHub Release with the image tags, image digests, and OpenAPI contract anchor.
 
@@ -65,7 +66,7 @@ After the first package publish, verify in GitHub Packages that both container p
 ```bash
 ./scripts/set-version.sh 1.0.0
 ./backend/.venv/bin/python backend/scripts/generate_api_reference.py
-./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
+./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py --upgrade
 cd backend && ./.venv/bin/python -m pytest
 cd ../web && npm test && npm run lint && npm run build
 cd ..
@@ -90,7 +91,7 @@ That command refreshes both `docs/reference/api.md` and `docs/reference/openapi.
 When a change affects shipped runtime dependencies, bundled assets, or redistribution guidance:
 
 ```bash
-./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py
+./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py --upgrade
 export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 export APP_VERSION="$(cat VERSION)"
 export VCS_REF="$(git rev-parse HEAD)"
@@ -120,6 +121,8 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
   cp /usr/share/doc/threatlens/frontend-os-package-metadata.tsv /src/docs/reference/frontend-os-package-metadata.tsv &&
   cp -R /usr/share/doc/threatlens/frontend-os-package-legal /src/docs/reference/frontend-os-package-legal'
 ```
+
+The lockfile command resolves dependencies without consulting installed distributions. Omit `--upgrade` to validate that the existing lock is a complete resolution of `backend/requirements.txt`; normal validation reproduces the checked-in lock byte-for-byte. Use `--upgrade` only when intentionally refreshing dependency pins.
 
 That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards exported `APP_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI version and provenance labels when those values are set.
 

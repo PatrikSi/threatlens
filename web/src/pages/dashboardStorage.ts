@@ -1,3 +1,5 @@
+import { safeLocalStorage } from '../utils/safeStorage'
+
 const WINDOW_STORAGE_KEY = 'threatlens.dashboard.windows.v2'
 const WINDOW_SEEN_STORAGE_KEY = 'threatlens.dashboard.window-seen.v1'
 const USER_LAST_OPEN_STORAGE_KEY = 'threatlens.user-last-open.v1'
@@ -24,16 +26,16 @@ export function migrateLegacyDashboardStorage(userId: string) {
 
   let migrated = false
   for (const { legacyKey, scopedKey } of migrations) {
-    if (window.localStorage.getItem(scopedKey) !== null) {
+    if (safeLocalStorage.getItem(scopedKey) !== null) {
       continue
     }
 
-    const legacyValue = window.localStorage.getItem(legacyKey)
+    const legacyValue = safeLocalStorage.getItem(legacyKey)
     if (legacyValue === null) {
       continue
     }
 
-    window.localStorage.setItem(scopedKey, legacyValue)
+    safeLocalStorage.setItem(scopedKey, legacyValue)
     migrated = true
   }
 
