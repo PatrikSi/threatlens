@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.5.0`
-- OpenAPI contract anchor: `openapi-sha256:b042ecd98b11119e77c32268f149c78162451c02254d2f9d5825e7e310eea11d`
+- OpenAPI contract anchor: `openapi-sha256:37eab316cf6e69bc357725a98d95974575f020cea31c8da0e22213b96bcb0ec7`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -294,6 +294,26 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Registration Settings
 - Auth: none
 - Responses: `200` `application/json` -> RegistrationSettingsResponse
+
+## Exports
+
+### `POST /v1/exports`
+- Summary: Download Export
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Request body: `application/json` -> ArticleExportRequest
+- Responses: `200`, `422` `application/json` -> HTTPValidationError
+### `GET /v1/exports/capabilities`
+- Summary: Get Export Capabilities
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Responses: `200` `application/json` -> ArticleExportCapabilitiesResponse
+### `POST /v1/exports/preview`
+- Summary: Preview Export
+- Auth: ApiTokenBearer or SessionCookieAuth
+- Token scopes: `read:items`
+- Request body: `application/json` -> ArticleExportPreviewRequest
+- Responses: `200` `application/json` -> ArticleExportPreviewResponse, `422` `application/json` -> HTTPValidationError
 
 ## Feeds
 
