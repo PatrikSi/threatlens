@@ -13,6 +13,7 @@ const SELECT_CLASS =
 export function ExportFormatPanel({ capabilities, controller }: ExportFormatPanelProps) {
   const { format, setFormat, options, updateOptions } = controller
   const capability = capabilities.formats.find((entry) => entry.id === format) ?? capabilities.formats[0]
+  const fullArticleTextOption = getFullArticleTextOption(format, options)
 
   return (
     <section className="rounded-lg border border-slate/20 bg-white/80 dark:border-cyan-900/40 dark:bg-[#041612]/90">
@@ -63,18 +64,11 @@ export function ExportFormatPanel({ capabilities, controller }: ExportFormatPane
           <fieldset>
             <legend className="text-xs font-bold uppercase text-slate dark:text-slate-300">Included data</legend>
             <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
-              {capability.supports_article_text && format !== 'pdf_bundle' && (
+              {capability.supports_article_text && (
                 <OptionToggle
-                  label="Extracted article text"
-                  checked={options.include_article_text}
-                  onChange={(include_article_text) => updateOptions({ include_article_text })}
-                />
-              )}
-              {format === 'pdf_bundle' && (
-                <OptionToggle
-                  label="Full article text in PDFs"
-                  checked={options.pdf_include_article_text}
-                  onChange={(pdf_include_article_text) => updateOptions({ pdf_include_article_text })}
+                  label="Full article text"
+                  checked={fullArticleTextOption.checked}
+                  onChange={(checked) => updateOptions({ [fullArticleTextOption.key]: checked })}
                 />
               )}
               <OptionToggle
@@ -167,6 +161,19 @@ export function ExportFormatPanel({ capabilities, controller }: ExportFormatPane
       </div>
     </section>
   )
+}
+
+function getFullArticleTextOption(
+  format: ExportPageController['format'],
+  options: ExportPageController['options'],
+): { key: 'include_article_text' | 'csv_include_article_text' | 'pdf_include_article_text'; checked: boolean } {
+  if (format === 'csv') {
+    return { key: 'csv_include_article_text', checked: options.csv_include_article_text }
+  }
+  if (format === 'pdf_bundle') {
+    return { key: 'pdf_include_article_text', checked: options.pdf_include_article_text }
+  }
+  return { key: 'include_article_text', checked: options.include_article_text }
 }
 
 function OptionToggle({

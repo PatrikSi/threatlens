@@ -79,6 +79,7 @@ class ArticleExportFilters(ExportSchema):
 
 class ArticleExportOptions(ExportSchema):
     include_article_text: bool = True
+    csv_include_article_text: bool = False
     include_ai_details: bool = True
     include_tag_metadata: bool = True
     include_iocs: bool = True

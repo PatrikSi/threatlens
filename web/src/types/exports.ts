@@ -25,6 +25,7 @@ export interface ArticleExportFilters {
 
 export interface ArticleExportOptions {
   include_article_text: boolean
+  csv_include_article_text: boolean
   include_ai_details: boolean
   include_tag_metadata: boolean
   include_iocs: boolean

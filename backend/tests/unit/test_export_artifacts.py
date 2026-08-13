@@ -112,7 +112,11 @@ def test_generate_export_artifact_formats(export_format: str):
         item_count=1,
         export_format=export_format,
         filters=ArticleExportFilters(),
-        options=ArticleExportOptions(include_user_state=True, include_user_notes=True),
+        options=ArticleExportOptions(
+            csv_include_article_text=True,
+            include_user_state=True,
+            include_user_notes=True,
+        ),
         max_uncompressed_bytes=10_000_000,
     )
     try:
@@ -122,6 +126,7 @@ def test_generate_export_artifact_formats(export_format: str):
             rows = list(csv.DictReader(io.StringIO(artifact.path.read_text(encoding="utf-8-sig"))))
             assert rows[0]["title"].startswith("'=WEBSERVICE")
             assert rows[0]["note"] == "Investigate"
+            assert rows[0]["full_article_text"].startswith("Readable article")
         elif export_format == "jsonl":
             payload = json.loads(artifact.path.read_text(encoding="utf-8"))
             assert payload["article"]["text"].startswith("Readable article")
@@ -131,6 +136,10 @@ def test_generate_export_artifact_formats(export_format: str):
             with zipfile.ZipFile(artifact.path) as archive:
                 assert set(archive.namelist()) == {"manifest.json", "articles.jsonl", "articles.csv", "iocs.csv"}
                 assert json.loads(archive.read("manifest.json"))["article_count"] == 1
+                rows = list(
+                    csv.DictReader(io.StringIO(archive.read("articles.csv").decode("utf-8-sig")))
+                )
+                assert rows[0]["full_article_text"].startswith("Readable article")
         elif export_format == "stix":
             bundle = parse(artifact.path.read_text(encoding="utf-8"), allow_custom=False)
             object_types = {entry.type for entry in bundle.objects}
@@ -146,6 +155,24 @@ def test_generate_export_artifact_formats(export_format: str):
                 pdf_name = next(name for name in archive.namelist() if name.endswith(".pdf"))
                 assert archive.read(pdf_name).startswith(b"%PDF-")
                 assert json.loads(archive.read("manifest.json"))["article_count"] == 1
+    finally:
+        remove_export_artifact(artifact.path)
+
+
+def test_csv_excludes_full_article_text_by_default():
+    artifact = generate_export_artifact(
+        iter([_record()]),
+        item_count=1,
+        export_format="csv",
+        filters=ArticleExportFilters(),
+        options=ArticleExportOptions(),
+        max_uncompressed_bytes=10_000_000,
+    )
+    try:
+        rows = list(
+            csv.DictReader(io.StringIO(artifact.path.read_text(encoding="utf-8-sig")))
+        )
+        assert rows[0]["full_article_text"] == ""
     finally:
         remove_export_artifact(artifact.path)
 

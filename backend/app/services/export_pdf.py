@@ -72,9 +72,9 @@ def build_article_pdf(record: ExportRecord, *, options: ArticleExportOptions) ->
             state_lines.extend(["", record.state.note])
         story.extend(_section("User state", "\n".join(state_lines), styles=styles))
     if options.pdf_include_article_text and record.article and record.article.text:
-        story.extend(_section("Extracted article text", record.article.text, styles=styles))
+        story.extend(_section("Full article text", record.article.text, styles=styles))
     elif record.article is None or not record.article.text:
-        story.extend(_section("Extracted article text", "No extracted article text is available.", styles=styles))
+        story.extend(_section("Full article text", "No full article text is available.", styles=styles))
 
     document.build(story)
     return output.getvalue()

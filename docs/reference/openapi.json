@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.5.0",
-    "x-threatlens-contract-sha256": "37eab316cf6e69bc357725a98d95974575f020cea31c8da0e22213b96bcb0ec7"
+    "x-threatlens-contract-sha256": "627868ff46e5ebb542b63fdd6d896849ff7bbea4336a4e587673e79eea2615e9"
   },
   "servers": [
     {
@@ -10159,6 +10159,11 @@
             "type": "boolean",
             "title": "Include Article Text",
             "default": true
+          },
+          "csv_include_article_text": {
+            "type": "boolean",
+            "title": "Csv Include Article Text",
+            "default": false
           },
           "include_ai_details": {
             "type": "boolean",
