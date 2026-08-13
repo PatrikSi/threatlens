@@ -30,7 +30,7 @@ The live preview reports matching and selected source counts, total source token
 
 Reporting does not place the full corpus into one prompt. It:
 
-1. conservatively estimates tokens using the larger of character- and word-based estimates
+1. conservatively estimates tokens using character, word, and denser long-fragment bounds for URLs, hashes, and observables
 2. reserves output, protocol overhead, and a configurable safety margin
 3. measures the actual serialized provider message, including JSON escaping and prompt framing
 4. truncates each source to a configured token cap and tightens it further when a small context requires it

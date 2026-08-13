@@ -10,9 +10,17 @@ from app.services.ai_context_budget import (
 
 
 def test_estimator_uses_conservative_character_and_word_bounds():
-    assert estimate_tokens("a" * 320) == 100
+    assert estimate_tokens("abcd " * 64) == 100
     assert estimate_tokens("word " * 100) >= 145
     assert estimate_tokens("") == 0
+
+
+def test_estimator_is_more_conservative_for_dense_technical_fragments():
+    compact_hash = "a" * 64
+    url = "https://example.test/path/" + "segment-" * 16
+
+    assert estimate_tokens(compact_hash) == 32
+    assert estimate_tokens(url) >= len(url) / 2
 
 
 def test_context_budget_reserves_output_safety_and_protocol_overhead():
@@ -49,7 +57,7 @@ def test_evidence_planner_preserves_order_and_splits_at_capacity():
         reserved_output_tokens=512,
         safety_percent=10,
     )
-    evidence = ["a" * 3200, "b" * 3200, "c" * 3200]
+    evidence = ["aaaa " * 640, "bbbb " * 640, "cccc " * 640]
 
     plan = plan_evidence_batches(evidence, budget=budget, fixed_prompt_tokens=300)
 

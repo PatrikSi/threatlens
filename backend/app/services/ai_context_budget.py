@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 
 PROTOCOL_OVERHEAD_TOKENS = 384
 MIN_USABLE_INPUT_TOKENS = 512
+_DENSE_TOKEN_PATTERN = re.compile(r"\S{24,}")
 
 
 class AIContextBudgetError(ValueError):
@@ -39,7 +41,12 @@ def estimate_tokens(text: str | None) -> int:
     value = str(text)
     character_estimate = math.ceil(len(value) / 3.2)
     word_estimate = math.ceil(len(value.split()) * 1.45)
-    return max(1, character_estimate, word_estimate)
+    dense_matches = tuple(_DENSE_TOKEN_PATTERN.finditer(value))
+    dense_character_count = sum(len(match.group()) for match in dense_matches)
+    technical_estimate = math.ceil((len(value) - dense_character_count) / 3.2) + sum(
+        math.ceil(len(match.group()) / 2) for match in dense_matches
+    )
+    return max(1, character_estimate, word_estimate, technical_estimate)
 
 
 def build_context_budget(
