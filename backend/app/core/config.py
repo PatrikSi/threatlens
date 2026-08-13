@@ -227,6 +227,12 @@ class Settings(BaseSettings):
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
 
+    export_max_items: int = 10_000
+    export_pdf_max_items: int = 500
+    export_preview_limit: int = 25
+    export_max_uncompressed_bytes: int = 250_000_000
+    export_lock_ttl_seconds: int = 900
+
     log_level: str = "INFO"
     log_level_overrides: Annotated[list[str], NoDecode] = []
     log_format: str = "text"
@@ -346,6 +352,27 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("Authentication and database limits must be greater than zero")
         return value
+
+    @field_validator(
+        "export_max_items",
+        "export_pdf_max_items",
+        "export_preview_limit",
+        "export_max_uncompressed_bytes",
+        "export_lock_ttl_seconds",
+    )
+    @classmethod
+    def _validate_positive_export_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Export limits must be greater than zero")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_export_limits(self):
+        if self.export_pdf_max_items > self.export_max_items:
+            raise ValueError("export_pdf_max_items must not exceed export_max_items")
+        if self.export_preview_limit > self.export_max_items:
+            raise ValueError("export_preview_limit must not exceed export_max_items")
+        return self
 
     @model_validator(mode="after")
     def _validate_login_ip_threshold(self):

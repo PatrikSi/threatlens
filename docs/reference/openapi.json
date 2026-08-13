@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.5.0",
-    "x-threatlens-contract-sha256": "b042ecd98b11119e77c32268f149c78162451c02254d2f9d5825e7e310eea11d"
+    "x-threatlens-contract-sha256": "37eab316cf6e69bc357725a98d95974575f020cea31c8da0e22213b96bcb0ec7"
   },
   "servers": [
     {
@@ -562,6 +562,135 @@
           {
             "SessionCookieAuth": []
           }
+        ]
+      }
+    },
+    "/v1/exports/capabilities": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Get Export Capabilities",
+        "operationId": "get_export_capabilities_v1_exports_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportCapabilitiesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports/preview": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Preview Export",
+        "operationId": "preview_export_v1_exports_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleExportPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Download Export",
+        "operationId": "download_export_v1_exports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
         ]
       }
     },
@@ -9793,6 +9922,518 @@
         ],
         "title": "AppFeaturesResponse"
       },
+      "ArticleExportCapabilitiesResponse": {
+        "properties": {
+          "formats": {
+            "items": {
+              "$ref": "#/components/schemas/ExportFormatCapability"
+            },
+            "type": "array",
+            "title": "Formats"
+          },
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Feeds"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Classifications"
+          },
+          "max_items": {
+            "type": "integer",
+            "title": "Max Items"
+          },
+          "max_pdf_items": {
+            "type": "integer",
+            "title": "Max Pdf Items"
+          },
+          "max_uncompressed_bytes": {
+            "type": "integer",
+            "title": "Max Uncompressed Bytes"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "formats",
+          "feeds",
+          "tags",
+          "classifications",
+          "max_items",
+          "max_pdf_items",
+          "max_uncompressed_bytes",
+          "preview_limit"
+        ],
+        "title": "ArticleExportCapabilitiesResponse"
+      },
+      "ArticleExportFilters": {
+        "properties": {
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Feed Ids"
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Tag Ids"
+          },
+          "tags_mode": {
+            "type": "string",
+            "enum": [
+              "any",
+              "all"
+            ],
+            "title": "Tags Mode",
+            "default": "any"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Classifications"
+          },
+          "ai_relevance_labels": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Ai Relevance Labels"
+          },
+          "ai_score_min": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Min"
+          },
+          "ai_score_max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Max"
+          },
+          "is_read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Article Text"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "date_basis": {
+            "type": "string",
+            "enum": [
+              "first_seen_at",
+              "published_at_or_first_seen_at"
+            ],
+            "title": "Date Basis",
+            "default": "published_at_or_first_seen_at"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportFilters"
+      },
+      "ArticleExportOptions": {
+        "properties": {
+          "include_article_text": {
+            "type": "boolean",
+            "title": "Include Article Text",
+            "default": true
+          },
+          "include_ai_details": {
+            "type": "boolean",
+            "title": "Include Ai Details",
+            "default": true
+          },
+          "include_tag_metadata": {
+            "type": "boolean",
+            "title": "Include Tag Metadata",
+            "default": true
+          },
+          "include_iocs": {
+            "type": "boolean",
+            "title": "Include Iocs",
+            "default": true
+          },
+          "include_ioc_csv": {
+            "type": "boolean",
+            "title": "Include Ioc Csv",
+            "default": true
+          },
+          "include_user_state": {
+            "type": "boolean",
+            "title": "Include User State",
+            "default": false
+          },
+          "include_user_notes": {
+            "type": "boolean",
+            "title": "Include User Notes",
+            "default": false
+          },
+          "pdf_include_article_text": {
+            "type": "boolean",
+            "title": "Pdf Include Article Text",
+            "default": true
+          },
+          "stix_marking": {
+            "type": "string",
+            "enum": [
+              "none",
+              "TLP:WHITE",
+              "TLP:GREEN",
+              "TLP:AMBER",
+              "TLP:RED"
+            ],
+            "title": "Stix Marking",
+            "default": "TLP:WHITE"
+          },
+          "misp_distribution": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Misp Distribution",
+            "default": 0
+          },
+          "filename_prefix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename Prefix"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportOptions"
+      },
+      "ArticleExportPreviewItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "feed_name": {
+            "type": "string",
+            "title": "Feed Name"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "ai_relevance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Score"
+          },
+          "ai_relevance_label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Label"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "is_read": {
+            "type": "boolean",
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "type": "boolean",
+            "title": "Has Article Text"
+          },
+          "ioc_count": {
+            "type": "integer",
+            "title": "Ioc Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "feed_name",
+          "published_at",
+          "first_seen_at",
+          "classification",
+          "ai_relevance_score",
+          "ai_relevance_label",
+          "tags",
+          "is_read",
+          "is_starred",
+          "has_article_text",
+          "ioc_count"
+        ],
+        "title": "ArticleExportPreviewItem"
+      },
+      "ArticleExportPreviewRequest": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportPreviewRequest"
+      },
+      "ArticleExportPreviewResponse": {
+        "properties": {
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches"
+          },
+          "articles_with_text": {
+            "type": "integer",
+            "title": "Articles With Text"
+          },
+          "items_with_iocs": {
+            "type": "integer",
+            "title": "Items With Iocs"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          },
+          "exceeds_export_limit": {
+            "type": "boolean",
+            "title": "Exceeds Export Limit"
+          },
+          "exceeds_pdf_limit": {
+            "type": "boolean",
+            "title": "Exceeds Pdf Limit"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArticleExportPreviewItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_matches",
+          "articles_with_text",
+          "items_with_iocs",
+          "preview_limit",
+          "exceeds_export_limit",
+          "exceeds_pdf_limit",
+          "items"
+        ],
+        "title": "ArticleExportPreviewResponse"
+      },
+      "ArticleExportRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Format"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          },
+          "options": {
+            "$ref": "#/components/schemas/ArticleExportOptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "format"
+        ],
+        "title": "ArticleExportRequest"
+      },
       "ArticleResponse": {
         "properties": {
           "final_url": {
@@ -10406,6 +11047,83 @@
         },
         "type": "object",
         "title": "EncryptedDataStartupScan"
+      },
+      "ExportFormatCapability": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "extension": {
+            "type": "string",
+            "title": "Extension"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "supports_article_text": {
+            "type": "boolean",
+            "title": "Supports Article Text"
+          },
+          "supports_iocs": {
+            "type": "boolean",
+            "title": "Supports Iocs"
+          },
+          "supports_user_state": {
+            "type": "boolean",
+            "title": "Supports User State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "extension",
+          "media_type",
+          "description",
+          "supports_article_text",
+          "supports_iocs",
+          "supports_user_state"
+        ],
+        "title": "ExportFormatCapability"
+      },
+      "ExportOptionEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ExportOptionEntry"
       },
       "FeedCreate": {
         "properties": {

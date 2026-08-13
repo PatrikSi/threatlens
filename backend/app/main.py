@@ -29,6 +29,7 @@ from app.api.routes import (
     alerts,
     audit,
     auth,
+    exports,
     feeds,
     health,
     integrations,
@@ -65,6 +66,7 @@ SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
     oidc.router,
+    exports.router,
     feeds.router,
     items.router,
     tags.router,
