@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.schemas.exports import ArticleExportFilters
 from app.schemas.reports import (
+    ReportArticleFilters,
     ReportContextEstimate,
     ReportPreviewItem,
     ReportPreviewResponse,
@@ -69,15 +70,15 @@ class ReportSourcePlan:
 
 
 def filters_for_report_period(
-    filters: ArticleExportFilters,
+    filters: ReportArticleFilters,
     *,
     period_start: datetime,
     period_end: datetime,
-) -> ArticleExportFilters:
+) -> ReportArticleFilters:
     payload = filters.model_dump(mode="python")
     payload["since"] = period_start
     payload["until"] = period_end
-    return ArticleExportFilters.model_validate(payload)
+    return ReportArticleFilters.model_validate(payload)
 
 
 def build_report_source_plan(

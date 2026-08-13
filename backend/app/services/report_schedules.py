@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
-from app.schemas.exports import ArticleExportFilters
 from app.schemas.reports import (
+    ReportArticleFilters,
     ReportCreateRequest,
     ReportPromptConfig,
     ReportScheduleCreate,
@@ -89,7 +89,7 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
         timezone=schedule.timezone,
         window_type=schedule.window_type,
         rolling_days=schedule.rolling_days,
-        filters=ArticleExportFilters.model_validate(schedule.filters_json or {}),
+        filters=ReportArticleFilters.model_validate(schedule.filters_json or {}),
         custom_instructions=schedule.custom_instructions,
         delivery_enabled=schedule.delivery_enabled,
         delivery_mode=schedule.delivery_mode,
@@ -263,7 +263,7 @@ def _create_one_scheduled_report(
         for entry in template.sections_json or []
     ]
     filters = filters_for_report_period(
-        ArticleExportFilters.model_validate(schedule.filters_json or {}),
+        ReportArticleFilters.model_validate(schedule.filters_json or {}),
         period_start=period_start,
         period_end=period_end,
     )
