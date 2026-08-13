@@ -1,20 +1,24 @@
-C:Q1LFDxourplGRZpPzO6vjTH0P9rkg=
+C:Q1Opk/zzFiQfVst9ubrkkUvMJ9G2A=
 P:curl
-V:8.12.1-r1
+V:8.21.0-r0
 A:x86_64
-S:155835
-I:252120
-T:URL retrival utility and library
+S:177184
+I:280125
+T:URL retrieval utility and library
 U:https://curl.se/
 L:curl
 o:curl
-m:Natanael Copa <ncopa@alpinelinux.org>
-t:1742204477
-c:f7044762c3757181b5b0f7689cbf305a07215887
-D:libcurl=8.12.1-r1 so:libc.musl-x86_64.so.1 so:libcurl.so.4 so:libz.so.1
-p:cmd:curl=8.12.1-r1
+m:Achill Gilgenast <achill@achill.org>
+t:1782819482
+c:461165dc7870b3466496e2c7fc8368c974f06355
+D:libcurl=8.21.0-r0 so:libc.musl-x86_64.so.1 so:libcurl.so.4 so:libz.so.1
+p:wcurl=8.21.0-r0 cmd:curl=8.21.0-r0 cmd:wcurl=8.21.0-r0
+r:wcurl
 F:usr
 F:usr/bin
 R:curl
 a:0:0:755
-Z:Q1ShljCo6hZP2qaI47n2SknryzbGQ=
+Z:Q1T0b8zuyH7ZxqbtUWnVVXOXAq6Xo=
+R:wcurl
+a:0:0:755
+Z:Q1aabfEKXNKirc4+cDp4VMS3KUDK4=

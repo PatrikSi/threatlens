@@ -1,8 +1,8 @@
-C:Q1jVAXxgPVvafSb/EXB+q0PlqmboQ=
+C:Q1IE5BPAIitq56lK3FO5BX01Nv0gA=
 P:libxdmcp
 V:1.1.5-r1
 A:x86_64
-S:9377
+S:9361
 I:26384
 T:X11 Display Manager Control Protocol library
 U:https://xorg.freedesktop.org/
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1u4DFa0j4X6u9YoPJDXm9Mct6gJk=
 R:libXdmcp.so.6.0.0
 a:0:0:755
-Z:Q1oI1k5xN/xNUdJOCVWEoVHClM2LM=
+Z:Q1rJMO9VhP34vfg79JOyj6TWbKdVs=

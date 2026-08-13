@@ -1,22 +1,22 @@
-C:Q1ab+2JY7LCiHjsOoS5tRUQZKrN2Y=
+C:Q1wiD0pRJaMTr3M+mN75QTK7Hp1A0=
 P:ssl_client
-V:1.37.0-r12
+V:1.37.0-r31
 A:x86_64
-S:4635
+S:4686
 I:14384
 T:External ssl_client for busybox wget
 U:https://busybox.net/
 L:GPL-2.0-only
 o:busybox
 m:Sören Tempel <soeren+alpine@soeren-tempel.net>
-t:1737137521
-c:9c49608930ef6a9936750e9e39edec56b3db9cd5
+t:1768059508
+c:c3ef5d10e6ef6528852c51f0564963e2f8c1be19
 D:so:libc.musl-x86_64.so.1 so:libcrypto.so.3 so:libssl.so.3
-p:cmd:ssl_client=1.37.0-r12
-i:busybox=1.37.0-r12 libssl3
+p:cmd:ssl_client=1.37.0-r31
+i:busybox=1.37.0-r31 libssl3
 r:busybox-initscripts
 F:usr
 F:usr/bin
 R:ssl_client
 a:0:0:755
-Z:Q1Qa9AVhcCc8eSg09HjlMcCgjZMdw=
+Z:Q1Hg8ExlQOV/FmrvpoAJ01kmV8BzM=

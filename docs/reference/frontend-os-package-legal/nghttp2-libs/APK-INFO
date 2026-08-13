@@ -1,23 +1,23 @@
-C:Q1I51JM1sMUhxB0II6YZv4TD8gci4=
+C:Q1UzG4xkH3qQkc4vQ9rSqZhRxPSxI=
 P:nghttp2-libs
-V:1.64.0-r0
+V:1.69.0-r0
 A:x86_64
-S:66433
-I:141088
+S:63231
+I:132896
 T:HTTP/2 C client, server and proxy (libraries)
 U:https://nghttp2.org
 L:MIT
 o:nghttp2
 m:Francesco Colista <fcolista@alpinelinux.org>
-t:1730358866
-c:08e359a7bafd226d766d421eb66e27b6fc1144d2
+t:1776795981
+c:2f3038c86a2a055b2becb5a8c4fd86365f77347a
 D:so:libc.musl-x86_64.so.1
-p:so:libnghttp2.so.14=14.28.3
+p:so:libnghttp2.so.14=14.29.4
 F:usr
 F:usr/lib
 R:libnghttp2.so.14
 a:0:0:777
-Z:Q1t7wRnHA5WB/YUMgIgWPkKT3+jT8=
-R:libnghttp2.so.14.28.3
+Z:Q1PMTDRh/LqJLOSJuu4wk9SsMN+P4=
+R:libnghttp2.so.14.29.4
 a:0:0:755
-Z:Q1U/aEuIDFYXfvL4KqOOo4az9/WS4=
+Z:Q1EZHdUe6pi4NiWNkY+kKmpDq2Coc=

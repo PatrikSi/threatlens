@@ -1,9 +1,9 @@
-C:Q1VPiLUY6S45YW9Vv/IeDDwe7EREY=
+C:Q1CFZrpcevl8JUdL6LJOi0jwEWtn0=
 P:libbz2
 V:1.0.8-r6
 A:x86_64
-S:32791
-I:74384
+S:35467
+I:78480
 T:Shared library for bz2
 U:https://sourceware.org/bzip2/
 L:bzip2-1.0.6
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1s5/2NO/yHONilnjE8UjpDh3bO+0=
 R:libbz2.so.1.0.8
 a:0:0:755
-Z:Q1enPta/YSycEbzFpxPQFwv41vMy8=
+Z:Q1KkcP7bBJyGTuHrhYAWCP2xEFRkM=

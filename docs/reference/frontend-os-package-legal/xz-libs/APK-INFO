@@ -1,23 +1,23 @@
-C:Q1t9e4Xl+fhFv3p9zDg9CfMnp+68g=
+C:Q1TJLFvgxb70BOk8iA66kDepsUc0c=
 P:xz-libs
-V:5.6.3-r1
+V:5.8.3-r0
 A:x86_64
-S:116437
-I:227008
+S:117800
+I:227192
 T:Library and CLI tools for XZ and LZMA compressed files (libraries)
 U:https://tukaani.org/xz/
 L:GPL-2.0-or-later AND 0BSD AND Public-Domain AND LGPL-2.1-or-later
 o:xz
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1743803190
-c:0e019d9722d6d8e51ef4658074b2bc736f60b4dc
+t:1777121610
+c:ce9944f1daadb681dd6f0f81a06e9cce97127377
 D:so:libc.musl-x86_64.so.1
-p:so:liblzma.so.5=5.6.3
+p:so:liblzma.so.5=5.8.3
 F:usr
 F:usr/lib
 R:liblzma.so.5
 a:0:0:777
-Z:Q1hZx5BR6B2mOtVfzCtHxqHbG24wI=
-R:liblzma.so.5.6.3
+Z:Q1DXsp3Wx9wC+sef6LTJdnLvbygxk=
+R:liblzma.so.5.8.3
 a:0:0:755
-Z:Q10GiL6Ku1YCRviWUH7pqOuxwp9xo=
+Z:Q1e7X5tukGv2Qez2DdubJVIprykuU=

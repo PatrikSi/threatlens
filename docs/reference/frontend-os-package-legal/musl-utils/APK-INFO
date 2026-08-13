@@ -1,34 +1,34 @@
-C:Q13QAyPTwLFPJgf3oU71A+u09zfSI=
+C:Q1da2jxI1j7F2HxC/fk0o/3REpjcU=
 P:musl-utils
-V:1.2.5-r9
+V:1.2.6-r2
 A:x86_64
-S:36055
-I:105109
+S:13604
+I:55421
 T:the musl c library (libc) implementation
 U:https://musl.libc.org/
 L:MIT AND BSD-2-Clause AND GPL-2.0-or-later
 o:musl
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1739467586
-c:efd4d5df7be0ea48d98512671f676fc5ceb14899
+t:1775900007
+c:f5640d3a10f664c9119720c60515265d3d6f6d01
 D:scanelf so:libc.musl-x86_64.so.1
-p:libc-utils=1.2.5-r9 cmd:getconf=1.2.5-r9 cmd:getent=1.2.5-r9 cmd:iconv=1.2.5-r9 cmd:ldconfig=1.2.5-r9 cmd:ldd=1.2.5-r9
+p:libc-utils=1.2.6-r2 cmd:getconf=1.2.6-r2 cmd:getent=1.2.6-r2 cmd:iconv=1.2.6-r2 cmd:ldconfig=1.2.6-r2 cmd:ldd=1.2.6-r2
 r:libiconv
 F:sbin
 R:ldconfig
 a:0:0:755
-Z:Q1Kja2+POZKxEkUOZqwSjC6kmaED4=
+Z:Q12JjFFXEpeHF9tQIdw3HhVmECi/E=
 F:usr
 F:usr/bin
 R:getconf
 a:0:0:755
-Z:Q1hBbZwwMDrwTCI9gEN1JGrQHsjcg=
+Z:Q18YIWS1Hg939sTnk6wQudIxRZScE=
 R:getent
 a:0:0:755
-Z:Q1za5eA7u9FAplsUQ0Mlf/6WDTsSU=
+Z:Q1Fmx3MjWUuBnseA2gCxwsD+IHmGY=
 R:iconv
 a:0:0:755
-Z:Q1P6orKuJHSqiNCZ9s4CE9AWeNqmU=
+Z:Q1DYVt5gi+NCNnLPUYFY956VsPYHA=
 R:ldd
 a:0:0:755
 Z:Q1yFAhGggmL7ERgbIA7KQxyTzf3ks=

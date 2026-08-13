@@ -1,17 +1,17 @@
-C:Q1nP0t8etNjPJQB75CrSgY8+XJo3s=
+C:Q1yVNKA3UL3640HxCWkBYJD8Ef670=
 P:ca-certificates-bundle
-V:20241121-r1
+V:20260611-r0
 A:x86_64
-S:130932
-I:222597
+S:107328
+I:179359
 T:Pre generated bundle of Mozilla certificates
 U:https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/
 L:MPL-2.0 AND MIT
 o:ca-certificates
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1736330199
-c:707ff77afebd8ef5bd60f3a5dd1b08f8c480f531
-p:ca-certificates-cacert=20241121-r1
+t:1781362042
+c:e41cbd2ae991adfe8df298ba8e8e777e90bd0e03
+p:ca-certificates-cacert=20260611-r0
 r:libressl2.7-libcrypto libcrypto1.1
 F:etc
 F:etc/ssl
@@ -20,7 +20,7 @@ a:0:0:777
 Z:Q1Nj6gTBdkZpTFW/obJGdpfvK0StA=
 F:etc/ssl/certs
 R:ca-certificates.crt
-Z:Q1ESKFTLicQISO2HYHHK6MPALhcSo=
+Z:Q1AWvyie9+qVjaGH6NV9XAn5UDuC0=
 F:etc/ssl1.1
 R:cert.pem
 a:0:0:777

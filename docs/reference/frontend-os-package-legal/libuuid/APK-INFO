@@ -1,16 +1,16 @@
-C:Q1jV5/voHzGogvIsAOunMtz0Wn6Qw=
+C:Q1assOJxEt+3hOb3zM6w6Wj6+glxM=
 P:libuuid
-V:2.40.4-r1
+V:2.42.1-r0
 A:x86_64
-S:13952
+S:14263
 I:30624
 T:DCE compatible Universally Unique Identifier library
 U:https://git.kernel.org/cgit/utils/util-linux/util-linux.git
 L:BSD-3-Clause
 o:util-linux
 m:Natanael Copa <ncopa@alpinelinux.org>
-t:1744763158
-c:67123673d9594a0de26838c585ce77ac2e75e7de
+t:1781897144
+c:58e8609cc84989eeb6f07b86d79b10321eacca9f
 D:so:libc.musl-x86_64.so.1
 p:so:libuuid.so.1=1.3.0
 F:usr
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1meeNppq8clexlr3c9Gp+aJEg3sg=
 R:libuuid.so.1.3.0
 a:0:0:755
-Z:Q1DOO0BAyynVfgiK+UkfXFNcn2k0s=
+Z:Q13wFhORGQ3g0Rk2g9vJd7oDVNQLI=
