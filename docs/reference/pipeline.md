@@ -6,7 +6,7 @@ This page documents worker behavior, processing stages, and internal value sets 
 
 - Feed polling and article extraction are untrusted-input boundaries. ThreatLens applies SSRF-aware URL validation, redirect caps, byte caps, and content-type checks before processing remote content.
 - Notification webhooks are a separate outbound boundary. User-configured request templates are rendered server-side, stored encrypted at rest, and retried from the saved rendered request snapshot.
-- AI enrichment and daily-brief generation are an admin-controlled outbound boundary. ThreatLens records usage data and sanitized provider-exchange metadata for those calls.
+- AI enrichment, daily-brief generation, and report generation are an admin-controlled outbound boundary. ThreatLens records usage data and sanitized provider-exchange metadata for those calls.
 
 ## Celery Tasks
 
@@ -119,8 +119,10 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - `feed_failing`
   - `webhook_failed`
   - `daily_digest` (backward-compatible event identifier for the AI Daily Brief)
+  - `report_ready`
 - New-item webhook fanout is queued by `dispatch_new_item_notification_webhooks(item_id)` after feed ingestion.
 - A ready AI Daily Brief writes its immutable `daily_digest` integration event in the same transaction as the brief. The compatibility scheduler only reconciles a missing current-day event and does not build a rolling RSS digest.
+- A delivered ready report writes one immutable `report_ready` integration event in the report-finalization transaction. SMTP and webhook connectors route it through the same generic delivery engine.
 - Deliveries are matched against:
   - enabled webhooks
   - matching `event_type`
@@ -160,6 +162,17 @@ The classifier uses weighted regex/token rules for each category and applies fee
   - task events
   - request/response inspection data
   - usage and failure analytics
+
+## Intelligence Report Generation
+
+- Manual reports are accepted only after a source/context preview succeeds.
+- Scheduled reports use IANA-zone calendar windows and idempotent generation keys.
+- Selected source evidence, company context, and global instructions are frozen before worker execution.
+- Conservative estimates reserve output, protocol framing, and a safety margin before batching bounded source excerpts.
+- Evidence synthesis runs in context-safe batches; report sections run independently, with the executive summary last.
+- Scope, IOC, and source sections are deterministic. AI citations are restricted to frozen `S<n>` source identifiers.
+- Source count, omitted count, context estimate, batch count, model-call usage, provider exchanges, and stage transitions remain inspectable.
+- The dedicated `worker-ai` consumes AI tasks at concurrency `1` by default to protect smaller local providers from parallel report/enrichment pressure.
 
 ## IOC Extraction
 

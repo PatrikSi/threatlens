@@ -204,7 +204,7 @@ Primary key on `item_id`:
 - `user_id: UUID` (FK users)
 - `name: string(255)`
 - `enabled: bool`
-- `event_type: string(64)` (`rss_item_new|alert_match|feed_failing|webhook_failed|daily_digest`)
+- `event_type: string(64)` (`rss_item_new|alert_match|feed_failing|webhook_failed|daily_digest|report_ready`)
 - `url_template: text`
 - `method: string(16)`
 - `feed_scope: string(16)` (`all|selected`)
@@ -287,7 +287,7 @@ Primary key on `item_id`:
 ### `AITaskRun`
 
 - `id: UUID` (PK)
-- `task_type: string(32)` (`item_enrichment|daily_brief|connection_test|reprocess`)
+- `task_type: string(32)` (`item_enrichment|daily_brief|report|connection_test|reprocess`)
 - `trigger_source: string(16)` (`auto|manual|scheduled`)
 - `status: string(16)` (`queued|running|ready|error|skipped`)
 - `reason: string(64)?`
@@ -324,6 +324,17 @@ Primary key on `item_id`:
 - `min_classification_confidence: float?`
 - `created_at: timestamptz`
 - `updated_at: timestamptz`
+
+### Reporting Models
+
+- `ReportTemplate`: built-in/private/shared prompt, topic, section, and default-filter configuration
+- `ReportSchedule`: weekly/monthly IANA-zone cadence, source window, catch-up policy, template, filters, and delivery policy
+- `Report`: immutable generation request, company/global context snapshot, period, status/stage, coverage, model usage, error, and delivery policy
+- `ReportSourceItem`: ranked source metadata, tags, IOCs, bounded evidence text, citation key, inclusion state, and exclusion reason
+- `ReportSection`: ordered persisted section body, key points, citations, status, and error
+- `AITaskRun.report_id`: generation operation linkage used by AI activity and provider history
+
+Report schedules use idempotent generation keys. Reports retain source, prompt, and company/global context snapshots so retries do not depend on later item or template changes. Provider credentials, model selection, and context guardrails are revalidated from current AI settings when work executes.
 
 ## API Schemas (`backend/app/schemas`)
 
@@ -369,6 +380,11 @@ Primary key on `item_id`:
   - `NotificationWebhookWrite`, `NotificationWebhookResponse`
   - `NotificationWebhookTestRequest`, `NotificationWebhookTestResponse`
   - `NotificationWebhookDeliveryResponse`, `NotificationWebhookDeliveryListResponse`
+- Reporting:
+  - `ReportCapabilitiesResponse`, `ReportPreviewRequest`, `ReportPreviewResponse`
+  - `ReportTemplateCreate`, `ReportTemplateUpdate`, `ReportTemplateResponse`
+  - `ReportCreateRequest`, `ReportListItem`, `ReportDetailResponse`, `ReportQueueResponse`
+  - `ReportScheduleCreate`, `ReportScheduleUpdate`, `ReportScheduleResponse`
 - Tagging:
   - `TaggingSettingsUpdate`, `TaggingSettingsResponse`, `TaggingSettingsBundleResponse`
   - `TaggingRuleWrite`, `TaggingRuleResponse`
@@ -400,3 +416,4 @@ The frontend mirrors backend contracts for all major payloads:
 - Alerts: `AlertInterest`, `AlertMatchReference`, `AlertMatchEntry`, `AlertMatchListResponse`
 - Notifications: `NotificationTemplateVariable`, `NotificationWebhook`, `NotificationWebhookWriteRequest`, `NotificationWebhookTestResponse`, `NotificationWebhookDelivery`, `NotificationWebhookDeliveryListResponse`
 - Tagging: `TaggingSettings`, `TaggingRule`, `TaggingSettingsBundleResponse`, `TaggingRuleWriteRequest`, `TaggingRulePreviewResponse`, `TaggingReapplyResponse`
+- Reporting: `ReportCapabilities`, `ReportPreview`, `ReportTemplate`, `ReportListItem`, `ReportDetail`, `ReportSchedule`, `ReportQueueResponse`
