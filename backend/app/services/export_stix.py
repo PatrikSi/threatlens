@@ -107,7 +107,7 @@ def _build_ioc_object(
     if ioc.type == "vendor":
         return Identity(name=ioc.value[:250], identity_class="organization", **common)
     if ioc.type == "program":
-        return Software(name=ioc.value[:250], **common)
+        return Software(name=ioc.value[:250], object_marking_refs=marking_refs)
 
     pattern = _indicator_pattern(ioc)
     if pattern is None:
