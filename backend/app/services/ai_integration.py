@@ -86,6 +86,7 @@ _scan_json_object_balance = _ai_provider_client.scan_json_object_balance
 
 FEATURE_ITEM_ENRICHMENT = "item_enrichment"
 FEATURE_DAILY_BRIEF = "daily_brief"
+FEATURE_REPORT = "report"
 FEATURE_CONNECTION_TEST = "connection_test"
 
 DAILY_BRIEF_PENDING_STALE_AFTER = timedelta(minutes=15)
@@ -901,11 +902,13 @@ def _request_json_with_usage(
     messages: list[dict[str, str]],
     item_id: uuid.UUID | None = None,
     daily_brief_id: uuid.UUID | None = None,
+    report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
+    max_completion_tokens: int | None = None,
 ) -> AICompletionResult:
     max_attempts = max(1, active.request_max_retries + 1)
     last_error: AIIntegrationError | None = None
-    request_max_tokens = active.max_completion_tokens
+    request_max_tokens = max_completion_tokens or active.max_completion_tokens
     db.commit()
 
     for attempt in range(1, max_attempts + 1):
@@ -959,6 +962,7 @@ def _request_json_with_usage(
                 model=active.model,
                 item_id=item_id,
                 daily_brief_id=daily_brief_id,
+                report_id=report_id,
                 error=str(exc),
             )
             db.commit()
@@ -998,6 +1002,7 @@ def _request_json_with_usage(
             model=completion.model,
             item_id=item_id,
             daily_brief_id=daily_brief_id,
+            report_id=report_id,
             prompt_tokens=completion.prompt_tokens,
             completion_tokens=completion.completion_tokens,
             total_tokens=completion.total_tokens,
@@ -1009,6 +1014,28 @@ def _request_json_with_usage(
     if last_error is None:
         raise AIIntegrationError("AI request failed unexpectedly")
     raise last_error
+
+
+def request_ai_json_with_usage(
+    db: Session,
+    active: ActiveAISettings,
+    *,
+    feature_type: str,
+    messages: list[dict[str, str]],
+    report_id: uuid.UUID | None = None,
+    task_run_id: uuid.UUID | None = None,
+    max_completion_tokens: int | None = None,
+) -> AICompletionResult:
+    """Run a provider exchange with the standard retry, history, and cancellation behavior."""
+    return _request_json_with_usage(
+        db,
+        active,
+        feature_type=feature_type,
+        messages=messages,
+        report_id=report_id,
+        task_run_id=task_run_id,
+        max_completion_tokens=max_completion_tokens,
+    )
 
 
 def _provider_retry_delay_seconds(*, attempt: int) -> float:
@@ -1037,6 +1064,8 @@ def _next_retry_max_completion_tokens(
     error: AIIntegrationError,
 ) -> int:
     if error.retry_hint != "expand_completion_budget":
+        return current
+    if feature_type == FEATURE_REPORT:
         return current
     if feature_type == FEATURE_DAILY_BRIEF:
         return min(8192, max(current, current + 512, int(current * 1.5)))

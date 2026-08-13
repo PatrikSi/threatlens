@@ -94,6 +94,7 @@ def queue_ai_task_run(
     actor_user_id: uuid.UUID | None = None,
     item_id: uuid.UUID | None = None,
     daily_brief_id: uuid.UUID | None = None,
+    report_id: uuid.UUID | None = None,
     parent_run_id: uuid.UUID | None = None,
     model: str | None = None,
     metadata: dict[str, Any] | None = None,
@@ -109,6 +110,7 @@ def queue_ai_task_run(
         actor_user_id=actor_user_id,
         item_id=item_id,
         daily_brief_id=daily_brief_id,
+        report_id=report_id,
         parent_run_id=parent_run_id,
         model=model,
         metadata_json=metadata or {},
@@ -241,6 +243,7 @@ def finish_ai_task_run(
     input_text_chars: int | None = None,
     metadata_updates: dict[str, Any] | None = None,
     daily_brief_id: uuid.UUID | None = None,
+    report_id: uuid.UUID | None = None,
 ) -> AITaskRun | None:
     run = db.scalar(
         select(AITaskRun)
@@ -292,6 +295,8 @@ def finish_ai_task_run(
     )
     if daily_brief_id is not None:
         run.daily_brief_id = daily_brief_id
+    if report_id is not None:
+        run.report_id = report_id
     if run.started_at is not None:
         run.duration_ms = _duration_ms_between(run.started_at, now)
     if metadata_updates:

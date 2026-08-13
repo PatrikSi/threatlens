@@ -12,6 +12,7 @@ class AIUsageEvent(Base):
     __table_args__ = (
         Index("ix_ai_usage_events_item_id", "item_id"),
         Index("ix_ai_usage_events_daily_brief_id", "daily_brief_id"),
+        Index("ix_ai_usage_events_report_id", "report_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -24,6 +25,9 @@ class AIUsageEvent(Base):
         Uuid(as_uuid=True),
         ForeignKey("ai_daily_briefs.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("reports.id", ondelete="SET NULL"), nullable=True
     )
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
