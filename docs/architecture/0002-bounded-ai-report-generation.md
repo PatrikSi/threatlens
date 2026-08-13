@@ -17,7 +17,10 @@ ThreatLens uses a staged, bounded pipeline inside the existing backend and Celer
 - Freeze company context and global instructions with the report.
 - Estimate tokens conservatively without requiring a provider-specific tokenizer.
 - Reserve output, framing overhead, and a safety percentage from every model context.
-- Partition evidence into bounded synthesis batches, then generate individual sections from compact findings.
+- Plan against the exact serialized provider messages so JSON escaping and envelope fields cannot invalidate preview estimates.
+- Compact optional prompt context by priority while preserving the report objective and global instructions.
+- Partition evidence into bounded synthesis batches, then generate individual sections from representative compact findings.
+- Re-plan immutable source snapshots at execution so retries can degrade safely after switching to a smaller model.
 - Generate deterministic scope, observable, and source sections without an AI call.
 - Generate the executive summary after the evidence sections.
 - Enforce source, per-source token, model-call, and worker-concurrency limits.
@@ -33,17 +36,17 @@ Reporting remains a logical subsystem in the monolith rather than a new service.
 Positive:
 
 - Small local models receive predictable inputs and no single report can consume unbounded calls.
-- Accepted reports retain the same evidence, report prompt, company context, and global instructions across later article and template changes.
-- Current provider and guardrail settings are revalidated at execution, preventing a queued report from overrunning a newly selected smaller model.
+- Accepted reports retain the same source, report prompt, company context, and global-instruction snapshots across later article and template changes.
+- Current provider and guardrail settings are revalidated at execution; bounded working prompts may tighten excerpts, compact optional context, or omit lower-ranked evidence instead of overrunning a newly selected smaller model.
 - Queue and provider failures are visible and retryable.
 - Delivery uses the same retry, circuit-breaker, dead-letter, and metrics infrastructure as other integrations.
 
 Tradeoffs:
 
 - Token counts are estimates and may over-reserve context.
-- Hierarchical synthesis can lose lower-ranked detail; coverage and omission warnings make this visible.
+- Hierarchical synthesis and adaptive compaction can lose lower-ranked detail; coverage and omission warnings make this visible.
 - A report can take several serial model calls and the default single AI worker favors stability over throughput.
-- A provider or guardrail change can make a queued or retried report fail validation; the saved report remains retryable after configuration is corrected.
+- A sufficiently restrictive provider or guardrail change can still make a queued report impossible when required framing and one evidence unit cannot fit; the saved report remains retryable after configuration is corrected.
 - Provider-native tokenizer integration remains a future optional optimization, not a correctness dependency.
 
 ## Rejected Alternatives

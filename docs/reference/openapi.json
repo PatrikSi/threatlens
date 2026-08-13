@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.5.0",
-    "x-threatlens-contract-sha256": "d7686bf589a2ac8da98a6993b40d93c99a0b92c6c4ca877d54a1e4093deaa915"
+    "x-threatlens-contract-sha256": "3fc37aaff0a62431429c4fef2e3af8a301c7528a32344a7dd7e0b6c82729ebc6"
   },
   "servers": [
     {
@@ -15700,6 +15700,10 @@
             "type": "integer",
             "title": "Estimated Fixed Prompt Tokens"
           },
+          "estimated_peak_input_tokens": {
+            "type": "integer",
+            "title": "Estimated Peak Input Tokens"
+          },
           "estimated_batches": {
             "type": "integer",
             "title": "Estimated Batches"
@@ -15737,6 +15741,7 @@
           "usable_input_tokens",
           "estimated_source_tokens",
           "estimated_fixed_prompt_tokens",
+          "estimated_peak_input_tokens",
           "estimated_batches",
           "estimated_model_calls",
           "selected_source_count",
