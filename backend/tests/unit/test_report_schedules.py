@@ -1,7 +1,9 @@
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
+from app.schemas.reports import ReportArticleFilters
 from app.services.report_schedules import next_schedule_run, schedule_report_period
+from app.services.report_sources import filters_for_report_period
 
 
 def _schedule(**overrides):
@@ -65,3 +67,19 @@ def test_previous_complete_month_handles_year_boundary():
 
     assert start == datetime(2025, 11, 30, 23, 0, tzinfo=timezone.utc)
     assert end == datetime(2025, 12, 31, 23, 0, tzinfo=timezone.utc)
+
+
+def test_report_period_filters_preserve_report_filter_contract():
+    period_start = datetime(2026, 8, 3, tzinfo=timezone.utc)
+    period_end = datetime(2026, 8, 10, tzinfo=timezone.utc)
+
+    result = filters_for_report_period(
+        ReportArticleFilters(q="ransomware"),
+        period_start=period_start,
+        period_end=period_end,
+    )
+
+    assert isinstance(result, ReportArticleFilters)
+    assert result.q == "ransomware"
+    assert result.since == period_start
+    assert result.until == period_end
