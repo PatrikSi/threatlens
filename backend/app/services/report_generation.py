@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 import uuid
@@ -18,12 +17,20 @@ from app.services.ai_context_budget import (
     AIContextBudgetError,
     build_context_budget,
     estimate_tokens,
-    plan_evidence_batches,
 )
 from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usage
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
+from app.services.report_prompt_budget import (
+    CONTEXT_COMPACTION_WARNING,
+    FINDINGS_COMPACTION_WARNING,
+    ReportMessageBatchPlan,
+    build_evidence_messages,
+    build_section_message_plan,
+    fit_evidence_to_stage,
+    plan_evidence_message_batches,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -109,23 +116,31 @@ def generate_report(
         raise ReportGenerationError(
             "The report has no enabled sections.", code="no_sections"
         )
-
-    report.status = "running"
-    report.generation_stage = "evidence_synthesis"
-    report.started_at = report.started_at or datetime.now(timezone.utc)
-    report.error_code = None
-    report.error = None
-    db.add(report)
-    _record_stage(db, task_run_id, report, "evidence_synthesis")
-    db.commit()
-
     counters = _UsageCounters()
     try:
+        sources, evidence_plan = _prepare_runtime_evidence(
+            db,
+            active=active,
+            report=report,
+            sources=sources,
+            sections=sections,
+            budget=budget,
+        )
+        report.status = "running"
+        report.generation_stage = "evidence_synthesis"
+        report.started_at = report.started_at or datetime.now(timezone.utc)
+        report.error_code = None
+        report.error = None
+        db.add(report)
+        _record_stage(db, task_run_id, report, "evidence_synthesis")
+        db.commit()
+
         findings = _synthesize_evidence_batches(
             db,
             active=active,
             report=report,
             sources=sources,
+            batch_plan=evidence_plan,
             budget=budget,
             task_run_id=task_run_id,
             counters=counters,
@@ -261,28 +276,122 @@ def _validate_reporting_available(active: ActiveAISettings) -> None:
         )
 
 
+def _prepare_runtime_evidence(
+    db: Session,
+    *,
+    active: ActiveAISettings,
+    report: Report,
+    sources: list[ReportSourceItem],
+    sections: list[ReportSection],
+    budget,
+) -> tuple[list[ReportSourceItem], ReportMessageBatchPlan]:
+    model_section_count = sum(
+        section.section_key not in DETERMINISTIC_SECTION_KEYS for section in sections
+    )
+    max_batches = active.report_max_model_calls - model_section_count
+    if max_batches < 1:
+        raise AIContextBudgetError(
+            "The enabled report sections use every allowed model call, leaving no call for evidence synthesis. "
+            "Disable an AI-generated section or increase the report model-call limit."
+        )
+
+    selected: list[ReportSourceItem] = []
+    selected_evidence: list[str] = []
+    batch_plan = plan_evidence_message_batches(
+        [],
+        prompt=report.prompt_config_json,
+        generation_context=report.generation_context_json,
+        budget=budget,
+    )
+    dropped = 0
+    truncated = 0
+    for source in sources:
+        evidence, was_truncated = fit_evidence_to_stage(
+            source.evidence_text,
+            source_token_cap=active.report_source_token_cap,
+            prompt=report.prompt_config_json,
+            generation_context=report.generation_context_json,
+            budget=budget,
+        )
+        candidate_plan = plan_evidence_message_batches(
+            [*selected_evidence, evidence],
+            prompt=report.prompt_config_json,
+            generation_context=report.generation_context_json,
+            budget=budget,
+        )
+        if candidate_plan.batch_count > max_batches:
+            source.included = False
+            source.exclusion_reason = "execution_context_budget"
+            db.add(source)
+            dropped += 1
+            continue
+        if evidence != source.evidence_text:
+            source.evidence_text = evidence
+            source.estimated_tokens = estimate_tokens(evidence)
+            db.add(source)
+        truncated += int(was_truncated)
+        selected.append(source)
+        selected_evidence.append(evidence)
+        batch_plan = candidate_plan
+
+    if not selected:
+        raise AIContextBudgetError(
+            "No report source fits the current model context and model-call limits after adaptive truncation. "
+            "Reduce the output reserve, disable an AI-generated section, or increase the context window."
+        )
+
+    report.included_source_count = len(selected)
+    report.excluded_source_count = max(0, report.source_count - len(selected))
+    report.estimated_input_tokens = batch_plan.estimated_input_tokens
+    report.generation_batches = batch_plan.batch_count
+    coverage = dict(report.coverage_json or {})
+    coverage["included_sources"] = len(selected)
+    coverage["omitted_sources"] = report.excluded_source_count
+    coverage["coverage_percent"] = (
+        round(100 * len(selected) / report.source_count, 1)
+        if report.source_count
+        else 100.0
+    )
+    report.coverage_json = coverage
+    if batch_plan.context_compacted:
+        _append_coverage_warning(report, CONTEXT_COMPACTION_WARNING)
+    if dropped:
+        _append_coverage_warning(
+            report,
+            f"Execution omitted {dropped:,} lower-ranked sources so serialized prompts fit the current model context and call limits.",
+        )
+    if truncated:
+        _append_coverage_warning(
+            report,
+            "Source excerpts were tightened at execution to fit the current model context window.",
+        )
+    logger.info(
+        "report_context_plan report_id=%s usable_input_tokens=%s fixed_prompt_tokens=%s "
+        "peak_input_tokens=%s batches=%s selected_sources=%s dropped_sources=%s context_compacted=%s",
+        report.id,
+        budget.usable_input_tokens,
+        batch_plan.fixed_prompt_tokens,
+        batch_plan.largest_batch_input_tokens,
+        batch_plan.batch_count,
+        len(selected),
+        dropped,
+        batch_plan.context_compacted,
+    )
+    db.add(report)
+    return selected, batch_plan
+
+
 def _synthesize_evidence_batches(
     db: Session,
     *,
     active: ActiveAISettings,
     report: Report,
     sources: list[ReportSourceItem],
+    batch_plan: ReportMessageBatchPlan,
     budget,
     task_run_id: uuid.UUID | None,
     counters: _UsageCounters,
 ) -> list[dict]:
-    system_prompt = (
-        "You are a threat-intelligence evidence analyst. Use only the supplied source excerpts. "
-        "Return JSON with a findings array. Each finding must contain text and citations, where citations is an array "
-        "of supplied S-number identifiers. Preserve uncertainty and never invent attribution, exploitation, impact, or observables. "
-        "Combine duplicate developments and keep each finding concise."
-    )
-    fixed_tokens = estimate_tokens(system_prompt) + 180
-    batch_plan = plan_evidence_batches(
-        [source.evidence_text for source in sources],
-        budget=budget,
-        fixed_prompt_tokens=fixed_tokens,
-    )
     findings: list[dict] = []
     known_citations = {source.citation_key for source in sources}
     for index, batch in enumerate(batch_plan.batches, start=1):
@@ -292,21 +401,12 @@ def _synthesize_evidence_batches(
                 "Evidence synthesis reached the configured model-call limit.",
                 code="model_call_limit",
             )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "report_prompt": report.prompt_config_json,
-                        "generation_context": report.generation_context_json,
-                        "batch": index,
-                        "evidence": list(batch),
-                    },
-                    ensure_ascii=True,
-                ),
-            },
-        ]
+        messages, _ = build_evidence_messages(
+            prompt=report.prompt_config_json,
+            generation_context=report.generation_context_json,
+            evidence=batch,
+            budget=budget,
+        )
         _assert_messages_fit(messages, budget=budget)
         completion = request_ai_json_with_usage(
             db,
@@ -364,39 +464,36 @@ def _generate_section(
         db.add(section)
         db.commit()
         known_citations = {source.citation_key for source in sources}
-        system_prompt = (
-            "You are writing one section of a sourced threat-intelligence report. Use only the supplied deterministic metrics "
-            "and evidence findings. Return JSON with body_markdown, key_points, and citations. Every material factual claim must "
-            "cite one or more supplied S-number sources in square brackets. Do not invent facts, recommendations, or attribution. "
-            "State uncertainty plainly and omit claims not supported by evidence."
-        )
-        compact_findings = _fit_findings_to_budget(
-            findings,
-            budget_tokens=max(
-                256, budget.usable_input_tokens - estimate_tokens(system_prompt) - 350
+        section_config = next(
+            (
+                entry
+                for entry in report.sections_config_json or []
+                if entry.get("key") == section.section_key
             ),
+            {},
         )
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "section": {"key": section.section_key, "title": section.title},
-                        "report": {
-                            "title": report.title,
-                            "period_start": report.period_start.isoformat(),
-                            "period_end": report.period_end.isoformat(),
-                            "prompt": report.prompt_config_json,
-                            "generation_context": report.generation_context_json,
-                            "metrics": report.metrics_json,
-                        },
-                        "findings": compact_findings,
-                    },
-                    ensure_ascii=True,
-                ),
+        message_plan = build_section_message_plan(
+            section={
+                "key": section.section_key,
+                "title": section.title,
+                "instructions": section_config.get("instructions"),
             },
-        ]
+            report={
+                "title": report.title,
+                "period_start": report.period_start.isoformat(),
+                "period_end": report.period_end.isoformat(),
+                "prompt": report.prompt_config_json,
+                "generation_context": report.generation_context_json,
+                "metrics": report.metrics_json,
+            },
+            findings=findings,
+            budget=budget,
+        )
+        messages = message_plan.messages
+        if message_plan.context_compacted:
+            _append_coverage_warning(report, CONTEXT_COMPACTION_WARNING)
+        if message_plan.omitted_findings:
+            _append_coverage_warning(report, FINDINGS_COMPACTION_WARNING)
         _assert_messages_fit(messages, budget=budget)
         completion = request_ai_json_with_usage(
             db,
@@ -520,26 +617,23 @@ def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dic
     return findings
 
 
-def _fit_findings_to_budget(findings: list[dict], *, budget_tokens: int) -> list[dict]:
-    result: list[dict] = []
-    used = 0
-    for finding in findings:
-        token_count = estimate_tokens(json.dumps(finding, ensure_ascii=True))
-        if result and used + token_count > budget_tokens:
-            break
-        if token_count <= budget_tokens:
-            result.append(finding)
-            used += token_count
-    return result
-
-
 def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
     token_count = sum(estimate_tokens(message.get("content")) for message in messages)
     if token_count > budget.usable_input_tokens:
         raise AIContextBudgetError(
             f"A report stage is estimated at {token_count:,} input tokens, above the usable "
-            f"{budget.usable_input_tokens:,}-token budget. Reduce custom instructions or the source token cap."
+            f"{budget.usable_input_tokens:,}-token budget after adaptive compaction. "
+            "Reduce the output reserve or increase the model context window."
         )
+
+
+def _append_coverage_warning(report: Report, warning: str) -> None:
+    coverage = dict(report.coverage_json or {})
+    warnings = list(coverage.get("warnings") or [])
+    if warning not in warnings:
+        warnings.append(warning)
+    coverage["warnings"] = warnings
+    report.coverage_json = coverage
 
 
 def _valid_citations(

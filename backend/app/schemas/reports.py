@@ -84,6 +84,7 @@ class ReportContextEstimate(ReportSchema):
     usable_input_tokens: int
     estimated_source_tokens: int
     estimated_fixed_prompt_tokens: int
+    estimated_peak_input_tokens: int
     estimated_batches: int
     estimated_model_calls: int
     selected_source_count: int
