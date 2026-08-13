@@ -180,6 +180,7 @@ Paths below are relative to the published `/api/v1` base.
 | `/feeds` write ops | `admin` or `analyst` | `write:feeds` |
 | `/feeds` read/export/metadata | authenticated user | `read:feeds` |
 | `/items` read ops | authenticated user | `read:items` |
+| `/exports`, `/exports/preview`, `/exports/capabilities` | authenticated user | `read:items` |
 | `/items` mutate triage (`read/star/note/tags`) | `admin` or `analyst` | `write:items` |
 | `/alerts` read | authenticated user | `read:alerts` |
 | `/alerts` mutate | authenticated user | `write:alerts` |

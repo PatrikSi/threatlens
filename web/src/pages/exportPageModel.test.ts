@@ -104,6 +104,6 @@ describe('export page model', () => {
   it('builds safe fallback filenames and readable byte sizes', () => {
     expect(defaultExportFilename('stix', ' August / research ')).toBe('August-research.stix.json')
     expect(defaultExportFilename('pdf_bundle', null)).toBe('threatlens-export.pdf.zip')
-    expect(formatByteSize(250 * 1024 * 1024)).toBe('250 MB')
+    expect(formatByteSize(250 * 1024 * 1024)).toBe('250 MiB')
   })
 })
