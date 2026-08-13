@@ -10,7 +10,9 @@ from app.models.report_source_item import ReportSourceItem
 from app.services import report_generation
 
 
-def test_unexpected_generation_error_moves_report_to_terminal_state(db_session, monkeypatch):
+def test_unexpected_generation_error_moves_report_to_terminal_state(
+    db_session, monkeypatch
+):
     now = datetime.now(timezone.utc)
     report = Report(
         id=uuid.uuid4(),
@@ -76,11 +78,15 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(db_session, 
     monkeypatch.setattr(
         report_generation,
         "_synthesize_evidence_batches",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("sensitive provider detail")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("sensitive provider detail")
+        ),
     )
 
     with pytest.raises(RuntimeError, match="sensitive provider detail"):
-        report_generation.generate_report(db_session, report_id=report.id, task_run_id=None)
+        report_generation.generate_report(
+            db_session, report_id=report.id, task_run_id=None
+        )
 
     db_session.expire_all()
     failed = db_session.get(Report, report.id)
@@ -88,4 +94,7 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(db_session, 
     assert failed.status == "error"
     assert failed.generation_stage == "failed"
     assert failed.error_code == "internal_error"
-    assert failed.error == "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
+    assert (
+        failed.error
+        == "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
+    )

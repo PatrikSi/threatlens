@@ -37,6 +37,7 @@ from app.services.ai_ops_common import (
     AI_STATUS_SKIPPED,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPORT,
     AI_TRIGGER_AUTO,
     _coerce_utc,
     _percentile,
@@ -586,6 +587,7 @@ def _build_feature_health(db: Session) -> list[AIFeatureHealthRowResponse]:
         "summaries": bool(settings.summary_enabled) if settings else False,
         "relevance": bool(settings.relevance_enabled) if settings else False,
         "daily_brief": bool(settings.daily_brief_enabled) if settings else False,
+        "reporting": bool(settings.reporting_enabled) if settings else False,
         "auto_enrichment": bool(settings.auto_enrich_new_items) if settings else False,
     }
     feature_to_filters: dict[str, Select[Any]] = {
@@ -597,6 +599,9 @@ def _build_feature_health(db: Session) -> list[AIFeatureHealthRowResponse]:
         ),
         "daily_brief": select(AITaskRun).where(
             AITaskRun.task_type == AI_TASK_TYPE_DAILY_BRIEF
+        ),
+        "reporting": select(AITaskRun).where(
+            AITaskRun.task_type == AI_TASK_TYPE_REPORT
         ),
         "auto_enrichment": select(AITaskRun).where(
             AITaskRun.task_type == AI_TASK_TYPE_ITEM_ENRICHMENT,

@@ -198,6 +198,7 @@ export interface AITaskRunResponse {
   item_first_seen_at: string | null
   item_published_at: string | null
   daily_brief_id: string | null
+  report_id?: string | null
   parent_run_id: string | null
   model: string | null
   prompt_tokens: number | null

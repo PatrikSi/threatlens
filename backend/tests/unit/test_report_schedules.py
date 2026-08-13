@@ -22,8 +22,12 @@ def _schedule(**overrides):
 def test_weekly_next_run_uses_local_timezone_across_dst():
     schedule = _schedule()
 
-    before_dst = next_schedule_run(schedule, after=datetime(2026, 3, 23, 8, 1, tzinfo=timezone.utc))
-    after_dst = next_schedule_run(schedule, after=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc))
+    before_dst = next_schedule_run(
+        schedule, after=datetime(2026, 3, 23, 8, 1, tzinfo=timezone.utc)
+    )
+    after_dst = next_schedule_run(
+        schedule, after=datetime(2026, 3, 29, 12, 0, tzinfo=timezone.utc)
+    )
 
     assert before_dst == datetime(2026, 3, 30, 7, 0, tzinfo=timezone.utc)
     assert after_dst == datetime(2026, 3, 30, 7, 0, tzinfo=timezone.utc)
@@ -32,7 +36,9 @@ def test_weekly_next_run_uses_local_timezone_across_dst():
 def test_monthly_next_run_advances_to_next_month_after_due_time():
     schedule = _schedule(cadence="monthly", day_of_month=15)
 
-    result = next_schedule_run(schedule, after=datetime(2026, 1, 15, 9, 0, tzinfo=timezone.utc))
+    result = next_schedule_run(
+        schedule, after=datetime(2026, 1, 15, 9, 0, tzinfo=timezone.utc)
+    )
 
     assert result == datetime(2026, 2, 15, 8, 0, tzinfo=timezone.utc)
 

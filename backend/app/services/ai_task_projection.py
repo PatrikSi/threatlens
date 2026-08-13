@@ -85,6 +85,8 @@ def list_ai_manual_actions(
                         "ai.daily_brief.queue",
                         "ai.daily_brief.backfill.queue",
                         "ai.reprocess.queue",
+                        "reports.generate.queue",
+                        "reports.generate.retry",
                     ]
                 )
             )
@@ -145,6 +147,7 @@ def _map_run_responses(db: Session, runs: list[AITaskRun]) -> list[AITaskRunResp
             if run.item_id
             else None,
             daily_brief_id=run.daily_brief_id,
+            report_id=run.report_id,
             parent_run_id=run.parent_run_id,
             model=run.model,
             prompt_tokens=run.prompt_tokens,

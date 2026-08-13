@@ -30,6 +30,7 @@ export function formatTimestamp(value: string | null | undefined) {
 export function formatTaskTypeLabel(value: string) {
   if (value === 'item_enrichment') return 'Item Enrichment'
   if (value === 'daily_brief') return 'Daily Brief'
+  if (value === 'report') return 'Intelligence Report'
   if (value === 'connection_test') return 'Connection Test'
   if (value === 'reprocess') return 'Reprocess'
   return value
@@ -114,7 +115,7 @@ export function cancelActionLabel(run: AITaskRunResponse) {
 }
 
 export function canInspectProviderExchange(run: AITaskRunResponse) {
-  return run.task_type === 'item_enrichment' || run.task_type === 'daily_brief' || run.task_type === 'connection_test'
+  return run.task_type === 'item_enrichment' || run.task_type === 'daily_brief' || run.task_type === 'report' || run.task_type === 'connection_test'
 }
 
 export function formatRunSelectionLabel(run: AITaskRunResponse) {

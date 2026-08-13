@@ -21,7 +21,7 @@ from app.services.ai_context_budget import (
     plan_evidence_batches,
 )
 from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usage
-from app.services.ai_ops import record_ai_task_event
+from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
 
@@ -56,13 +56,29 @@ def generate_report(
     if report is None:
         raise ReportGenerationError("Report no longer exists.", code="report_not_found")
     if report.status == "ready":
-        return ReportGenerationResult(report.id, report.status, report.model_calls, report.prompt_tokens or 0, report.completion_tokens or 0, report.total_tokens or 0)
-    if report.status == "running" and report.started_at and report.started_at < datetime.now(timezone.utc):
+        return ReportGenerationResult(
+            report.id,
+            report.status,
+            report.model_calls,
+            report.prompt_tokens or 0,
+            report.completion_tokens or 0,
+            report.total_tokens or 0,
+        )
+    if (
+        report.status == "running"
+        and report.started_at
+        and report.started_at < datetime.now(timezone.utc)
+    ):
         # The task run is the ownership record. A retry intentionally resumes by replacing section output.
-        logger.info("report_generation_resuming report_id=%s stage=%s", report.id, report.generation_stage)
+        logger.info(
+            "report_generation_resuming report_id=%s stage=%s",
+            report.id,
+            report.generation_stage,
+        )
 
     active = load_active_ai_settings(db)
     _validate_reporting_available(active)
+    _raise_if_canceled(db, task_run_id)
     budget = build_context_budget(
         context_window_tokens=active.report_context_window_tokens,
         reserved_output_tokens=active.report_reserved_output_tokens,
@@ -71,7 +87,10 @@ def generate_report(
     sources = list(
         db.scalars(
             select(ReportSourceItem)
-            .where(ReportSourceItem.report_id == report.id, ReportSourceItem.included.is_(True))
+            .where(
+                ReportSourceItem.report_id == report.id,
+                ReportSourceItem.included.is_(True),
+            )
             .order_by(ReportSourceItem.rank.asc())
         ).all()
     )
@@ -83,9 +102,13 @@ def generate_report(
         ).all()
     )
     if not sources:
-        raise ReportGenerationError("The report has no included source evidence.", code="no_sources")
+        raise ReportGenerationError(
+            "The report has no included source evidence.", code="no_sources"
+        )
     if not sections:
-        raise ReportGenerationError("The report has no enabled sections.", code="no_sections")
+        raise ReportGenerationError(
+            "The report has no enabled sections.", code="no_sections"
+        )
 
     report.status = "running"
     report.generation_stage = "evidence_synthesis"
@@ -109,7 +132,10 @@ def generate_report(
         )
         report = db.get(Report, report_id)
         if report is None:
-            raise ReportGenerationError("Report was deleted while generation was running.", code="report_deleted")
+            raise ReportGenerationError(
+                "Report was deleted while generation was running.",
+                code="report_deleted",
+            )
         report.generation_stage = "section_generation"
         db.add(report)
         _record_stage(db, task_run_id, report, "section_generation")
@@ -117,7 +143,11 @@ def generate_report(
 
         ordered_sections = _generation_order(sections)
         for section in ordered_sections:
-            if counters.model_calls >= active.report_max_model_calls and section.section_key not in DETERMINISTIC_SECTION_KEYS:
+            _raise_if_canceled(db, task_run_id)
+            if (
+                counters.model_calls >= active.report_max_model_calls
+                and section.section_key not in DETERMINISTIC_SECTION_KEYS
+            ):
                 raise ReportGenerationError(
                     "Report generation reached the configured model-call limit before all sections were complete.",
                     code="model_call_limit",
@@ -136,7 +166,11 @@ def generate_report(
 
         report = db.get(Report, report_id)
         if report is None:
-            raise ReportGenerationError("Report was deleted while generation was running.", code="report_deleted")
+            raise ReportGenerationError(
+                "Report was deleted while generation was running.",
+                code="report_deleted",
+            )
+        _raise_if_canceled(db, task_run_id)
         _finalize_ready_report(db, report=report, counters=counters)
         _record_stage(db, task_run_id, report, "ready")
         db.commit()
@@ -156,8 +190,9 @@ def generate_report(
         )
         current = db.get(Report, report_id)
         if current is not None:
-            current.status = "error"
-            current.generation_stage = "failed"
+            canceled = getattr(exc, "code", None) == "canceled"
+            current.status = "skipped" if canceled else "error"
+            current.generation_stage = "canceled" if canceled else "failed"
             current.error_code = _generation_error_code(exc, expected=expected_error)
             current.error = (
                 str(exc)[:4000]
@@ -180,7 +215,14 @@ def _generation_error_code(exc: Exception, *, expected: bool) -> str:
     code = getattr(exc, "code", None)
     if code:
         return str(code)
-    return "context_budget" if isinstance(exc, AIContextBudgetError) else "provider_error"
+    return (
+        "context_budget" if isinstance(exc, AIContextBudgetError) else "provider_error"
+    )
+
+
+def _raise_if_canceled(db: Session, task_run_id: uuid.UUID | None) -> None:
+    if get_ai_task_run_stop_reason(db, run_id=task_run_id) == "canceled":
+        raise ReportGenerationError("Report generation was canceled.", code="canceled")
 
 
 @dataclass
@@ -192,8 +234,12 @@ class _UsageCounters:
 
     def add(self, completion) -> None:
         self.model_calls += 1
-        self.prompt_tokens += completion.prompt_tokens or completion.prompt_char_count // 3 or 0
-        self.completion_tokens += completion.completion_tokens or completion.response_char_count // 3 or 0
+        self.prompt_tokens += (
+            completion.prompt_tokens or completion.prompt_char_count // 3 or 0
+        )
+        self.completion_tokens += (
+            completion.completion_tokens or completion.response_char_count // 3 or 0
+        )
         self.total_tokens += completion.total_tokens or (
             (completion.prompt_tokens or completion.prompt_char_count // 3 or 0)
             + (completion.completion_tokens or completion.response_char_count // 3 or 0)
@@ -202,11 +248,17 @@ class _UsageCounters:
 
 def _validate_reporting_available(active: ActiveAISettings) -> None:
     if not active.ai_enabled:
-        raise ReportGenerationError("AI features are disabled by the server administrator.", code="ai_disabled")
+        raise ReportGenerationError(
+            "AI features are disabled by the server administrator.", code="ai_disabled"
+        )
     if not active.ai_configured:
-        raise ReportGenerationError("AI provider settings are incomplete.", code="ai_not_configured")
+        raise ReportGenerationError(
+            "AI provider settings are incomplete.", code="ai_not_configured"
+        )
     if not active.reporting_enabled:
-        raise ReportGenerationError("AI reporting is disabled in AI settings.", code="reporting_disabled")
+        raise ReportGenerationError(
+            "AI reporting is disabled in AI settings.", code="reporting_disabled"
+        )
 
 
 def _synthesize_evidence_batches(
@@ -234,8 +286,12 @@ def _synthesize_evidence_batches(
     findings: list[dict] = []
     known_citations = {source.citation_key for source in sources}
     for index, batch in enumerate(batch_plan.batches, start=1):
+        _raise_if_canceled(db, task_run_id)
         if counters.model_calls >= active.report_max_model_calls:
-            raise ReportGenerationError("Evidence synthesis reached the configured model-call limit.", code="model_call_limit")
+            raise ReportGenerationError(
+                "Evidence synthesis reached the configured model-call limit.",
+                code="model_call_limit",
+            )
         messages = [
             {"role": "system", "content": system_prompt},
             {
@@ -266,8 +322,15 @@ def _synthesize_evidence_batches(
             ),
         )
         counters.add(completion)
-        findings.extend(_normalize_findings(completion.payload.get("findings"), known_citations=known_citations))
-        _record_provider_progress(db, task_run_id, report, counters, stage=f"evidence_batch_{index}")
+        _raise_if_canceled(db, task_run_id)
+        findings.extend(
+            _normalize_findings(
+                completion.payload.get("findings"), known_citations=known_citations
+            )
+        )
+        _record_provider_progress(
+            db, task_run_id, report, counters, stage=f"evidence_batch_{index}"
+        )
         db.commit()
     if not findings:
         findings = [
@@ -291,7 +354,9 @@ def _generate_section(
 ) -> None:
     section = db.get(ReportSection, section.id)
     if section is None:
-        raise ReportGenerationError("A report section was deleted during generation.", code="section_deleted")
+        raise ReportGenerationError(
+            "A report section was deleted during generation.", code="section_deleted"
+        )
     if section.section_key in DETERMINISTIC_SECTION_KEYS:
         body, key_points, citations = _deterministic_section(report, section, sources)
     else:
@@ -307,7 +372,9 @@ def _generate_section(
         )
         compact_findings = _fit_findings_to_budget(
             findings,
-            budget_tokens=max(256, budget.usable_input_tokens - estimate_tokens(system_prompt) - 350),
+            budget_tokens=max(
+                256, budget.usable_input_tokens - estimate_tokens(system_prompt) - 350
+            ),
         )
         messages = [
             {"role": "system", "content": system_prompt},
@@ -344,10 +411,12 @@ def _generate_section(
             ),
         )
         counters.add(completion)
+        _raise_if_canceled(db, task_run_id)
         body = str(completion.payload.get("body_markdown") or "").strip()
         if not body:
             raise ReportGenerationError(
-                f"The AI provider returned an empty {section.title} section.", code="invalid_provider_output"
+                f"The AI provider returned an empty {section.title} section.",
+                code="invalid_provider_output",
             )
         citations = _valid_citations(
             completion.payload.get("citations"),
@@ -371,7 +440,9 @@ def _generate_section(
     if section.section_key == "executive_summary":
         report.summary_text = body
     db.add(report)
-    _record_provider_progress(db, task_run_id, report, counters, stage=report.generation_stage)
+    _record_provider_progress(
+        db, task_run_id, report, counters, stage=report.generation_stage
+    )
     db.commit()
 
 
@@ -396,9 +467,14 @@ def _deterministic_section(
         citations: list[str] = []
         for source in included:
             for ioc in source.iocs_snapshot_json or []:
-                entries.append(f"- `{ioc.get('type', 'observable')}` `{ioc.get('value', '')}` [{source.citation_key}]")
+                entries.append(
+                    f"- `{ioc.get('type', 'observable')}` `{ioc.get('value', '')}` [{source.citation_key}]"
+                )
                 citations.append(source.citation_key)
-        body = "\n".join(entries[:500]) or "No extracted observables were present in the selected source snapshot."
+        body = (
+            "\n".join(entries[:500])
+            or "No extracted observables were present in the selected source snapshot."
+        )
         return body, [], list(dict.fromkeys(citations))
     lines = [
         f"- [{source.citation_key}] [{source.title_snapshot}]({source.url_snapshot}) - {source.feed_name_snapshot}"
@@ -408,7 +484,13 @@ def _deterministic_section(
 
 
 def _generation_order(sections: list[ReportSection]) -> list[ReportSection]:
-    return sorted(sections, key=lambda section: (section.section_key == "executive_summary", section.position))
+    return sorted(
+        sections,
+        key=lambda section: (
+            section.section_key == "executive_summary",
+            section.position,
+        ),
+    )
 
 
 def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dict]:
@@ -418,14 +500,23 @@ def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dic
     for entry in value[:100]:
         if isinstance(entry, str):
             text = entry.strip()
-            citations = _valid_citations(None, body=text, known_citations=known_citations)
+            citations = _valid_citations(
+                None, body=text, known_citations=known_citations
+            )
         elif isinstance(entry, dict):
             text = str(entry.get("text") or entry.get("finding") or "").strip()
-            citations = _valid_citations(entry.get("citations"), body=text, known_citations=known_citations)
+            citations = _valid_citations(
+                entry.get("citations"), body=text, known_citations=known_citations
+            )
         else:
             continue
         if text and citations:
-            findings.append({"text": _remove_unknown_inline_citations(text, known_citations), "citations": citations})
+            findings.append(
+                {
+                    "text": _remove_unknown_inline_citations(text, known_citations),
+                    "citations": citations,
+                }
+            )
     return findings
 
 
@@ -451,14 +542,22 @@ def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
         )
 
 
-def _valid_citations(value: object, *, body: str, known_citations: set[str]) -> list[str]:
+def _valid_citations(
+    value: object, *, body: str, known_citations: set[str]
+) -> list[str]:
     explicit = _string_list(value, limit=100)
     inline = CITATION_PATTERN.findall(body)
-    return list(dict.fromkeys(citation for citation in [*explicit, *inline] if citation in known_citations))
+    return list(
+        dict.fromkeys(
+            citation for citation in [*explicit, *inline] if citation in known_citations
+        )
+    )
 
 
 def _remove_unknown_inline_citations(body: str, known_citations: set[str]) -> str:
-    return CITATION_PATTERN.sub(lambda match: match.group(0) if match.group(1) in known_citations else "", body)
+    return CITATION_PATTERN.sub(
+        lambda match: match.group(0) if match.group(1) in known_citations else "", body
+    )
 
 
 def _string_list(value: object, *, limit: int) -> list[str]:
@@ -467,7 +566,9 @@ def _string_list(value: object, *, limit: int) -> list[str]:
     return [text for entry in value[:limit] if (text := str(entry).strip())]
 
 
-def _finalize_ready_report(db: Session, *, report: Report, counters: _UsageCounters) -> None:
+def _finalize_ready_report(
+    db: Session, *, report: Report, counters: _UsageCounters
+) -> None:
     report.status = "ready"
     report.generation_stage = "ready"
     report.generated_at = datetime.now(timezone.utc)

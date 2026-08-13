@@ -23,7 +23,10 @@ from app.schemas.reports import (
 )
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_prompting import build_company_context
-from app.services.report_sources import build_report_source_plan, filters_for_report_period
+from app.services.report_sources import (
+    build_report_source_plan,
+    filters_for_report_period,
+)
 from app.services.report_storage import ReportStorageError, create_report_from_plan
 
 
@@ -64,7 +67,11 @@ def apply_schedule_payload(
     schedule.delivery_mode = payload.delivery_mode
     schedule.skip_empty = payload.skip_empty
     schedule.missed_run_policy = payload.missed_run_policy
-    schedule.next_run_at = next_schedule_run(schedule, after=datetime.now(timezone.utc)) if payload.enabled else None
+    schedule.next_run_at = (
+        next_schedule_run(schedule, after=datetime.now(timezone.utc))
+        if payload.enabled
+        else None
+    )
 
 
 def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse:
@@ -101,24 +108,32 @@ def next_schedule_run(schedule: ReportSchedule, *, after: datetime) -> datetime:
     if schedule.cadence == "weekly":
         days = (schedule.day_of_week - local_after.weekday()) % 7
         candidate_date = local_after.date() + timedelta(days=days)
-        candidate = datetime.combine(candidate_date, time(schedule.hour, schedule.minute), tzinfo=zone)
+        candidate = datetime.combine(
+            candidate_date, time(schedule.hour, schedule.minute), tzinfo=zone
+        )
         if candidate <= local_after:
             candidate += timedelta(days=7)
     else:
         year, month = local_after.year, local_after.month
         day = min(schedule.day_of_month, calendar.monthrange(year, month)[1])
-        candidate = datetime(year, month, day, schedule.hour, schedule.minute, tzinfo=zone)
+        candidate = datetime(
+            year, month, day, schedule.hour, schedule.minute, tzinfo=zone
+        )
         if candidate <= local_after:
             if month == 12:
                 year, month = year + 1, 1
             else:
                 month += 1
             day = min(schedule.day_of_month, calendar.monthrange(year, month)[1])
-            candidate = datetime(year, month, day, schedule.hour, schedule.minute, tzinfo=zone)
+            candidate = datetime(
+                year, month, day, schedule.hour, schedule.minute, tzinfo=zone
+            )
     return candidate.astimezone(timezone.utc)
 
 
-def schedule_report_period(schedule: ReportSchedule, *, due_at: datetime) -> tuple[datetime, datetime]:
+def schedule_report_period(
+    schedule: ReportSchedule, *, due_at: datetime
+) -> tuple[datetime, datetime]:
     zone = ZoneInfo(schedule.timezone)
     local_due = _as_utc(due_at).astimezone(zone)
     if schedule.window_type == "rolling_days":
@@ -127,7 +142,9 @@ def schedule_report_period(schedule: ReportSchedule, *, due_at: datetime) -> tup
         month_start = datetime(local_due.year, local_due.month, 1, tzinfo=zone)
         previous_day = month_start - timedelta(days=1)
         previous_start = datetime(previous_day.year, previous_day.month, 1, tzinfo=zone)
-        return previous_start.astimezone(timezone.utc), month_start.astimezone(timezone.utc)
+        return previous_start.astimezone(timezone.utc), month_start.astimezone(
+            timezone.utc
+        )
     current_week_start = datetime.combine(
         local_due.date() - timedelta(days=local_due.weekday()),
         time.min,
@@ -171,7 +188,11 @@ def reserve_schedule_runs(
     )
     if schedule is None:
         return []
-    if not force and (not schedule.enabled or schedule.next_run_at is None or schedule.next_run_at > _as_utc(now)):
+    if not force and (
+        not schedule.enabled
+        or schedule.next_run_at is None
+        or schedule.next_run_at > _as_utc(now)
+    ):
         return []
     if schedule.owner_user_id is None:
         schedule.enabled = False
@@ -198,11 +219,15 @@ def reserve_schedule_runs(
 
     reports: list[Report] = []
     for due_at in due_times:
-        report = _create_one_scheduled_report(db, schedule=schedule, template=template, due_at=due_at)
+        report = _create_one_scheduled_report(
+            db, schedule=schedule, template=template, due_at=due_at
+        )
         if report is not None:
             reports.append(report)
     schedule.last_run_at = _as_utc(now) if due_times else schedule.last_run_at
-    schedule.next_run_at = next_schedule_run(schedule, after=_as_utc(now)) if schedule.enabled else None
+    schedule.next_run_at = (
+        next_schedule_run(schedule, after=_as_utc(now)) if schedule.enabled else None
+    )
     db.add(schedule)
     return reports
 
@@ -215,21 +240,28 @@ def _create_one_scheduled_report(
     due_at: datetime,
 ) -> Report | None:
     period_start, period_end = schedule_report_period(schedule, due_at=due_at)
-    generation_key = f"schedule:{schedule.id}:{period_start.isoformat()}:{period_end.isoformat()}"
+    generation_key = (
+        f"schedule:{schedule.id}:{period_start.isoformat()}:{period_end.isoformat()}"
+    )
     existing = db.scalar(select(Report).where(Report.generation_key == generation_key))
     if existing is not None:
-        return existing
+        return None
     prompt = ReportPromptConfig(
         audience=template.audience,
         objective=template.objective,
         tone=template.tone,
         detail_level=template.detail_level,
         use_company_context=template.use_company_context,
-        custom_instructions=_join_instructions(template.custom_instructions, schedule.custom_instructions),
+        custom_instructions=_join_instructions(
+            template.custom_instructions, schedule.custom_instructions
+        ),
         focus_topics=list(template.focus_topics_json or []),
         excluded_topics=list(template.excluded_topics_json or []),
     )
-    sections = [ReportSectionConfig.model_validate(entry) for entry in template.sections_json or []]
+    sections = [
+        ReportSectionConfig.model_validate(entry)
+        for entry in template.sections_json or []
+    ]
     filters = filters_for_report_period(
         ArticleExportFilters.model_validate(schedule.filters_json or {}),
         period_start=period_start,
@@ -285,10 +317,14 @@ def _create_one_scheduled_report(
             filters_json=filters.model_dump(mode="json"),
             prompt_config_json=prompt.model_dump(mode="json"),
             generation_context_json={
-                "company_context": build_company_context(active) if prompt.use_company_context else {},
+                "company_context": build_company_context(active)
+                if prompt.use_company_context
+                else {},
                 "global_instructions": active.global_instructions,
             },
-            sections_config_json=[section.model_dump(mode="json") for section in sections],
+            sections_config_json=[
+                section.model_dump(mode="json") for section in sections
+            ],
             metrics_json=plan.metrics,
             coverage_json={"warnings": list(plan.warnings)},
             source_count=plan.total_matches,
@@ -304,7 +340,7 @@ def _create_one_scheduled_report(
                 db.add(report)
                 db.flush()
         except IntegrityError:
-            return db.scalar(select(Report).where(Report.generation_key == generation_key))
+            return None
         return report
 
 

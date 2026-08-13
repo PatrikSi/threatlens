@@ -11,6 +11,7 @@ from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
+from app.models.report import Report
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
     AI_STATUS_QUEUED,
@@ -20,6 +21,7 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPORT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
@@ -61,7 +63,9 @@ def _create_item(db_session: Session, *, source_guid: str) -> Item:
     return item
 
 
-def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session, monkeypatch):
+def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="stale-child")
 
     parent_run = queue_ai_task_run(
@@ -79,11 +83,23 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
         item_id=item.id,
         metadata={"parent_task": "reprocess"},
     )
-    start_ai_task_run(db_session, run_id=parent_run.id, worker_name="celery@test", celery_task_id="parent-task-id")
-    start_ai_task_run(db_session, run_id=child_run.id, worker_name="celery@test", celery_task_id="child-task-id")
+    start_ai_task_run(
+        db_session,
+        run_id=parent_run.id,
+        worker_name="celery@test",
+        celery_task_id="parent-task-id",
+    )
+    start_ai_task_run(
+        db_session,
+        run_id=child_run.id,
+        worker_name="celery@test",
+        celery_task_id="child-task-id",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
-    parent_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    parent_run = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == parent_run.id)
+    )
     child_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
     assert parent_run is not None
     assert child_run is not None
@@ -102,13 +118,19 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
     db_session.add_all([parent_run, child_run])
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
     response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
 
     db_session.expire_all()
-    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
-    refreshed_child = db_session.scalar(select(AITaskRun).where(AITaskRun.id == child_run.id))
+    refreshed_parent = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == parent_run.id)
+    )
+    refreshed_child = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == child_run.id)
+    )
 
     assert refreshed_child is not None
     assert refreshed_child.status == AI_STATUS_ERROR
@@ -126,7 +148,9 @@ def test_list_ai_task_runs_reconciles_stale_reprocess_and_child_runs(db_session,
     assert response.items[0].status == AI_STATUS_ERROR
 
 
-def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_session, monkeypatch):
+def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="plain-history")
 
     run = queue_ai_task_run(
@@ -135,7 +159,12 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_se
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="plain-history-task")
+    start_ai_task_run(
+        db_session,
+        run_id=run.id,
+        worker_name="celery@test",
+        celery_task_id="plain-history-task",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -151,7 +180,9 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_se
     def fail_live_snapshot():
         raise AssertionError("plain history reads should not inspect live workers")
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot
+    )
 
     response = list_ai_task_runs(
         db_session,
@@ -168,7 +199,9 @@ def test_list_ai_task_runs_can_skip_stale_reconciliation_for_plain_history(db_se
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
-def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, monkeypatch):
+def test_list_ai_task_runs_preserves_very_old_stale_run_durations(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="very-old-stale-run")
 
     run = queue_ai_task_run(
@@ -177,7 +210,12 @@ def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, mo
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="very-old-task")
+    start_ai_task_run(
+        db_session,
+        run_id=run.id,
+        worker_name="celery@test",
+        celery_task_id="very-old-task",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(days=60)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -190,9 +228,13 @@ def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, mo
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -204,7 +246,9 @@ def test_list_ai_task_runs_preserves_very_old_stale_run_durations(db_session, mo
     assert response.items[0].duration_ms == refreshed.duration_ms
 
 
-def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db_session, monkeypatch):
+def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(
+    db_session, monkeypatch
+):
     queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
@@ -216,13 +260,20 @@ def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db
         task_type=AI_TASK_TYPE_ITEM_ENRICHMENT,
         trigger_source=AI_TRIGGER_MANUAL,
     )
-    start_ai_task_run(db_session, run_id=running_run.id, worker_name="worker@test", celery_task_id="running-task-id")
+    start_ai_task_run(
+        db_session,
+        run_id=running_run.id,
+        worker_name="worker@test",
+        celery_task_id="running-task-id",
+    )
     db_session.commit()
 
     def fail_live_snapshot():
         raise AssertionError("status overview should not inspect live workers")
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot
+    )
 
     overview = get_ai_ops_overview(db_session, days=30)
 
@@ -233,6 +284,7 @@ def test_ai_ops_overview_uses_database_queue_snapshot_without_live_inspection(db
     assert overview.live.active_tasks[0].run_id == running_run.id
     assert overview.live.active_tasks[0].celery_task_id == "running-task-id"
     assert overview.failures == []
+    assert "reporting" in {row.feature_key for row in overview.feature_health}
 
 
 def test_ai_connection_workload_counts_generation_tasks(db_session, monkeypatch):
@@ -251,10 +303,17 @@ def test_ai_connection_workload_counts_generation_tasks(db_session, monkeypatch)
         task_type=AI_TASK_TYPE_CONNECTION_TEST,
         trigger_source=AI_TRIGGER_MANUAL,
     )
-    start_ai_task_run(db_session, run_id=running_run.id, worker_name="celery@test", celery_task_id="running-task")
+    start_ai_task_run(
+        db_session,
+        run_id=running_run.id,
+        worker_name="celery@test",
+        celery_task_id="running-task",
+    )
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
     workload = get_ai_connection_test_workload(db_session)
 
@@ -263,7 +322,9 @@ def test_ai_connection_workload_counts_generation_tasks(db_session, monkeypatch)
     assert workload.has_active_work is True
 
 
-def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_session, monkeypatch):
+def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="finished-detail")
 
     run = queue_ai_task_run(
@@ -276,9 +337,13 @@ def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_
     db_session.commit()
 
     def fail_live_snapshot():
-        raise AssertionError("finished run detail reads should not inspect live workers")
+        raise AssertionError(
+            "finished run detail reads should not inspect live workers"
+        )
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot)
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", fail_live_snapshot
+    )
 
     detail = get_ai_task_run_detail(db_session, run_id=run.id)
 
@@ -287,7 +352,9 @@ def test_get_ai_task_run_detail_skips_stale_reconciliation_for_finished_runs(db_
     assert detail.run.status == AI_STATUS_READY
 
 
-def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(db_session, monkeypatch):
+def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="queued-backlog")
 
     run = queue_ai_task_run(
@@ -306,9 +373,13 @@ def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(db_session, 
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -318,7 +389,9 @@ def test_list_ai_task_runs_does_not_mark_recent_queued_backlog_lost(db_session, 
     assert response.items[0].status == AI_STATUS_QUEUED
 
 
-def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(db_session, monkeypatch):
+def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="queued-backlog-stale")
 
     run = queue_ai_task_run(
@@ -337,9 +410,13 @@ def test_list_ai_task_runs_marks_queued_backlog_lost_after_fallback_grace(db_ses
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -368,8 +445,12 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
     )
     db_session.commit()
 
-    started = start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="late-task")
-    finished = finish_ai_task_run(db_session, run_id=run.id, status=AI_STATUS_ERROR, reason="unexpected_error")
+    started = start_ai_task_run(
+        db_session, run_id=run.id, worker_name="celery@test", celery_task_id="late-task"
+    )
+    finished = finish_ai_task_run(
+        db_session, run_id=run.id, status=AI_STATUS_ERROR, reason="unexpected_error"
+    )
     db_session.commit()
 
     assert started is not None
@@ -381,6 +462,93 @@ def test_start_and_finish_do_not_overwrite_canceled_runs(db_session):
     assert refreshed.reason == "canceled"
     assert refreshed.worker_name == "api"
     assert refreshed.celery_task_id is None
+
+
+def test_canceled_report_task_settles_report_state(db_session):
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Canceled report",
+        report_type="custom",
+        status=AI_STATUS_QUEUED,
+        trigger_source="manual",
+        generation_stage="queued",
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.flush()
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPORT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        report_id=report.id,
+    )
+
+    finish_ai_task_run(
+        db_session,
+        run_id=run.id,
+        status=AI_STATUS_SKIPPED,
+        reason="canceled",
+        worker_name="api",
+    )
+    db_session.commit()
+
+    db_session.refresh(report)
+    assert report.status == AI_STATUS_SKIPPED
+    assert report.generation_stage == "canceled"
+    assert report.error_code == "canceled"
+    assert report.error == "Report generation was canceled."
+
+
+def test_stale_report_task_settles_report_as_failed(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    stale_time = now - timedelta(hours=2)
+    report = Report(
+        title="Stale report",
+        report_type="custom",
+        status=AI_STATUS_QUEUED,
+        trigger_source="manual",
+        generation_stage="queued",
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.flush()
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPORT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        report_id=report.id,
+    )
+    run.queued_at = stale_time
+    run.created_at = stale_time
+    run.updated_at = stale_time
+    db_session.add(run)
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
+
+    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPORT, limit=10)
+
+    db_session.expire_all()
+    refreshed_report = db_session.get(Report, report.id)
+    assert response.items[0].status == AI_STATUS_ERROR
+    assert response.items[0].report_id == report.id
+    assert refreshed_report is not None
+    assert refreshed_report.status == AI_STATUS_ERROR
+    assert refreshed_report.error_code == "stale_queued_task_unstarted"
+    assert "no longer appears in Celery" in (refreshed_report.error or "")
 
 
 def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine):
@@ -423,7 +591,9 @@ def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine
         try:
             with Session(database_engine) as worker:
                 barrier.wait(timeout=5)
-                result = finish_ai_task_run(worker, run_id=child_id, status=status, reason=reason)
+                result = finish_ai_task_run(
+                    worker, run_id=child_id, status=status, reason=reason
+                )
                 worker.commit()
                 assert result is not None
                 with result_lock:
@@ -466,7 +636,9 @@ def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine
             assert parent.error_count == int(child.status == AI_STATUS_ERROR)
     finally:
         with Session(database_engine) as cleanup:
-            cleanup.execute(delete(AITaskRun).where(AITaskRun.id.in_([child_id, parent_id])))
+            cleanup.execute(
+                delete(AITaskRun).where(AITaskRun.id.in_([child_id, parent_id]))
+            )
             cleanup.commit()
 
 
@@ -545,7 +717,9 @@ def test_cancel_request_wins_when_committed_before_terminal_transition(database_
             cleanup.commit()
 
 
-def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_observes_it(db_session, monkeypatch):
+def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_observes_it(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="cancel-running")
 
     run = queue_ai_task_run(
@@ -554,7 +728,9 @@ def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_obs
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+    start_ai_task_run(
+        db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id"
+    )
     db_session.commit()
 
     monkeypatch.setattr(
@@ -591,7 +767,9 @@ def test_cancel_ai_task_run_marks_running_runs_cancel_requested_until_worker_obs
     assert refreshed.metadata_json["terminated_running_task"] is True
 
 
-def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(monkeypatch):
+def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(
+    monkeypatch,
+):
     class _EmptyInspector:
         def ping(self):
             return {}
@@ -605,9 +783,14 @@ def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(mon
         def scheduled(self):
             return {}
 
-    monkeypatch.setattr("app.services.ai_ops.celery_app.control.inspect", lambda timeout: _EmptyInspector())
+    monkeypatch.setattr(
+        "app.services.ai_ops.celery_app.control.inspect",
+        lambda timeout: _EmptyInspector(),
+    )
 
-    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
+    snapshot_available, workers, active_tasks, reserved_tasks, scheduled_tasks = (
+        _load_live_task_snapshot()
+    )
 
     assert snapshot_available is False
     assert workers == []
@@ -616,7 +799,9 @@ def test_load_live_task_snapshot_reports_unavailable_when_no_workers_respond(mon
     assert scheduled_tasks == []
 
 
-def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(db_session, monkeypatch):
+def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="partial-worker-snapshot")
     run = queue_ai_task_run(
         db_session,
@@ -640,7 +825,10 @@ def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(db_s
 
     class _PartialInspector:
         def ping(self):
-            return {"celery@worker-a": {"ok": "pong"}, "celery@worker-b": {"ok": "pong"}}
+            return {
+                "celery@worker-a": {"ok": "pong"},
+                "celery@worker-b": {"ok": "pong"},
+            }
 
         def active(self):
             return {"celery@worker-a": []}
@@ -651,10 +839,17 @@ def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(db_s
         def scheduled(self):
             return {"celery@worker-a": [], "celery@worker-b": []}
 
-    monkeypatch.setattr("app.services.ai_ops.celery_app.control.inspect", lambda timeout: _PartialInspector())
+    monkeypatch.setattr(
+        "app.services.ai_ops.celery_app.control.inspect",
+        lambda timeout: _PartialInspector(),
+    )
 
-    snapshot_complete, workers, active_tasks, reserved_tasks, scheduled_tasks = _load_live_task_snapshot()
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    snapshot_complete, workers, active_tasks, reserved_tasks, scheduled_tasks = (
+        _load_live_task_snapshot()
+    )
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -670,7 +865,9 @@ def test_partial_two_worker_snapshot_uses_degraded_grace_for_missing_worker(db_s
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
-def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="snapshot-unavailable")
 
     run = queue_ai_task_run(
@@ -679,7 +876,9 @@ def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+    start_ai_task_run(
+        db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id"
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -692,9 +891,13 @@ def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], [])
+    )
 
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -707,7 +910,9 @@ def test_list_ai_task_runs_reconciles_stale_runs_when_live_snapshot_unavailable(
     assert response.items[0].status == AI_STATUS_ERROR
 
 
-def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_snapshot_unavailable(
+    db_session, monkeypatch
+):
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
@@ -715,10 +920,17 @@ def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_sna
         metadata={"days": 7, "limit": 1},
         target_count=1,
     )
-    start_ai_task_run(db_session, run_id=parent_run.id, worker_name="celery@test", celery_task_id="parent-task-id")
+    start_ai_task_run(
+        db_session,
+        run_id=parent_run.id,
+        worker_name="celery@test",
+        celery_task_id="parent-task-id",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
-    parent_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    parent_run = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == parent_run.id)
+    )
     assert parent_run is not None
     parent_run.status = AI_STATUS_RUNNING
     parent_run.processed_count = 1
@@ -730,12 +942,16 @@ def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_sna
     db_session.add(parent_run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], [])
+    )
 
     response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
 
     db_session.expire_all()
-    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    refreshed_parent = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == parent_run.id)
+    )
     assert refreshed_parent is not None
     assert refreshed_parent.status == AI_STATUS_READY
     assert refreshed_parent.reason is None
@@ -744,7 +960,9 @@ def test_list_ai_task_runs_still_finishes_accounted_reprocess_runs_when_live_sna
     assert response.items[0].status == AI_STATUS_READY
 
 
-def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_session, monkeypatch):
+def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(
+    db_session, monkeypatch
+):
     item = _create_item(db_session, source_guid="snapshot-unavailable-recent")
 
     run = queue_ai_task_run(
@@ -753,7 +971,9 @@ def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_s
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id")
+    start_ai_task_run(
+        db_session, run_id=run.id, worker_name="celery@test", celery_task_id="task-id"
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(minutes=5)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -766,9 +986,13 @@ def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_s
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], [])
+    )
 
-    response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
+    response = list_ai_task_runs(
+        db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10
+    )
 
     db_session.expire_all()
     refreshed = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -779,7 +1003,9 @@ def test_list_ai_task_runs_keeps_recent_runs_when_live_snapshot_unavailable(db_s
     assert response.items[0].status == AI_STATUS_RUNNING
 
 
-def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_session, monkeypatch):
+def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(
+    db_session, monkeypatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -813,7 +1039,12 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_sessi
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="stale-task")
+    start_ai_task_run(
+        db_session,
+        run_id=run.id,
+        worker_name="celery@test",
+        celery_task_id="stale-task",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -826,7 +1057,9 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_sessi
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
     list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
 
@@ -842,11 +1075,16 @@ def test_list_ai_task_runs_marks_stale_pending_enrichment_rows_as_error(db_sessi
 
     assert refreshed_enrichment is not None
     assert refreshed_enrichment.status == AI_STATUS_ERROR
-    assert refreshed_enrichment.error == "Task no longer appears in Celery and did not report completion"
+    assert (
+        refreshed_enrichment.error
+        == "Task no longer appears in Celery and did not report completion"
+    )
     assert refreshed_enrichment.generated_at is not None
 
 
-def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as_error(db_session, monkeypatch):
+def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as_error(
+    db_session, monkeypatch
+):
     feed = Feed(
         id=uuid.uuid4(),
         name="Unit42",
@@ -880,7 +1118,12 @@ def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as
         trigger_source=AI_TRIGGER_MANUAL,
         item_id=item.id,
     )
-    start_ai_task_run(db_session, run_id=run.id, worker_name="celery@test", celery_task_id="stale-task")
+    start_ai_task_run(
+        db_session,
+        run_id=run.id,
+        worker_name="celery@test",
+        celery_task_id="stale-task",
+    )
 
     stale_time = datetime.now(timezone.utc) - timedelta(hours=1)
     run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
@@ -893,13 +1136,17 @@ def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as
     db_session.add(run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (False, [], [], [], [])
+    )
 
     list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_ITEM_ENRICHMENT, limit=10)
 
     db_session.expire_all()
     refreshed_run = db_session.scalar(select(AITaskRun).where(AITaskRun.id == run.id))
-    refreshed_enrichment = db_session.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id))
+    refreshed_enrichment = db_session.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item.id)
+    )
 
     assert refreshed_run is not None
     assert refreshed_run.status == AI_STATUS_ERROR
@@ -907,10 +1154,15 @@ def test_list_ai_task_runs_marks_snapshot_unavailable_pending_enrichment_rows_as
 
     assert refreshed_enrichment is not None
     assert refreshed_enrichment.status == AI_STATUS_ERROR
-    assert refreshed_enrichment.error == "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
+    assert (
+        refreshed_enrichment.error
+        == "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
+    )
 
 
-def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(db_session, monkeypatch):
+def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(
+    db_session, monkeypatch
+):
     parent_run = queue_ai_task_run(
         db_session,
         task_type=AI_TASK_TYPE_REPROCESS,
@@ -930,12 +1182,16 @@ def test_list_ai_task_runs_reconciles_partial_skip_parents_consistently(db_sessi
     db_session.add(parent_run)
     db_session.commit()
 
-    monkeypatch.setattr("app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], []))
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot", lambda: (True, [], [], [], [])
+    )
 
     response = list_ai_task_runs(db_session, task_type=AI_TASK_TYPE_REPROCESS, limit=10)
 
     db_session.expire_all()
-    refreshed_parent = db_session.scalar(select(AITaskRun).where(AITaskRun.id == parent_run.id))
+    refreshed_parent = db_session.scalar(
+        select(AITaskRun).where(AITaskRun.id == parent_run.id)
+    )
 
     assert refreshed_parent is not None
     assert refreshed_parent.status == AI_STATUS_SKIPPED
