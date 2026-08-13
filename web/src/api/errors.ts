@@ -1,4 +1,4 @@
-import type { ApiError, ApiTransportError } from './client'
+import type { ApiError, ApiRequestError, ApiTransportError } from './client'
 
 export type ErrorMessageOptions = {
   retryGuidance?: string
@@ -12,6 +12,9 @@ export function resolveApiErrorMessage(
   options: ErrorMessageOptions = {},
 ): string {
   const context = ensureSentence(fallback)
+  if (isApiRequestError(error)) {
+    return joinSentences(context, error.message)
+  }
   if (isApiTransportError(error)) {
     return joinSentences(context, error.message, options.retryGuidance ?? 'Try again after connectivity is restored.')
   }
@@ -107,6 +110,16 @@ function isApiTransportError(error: unknown): error is ApiTransportError {
   return (
     error.name === 'ApiTransportError' &&
     (candidate.kind === 'timeout' || candidate.kind === 'network') &&
+    typeof candidate.path === 'string'
+  )
+}
+
+function isApiRequestError(error: unknown): error is ApiRequestError {
+  if (!(error instanceof Error)) return false
+  const candidate = error as Partial<ApiRequestError>
+  return (
+    error.name === 'ApiRequestError' &&
+    candidate.code === 'invalid_csrf_cookie' &&
     typeof candidate.path === 'string'
   )
 }

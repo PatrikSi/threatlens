@@ -12,6 +12,7 @@ const usersPageDomMocks = vi.hoisted(() => ({
     invalidateQueries: vi.fn(),
   },
   mutate: vi.fn(),
+  pendingUserUpdates: {} as Record<string, () => void>,
   currentUser: {
     data: {
       id: 'admin-1',
@@ -75,13 +76,38 @@ vi.mock('@tanstack/react-query', () => ({
     isError: false,
     error: null,
   }),
-  useMutation: () => ({
-    mutate: usersPageDomMocks.mutate,
-    isPending: false,
-    isError: false,
-    error: null,
-    variables: null,
-  }),
+  useMutation: (options: {
+    mutationKey?: unknown
+    onMutate?: (variables: { id: string; body: unknown }) => void
+    onSuccess?: (data: unknown, variables: { id: string; body: unknown }) => void
+    onSettled?: (data: unknown, error: unknown, variables: { id: string; body: unknown }) => void
+  }) => {
+    const mutationKey = Array.isArray(options.mutationKey) ? options.mutationKey.join(':') : ''
+    if (mutationKey === 'users:update') {
+      return {
+        mutate: (payload: { id: string; body: unknown }) => {
+          options.onMutate?.(payload)
+          usersPageDomMocks.mutate(payload)
+          usersPageDomMocks.pendingUserUpdates[payload.id] = () => {
+            options.onSuccess?.({}, payload)
+            options.onSettled?.({}, null, payload)
+          }
+        },
+        isPending: false,
+        isError: false,
+        error: null,
+        variables: null,
+      }
+    }
+
+    return {
+      mutate: usersPageDomMocks.mutate,
+      isPending: false,
+      isError: false,
+      error: null,
+      variables: null,
+    }
+  },
 }))
 
 vi.mock('react-router-dom', async () => {
@@ -182,6 +208,7 @@ afterEach(() => {
     error: null,
   }
   usersPageDomMocks.mutate.mockReset()
+  usersPageDomMocks.pendingUserUpdates = {}
   routerMocks.blocker.state = 'unblocked'
   routerMocks.blocker.proceed.mockReset()
   routerMocks.blocker.reset.mockReset()
@@ -340,6 +367,46 @@ describe('UsersPage DOM workflows', () => {
       id: 'user-1',
       body: { role: 'admin' },
     })
+  })
+
+  it('keeps pending user updates scoped to the affected row', () => {
+    usersPageDomMocks.usersData = [
+      usersPageDomMocks.usersData[0],
+      {
+        ...usersPageDomMocks.usersData[0],
+        id: 'user-2',
+        email: 'second-analyst@example.com',
+      },
+    ]
+    const view = renderPage()
+    const firstSettings = view.querySelector<HTMLElement>('#user-settings-user-1')
+    const secondSettings = view.querySelector<HTMLElement>('#user-settings-user-2')
+    const firstRole = firstSettings?.querySelector<HTMLSelectElement>('#user-role-user-1')
+    const secondRole = secondSettings?.querySelector<HTMLSelectElement>('#user-role-user-2')
+    const firstReview = firstSettings?.querySelector<HTMLButtonElement>('button')
+    const secondReview = secondSettings?.querySelector<HTMLButtonElement>('button')
+
+    act(() => {
+      setSelectValue(firstRole!, 'admin')
+      setSelectValue(secondRole!, 'admin')
+    })
+    act(() => {
+      firstReview?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    const confirmButton = Array.from(document.querySelectorAll('button')).find((button) =>
+      button.textContent?.includes('Apply user changes'),
+    )
+    act(() => {
+      confirmButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+
+    expect(firstReview?.disabled).toBe(true)
+    expect(secondReview?.disabled).toBe(false)
+
+    act(() => {
+      usersPageDomMocks.pendingUserUpdates['user-1']?.()
+    })
+    expect(firstReview?.disabled).toBe(false)
   })
 
   it('warns admins before they lock themselves out by changing their own role, active state, or approval', () => {

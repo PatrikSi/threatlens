@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,10 @@ from app.db.base import Base
 
 class AIUsageEvent(Base):
     __tablename__ = "ai_usage_events"
+    __table_args__ = (
+        Index("ix_ai_usage_events_item_id", "item_id"),
+        Index("ix_ai_usage_events_daily_brief_id", "daily_brief_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     feature_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)

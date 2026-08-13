@@ -1,0 +1,21 @@
+C:Q1UjqPWBBFifdPdD1QHIG/ZRcVU3g=
+P:libapk
+V:3.0.6-r0
+A:x86_64
+S:133469
+I:277184
+T:Alpine Package Keeper - package manager for alpine
+U:https://gitlab.alpinelinux.org/alpine/apk-tools
+L:GPL-2.0-only
+o:apk-tools
+m:Natanael Copa <ncopa@alpinelinux.org>
+t:1776072180
+c:1403ea7a8ae3fb8e5a11207ddb1ff536eb8de912
+D:so:libc.musl-x86_64.so.1 so:libcrypto.so.3 so:libssl.so.3 so:libz.so.1
+p:libapk2=3.0.6-r0 so:libapk.so.3.0.0=3.0.0
+r:apk-tools3
+F:usr
+F:usr/lib
+R:libapk.so.3.0.0
+a:0:0:755
+Z:Q1F5CtSY+J12duk4eVQTyYnZ81IGk=

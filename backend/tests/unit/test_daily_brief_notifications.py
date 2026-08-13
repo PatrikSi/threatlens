@@ -61,6 +61,8 @@ def test_ready_brief_event_is_idempotent_and_contains_immutable_delivery_context
     assert second.id == first.id
     assert db_session.query(IntegrationEvent).count() == 1
     assert first.source_type == "ai_daily_brief"
+    assert first.schema_version == 1
+    assert first.payload_json["schema_version"] == 1
     assert first.payload_json["scope_key"] == "ai_daily_brief:2026-07-18"
     assert context.brief_id == brief.id
     assert context.brief_date == "2026-07-18"

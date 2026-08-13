@@ -5,4 +5,4 @@ target-version = "py312"
 select = ["F", "C90"]
 
 [tool.ruff.lint.mccabe]
-max-complexity = 40
+max-complexity = 25

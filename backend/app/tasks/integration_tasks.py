@@ -5,11 +5,18 @@ import uuid
 
 from app.core.config import get_settings
 from app.models.integration import IntegrationDelivery
-from app.services.integration_delivery import defer_integration_delivery, list_recoverable_integration_delivery_ids
+from app.services.integration_delivery import (
+    DELIVERY_TERMINAL_STATES,
+    defer_integration_delivery,
+    record_integration_delivery_unknown_outcome,
+    release_integration_delivery_publications,
+    reserve_recoverable_integration_deliveries,
+)
 from app.services.integration_events import (
     IntegrationEventContextError,
-    list_recoverable_integration_event_ids,
     record_integration_event_failure,
+    release_integration_event_publications,
+    reserve_recoverable_integration_events,
     route_integration_event as route_pending_integration_event,
 )
 from app.services.integration_maintenance import run_integration_delivery_maintenance
@@ -30,7 +37,9 @@ def enqueue_integration_event_routing(event_ids: list[uuid.UUID]) -> bool:
             route_integration_event.delay(str(event_id))
         except Exception as exc:
             all_enqueued = False
-            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+            logger.exception(
+                "integration_event_enqueue_failed event_id=%s error=%s", event_id, exc
+            )
     return all_enqueued
 
 
@@ -64,40 +73,66 @@ def process_integration_deliveries(delivery_ids: list[str]):
             except (AttributeError, TypeError, ValueError):
                 skipped += 1
                 continue
-            delivery = db.get(IntegrationDelivery, delivery_id)
-            if delivery is None:
-                skipped += 1
-                continue
-            connector = get_integration_connector(delivery.connector_type)
-            if connector is None:
-                defer_integration_delivery(
+            try:
+                delivery = db.get(IntegrationDelivery, delivery_id)
+                if delivery is None:
+                    skipped += 1
+                    continue
+                connector = get_integration_connector(delivery.connector_type)
+                if connector is None:
+                    defer_integration_delivery(
+                        db,
+                        delivery_id=delivery.id,
+                        error_code="unsupported_connector",
+                        error_message=(
+                            f"Connector {delivery.connector_type!r} is not available on this worker; "
+                            "delivery will be retried after the worker is upgraded."
+                        ),
+                    )
+                    db.commit()
+                    deferred += 1
+                    continue
+                result = connector.process_delivery(db, delivery=delivery)
+                for followup in result.followup_deliveries:
+                    enqueue_integration_delivery_processing(
+                        [followup.delivery_id],
+                        countdown=followup.countdown_seconds,
+                    )
+                if result.followup_event_ids:
+                    enqueue_integration_event_routing(list(result.followup_event_ids))
+                if result.status == "succeeded":
+                    delivered += 1
+                elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
+                    deferred += 1
+                elif result.status in {"terminal", "missing"}:
+                    skipped += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                db.rollback()
+                outcome = record_integration_delivery_unknown_outcome(
                     db,
-                    delivery_id=delivery.id,
-                    error_code="unsupported_connector",
-                    error_message=(
-                        f"Connector {delivery.connector_type!r} is not available on this worker; "
-                        "delivery will be retried after the worker is upgraded."
-                    ),
+                    delivery_id=delivery_id,
+                    error_code="worker_error",
+                    error_message=f"{type(exc).__name__}: {exc}"[:4000],
                 )
+                if (
+                    not outcome.recorded
+                    and outcome.state not in DELIVERY_TERMINAL_STATES
+                ):
+                    defer_integration_delivery(
+                        db,
+                        delivery_id=delivery_id,
+                        error_code="worker_error",
+                        error_message=f"{type(exc).__name__}: {exc}"[:4000],
+                    )
                 db.commit()
-                deferred += 1
-                continue
-            result = connector.process_delivery(db, delivery=delivery)
-            for followup in result.followup_deliveries:
-                enqueue_integration_delivery_processing(
-                    [followup.delivery_id],
-                    countdown=followup.countdown_seconds,
-                )
-            if result.followup_event_ids:
-                enqueue_integration_event_routing(list(result.followup_event_ids))
-            if result.status == "succeeded":
-                delivered += 1
-            elif result.status in {"pending", "sending", "retry_wait", "deferred"}:
-                deferred += 1
-            elif result.status in {"terminal", "missing"}:
-                skipped += 1
-            else:
                 failed += 1
+                logger.exception(
+                    "integration_delivery_processing_failed delivery_id=%s error_type=%s",
+                    delivery_id,
+                    type(exc).__name__,
+                )
     return {
         "status": "ok",
         "scanned": len(delivery_ids),
@@ -115,14 +150,49 @@ def process_integration_deliveries(delivery_ids: list[str]):
 )
 def dispatch_pending_integration_deliveries():
     with db_session() as db:
-        delivery_ids = list_recoverable_integration_delivery_ids(db)
-    enqueue_ok = enqueue_integration_delivery_processing(delivery_ids)
+        reservation = reserve_recoverable_integration_deliveries(db)
+        db.commit()
+    queued_ids, failed_ids = _enqueue_recovery_delivery_processing(
+        list(reservation.delivery_ids)
+    )
+    if failed_ids:
+        with db_session() as db:
+            release_integration_delivery_publications(
+                db,
+                delivery_ids=failed_ids,
+                reserved_at=reservation.reserved_at,
+            )
+            db.commit()
     return {
         "status": "ok",
-        "scanned": len(delivery_ids),
-        "queued": len(delivery_ids) if enqueue_ok else 0,
-        "enqueue_failed": bool(delivery_ids) and not enqueue_ok,
+        "scanned": len(reservation.delivery_ids),
+        "queued": len(queued_ids),
+        "enqueue_failed": bool(failed_ids),
     }
+
+
+def _enqueue_recovery_delivery_processing(
+    delivery_ids: list[uuid.UUID],
+) -> tuple[list[uuid.UUID], list[uuid.UUID]]:
+    batch_size = max(1, int(settings.notification_delivery_enqueue_batch_size))
+    queued: list[uuid.UUID] = []
+    failed: list[uuid.UUID] = []
+    for offset in range(0, len(delivery_ids), batch_size):
+        chunk = delivery_ids[offset : offset + batch_size]
+        try:
+            process_integration_deliveries.delay(
+                [str(delivery_id) for delivery_id in chunk]
+            )
+        except Exception as exc:
+            failed.extend(chunk)
+            logger.exception(
+                "integration_delivery_recovery_enqueue_failed delivery_count=%s error=%s",
+                len(chunk),
+                exc,
+            )
+        else:
+            queued.extend(chunk)
+    return queued, failed
 
 
 @celery_app.task(
@@ -167,7 +237,11 @@ def route_integration_event(event_id: str):
                 terminal=True,
             )
             db.commit()
-            logger.warning("integration_event_dead_lettered event_id=%s error=%s", parsed_event_id, exc)
+            logger.warning(
+                "integration_event_dead_lettered event_id=%s error=%s",
+                parsed_event_id,
+                exc,
+            )
             return {"status": "dead_letter", "event_id": event_id, "error": str(exc)}
         except Exception as exc:
             db.rollback()
@@ -178,13 +252,21 @@ def route_integration_event(event_id: str):
                 terminal=False,
             )
             db.commit()
-            logger.exception("integration_event_routing_failed event_id=%s error=%s", parsed_event_id, exc)
+            logger.exception(
+                "integration_event_routing_failed event_id=%s error=%s",
+                parsed_event_id,
+                exc,
+            )
             return {
-                "status": failed_event.routing_state if failed_event is not None else "missing",
+                "status": failed_event.routing_state
+                if failed_event is not None
+                else "missing",
                 "event_id": event_id,
             }
 
-    enqueue_ok = enqueue_integration_delivery_processing(result.integration_delivery_ids)
+    enqueue_ok = enqueue_integration_delivery_processing(
+        result.integration_delivery_ids
+    )
     return {
         "status": result.status,
         "event_id": event_id,
@@ -201,14 +283,32 @@ def route_integration_event(event_id: str):
 )
 def dispatch_pending_integration_events():
     with db_session() as db:
-        event_ids = list_recoverable_integration_event_ids(db)
+        reservation = reserve_recoverable_integration_events(db)
+        db.commit()
 
     queued = 0
-    for event_id in event_ids:
+    failed_ids: list[uuid.UUID] = []
+    for event_id in reservation.event_ids:
         try:
             route_integration_event.delay(str(event_id))
         except Exception as exc:
-            logger.exception("integration_event_enqueue_failed event_id=%s error=%s", event_id, exc)
+            failed_ids.append(event_id)
+            logger.exception(
+                "integration_event_enqueue_failed event_id=%s error=%s", event_id, exc
+            )
             continue
         queued += 1
-    return {"status": "ok", "scanned": len(event_ids), "queued": queued}
+    if failed_ids:
+        with db_session() as db:
+            release_integration_event_publications(
+                db,
+                event_ids=failed_ids,
+                reserved_at=reservation.reserved_at,
+            )
+            db.commit()
+    return {
+        "status": "ok",
+        "scanned": len(reservation.event_ids),
+        "queued": queued,
+        "enqueue_failed": len(failed_ids),
+    }

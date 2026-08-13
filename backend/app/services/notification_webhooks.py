@@ -1,48 +1,81 @@
 from __future__ import annotations
 
-import json
-import hashlib
 import logging
 import uuid
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
-from app.models.alert_interest import AlertInterest
 from app.models.feed import Feed
 from app.models.item import Item
-from app.models.item_classification import ItemClassification
-from app.models.integration import IntegrationDelivery, IntegrationEvent
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
 from app.schemas.notification import (
-    NotificationAnalyticsEventSummary,
-    NotificationAnalyticsResponse,
-    NotificationAnalyticsWebhookSummary,
     NotificationEventType,
     NotificationTemplateVariable,
-    NotificationWebhookField,
-    NotificationQueueSnapshot,
     NotificationWebhookTestResponse,
     NotificationWebhookWrite,
 )
 from app.services import notification_webhook_http
 from app.services.daily_brief_notifications import (
-    DailyBriefNotificationContextError,
-    daily_brief_context_from_payload,
     get_latest_daily_brief_notification_context,
 )
-from app.services.notification_webhook_http import (
-    THREATLENS_DELIVERY_ID_HEADER,
-    canonicalize_headers,
-    default_raw_content_type,
+from app.services.integration_delivery import list_recoverable_webhook_delivery_ids
+from app.services.notification_webhook_contexts import (  # noqa: F401 - compatibility re-exports
+    FEED_FAILING_NOTIFICATION_THRESHOLD,
+    build_alert_match_context_for_item,
+    build_failed_webhook_retry_context as _build_failed_webhook_retry_context,
+    build_item_haystack as _build_item_haystack,
+    build_sample_feed_for_event as _build_sample_feed_for_event,
+    daily_brief_context_for_webhook_delivery as _daily_brief_context_for_webhook_delivery,
+    feed_ids_for_webhook_payload as _feed_ids_for_webhook_payload,
+    resolve_sample_feed_and_item as _resolve_sample_feed_and_item,
+)
+from app.services.notification_webhook_history import (  # noqa: F401 - compatibility re-exports
+    NOTIFICATION_DELIVERY_FAILED,
+    NOTIFICATION_DELIVERY_PENDING,
+    NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER,
+    NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE,
+    NOTIFICATION_DELIVERY_SENDING,
+    NOTIFICATION_DELIVERY_STALE_AFTER,
+    NOTIFICATION_DELIVERY_SUCCEEDED,
+    NOTIFICATION_DELIVERY_TERMINAL_STATES,
+    NotificationDeliveryReservationBatch,
+    NotificationWebhookDeliveryAttempt,
+    NotificationWebhookRetryReservation,
+    claim_notification_webhook_delivery as _claim_notification_webhook_delivery,
+    create_pending_notification_webhook_delivery as _create_pending_notification_webhook_delivery,
+    create_pending_notification_webhook_delivery_from_render_failure as _create_pending_notification_webhook_delivery_from_render_failure,
+    delivery_has_presend_render_failure as _delivery_has_presend_render_failure,
+    delivery_result_from_model as _delivery_result_from_model,
+    finalize_notification_webhook_delivery as _finalize_notification_webhook_delivery,
+    find_notification_webhook_retry_reuse_candidate as _find_notification_webhook_retry_reuse_candidate,
+    get_active_notification_webhook_user as _get_active_notification_webhook_user,
+    get_notification_analytics,
+    get_notification_delivery_queue_snapshot,
+    has_recent_notification_delivery,
+    is_retryable_notification_delivery as _is_retryable_notification_delivery,
+    is_retryable_notification_outcome as _is_retryable_notification_outcome,
+    is_retryable_notification_result as _is_retryable_notification_result,
+    notification_delivery_chain_attempt_count as _notification_delivery_chain_attempt_count,
+    notification_delivery_retry_delay_seconds as _notification_delivery_retry_delay_seconds,
+    notification_delivery_retry_root_id as _notification_delivery_retry_root_id,
+    seconds_since as _seconds_since,
+    try_acquire_notification_delivery_lock,
+)
+from app.services.notification_webhook_requests import (  # noqa: F401 - compatibility re-exports
+    THREATLENS_SOURCE_DELIVERY_ID_HEADER,
+    RenderedNotificationRequest,
+    apply_notification_delivery_headers as _apply_notification_delivery_headers,
+    render_notification_request,
+    rendered_request_from_delivery as _rendered_request_from_delivery,
+    restore_saved_request_target as _restore_saved_request_target,
 )
 from app.services.notification_webhook_templates import (
     TEMPLATE_PATTERN,
@@ -51,21 +84,11 @@ from app.services.notification_webhook_templates import (
     DailyDigestContext,
     FailedWebhookContext,
     TemplateRenderError,
-    assign_nested_json_value as _assign_nested_json_value,
-    build_template_context as _build_template_context,
     find_unknown_template_variables as _find_unknown_template_variables,
     find_unknown_template_variables_in_texts,
     isoformat as _isoformat,
     list_template_variables,
-    render_field as _render_field,
     render_notification_template_text,
-    render_template as _render_template,
-)
-from app.services.integration_delivery import (
-    claim_webhook_delivery as claim_generic_webhook_delivery,
-    ensure_webhook_delivery,
-    finalize_webhook_delivery as finalize_generic_webhook_delivery,
-    list_recoverable_webhook_delivery_ids,
 )
 from app.services.notification_webhook_storage import (
     POLICY_FAILURE_ERROR_PREFIX,
@@ -74,12 +97,8 @@ from app.services.notification_webhook_storage import (
     build_notification_webhook,
     decrypt_notification_json as _decrypt_notification_json,
     decrypt_notification_text as _decrypt_notification_text,
-    encrypt_notification_json as _encrypt_notification_json,
-    encrypt_notification_text as _encrypt_notification_text,
     notification_error_for_display as _notification_error_for_display,
     notification_feed_ids_from_storage as _notification_feed_ids_from_storage,
-    notification_fields_from_storage as _notification_fields_from_storage,
-    notification_fields_to_storage as _notification_fields_to_storage,
     notification_webhook_delivery_response_from_model,
     notification_webhook_response_from_model,
     notification_webhook_write_from_model,
@@ -93,9 +112,7 @@ from app.services.url_utils import is_fetchable_url
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
-FEED_FAILING_NOTIFICATION_THRESHOLD = 3
 FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS = 12
-THREATLENS_SOURCE_DELIVERY_ID_HEADER = "X-ThreatLens-Source-Delivery-ID"
 
 __all__ = [
     "NotificationTemplateVariable",
@@ -120,55 +137,16 @@ __all__ = [
 class NotificationWebhookRetryInProgressError(RuntimeError):
     pass
 
-NOTIFICATION_DELIVERY_PENDING = "pending"
-NOTIFICATION_DELIVERY_SENDING = "sending"
-NOTIFICATION_DELIVERY_SUCCEEDED = "succeeded"
-NOTIFICATION_DELIVERY_FAILED = "failed"
-NOTIFICATION_DELIVERY_TERMINAL_STATES = (NOTIFICATION_DELIVERY_SUCCEEDED, NOTIFICATION_DELIVERY_FAILED)
-NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE = settings.notification_delivery_recovery_batch_size
-NOTIFICATION_DELIVERY_STALE_AFTER = timedelta(seconds=settings.notification_delivery_sending_stale_after_seconds)
-NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER = timedelta(seconds=settings.notification_delivery_queue_degraded_after_seconds)
 
-
-@dataclass
-class RenderedNotificationRequest:
-    method: str
-    url: str
-    headers: list[NotificationWebhookField]
-    query_params: list[NotificationWebhookField]
-    body: str | None
-    headers_dict: dict[str, str]
-    query_param_pairs: list[tuple[str, str]]
-    json_body: dict | None
-    form_body: list[tuple[str, str]] | None
-    raw_body: bytes | None
-    timeout_seconds: int
-
-
-@dataclass
-class NotificationWebhookDeliveryAttempt:
-    result: NotificationWebhookTestResponse
-    delivery: NotificationWebhookDelivery
-    claimed: bool = True
-
-
-@dataclass(frozen=True)
-class NotificationWebhookRetryReservation:
-    delivery: NotificationWebhookDelivery
-    created: bool
-    countdown_seconds: int | None = None
-
-
-@dataclass(frozen=True)
-class NotificationDeliveryReservationBatch:
-    delivery_ids: list[uuid.UUID]
-    matched_webhooks: int
-    skipped: int
-
-
-def validate_notification_webhook_payload(payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]) -> None:
+def validate_notification_webhook_payload(
+    payload: NotificationWebhookWrite, available_feed_ids: set[uuid.UUID]
+) -> None:
     if payload.feed_scope == "selected":
-        invalid_feed_ids = [str(feed_id) for feed_id in payload.feed_ids if feed_id not in available_feed_ids]
+        invalid_feed_ids = [
+            str(feed_id)
+            for feed_id in payload.feed_ids
+            if feed_id not in available_feed_ids
+        ]
         if invalid_feed_ids:
             raise ValueError(f"Unknown feed ids: {', '.join(sorted(invalid_feed_ids))}")
 
@@ -176,7 +154,9 @@ def validate_notification_webhook_payload(payload: NotificationWebhookWrite, ava
 
     unknown_variables = sorted(_find_unknown_template_variables(payload))
     if unknown_variables:
-        raise ValueError(f"Unknown template variable(s): {', '.join(unknown_variables)}")
+        raise ValueError(
+            f"Unknown template variable(s): {', '.join(unknown_variables)}"
+        )
 
 
 def _validate_notification_target_url(url_template: str) -> None:
@@ -186,12 +166,20 @@ def _validate_notification_target_url(url_template: str) -> None:
         raise ValueError("url_template must be a valid URL") from exc
 
     if "{{" in split.scheme or "{{" in split.netloc:
-        raise ValueError("url_template must not contain templates in the scheme or host")
+        raise ValueError(
+            "url_template must not contain templates in the scheme or host"
+        )
     if split.scheme.lower() not in {"http", "https"}:
         raise ValueError("url_template must use http or https")
     if split.scheme.lower() != "https" and not settings.allow_private_network_webhooks:
-        raise ValueError("url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled")
-    if split.scheme.lower() == "http" and settings.allow_private_network_webhooks and is_fetchable_url(url_template, allow_private_network=False):
+        raise ValueError(
+            "url_template must use https unless ALLOW_PRIVATE_NETWORK_WEBHOOKS is enabled"
+        )
+    if (
+        split.scheme.lower() == "http"
+        and settings.allow_private_network_webhooks
+        and is_fetchable_url(url_template, allow_private_network=False)
+    ):
         raise ValueError(
             "url_template must use https for publicly routable hosts; plain http is only allowed for private-network webhook endpoints"
         )
@@ -199,7 +187,9 @@ def _validate_notification_target_url(url_template: str) -> None:
         raise ValueError("url_template must not include embedded credentials")
     if split.fragment:
         raise ValueError("url_template must not include fragments")
-    if not is_fetchable_url(url_template, allow_private_network=settings.allow_private_network_webhooks):
+    if not is_fetchable_url(
+        url_template, allow_private_network=settings.allow_private_network_webhooks
+    ):
         raise ValueError("url_template is not allowed for outbound fetch")
 
 
@@ -224,91 +214,23 @@ def validate_notification_delivery_target_for_actor(
     _validate_notification_target_url(rendered_url)
 
 
-def validate_notification_actor_for_delivery(actor_user: User | SimpleNamespace | None) -> None:
+def validate_notification_actor_for_delivery(
+    actor_user: User | SimpleNamespace | None,
+) -> None:
     if actor_user is None:
-        raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
-    if not getattr(actor_user, "is_active", True) or not getattr(actor_user, "is_approved", True):
-        raise ValueError("Webhook owner is no longer active and approved for outbound delivery")
+        raise ValueError(
+            "Webhook owner is no longer active and approved for outbound delivery"
+        )
+    if not getattr(actor_user, "is_active", True) or not getattr(
+        actor_user, "is_approved", True
+    ):
+        raise ValueError(
+            "Webhook owner is no longer active and approved for outbound delivery"
+        )
     if getattr(actor_user, "role", None) not in {ROLE_ADMIN, ROLE_ANALYST}:
-        raise ValueError("Webhook owner is no longer authorized to manage outbound deliveries")
-
-
-def render_notification_request(
-    payload: NotificationWebhookWrite,
-    *,
-    user: User | SimpleNamespace,
-    feed: Feed | SimpleNamespace | None,
-    item: Item | SimpleNamespace | None,
-    event_type: NotificationEventType | None = None,
-    triggered_at: datetime | None = None,
-    delivery_id: uuid.UUID | None = None,
-    source_delivery_id: uuid.UUID | None = None,
-    alert_context: AlertMatchContext | None = None,
-    failed_webhook_context: FailedWebhookContext | None = None,
-    digest_context: DailyDigestContext | None = None,
-) -> RenderedNotificationRequest:
-    rendered_at = triggered_at or datetime.now(timezone.utc)
-    delivery_uuid = delivery_id or uuid.uuid4()
-    context = _build_template_context(
-        user=user,
-        feed=feed,
-        item=item,
-        event_type=event_type or payload.event_type,
-        triggered_at=rendered_at,
-        delivery_id=delivery_uuid,
-        alert_context=alert_context,
-        failed_webhook_context=failed_webhook_context,
-        digest_context=digest_context,
-    )
-
-    rendered_url = _render_template(payload.url_template, context)
-    rendered_query_params = [_render_field(field, context) for field in payload.query_params]
-    rendered_headers = [_render_field(field, context) for field in payload.headers]
-    headers_dict = canonicalize_headers(rendered_headers)
-    _apply_notification_delivery_headers(
-        headers_dict,
-        delivery_id=delivery_uuid,
-        source_delivery_id=source_delivery_id,
-    )
-    query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
-
-    body_text: str | None = None
-    json_body: dict | None = None
-    form_body: list[tuple[str, str]] | None = None
-    raw_body: bytes | None = None
-
-    if payload.body_mode == "json":
-        json_body = {}
-        for rendered_field in (_render_field(field, context) for field in payload.body_fields):
-            _assign_nested_json_value(json_body, rendered_field.key, rendered_field.value)
-        body_text = json.dumps(json_body, ensure_ascii=True)
-        headers_dict.setdefault("Content-Type", "application/json")
-    elif payload.body_mode == "form":
-        form_body = []
-        for rendered_field in (_render_field(field, context) for field in payload.body_fields):
-            form_body.append((rendered_field.key, rendered_field.value))
-        body_text = urlencode(form_body)
-        headers_dict.setdefault("Content-Type", "application/x-www-form-urlencoded")
-    elif payload.body_mode == "raw":
-        body_text = _render_template(payload.body_template or "", context)
-        raw_body = body_text.encode("utf-8")
-        headers_dict.setdefault("Content-Type", default_raw_content_type(body_text))
-
-    rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
-
-    return RenderedNotificationRequest(
-        method=payload.method,
-        url=rendered_url,
-        headers=rendered_headers,
-        query_params=rendered_query_params,
-        body=body_text,
-        headers_dict=headers_dict,
-        query_param_pairs=query_param_pairs,
-        json_body=json_body,
-        form_body=form_body,
-        raw_body=raw_body,
-        timeout_seconds=payload.timeout_seconds,
-    )
+        raise ValueError(
+            "Webhook owner is no longer authorized to manage outbound deliveries"
+        )
 
 
 def test_notification_webhook(
@@ -331,7 +253,9 @@ def test_notification_webhook(
     digest_context = None
 
     if payload.event_type == "alert_match":
-        alert_context = build_alert_match_context_for_item(db, user_id=user.id, item=item)
+        alert_context = build_alert_match_context_for_item(
+            db, user_id=user.id, item=item
+        )
         if alert_context is None:
             alert_context = AlertMatchContext(
                 count=1,
@@ -365,8 +289,14 @@ def test_notification_webhook(
                 generated_at=now,
                 title="Example AI Daily Brief",
                 brief_text="The latest intelligence highlights identity threats and exposed edge services.",
-                key_points=["Prioritize identity telemetry", "Review exposed edge services"],
-                recommended_actions=["Validate MFA coverage", "Confirm edge patch status"],
+                key_points=[
+                    "Prioritize identity telemetry",
+                    "Review exposed edge services",
+                ],
+                recommended_actions=[
+                    "Validate MFA coverage",
+                    "Confirm edge patch status",
+                ],
             )
 
     rendered = render_notification_request(
@@ -383,18 +313,20 @@ def test_notification_webhook(
         validate_notification_actor_for_delivery(user)
         _validate_notification_target_url(rendered.url)
     except ValueError as exc:
-        return _redact_notification_test_response(NotificationWebhookTestResponse(
-            success=False,
-            status_code=None,
-            duration_ms=0,
-            rendered_url=rendered.url,
-            rendered_method=rendered.method,
-            rendered_headers=rendered.headers,
-            rendered_query_params=rendered.query_params,
-            rendered_body=rendered.body,
-            response_body_preview=None,
-            error=str(exc),
-        ))
+        return _redact_notification_test_response(
+            NotificationWebhookTestResponse(
+                success=False,
+                status_code=None,
+                duration_ms=0,
+                rendered_url=rendered.url,
+                rendered_method=rendered.method,
+                rendered_headers=rendered.headers,
+                rendered_query_params=rendered.query_params,
+                rendered_body=rendered.body,
+                response_body_preview=None,
+                error=str(exc),
+            )
+        )
     result = _send_rendered_notification_request(rendered)
     return _redact_notification_test_response(result)
 
@@ -402,8 +334,12 @@ def test_notification_webhook(
 test_notification_webhook.__test__ = False
 
 
-def get_matching_notification_webhooks_for_feed(db: Session, *, feed_id: uuid.UUID) -> list[NotificationWebhook]:
-    return get_matching_notification_webhooks(db, event_type="rss_item_new", feed_id=feed_id)
+def get_matching_notification_webhooks_for_feed(
+    db: Session, *, feed_id: uuid.UUID
+) -> list[NotificationWebhook]:
+    return get_matching_notification_webhooks(
+        db, event_type="rss_item_new", feed_id=feed_id
+    )
 
 
 def get_matching_notification_webhooks(
@@ -420,7 +356,9 @@ def get_matching_notification_webhooks(
     if user_id is not None:
         query = query.where(NotificationWebhook.user_id == user_id)
 
-    enabled_webhooks = db.scalars(query.order_by(NotificationWebhook.created_at.asc())).all()
+    enabled_webhooks = db.scalars(
+        query.order_by(NotificationWebhook.created_at.asc())
+    ).all()
     if feed_id is None:
         return [webhook for webhook in enabled_webhooks if webhook.feed_scope == "all"]
     return [
@@ -438,13 +376,19 @@ def reserve_new_item_notification_deliveries(
     webhooks: list[NotificationWebhook] | None = None,
     user_cache: dict[uuid.UUID, User | None] | None = None,
 ) -> NotificationDeliveryReservationBatch:
-    matched_webhooks = webhooks if webhooks is not None else get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
+    matched_webhooks = (
+        webhooks
+        if webhooks is not None
+        else get_matching_notification_webhooks_for_feed(db, feed_id=feed.id)
+    )
     resolved_user_cache = user_cache if user_cache is not None else {}
     reserved_delivery_ids: list[uuid.UUID] = []
     skipped = 0
 
     for webhook in matched_webhooks:
-        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        user = _get_active_notification_webhook_user(
+            db, webhook=webhook, user_cache=resolved_user_cache
+        )
         if user is None:
             skipped += 1
             continue
@@ -493,7 +437,11 @@ def reserve_alert_match_notification_deliveries(
     user_cache: dict[uuid.UUID, User | None] | None = None,
 ) -> NotificationDeliveryReservationBatch:
     matched_webhooks = (
-        webhooks if webhooks is not None else get_matching_notification_webhooks(db, event_type="alert_match", feed_id=feed.id)
+        webhooks
+        if webhooks is not None
+        else get_matching_notification_webhooks(
+            db, event_type="alert_match", feed_id=feed.id
+        )
     )
     resolved_user_cache = user_cache if user_cache is not None else {}
     reserved_delivery_ids: list[uuid.UUID] = []
@@ -501,13 +449,17 @@ def reserve_alert_match_notification_deliveries(
     cached_contexts: dict[uuid.UUID, AlertMatchContext | None] = {}
 
     for webhook in matched_webhooks:
-        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        user = _get_active_notification_webhook_user(
+            db, webhook=webhook, user_cache=resolved_user_cache
+        )
         if user is None:
             skipped += 1
             continue
 
         if webhook.user_id not in cached_contexts:
-            cached_contexts[webhook.user_id] = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
+            cached_contexts[webhook.user_id] = build_alert_match_context_for_item(
+                db, user_id=webhook.user_id, item=item
+            )
 
         alert_context = cached_contexts[webhook.user_id]
         if alert_context is None:
@@ -559,18 +511,28 @@ def reserve_feed_failing_notification_deliveries(
     now: datetime | None = None,
 ) -> NotificationDeliveryReservationBatch:
     if int(feed.error_count or 0) < FEED_FAILING_NOTIFICATION_THRESHOLD:
-        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+        return NotificationDeliveryReservationBatch(
+            delivery_ids=[], matched_webhooks=0, skipped=0
+        )
 
     matched_webhooks = (
-        webhooks if webhooks is not None else get_matching_notification_webhooks(db, event_type="feed_failing", feed_id=feed.id)
+        webhooks
+        if webhooks is not None
+        else get_matching_notification_webhooks(
+            db, event_type="feed_failing", feed_id=feed.id
+        )
     )
     resolved_user_cache = user_cache if user_cache is not None else {}
     reserved_delivery_ids: list[uuid.UUID] = []
     skipped = 0
-    cooldown_start = (now or datetime.now(timezone.utc)) - timedelta(hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS)
+    cooldown_start = (now or datetime.now(timezone.utc)) - timedelta(
+        hours=FEED_FAILING_NOTIFICATION_COOLDOWN_HOURS
+    )
 
     for webhook in matched_webhooks:
-        user = _get_active_notification_webhook_user(db, webhook=webhook, user_cache=resolved_user_cache)
+        user = _get_active_notification_webhook_user(
+            db, webhook=webhook, user_cache=resolved_user_cache
+        )
         if user is None:
             skipped += 1
             continue
@@ -620,22 +582,41 @@ def reserve_webhook_failed_notification_deliveries(
     user: User | None = None,
     feed: Feed | None = None,
 ) -> NotificationDeliveryReservationBatch:
-    if failed_delivery.success or failed_delivery.event_type_snapshot == "webhook_failed":
-        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+    if (
+        failed_delivery.success
+        or failed_delivery.event_type_snapshot == "webhook_failed"
+    ):
+        return NotificationDeliveryReservationBatch(
+            delivery_ids=[], matched_webhooks=0, skipped=0
+        )
 
     resolved_source_webhook = source_webhook or db.scalar(
-        select(NotificationWebhook).where(NotificationWebhook.id == failed_delivery.webhook_id)
+        select(NotificationWebhook).where(
+            NotificationWebhook.id == failed_delivery.webhook_id
+        )
     )
     if resolved_source_webhook is None:
-        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+        return NotificationDeliveryReservationBatch(
+            delivery_ids=[], matched_webhooks=0, skipped=0
+        )
 
-    resolved_user = user or db.scalar(select(User).where(User.id == failed_delivery.user_id))
-    if resolved_user is None or not resolved_user.is_active or not resolved_user.is_approved:
-        return NotificationDeliveryReservationBatch(delivery_ids=[], matched_webhooks=0, skipped=0)
+    resolved_user = user or db.scalar(
+        select(User).where(User.id == failed_delivery.user_id)
+    )
+    if (
+        resolved_user is None
+        or not resolved_user.is_active
+        or not resolved_user.is_approved
+    ):
+        return NotificationDeliveryReservationBatch(
+            delivery_ids=[], matched_webhooks=0, skipped=0
+        )
 
     resolved_feed = feed
     if resolved_feed is None and failed_delivery.feed_id is not None:
-        resolved_feed = db.scalar(select(Feed).where(Feed.id == failed_delivery.feed_id))
+        resolved_feed = db.scalar(
+            select(Feed).where(Feed.id == failed_delivery.feed_id)
+        )
 
     failed_context = FailedWebhookContext(
         id=resolved_source_webhook.id,
@@ -744,13 +725,19 @@ def reserve_notification_webhook_delivery(
             rendered_url=payload.url_template,
             rendered_method=payload.method,
             rendered_headers_json=[field.model_dump() for field in payload.headers],
-            rendered_query_params_json=[field.model_dump() for field in payload.query_params],
+            rendered_query_params_json=[
+                field.model_dump() for field in payload.query_params
+            ],
             rendered_body=payload.body_template if payload.body_mode == "raw" else None,
             delivery_kind=delivery_kind,
             item_id=getattr(item, "id", None),
             feed_id=getattr(feed, "id", None),
-            item_title=item_title if item_title is not None else getattr(item, "title", None),
-            feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
+            item_title=item_title
+            if item_title is not None
+            else getattr(item, "title", None),
+            feed_name=feed_name
+            if feed_name is not None
+            else getattr(feed, "name", None),
             source_delivery_id=source_delivery_id,
             scope_key=scope_key,
             attempted_at=queued_at,
@@ -767,7 +754,9 @@ def reserve_notification_webhook_delivery(
         delivery_kind=delivery_kind,
         item_id=getattr(item, "id", None),
         feed_id=getattr(feed, "id", None),
-        item_title=item_title if item_title is not None else getattr(item, "title", None),
+        item_title=item_title
+        if item_title is not None
+        else getattr(item, "title", None),
         feed_name=feed_name if feed_name is not None else getattr(feed, "name", None),
         source_delivery_id=source_delivery_id,
         scope_key=scope_key,
@@ -821,8 +810,16 @@ def _reserve_notification_webhook_delivery_from_current_context(
         return None
 
     event_type = delivery.event_type_snapshot
-    item = db.scalar(select(Item).where(Item.id == delivery.item_id)) if delivery.item_id is not None else None
-    feed = db.scalar(select(Feed).where(Feed.id == delivery.feed_id)) if delivery.feed_id is not None else None
+    item = (
+        db.scalar(select(Item).where(Item.id == delivery.item_id))
+        if delivery.item_id is not None
+        else None
+    )
+    feed = (
+        db.scalar(select(Feed).where(Feed.id == delivery.feed_id))
+        if delivery.feed_id is not None
+        else None
+    )
     if feed is None and item is not None:
         feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
 
@@ -835,17 +832,23 @@ def _reserve_notification_webhook_delivery_from_current_context(
     if event_type == "alert_match":
         if item is None or feed is None:
             return None
-        alert_context = build_alert_match_context_for_item(db, user_id=webhook.user_id, item=item)
+        alert_context = build_alert_match_context_for_item(
+            db, user_id=webhook.user_id, item=item
+        )
         if alert_context is None:
             return None
     if event_type == "feed_failing" and feed is None:
         return None
     if event_type == "webhook_failed":
-        failed_webhook_context = _build_failed_webhook_retry_context(db, delivery=delivery)
+        failed_webhook_context = _build_failed_webhook_retry_context(
+            db, delivery=delivery
+        )
         if failed_webhook_context is None:
             return None
     if event_type == "daily_digest":
-        digest_context = _daily_brief_context_for_webhook_delivery(db, delivery=delivery)
+        digest_context = _daily_brief_context_for_webhook_delivery(
+            db, delivery=delivery
+        )
         if digest_context is None:
             return None
 
@@ -868,52 +871,6 @@ def _reserve_notification_webhook_delivery_from_current_context(
     )
 
 
-def _daily_brief_context_for_webhook_delivery(
-    db: Session,
-    *,
-    delivery: NotificationWebhookDelivery,
-) -> DailyDigestContext | None:
-    if delivery.integration_delivery_id is None:
-        return None
-    generic_delivery = db.get(IntegrationDelivery, delivery.integration_delivery_id)
-    if generic_delivery is None or generic_delivery.event_id is None:
-        return None
-    event = db.get(IntegrationEvent, generic_delivery.event_id)
-    if event is None:
-        return None
-    try:
-        return daily_brief_context_from_payload(event.payload_json)
-    except DailyBriefNotificationContextError:
-        return None
-
-
-def _build_failed_webhook_retry_context(
-    db: Session,
-    *,
-    delivery: NotificationWebhookDelivery,
-) -> FailedWebhookContext | None:
-    source_delivery_id = delivery.source_delivery_id
-    if source_delivery_id is None:
-        return None
-
-    source_delivery = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == source_delivery_id))
-    if source_delivery is None:
-        return None
-
-    source_webhook = db.scalar(select(NotificationWebhook).where(NotificationWebhook.id == source_delivery.webhook_id))
-    if source_webhook is None:
-        return None
-
-    return FailedWebhookContext(
-        id=source_webhook.id,
-        name=source_webhook.name,
-        event_type=source_delivery.event_type_snapshot,
-        status_code=source_delivery.status_code,
-        error=_notification_error_for_display(source_delivery.error),
-        attempted_at=source_delivery.attempted_at,
-    )
-
-
 def process_notification_webhook_delivery(
     db: Session,
     *,
@@ -922,7 +879,11 @@ def process_notification_webhook_delivery(
 ) -> NotificationWebhookDeliveryAttempt:
     delivery = _claim_notification_webhook_delivery(db, delivery_id=delivery_id)
     if delivery is None:
-        current = db.scalar(select(NotificationWebhookDelivery).where(NotificationWebhookDelivery.id == delivery_id))
+        current = db.scalar(
+            select(NotificationWebhookDelivery).where(
+                NotificationWebhookDelivery.id == delivery_id
+            )
+        )
         if current is None:
             raise ValueError("Webhook delivery not found")
         return NotificationWebhookDeliveryAttempt(
@@ -1081,15 +1042,23 @@ def retry_notification_webhook_delivery(
         delivery_kind="retry",
         source_delivery_id=retry_root_id,
     ):
-        reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+        reusable_retry = _find_notification_webhook_retry_reuse_candidate(
+            db, webhook=webhook, delivery=delivery
+        )
         if reusable_retry is not None:
             return reusable_retry
-        raise NotificationWebhookRetryInProgressError("Webhook retry is already queued or in progress")
+        raise NotificationWebhookRetryInProgressError(
+            "Webhook retry is already queued or in progress"
+        )
 
-    reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+    reusable_retry = _find_notification_webhook_retry_reuse_candidate(
+        db, webhook=webhook, delivery=delivery
+    )
     if reusable_retry is not None:
         return reusable_retry
-    retried = reserve_notification_webhook_delivery_from_saved_request(db, webhook=webhook, delivery=delivery)
+    retried = reserve_notification_webhook_delivery_from_saved_request(
+        db, webhook=webhook, delivery=delivery
+    )
     db.commit()
     return process_notification_webhook_delivery(db, delivery_id=retried.id).delivery
 
@@ -1104,7 +1073,9 @@ def reserve_retryable_notification_webhook_delivery(
         return None
 
     retry_root_id = _notification_delivery_retry_root_id(delivery)
-    chain_attempt_count = _notification_delivery_chain_attempt_count(db, retry_root_id=retry_root_id)
+    chain_attempt_count = _notification_delivery_chain_attempt_count(
+        db, retry_root_id=retry_root_id
+    )
     max_attempts = max(1, int(settings.notification_delivery_retry_max_attempts))
     if chain_attempt_count >= max_attempts:
         return None
@@ -1116,9 +1087,15 @@ def reserve_retryable_notification_webhook_delivery(
         delivery_kind="retry",
         source_delivery_id=retry_root_id,
     ):
-        reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+        reusable_retry = _find_notification_webhook_retry_reuse_candidate(
+            db, webhook=webhook, delivery=delivery
+        )
         if reusable_retry is not None:
-            countdown_seconds = None if reusable_retry.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED else 0
+            countdown_seconds = (
+                None
+                if reusable_retry.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED
+                else 0
+            )
             return NotificationWebhookRetryReservation(
                 delivery=reusable_retry,
                 created=False,
@@ -1126,9 +1103,13 @@ def reserve_retryable_notification_webhook_delivery(
             )
         return None
 
-    reusable_retry = _find_notification_webhook_retry_reuse_candidate(db, webhook=webhook, delivery=delivery)
+    reusable_retry = _find_notification_webhook_retry_reuse_candidate(
+        db, webhook=webhook, delivery=delivery
+    )
     if reusable_retry is not None:
-        return NotificationWebhookRetryReservation(delivery=reusable_retry, created=False, countdown_seconds=None)
+        return NotificationWebhookRetryReservation(
+            delivery=reusable_retry, created=False, countdown_seconds=None
+        )
 
     countdown_seconds = _notification_delivery_retry_delay_seconds(chain_attempt_count)
     retried = reserve_notification_webhook_delivery_from_saved_request(
@@ -1144,399 +1125,6 @@ def reserve_retryable_notification_webhook_delivery(
     )
 
 
-def _resolve_sample_feed_and_item(
-    db: Session,
-    *,
-    payload: NotificationWebhookWrite,
-    sample_item_id: uuid.UUID | None,
-    sample_feed_id: uuid.UUID | None,
-) -> tuple[Feed | SimpleNamespace, Item | SimpleNamespace]:
-    if sample_item_id is not None:
-        item = db.scalar(select(Item).where(Item.id == sample_item_id))
-        if item is None:
-            raise ValueError("Sample item not found")
-        feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-        if feed is None:
-            raise ValueError("Sample feed not found")
-        return feed, item
-
-    feed: Feed | None = None
-    item: Item | None = None
-
-    if sample_feed_id is not None:
-        feed = db.scalar(select(Feed).where(Feed.id == sample_feed_id))
-        if feed is None:
-            raise ValueError("Sample feed not found")
-        item = db.scalar(
-            select(Item)
-            .where(Item.feed_id == sample_feed_id)
-            .order_by(Item.first_seen_at.desc())
-        )
-    elif payload.feed_scope == "selected" and payload.feed_ids:
-        candidate_feed_id = payload.feed_ids[0]
-        feed = db.scalar(select(Feed).where(Feed.id == candidate_feed_id))
-        if feed is not None:
-            item = db.scalar(
-                select(Item)
-                .where(Item.feed_id == candidate_feed_id)
-                .order_by(Item.first_seen_at.desc())
-            )
-    else:
-        item = db.scalar(select(Item).order_by(Item.first_seen_at.desc()))
-        if item is not None:
-            feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-
-    if feed is None:
-        feed = SimpleNamespace(
-            id=uuid.uuid4(),
-            name="Example Feed",
-            url="https://example.com/feed.xml",
-            site_url="https://example.com",
-        )
-
-    if item is None:
-        item = SimpleNamespace(
-            id=uuid.uuid4(),
-            title="Example ThreatLens item",
-            url="https://example.com/articles/example-threatlens-item",
-            canonical_url="https://example.com/articles/example-threatlens-item",
-            summary="ThreatLens generated this sample payload so you can test the webhook before saving it.",
-            status="new",
-            published_at=datetime(2026, 3, 25, 9, 15, tzinfo=timezone.utc),
-            first_seen_at=datetime.now(timezone.utc),
-        )
-
-    return feed, item
-
-
-def _feed_ids_for_webhook_payload(payload: NotificationWebhookWrite) -> list[uuid.UUID] | None:
-    if payload.feed_scope != "selected":
-        return None
-    return list(payload.feed_ids)
-
-
-def _build_sample_feed_for_event(
-    feed: Feed | SimpleNamespace,
-    event_type: NotificationEventType,
-) -> Feed | SimpleNamespace:
-    if event_type != "feed_failing":
-        return feed
-
-    return SimpleNamespace(
-        id=getattr(feed, "id", uuid.uuid4()),
-        name=getattr(feed, "name", "") or "Example Feed",
-        url=getattr(feed, "url", "") or "https://example.com/feed.xml",
-        site_url=getattr(feed, "site_url", "") or "https://example.com",
-        error_count=max(int(getattr(feed, "error_count", 0) or 0), FEED_FAILING_NOTIFICATION_THRESHOLD),
-        last_error=getattr(feed, "last_error", "") or "http_status:500",
-        last_fetch_at=getattr(feed, "last_fetch_at", None) or datetime.now(timezone.utc),
-        last_success_at=getattr(feed, "last_success_at", None),
-    )
-
-
-def build_alert_match_context_for_item(
-    db: Session,
-    *,
-    user_id: uuid.UUID | None = None,
-    item: Item | SimpleNamespace,
-) -> AlertMatchContext | None:
-    classification = None
-    item_id = getattr(item, "id", None)
-    if item_id is not None:
-        classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
-
-    haystack = _build_item_haystack(
-        title=getattr(item, "title", "") or "",
-        summary=getattr(item, "summary", None),
-        url=getattr(item, "url", "") or "",
-        canonical_url=getattr(item, "canonical_url", None),
-        classification=getattr(classification, "primary_category", None),
-    )
-
-    alert_query = select(AlertInterest).where(AlertInterest.enabled.is_(True))
-    if user_id is not None:
-        alert_query = alert_query.where(AlertInterest.user_id == user_id)
-    alerts = db.scalars(alert_query.order_by(AlertInterest.created_at.asc())).all()
-
-    matched_names: list[str] = []
-    matched_categories: list[str] = []
-    matched_keywords: list[str] = []
-
-    for alert in alerts:
-        keywords = [keyword for keyword in (alert.keywords or []) if keyword and keyword in haystack]
-        if not keywords:
-            continue
-        matched_names.append(alert.name)
-        matched_categories.append(alert.category)
-        for keyword in keywords:
-            if keyword not in matched_keywords:
-                matched_keywords.append(keyword)
-
-    if not matched_names:
-        return None
-
-    return AlertMatchContext(
-        count=len(matched_names),
-        primary_name=matched_names[0],
-        names=matched_names,
-        categories=matched_categories,
-        matched_keywords=matched_keywords,
-    )
-
-
-def has_recent_notification_delivery(
-    db: Session,
-    *,
-    webhook_id: uuid.UUID,
-    event_type: NotificationEventType,
-    since: datetime | None = None,
-    item_id: uuid.UUID | None = None,
-    feed_id: uuid.UUID | None = None,
-    source_delivery_id: uuid.UUID | None = None,
-    scope_key: str | None = None,
-    delivery_kind: str = "live",
-    success_only: bool = False,
-    states: tuple[str, ...] | None = None,
-) -> bool:
-    query = select(NotificationWebhookDelivery.id).where(
-        NotificationWebhookDelivery.webhook_id == webhook_id,
-        NotificationWebhookDelivery.event_type_snapshot == event_type,
-        NotificationWebhookDelivery.delivery_kind == delivery_kind,
-    )
-    if since is not None:
-        query = query.where(NotificationWebhookDelivery.attempted_at >= since)
-    if item_id is not None:
-        query = query.where(NotificationWebhookDelivery.item_id == item_id)
-    if feed_id is not None:
-        query = query.where(NotificationWebhookDelivery.feed_id == feed_id)
-    if source_delivery_id is not None:
-        query = query.where(NotificationWebhookDelivery.source_delivery_id == source_delivery_id)
-    if scope_key is not None:
-        query = query.where(NotificationWebhookDelivery.scope_key == scope_key)
-    if states:
-        query = query.where(NotificationWebhookDelivery.delivery_state.in_(states))
-    if success_only:
-        query = query.where(NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED)
-    return db.scalar(query.limit(1)) is not None
-
-
-def try_acquire_notification_delivery_lock(
-    db: Session,
-    *,
-    webhook_id: uuid.UUID,
-    event_type: NotificationEventType,
-    delivery_kind: str = "live",
-    item_id: uuid.UUID | None = None,
-    feed_id: uuid.UUID | None = None,
-    source_delivery_id: uuid.UUID | None = None,
-    scope_key: str | None = None,
-) -> bool:
-    bind = db.get_bind()
-    if bind is None or bind.dialect.name != "postgresql":
-        return True
-
-    digest = hashlib.blake2b(
-        "|".join(
-            [
-                str(webhook_id),
-                event_type,
-                delivery_kind,
-                str(item_id or ""),
-                str(feed_id or ""),
-                str(source_delivery_id or ""),
-                scope_key or "",
-            ]
-        ).encode("utf-8"),
-        digest_size=8,
-    ).digest()
-    left = int.from_bytes(digest[:4], "big", signed=True)
-    right = int.from_bytes(digest[4:], "big", signed=True)
-    return bool(db.scalar(select(func.pg_try_advisory_xact_lock(left, right))))
-
-
-def get_notification_analytics(db: Session, *, user_id: uuid.UUID) -> NotificationAnalyticsResponse:
-    total_deliveries = int(
-        db.scalar(
-            select(func.count())
-            .select_from(NotificationWebhookDelivery)
-            .where(
-                NotificationWebhookDelivery.user_id == user_id,
-                NotificationWebhookDelivery.delivery_state.in_(NOTIFICATION_DELIVERY_TERMINAL_STATES),
-            )
-        )
-        or 0
-    )
-    successful_deliveries = int(
-        db.scalar(
-            select(func.count())
-            .select_from(NotificationWebhookDelivery)
-            .where(
-                NotificationWebhookDelivery.user_id == user_id,
-                NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SUCCEEDED,
-            )
-        )
-        or 0
-    )
-    failed_deliveries = total_deliveries - successful_deliveries
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
-    failures_last_24h = int(
-        db.scalar(
-            select(func.count())
-            .select_from(NotificationWebhookDelivery)
-            .where(
-                NotificationWebhookDelivery.user_id == user_id,
-                NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_FAILED,
-                NotificationWebhookDelivery.attempted_at >= cutoff,
-            )
-        )
-        or 0
-    )
-
-    event_rows = db.execute(
-        select(
-            NotificationWebhookDelivery.event_type_snapshot,
-            NotificationWebhookDelivery.delivery_state,
-            func.count().label("count"),
-        )
-        .where(
-            NotificationWebhookDelivery.user_id == user_id,
-            NotificationWebhookDelivery.delivery_state.in_(NOTIFICATION_DELIVERY_TERMINAL_STATES),
-        )
-        .group_by(NotificationWebhookDelivery.event_type_snapshot, NotificationWebhookDelivery.delivery_state)
-        .order_by(NotificationWebhookDelivery.event_type_snapshot.asc())
-    ).all()
-    events_by_type: dict[str, dict[str, int]] = {}
-    for event_type, delivery_state, count in event_rows:
-        bucket = events_by_type.setdefault(event_type, {"total": 0, "failed": 0})
-        bucket["total"] += int(count)
-        if delivery_state == NOTIFICATION_DELIVERY_FAILED:
-            bucket["failed"] += int(count)
-
-    events = [
-        NotificationAnalyticsEventSummary(
-            event_type=event_type, total_deliveries=stats["total"], failed_deliveries=stats["failed"]
-        )
-        for event_type, stats in sorted(events_by_type.items())
-    ]
-
-    failing_webhook_row = db.execute(
-        select(
-            NotificationWebhookDelivery.webhook_id,
-            NotificationWebhook.name,
-            func.count().label("failed_count"),
-            func.max(NotificationWebhookDelivery.attempted_at).label("last_failure_at"),
-        )
-        .join(NotificationWebhook, NotificationWebhook.id == NotificationWebhookDelivery.webhook_id)
-        .where(
-            NotificationWebhookDelivery.user_id == user_id,
-            NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_FAILED,
-        )
-        .group_by(NotificationWebhookDelivery.webhook_id, NotificationWebhook.name)
-        .order_by(func.count().desc(), func.max(NotificationWebhookDelivery.attempted_at).desc())
-        .limit(1)
-    ).first()
-
-    most_failing_webhook = None
-    if failing_webhook_row is not None:
-        most_failing_webhook = NotificationAnalyticsWebhookSummary(
-            webhook_id=failing_webhook_row.webhook_id,
-            webhook_name=failing_webhook_row.name,
-            failed_deliveries=int(failing_webhook_row.failed_count or 0),
-            last_failure_at=failing_webhook_row.last_failure_at,
-        )
-
-    success_rate_pct = round((successful_deliveries / total_deliveries) * 100, 1) if total_deliveries else 0.0
-    return NotificationAnalyticsResponse(
-        total_deliveries=total_deliveries,
-        successful_deliveries=successful_deliveries,
-        failed_deliveries=failed_deliveries,
-        success_rate_pct=success_rate_pct,
-        failures_last_24h=failures_last_24h,
-        most_failing_webhook=most_failing_webhook,
-        events=events,
-        queue=get_notification_delivery_queue_snapshot(db, user_id=user_id),
-    )
-
-
-def get_notification_delivery_queue_snapshot(
-    db: Session,
-    *,
-    user_id: uuid.UUID | None = None,
-    now: datetime | None = None,
-) -> NotificationQueueSnapshot:
-    current_time = now or datetime.now(timezone.utc)
-    stale_cutoff = current_time - NOTIFICATION_DELIVERY_STALE_AFTER
-
-    base_filters = []
-    if user_id is not None:
-        base_filters.append(NotificationWebhookDelivery.user_id == user_id)
-
-    pending_filters = [*base_filters, NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_PENDING]
-    sending_filters = [*base_filters, NotificationWebhookDelivery.delivery_state == NOTIFICATION_DELIVERY_SENDING]
-    stale_sending_filters = [
-        *sending_filters,
-        or_(
-            NotificationWebhookDelivery.claimed_at.is_(None),
-            NotificationWebhookDelivery.claimed_at < stale_cutoff,
-        ),
-    ]
-
-    pending_deliveries = int(
-        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*pending_filters)) or 0
-    )
-    sending_deliveries = int(
-        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*sending_filters)) or 0
-    )
-    stale_sending_deliveries = int(
-        db.scalar(select(func.count()).select_from(NotificationWebhookDelivery).where(*stale_sending_filters)) or 0
-    )
-
-    oldest_pending_at = db.scalar(
-        select(func.min(func.coalesce(NotificationWebhookDelivery.not_before, NotificationWebhookDelivery.attempted_at))).where(
-            *pending_filters
-        )
-    )
-    oldest_sending_at = db.scalar(
-        select(func.min(func.coalesce(NotificationWebhookDelivery.claimed_at, NotificationWebhookDelivery.attempted_at))).where(
-            *sending_filters
-        )
-    )
-
-    oldest_pending_age_seconds = _seconds_since(current_time, oldest_pending_at)
-    oldest_sending_age_seconds = _seconds_since(current_time, oldest_sending_at)
-
-    status = "healthy"
-    if stale_sending_deliveries > 0:
-        status = "critical"
-    elif oldest_pending_age_seconds is not None and oldest_pending_age_seconds >= int(
-        NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER.total_seconds()
-    ):
-        status = "degraded"
-
-    return NotificationQueueSnapshot(
-        status=status,
-        ok=status == "healthy",
-        pending_deliveries=pending_deliveries,
-        sending_deliveries=sending_deliveries,
-        stale_sending_deliveries=stale_sending_deliveries,
-        oldest_pending_age_seconds=oldest_pending_age_seconds,
-        oldest_sending_age_seconds=oldest_sending_age_seconds,
-        degraded_after_seconds=int(NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER.total_seconds()),
-        stale_after_seconds=int(NOTIFICATION_DELIVERY_STALE_AFTER.total_seconds()),
-    )
-
-
-def _build_item_haystack(
-    *,
-    title: str,
-    summary: str | None,
-    url: str,
-    canonical_url: str | None,
-    classification: str | None,
-) -> str:
-    return " ".join([title, summary or "", url, canonical_url or "", classification or ""]).lower()
-
-
 def _read_response_preview(*args, **kwargs):
     return notification_webhook_http.read_response_preview(*args, **kwargs)
 
@@ -1547,357 +1135,3 @@ def _send_request_with_redirects(*args, **kwargs):
 
 def _send_rendered_notification_request(*args, **kwargs):
     return notification_webhook_http.send_rendered_notification_request(*args, **kwargs)
-
-
-def _restore_saved_request_target(
-    saved_url: str,
-    rendered_query_params: list[NotificationWebhookField],
-) -> tuple[str, list[tuple[str, str]]]:
-    query_param_pairs = [(field.key, field.value) for field in rendered_query_params]
-    if not query_param_pairs:
-        return saved_url, []
-
-    split = urlsplit(saved_url)
-    saved_query_pairs = parse_qsl(split.query, keep_blank_values=True)
-    if not saved_query_pairs:
-        return saved_url, query_param_pairs
-    if saved_query_pairs == query_param_pairs:
-        return urlunsplit((split.scheme, split.netloc, split.path, "", split.fragment)), query_param_pairs
-    return saved_url, []
-
-
-def _delivery_result_from_model(delivery: NotificationWebhookDelivery) -> NotificationWebhookTestResponse:
-    _upgrade_notification_webhook_delivery_secret_storage(delivery)
-    rendered_headers = _notification_fields_from_storage(delivery.rendered_headers_json)
-    rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
-    return NotificationWebhookTestResponse(
-        success=delivery.success,
-        status_code=delivery.status_code,
-        duration_ms=delivery.duration_ms,
-        rendered_url=_decrypt_notification_text(delivery.rendered_url) or "",
-        rendered_method=delivery.rendered_method,
-        rendered_headers=rendered_headers,
-        rendered_query_params=rendered_query_params,
-        rendered_body=_decrypt_notification_text(delivery.rendered_body),
-        response_body_preview=_decrypt_notification_text(delivery.response_body_preview),
-        error=_notification_error_for_display(delivery.error),
-    )
-
-
-def _delivery_has_presend_render_failure(delivery: NotificationWebhookDelivery) -> bool:
-    return delivery.status_code is None and (delivery.error or "").startswith(RENDER_FAILURE_ERROR_PREFIX)
-
-
-def _is_retryable_notification_delivery(delivery: NotificationWebhookDelivery) -> bool:
-    return _is_retryable_notification_outcome(status_code=delivery.status_code, error=delivery.error)
-
-
-def _is_retryable_notification_result(result: NotificationWebhookTestResponse) -> bool:
-    return _is_retryable_notification_outcome(status_code=result.status_code, error=result.error)
-
-
-def _is_retryable_notification_outcome(*, status_code: int | None, error: str | None) -> bool:
-    if error and error.startswith((RENDER_FAILURE_ERROR_PREFIX, POLICY_FAILURE_ERROR_PREFIX)):
-        return False
-    if status_code is None:
-        return True
-    if status_code in {408, 425, 429}:
-        return True
-    return 500 <= int(status_code) <= 599
-
-
-def _notification_delivery_retry_root_id(delivery: NotificationWebhookDelivery) -> uuid.UUID:
-    return delivery.source_delivery_id or delivery.id
-
-
-def _notification_delivery_chain_attempt_count(db: Session, *, retry_root_id: uuid.UUID) -> int:
-    return int(
-        db.scalar(
-            select(func.count())
-            .select_from(NotificationWebhookDelivery)
-            .where(
-                or_(
-                    NotificationWebhookDelivery.id == retry_root_id,
-                    NotificationWebhookDelivery.source_delivery_id == retry_root_id,
-                )
-            )
-        )
-        or 0
-    )
-
-
-def _notification_delivery_retry_delay_seconds(chain_attempt_count: int) -> int:
-    base_delay = max(1, int(settings.notification_delivery_retry_backoff_seconds))
-    retry_number = max(1, int(chain_attempt_count))
-    return min(base_delay * (2 ** (retry_number - 1)), 3600)
-
-
-def _find_notification_webhook_retry_reuse_candidate(
-    db: Session,
-    *,
-    webhook: NotificationWebhook,
-    delivery: NotificationWebhookDelivery,
-) -> NotificationWebhookDelivery | None:
-    retry_root_id = _notification_delivery_retry_root_id(delivery)
-    return db.scalar(
-        select(NotificationWebhookDelivery)
-        .where(
-            NotificationWebhookDelivery.webhook_id == webhook.id,
-            NotificationWebhookDelivery.delivery_kind == "retry",
-            NotificationWebhookDelivery.source_delivery_id == retry_root_id,
-            NotificationWebhookDelivery.delivery_state.in_(
-                [NOTIFICATION_DELIVERY_PENDING, NOTIFICATION_DELIVERY_SENDING, NOTIFICATION_DELIVERY_SUCCEEDED]
-            ),
-        )
-        .order_by(NotificationWebhookDelivery.attempted_at.desc(), NotificationWebhookDelivery.id.desc())
-        .limit(1)
-    )
-
-
-def _create_pending_notification_webhook_delivery(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    webhook: NotificationWebhook,
-    event_type: NotificationEventType,
-    rendered: RenderedNotificationRequest,
-    delivery_kind: str,
-    item_id: uuid.UUID | None,
-    feed_id: uuid.UUID | None,
-    item_title: str | None,
-    feed_name: str | None,
-    source_delivery_id: uuid.UUID | None,
-    scope_key: str | None,
-    attempted_at: datetime,
-    not_before: datetime | None,
-) -> NotificationWebhookDelivery:
-    delivery = NotificationWebhookDelivery(
-        id=delivery_id,
-        webhook_id=webhook.id,
-        user_id=webhook.user_id,
-        event_type_snapshot=event_type,
-        item_id=item_id,
-        feed_id=feed_id,
-        source_delivery_id=source_delivery_id,
-        scope_key=scope_key,
-        delivery_kind=delivery_kind,
-        delivery_state=NOTIFICATION_DELIVERY_PENDING,
-        attempt_count=0,
-        not_before=not_before,
-        claimed_at=None,
-        success=False,
-        status_code=None,
-        duration_ms=None,
-        timeout_seconds=rendered.timeout_seconds,
-        rendered_url=_encrypt_notification_text(rendered.url) or "",
-        rendered_method=rendered.method,
-        rendered_headers_json=_notification_fields_to_storage(rendered.headers),
-        rendered_query_params_json=_notification_fields_to_storage(rendered.query_params),
-        rendered_body=_encrypt_notification_text(rendered.body),
-        response_body_preview=None,
-        error=None,
-        item_title_snapshot=item_title,
-        feed_name_snapshot=feed_name,
-        attempted_at=attempted_at,
-    )
-    db.add(delivery)
-    db.flush()
-    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
-    return delivery
-
-
-def _create_pending_notification_webhook_delivery_from_render_failure(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    webhook: NotificationWebhook,
-    event_type: NotificationEventType,
-    timeout_seconds: int,
-    rendered_url: str,
-    rendered_method: str,
-    rendered_headers_json: list[dict[str, str]],
-    rendered_query_params_json: list[dict[str, str]],
-    rendered_body: str | None,
-    delivery_kind: str,
-    item_id: uuid.UUID | None,
-    feed_id: uuid.UUID | None,
-    item_title: str | None,
-    feed_name: str | None,
-    source_delivery_id: uuid.UUID | None,
-    scope_key: str | None,
-    attempted_at: datetime,
-    not_before: datetime | None,
-    error: str,
-) -> NotificationWebhookDelivery:
-    delivery = NotificationWebhookDelivery(
-        id=delivery_id,
-        webhook_id=webhook.id,
-        user_id=webhook.user_id,
-        event_type_snapshot=event_type,
-        item_id=item_id,
-        feed_id=feed_id,
-        source_delivery_id=source_delivery_id,
-        scope_key=scope_key,
-        delivery_kind=delivery_kind,
-        delivery_state=NOTIFICATION_DELIVERY_PENDING,
-        attempt_count=0,
-        not_before=not_before,
-        claimed_at=None,
-        success=False,
-        status_code=None,
-        duration_ms=None,
-        timeout_seconds=timeout_seconds,
-        rendered_url=_encrypt_notification_text(rendered_url) or "",
-        rendered_method=rendered_method,
-        rendered_headers_json=_encrypt_notification_json(rendered_headers_json),
-        rendered_query_params_json=_encrypt_notification_json(rendered_query_params_json),
-        rendered_body=_encrypt_notification_text(rendered_body),
-        response_body_preview=None,
-        error=error,
-        item_title_snapshot=item_title,
-        feed_name_snapshot=feed_name,
-        attempted_at=attempted_at,
-    )
-    db.add(delivery)
-    db.flush()
-    ensure_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery)
-    return delivery
-
-
-def _claim_notification_webhook_delivery(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    now: datetime | None = None,
-) -> NotificationWebhookDelivery | None:
-    delivery = db.scalar(
-        select(NotificationWebhookDelivery)
-        .where(NotificationWebhookDelivery.id == delivery_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if delivery is None:
-        return None
-
-    webhook = db.get(NotificationWebhook, delivery.webhook_id)
-    if webhook is None:
-        return None
-    _upgrade_notification_webhook_delivery_secret_storage(delivery)
-    return claim_generic_webhook_delivery(db, webhook=webhook, legacy_delivery=delivery, now=now)
-
-
-def _finalize_notification_webhook_delivery(
-    db: Session,
-    *,
-    delivery_id: uuid.UUID,
-    expected_attempt_number: int,
-    result: NotificationWebhookTestResponse,
-    commit_outcome: bool,
-) -> tuple[NotificationWebhookDelivery, bool]:
-    delivery = db.scalar(
-        select(NotificationWebhookDelivery)
-        .where(NotificationWebhookDelivery.id == delivery_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if delivery is None:
-        raise ValueError("Webhook delivery not found")
-
-    finished_at = datetime.now(timezone.utc)
-    recorded = finalize_generic_webhook_delivery(
-        db,
-        legacy_delivery=delivery,
-        success=result.success,
-        status_code=result.status_code,
-        duration_ms=result.duration_ms,
-        error=result.error,
-        retryable=not result.success and _is_retryable_notification_result(result),
-        expected_attempt_number=expected_attempt_number,
-        finished_at=finished_at,
-    )
-    if not recorded:
-        db.rollback()
-        current = db.get(NotificationWebhookDelivery, delivery_id)
-        if current is None:
-            raise ValueError("Webhook delivery not found")
-        return current, False
-
-    delivery.delivery_state = NOTIFICATION_DELIVERY_SUCCEEDED if result.success else NOTIFICATION_DELIVERY_FAILED
-    delivery.success = result.success
-    delivery.status_code = result.status_code
-    delivery.duration_ms = result.duration_ms
-    delivery.response_body_preview = _encrypt_notification_text(result.response_body_preview)
-    delivery.error = result.error
-    delivery.attempted_at = finished_at
-    db.add(delivery)
-    if commit_outcome:
-        db.commit()
-        db.refresh(delivery)
-    else:
-        db.flush()
-    return delivery, True
-
-
-def _rendered_request_from_delivery(delivery: NotificationWebhookDelivery) -> RenderedNotificationRequest:
-    _upgrade_notification_webhook_delivery_secret_storage(delivery)
-    rendered_headers = _notification_fields_from_storage(delivery.rendered_headers_json)
-    rendered_query_params = _notification_fields_from_storage(delivery.rendered_query_params_json)
-    saved_url = _decrypt_notification_text(delivery.rendered_url) or ""
-    replay_url, query_param_pairs = _restore_saved_request_target(saved_url, rendered_query_params)
-    headers_dict = canonicalize_headers(rendered_headers)
-    _apply_notification_delivery_headers(
-        headers_dict,
-        delivery_id=delivery.id,
-        source_delivery_id=delivery.source_delivery_id,
-    )
-    rendered_headers = [NotificationWebhookField(key=key, value=value) for key, value in headers_dict.items()]
-    body_text = _decrypt_notification_text(delivery.rendered_body)
-    return RenderedNotificationRequest(
-        method=delivery.rendered_method,
-        url=replay_url,
-        headers=rendered_headers,
-        query_params=rendered_query_params,
-        body=body_text,
-        headers_dict=headers_dict,
-        query_param_pairs=query_param_pairs,
-        json_body=None,
-        form_body=None,
-        raw_body=body_text.encode("utf-8") if body_text is not None else None,
-        timeout_seconds=delivery.timeout_seconds,
-    )
-
-
-def _apply_notification_delivery_headers(
-    headers_dict: dict[str, str],
-    *,
-    delivery_id: uuid.UUID,
-    source_delivery_id: uuid.UUID | None,
-) -> None:
-    headers_dict[THREATLENS_DELIVERY_ID_HEADER] = str(delivery_id)
-    if source_delivery_id is not None and source_delivery_id != delivery_id:
-        headers_dict[THREATLENS_SOURCE_DELIVERY_ID_HEADER] = str(source_delivery_id)
-        return
-    headers_dict.pop(THREATLENS_SOURCE_DELIVERY_ID_HEADER, None)
-
-
-def _get_active_notification_webhook_user(
-    db: Session,
-    *,
-    webhook: NotificationWebhook,
-    user_cache: dict[uuid.UUID, User | None],
-) -> User | None:
-    if webhook.user_id not in user_cache:
-        user_cache[webhook.user_id] = db.scalar(select(User).where(User.id == webhook.user_id))
-    user = user_cache[webhook.user_id]
-    if user is None or not user.is_active or not user.is_approved:
-        return None
-    return user
-
-
-def _seconds_since(now: datetime, timestamp: datetime | None) -> int | None:
-    if timestamp is None:
-        return None
-    value = timestamp
-    if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return max(0, int((now - value).total_seconds()))

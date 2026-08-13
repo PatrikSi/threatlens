@@ -13,39 +13,58 @@ env:
   IMAGE_NAMESPACE: patriksi
 
 concurrency:
-  group: publish-images-${{ github.ref }}
-  cancel-in-progress: true
+  group: publish-images
+  cancel-in-progress: false
 
 jobs:
   quality:
     name: Required quality gates
     uses: ./.github/workflows/quality-gates.yml
+    with:
+      run_container_smoke: false
     permissions:
       contents: read
       security-events: write
       packages: read
 
-  publish:
-    name: Build and publish ${{ matrix.name }}
+  build:
+    name: Build and scan ${{ matrix.name }} (${{ matrix.platform }})
     needs: quality
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     permissions:
       contents: read
       packages: write
       attestations: write
       id-token: write
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - name: backend
             image: threatlens-backend
             context: ./backend
             dockerfile: ./backend/Dockerfile
+            platform: linux/amd64
+            platform-slug: linux-amd64
+          - name: backend
+            image: threatlens-backend
+            context: ./backend
+            dockerfile: ./backend/Dockerfile
+            platform: linux/arm64
+            platform-slug: linux-arm64
           - name: web
             image: threatlens-web
             context: ./web
             dockerfile: ./web/Dockerfile
+            platform: linux/amd64
+            platform-slug: linux-amd64
+          - name: web
+            image: threatlens-web
+            context: ./web
+            dockerfile: ./web/Dockerfile
+            platform: linux/arm64
+            platform-slug: linux-arm64
 
     steps:
       - name: Checkout repository
@@ -64,8 +83,9 @@ jobs:
           fi
           {
             echo "APP_VERSION=${app_version}"
-            echo "BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "BUILD_DATE=$(git show -s --format=%cI "$GITHUB_SHA")"
             echo "VCS_REF=${GITHUB_SHA}"
+            echo "REGISTRY_IMAGE=${REGISTRY}/${IMAGE_NAMESPACE}/${{ matrix.image }}"
           } >> "$GITHUB_ENV"
 
       - name: Set up QEMU
@@ -81,68 +101,300 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-
-      - name: Build and push image
+      - name: Build and push platform digest
         id: build
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
-          push: true
+          platforms: ${{ matrix.platform }}
           pull: true
+          provenance: false
+          sbom: false
           build-args: |
             APP_VERSION=${{ env.APP_VERSION }}
             BUILD_DATE=${{ env.BUILD_DATE }}
             VCS_REF=${{ env.VCS_REF }}
             VITE_API_BASE_URL=/api/v1
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.REGISTRY_IMAGE }}
           labels: |
-            ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.version=${{ env.APP_VERSION }}
             org.opencontainers.image.created=${{ env.BUILD_DATE }}
             org.opencontainers.image.revision=${{ env.VCS_REF }}
-          cache-from: type=gha,scope=${{ matrix.name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.name }}-${{ matrix.platform-slug }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}-${{ matrix.platform-slug }}
 
-      - name: Generate artifact attestation
+      - name: Scan exact platform digest
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.REGISTRY_IMAGE }}@${{ steps.build.outputs.digest }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+
+      - name: Generate platform artifact attestation
         uses: actions/attest-build-provenance@v3
         with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.image }}
+          subject-name: ${{ env.REGISTRY_IMAGE }}
           subject-digest: ${{ steps.build.outputs.digest }}
           push-to-registry: true
 
-      - name: Write image digest
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Write platform digest
         run: |
-          mkdir -p image-digest
-          echo "${{ steps.build.outputs.digest }}" > "image-digest/${{ matrix.image }}.txt"
+          mkdir -p image-digests
+          printf '%s\n' '${{ steps.build.outputs.digest }}' > 'image-digests/${{ matrix.name }}-${{ matrix.platform-slug }}.txt'
 
-      - name: Upload image digest
+      - name: Upload platform digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: image-digest-${{ matrix.name }}-${{ matrix.platform-slug }}
+          path: image-digests/*.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  smoke:
+    name: Smoke-test release image pair (${{ matrix.platform }})
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            platform-slug: linux-amd64
+          - platform: linux/arm64
+            platform-slug: linux-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download platform image digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*-${{ matrix.platform-slug }}
+          merge-multiple: true
+          path: image-digests
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate isolated Compose environment
+        env:
+          ADMIN_EMAIL: admin@example.com
+          ADMIN_PASSWORD: ci-admin-password-with-sufficient-length
+        run: timeout 3m ./bootstrap.sh --force
+
+      - name: Pin Compose services to exact digests
+        run: |
+          backend_ref="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-backend@$(cat image-digests/backend-${{ matrix.platform-slug }}.txt)"
+          web_ref="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-web@$(cat image-digests/web-${{ matrix.platform-slug }}.txt)"
+          cat > "$RUNNER_TEMP/release-images.yml" <<EOF
+          services:
+            api: &backend-image
+              image: ${backend_ref}
+              platform: ${{ matrix.platform }}
+              pull_policy: always
+            worker:
+              <<: *backend-image
+            worker-maintenance:
+              <<: *backend-image
+            worker-notifications:
+              <<: *backend-image
+            beat:
+              <<: *backend-image
+            web:
+              image: ${web_ref}
+              platform: ${{ matrix.platform }}
+              pull_policy: always
+          EOF
+          timeout 1m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" config --quiet
+
+      - name: Pull and start exact image pair
+        run: |
+          timeout 10m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" pull
+          timeout 7m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" up -d --wait --wait-timeout 300
+
+      - name: Verify running stack
+        run: |
+          readiness_url="http://localhost:3000/api/v1/health"
+          for attempt in {1..24}; do
+            if readiness="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 "$readiness_url" 2>&1)"; then
+              printf '%s\n' "$readiness"
+              break
+            fi
+            if [[ "$attempt" -eq 24 ]]; then
+              echo "Stack readiness did not converge within 120 seconds: $readiness" >&2
+              docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" ps
+              exit 1
+            fi
+            sleep 5
+          done
+          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
+          timeout 1m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" exec -T api python -m alembic current | grep -F '(head)'
+          docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" ps
+
+      - name: Show container logs after failure
+        if: failure()
+        run: timeout 2m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" logs --no-color
+
+      - name: Stop stack
+        if: always()
+        run: timeout 3m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" down -v --remove-orphans
+
+  promote:
+    name: Promote verified multi-architecture images
+    needs:
+      - build
+      - smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Download platform digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: image-digest-*
+          merge-multiple: true
+          path: image-digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Assemble and promote verified manifests
+        id: promote
+        run: |
+          app_version="$(tr -d '[:space:]' < VERSION)"
+          if ! [[ "$app_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "VERSION must use X.Y.Z format, got: $app_version" >&2
+            exit 1
+          fi
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" && "${GITHUB_REF_NAME}" != "v${app_version}" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not match VERSION ${app_version}" >&2
+            exit 1
+          fi
+
+          backend_image="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-backend"
+          web_image="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-web"
+          backend_sources=(
+            "${backend_image}@$(cat image-digests/backend-linux-amd64.txt)"
+            "${backend_image}@$(cat image-digests/backend-linux-arm64.txt)"
+          )
+          web_sources=(
+            "${web_image}@$(cat image-digests/web-linux-amd64.txt)"
+            "${web_image}@$(cat image-digests/web-linux-arm64.txt)"
+          )
+          short_sha="${GITHUB_SHA:0:7}"
+          backend_immutable=(
+            --tag "${backend_image}:sha-${GITHUB_SHA}"
+            --tag "${backend_image}:sha-${short_sha}"
+          )
+          web_immutable=(
+            --tag "${web_image}:sha-${GITHUB_SHA}"
+            --tag "${web_image}:sha-${short_sha}"
+          )
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            backend_immutable+=(--tag "${backend_image}:${GITHUB_REF_NAME}" --tag "${backend_image}:${app_version}")
+            web_immutable+=(--tag "${web_image}:${GITHUB_REF_NAME}" --tag "${web_image}:${app_version}")
+          fi
+
+          timeout 5m docker buildx imagetools create "${backend_immutable[@]}" "${backend_sources[@]}"
+          timeout 5m docker buildx imagetools create "${web_immutable[@]}" "${web_sources[@]}"
+
+          backend_sha_ref="${backend_image}:sha-${GITHUB_SHA}"
+          web_sha_ref="${web_image}:sha-${GITHUB_SHA}"
+          timeout 2m docker buildx imagetools inspect --raw "$backend_sha_ref" | jq -e '[.manifests[].platform.architecture] | sort == ["amd64", "arm64"]'
+          timeout 2m docker buildx imagetools inspect --raw "$web_sha_ref" | jq -e '[.manifests[].platform.architecture] | sort == ["amd64", "arm64"]'
+          backend_digest="$(timeout 2m docker buildx imagetools inspect "$backend_sha_ref" | awk '$1 == "Digest:" {print $2; exit}')"
+          web_digest="$(timeout 2m docker buildx imagetools inspect "$web_sha_ref" | awk '$1 == "Digest:" {print $2; exit}')"
+          test "$backend_digest" != ""
+          test "$web_digest" != ""
+
+          update_alias_pair() {
+            local alias="$1"
+            local previous_backend=""
+            previous_backend="$(timeout 2m docker buildx imagetools inspect "${backend_image}:${alias}" 2>/dev/null | awk '$1 == "Digest:" {print $2; exit}' || true)"
+            timeout 5m docker buildx imagetools create --tag "${backend_image}:${alias}" "${backend_image}@${backend_digest}"
+            if ! timeout 5m docker buildx imagetools create --tag "${web_image}:${alias}" "${web_image}@${web_digest}"; then
+              if [[ -n "$previous_backend" ]]; then
+                echo "Web alias update failed; restoring backend:${alias} to ${previous_backend}" >&2
+                timeout 5m docker buildx imagetools create --tag "${backend_image}:${alias}" "${backend_image}@${previous_backend}"
+              fi
+              return 1
+            fi
+          }
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            update_alias_pair "${app_version%.*}"
+            update_alias_pair latest
+          elif [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            update_alias_pair main
+            update_alias_pair latest
+          fi
+
+          mkdir -p promoted-digests
+          printf '%s\n' "$backend_digest" > promoted-digests/threatlens-backend.txt
+          printf '%s\n' "$web_digest" > promoted-digests/threatlens-web.txt
+          {
+            echo "backend-digest=${backend_digest}"
+            echo "web-digest=${web_digest}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate backend manifest attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/threatlens-backend
+          subject-digest: ${{ steps.promote.outputs.backend-digest }}
+          push-to-registry: true
+
+      - name: Generate web manifest attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/threatlens-web
+          subject-digest: ${{ steps.promote.outputs.web-digest }}
+          push-to-registry: true
+
+      - name: Upload promoted image digests
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
         with:
-          name: image-digest-${{ matrix.name }}
-          path: image-digest/*.txt
+          name: promoted-image-digests
+          path: promoted-digests/*.txt
           if-no-files-found: error
+          retention-days: 7
 
   release:
     name: Publish GitHub release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: publish
+    needs: promote
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -152,8 +404,7 @@ jobs:
       - name: Download image digests
         uses: actions/download-artifact@v4
         with:
-          pattern: image-digest-*
-          merge-multiple: true
+          name: promoted-image-digests
           path: image-digests
 
       - name: Write release notes
@@ -200,8 +451,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
-            gh release edit "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest
+          if timeout 30s gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            timeout 2m gh release edit "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest
           else
-            gh release create "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest --verify-tag
+            timeout 2m gh release create "${GITHUB_REF_NAME}" --title "ThreatLens ${GITHUB_REF_NAME}" --notes-file release-notes.md --latest --verify-tag
           fi

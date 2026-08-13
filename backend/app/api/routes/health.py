@@ -1,6 +1,5 @@
 import logging
 
-import redis
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
@@ -8,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_admin_user, get_optional_current_user, require_token_scopes
 from app.core.config import get_settings
+from app.core.redis_client import redis_client_from_url
 from app.core.logging_config import verbose_logging_enabled
 from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import SCOPE_READ_HEALTH, has_required_scope
@@ -167,7 +167,7 @@ def _database_health_ok(db: Session) -> bool:
 
 def _redis_health_ok(settings) -> bool:
     try:
-        client = redis.Redis.from_url(settings.redis_url)
+        client = redis_client_from_url(settings.redis_url, settings=settings)
         return bool(client.ping())
     except Exception as exc:
         logger.warning(

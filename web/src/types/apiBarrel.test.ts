@@ -1,0 +1,436 @@
+import { describe, expect, expectTypeOf, it } from 'vitest'
+
+import type * as Administration from './administration'
+import type * as Ai from './ai'
+import type * as Alerts from './alerts'
+import type * as Api from './api'
+import type * as Feeds from './feeds'
+import type * as Identity from './identity'
+import type * as Integrations from './integrations'
+import type * as Items from './items'
+import type * as Notifications from './notifications'
+import type * as SavedViews from './savedViews'
+import type * as Statistics from './statistics'
+import type * as Tagging from './tagging'
+
+describe('API type barrel', () => {
+  it('re-exports identity types', () => {
+    expectTypeOf<
+      [
+        Api.User,
+        Api.AdminUser,
+        Api.AppFeatures,
+        Api.CurrentUser,
+        Api.TokenResponse,
+        Api.UserCreateRequest,
+        Api.UserUpdateRequest,
+        Api.RegistrationSettingsResponse,
+        Api.OIDCPublicSettings,
+        Api.OIDCStartResponse,
+        Api.OIDCClientAuthMethod,
+        Api.OIDCRoleMapping,
+        Api.OIDCProviderSettings,
+        Api.OIDCProviderUpdateRequest,
+        Api.OIDCProviderTestResponse,
+        Api.OIDCAccountStatus,
+        Api.ApiToken,
+        Api.ApiTokenCreateResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Identity.User,
+        Identity.AdminUser,
+        Identity.AppFeatures,
+        Identity.CurrentUser,
+        Identity.TokenResponse,
+        Identity.UserCreateRequest,
+        Identity.UserUpdateRequest,
+        Identity.RegistrationSettingsResponse,
+        Identity.OIDCPublicSettings,
+        Identity.OIDCStartResponse,
+        Identity.OIDCClientAuthMethod,
+        Identity.OIDCRoleMapping,
+        Identity.OIDCProviderSettings,
+        Identity.OIDCProviderUpdateRequest,
+        Identity.OIDCProviderTestResponse,
+        Identity.OIDCAccountStatus,
+        Identity.ApiToken,
+        Identity.ApiTokenCreateResponse,
+      ]
+    >()
+  })
+
+  it('re-exports administration types', () => {
+    expectTypeOf<
+      [
+        Api.AuditLog,
+        Api.AuditLogListResponse,
+        Api.AuditLogExportResponse,
+        Api.EncryptedDataInventoryCategory,
+        Api.EncryptedDataStartupScan,
+        Api.EncryptedDataInventorySummary,
+        Api.EncryptedDataInventoryResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Administration.AuditLog,
+        Administration.AuditLogListResponse,
+        Administration.AuditLogExportResponse,
+        Administration.EncryptedDataInventoryCategory,
+        Administration.EncryptedDataStartupScan,
+        Administration.EncryptedDataInventorySummary,
+        Administration.EncryptedDataInventoryResponse,
+      ]
+    >()
+  })
+
+  it('re-exports saved-view types', () => {
+    expectTypeOf<
+      [
+        Api.SavedViewTimeRange,
+        Api.SavedViewReadStatus,
+        Api.SavedViewStarStatus,
+        Api.SavedViewAIRelevanceFilter,
+        Api.SavedViewSort,
+        Api.SavedViewMode,
+        Api.SavedViewWindowType,
+        Api.SavedViewWindowSnap,
+        Api.SavedViewWindowTimeFilter,
+        Api.SavedViewRssFilters,
+        Api.SavedViewAlertFilters,
+        Api.SavedViewWindowRssFilters,
+        Api.SavedViewWindowAlertFilters,
+        Api.SavedViewPanelRect,
+        Api.SavedViewRssWindow,
+        Api.SavedViewAlertWindow,
+        Api.SavedViewNotesWindow,
+        Api.SavedViewDailyBriefWindow,
+        Api.SavedViewWindow,
+        Api.SavedViewWindowSummary,
+        Api.SavedViewPreview,
+        Api.SavedViewSearchWindow,
+        Api.SavedViewNonSearchWindow,
+        Api.SavedViewQueryPayload,
+        Api.SavedView,
+      ]
+    >().toEqualTypeOf<
+      [
+        SavedViews.SavedViewTimeRange,
+        SavedViews.SavedViewReadStatus,
+        SavedViews.SavedViewStarStatus,
+        SavedViews.SavedViewAIRelevanceFilter,
+        SavedViews.SavedViewSort,
+        SavedViews.SavedViewMode,
+        SavedViews.SavedViewWindowType,
+        SavedViews.SavedViewWindowSnap,
+        SavedViews.SavedViewWindowTimeFilter,
+        SavedViews.SavedViewRssFilters,
+        SavedViews.SavedViewAlertFilters,
+        SavedViews.SavedViewWindowRssFilters,
+        SavedViews.SavedViewWindowAlertFilters,
+        SavedViews.SavedViewPanelRect,
+        SavedViews.SavedViewRssWindow,
+        SavedViews.SavedViewAlertWindow,
+        SavedViews.SavedViewNotesWindow,
+        SavedViews.SavedViewDailyBriefWindow,
+        SavedViews.SavedViewWindow,
+        SavedViews.SavedViewWindowSummary,
+        SavedViews.SavedViewPreview,
+        SavedViews.SavedViewSearchWindow,
+        SavedViews.SavedViewNonSearchWindow,
+        SavedViews.SavedViewQueryPayload,
+        SavedViews.SavedView,
+      ]
+    >()
+  })
+
+  it('re-exports statistics types', () => {
+    expectTypeOf<
+      [
+        Api.StatsTotalsSummary,
+        Api.StatsActivitySummary,
+        Api.StatsDerivedSummary,
+        Api.StatsStatusPoint,
+        Api.StatsDailyPoint,
+        Api.StatsFeedPoint,
+        Api.StatsDomainPoint,
+        Api.StatsOverviewResponse,
+        Api.StatsFeedTimeSeriesPoint,
+        Api.StatsFeedTimeSeriesSeries,
+        Api.StatsFeedTimeSeriesResponse,
+        Api.StatsActivityHeatmapDayRow,
+        Api.StatsActivityHeatmapResponse,
+        Api.StatsSignalRadarAxisPoint,
+        Api.StatsSignalRadarResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Statistics.StatsTotalsSummary,
+        Statistics.StatsActivitySummary,
+        Statistics.StatsDerivedSummary,
+        Statistics.StatsStatusPoint,
+        Statistics.StatsDailyPoint,
+        Statistics.StatsFeedPoint,
+        Statistics.StatsDomainPoint,
+        Statistics.StatsOverviewResponse,
+        Statistics.StatsFeedTimeSeriesPoint,
+        Statistics.StatsFeedTimeSeriesSeries,
+        Statistics.StatsFeedTimeSeriesResponse,
+        Statistics.StatsActivityHeatmapDayRow,
+        Statistics.StatsActivityHeatmapResponse,
+        Statistics.StatsSignalRadarAxisPoint,
+        Statistics.StatsSignalRadarResponse,
+      ]
+    >()
+  })
+
+  it('re-exports feed types', () => {
+    expectTypeOf<
+      [
+        Api.Feed,
+        Api.FeedMetadataResponse,
+        Api.FeedImportEntry,
+        Api.FeedExportResponse,
+        Api.FeedImportResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Feeds.Feed,
+        Feeds.FeedMetadataResponse,
+        Feeds.FeedImportEntry,
+        Feeds.FeedExportResponse,
+        Feeds.FeedImportResponse,
+      ]
+    >()
+  })
+
+  it('re-exports item types', () => {
+    expectTypeOf<
+      [
+        Api.ItemListEntry,
+        Api.ItemListResponse,
+        Api.Article,
+        Api.ItemState,
+        Api.ItemDetail,
+        Api.ItemGraphNode,
+        Api.ItemGraphEdge,
+        Api.ItemGraphResponse,
+        Api.Tag,
+      ]
+    >().toEqualTypeOf<
+      [
+        Items.ItemListEntry,
+        Items.ItemListResponse,
+        Items.Article,
+        Items.ItemState,
+        Items.ItemDetail,
+        Items.ItemGraphNode,
+        Items.ItemGraphEdge,
+        Items.ItemGraphResponse,
+        Items.Tag,
+      ]
+    >()
+  })
+
+  it('re-exports alert types', () => {
+    expectTypeOf<
+      [Api.AlertInterest, Api.AlertMatchReference, Api.AlertMatchEntry, Api.AlertMatchListResponse]
+    >().toEqualTypeOf<
+      [Alerts.AlertInterest, Alerts.AlertMatchReference, Alerts.AlertMatchEntry, Alerts.AlertMatchListResponse]
+    >()
+  })
+
+  it('re-exports notification types', () => {
+    expectTypeOf<
+      [
+        Api.NotificationWebhookField,
+        Api.NotificationTemplateVariable,
+        Api.NotificationEventType,
+        Api.NotificationWebhook,
+        Api.NotificationWebhookWriteRequest,
+        Api.NotificationWebhookTestResponse,
+        Api.NotificationWebhookDelivery,
+        Api.NotificationWebhookDeliveryListResponse,
+        Api.NotificationAnalyticsEventSummary,
+        Api.NotificationAnalyticsWebhookSummary,
+        Api.NotificationQueueSnapshot,
+        Api.NotificationAnalyticsResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Notifications.NotificationWebhookField,
+        Notifications.NotificationTemplateVariable,
+        Notifications.NotificationEventType,
+        Notifications.NotificationWebhook,
+        Notifications.NotificationWebhookWriteRequest,
+        Notifications.NotificationWebhookTestResponse,
+        Notifications.NotificationWebhookDelivery,
+        Notifications.NotificationWebhookDeliveryListResponse,
+        Notifications.NotificationAnalyticsEventSummary,
+        Notifications.NotificationAnalyticsWebhookSummary,
+        Notifications.NotificationQueueSnapshot,
+        Notifications.NotificationAnalyticsResponse,
+      ]
+    >()
+  })
+
+  it('re-exports integration types', () => {
+    expectTypeOf<
+      [
+        Api.IntegrationType,
+        Api.IntegrationDirection,
+        Api.IntegrationHealthStatus,
+        Api.SMTPSecurityMode,
+        Api.IntegrationConnector,
+        Api.IntegrationSummary,
+        Api.SMTPSettings,
+        Api.SMTPSettingsUpdateRequest,
+        Api.SMTPTestRequest,
+        Api.SMTPTestResponse,
+        Api.SMTPHook,
+        Api.SMTPHookWriteRequest,
+        Api.SMTPHookTestRequest,
+        Api.SMTPTemplateDefault,
+        Api.SMTPAnalyticsEventSummary,
+        Api.SMTPAnalyticsHookSummary,
+        Api.SMTPAnalyticsResponse,
+        Api.SMTPDeliveryAttempt,
+        Api.SMTPDelivery,
+        Api.SMTPDeliveryListResponse,
+        Api.SMTPTestRun,
+        Api.SMTPTestRunListResponse,
+        Api.IntegrationDeliveryReplayResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Integrations.IntegrationType,
+        Integrations.IntegrationDirection,
+        Integrations.IntegrationHealthStatus,
+        Integrations.SMTPSecurityMode,
+        Integrations.IntegrationConnector,
+        Integrations.IntegrationSummary,
+        Integrations.SMTPSettings,
+        Integrations.SMTPSettingsUpdateRequest,
+        Integrations.SMTPTestRequest,
+        Integrations.SMTPTestResponse,
+        Integrations.SMTPHook,
+        Integrations.SMTPHookWriteRequest,
+        Integrations.SMTPHookTestRequest,
+        Integrations.SMTPTemplateDefault,
+        Integrations.SMTPAnalyticsEventSummary,
+        Integrations.SMTPAnalyticsHookSummary,
+        Integrations.SMTPAnalyticsResponse,
+        Integrations.SMTPDeliveryAttempt,
+        Integrations.SMTPDelivery,
+        Integrations.SMTPDeliveryListResponse,
+        Integrations.SMTPTestRun,
+        Integrations.SMTPTestRunListResponse,
+        Integrations.IntegrationDeliveryReplayResponse,
+      ]
+    >()
+  })
+
+  it('re-exports tagging types', () => {
+    expectTypeOf<
+      [
+        Api.TaggingSettings,
+        Api.TaggingRule,
+        Api.TaggingSettingsBundleResponse,
+        Api.TaggingRuleWriteRequest,
+        Api.TaggingRulePreviewItem,
+        Api.TaggingRulePreviewResponse,
+        Api.TaggingReapplyResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Tagging.TaggingSettings,
+        Tagging.TaggingRule,
+        Tagging.TaggingSettingsBundleResponse,
+        Tagging.TaggingRuleWriteRequest,
+        Tagging.TaggingRulePreviewItem,
+        Tagging.TaggingRulePreviewResponse,
+        Tagging.TaggingReapplyResponse,
+      ]
+    >()
+  })
+
+  it('re-exports AI types', () => {
+    expectTypeOf<
+      [
+        Api.AIPromptPreview,
+        Api.AIPromptPreviews,
+        Api.AISettings,
+        Api.AISettingsUpdateRequest,
+        Api.AITestConnectionResponse,
+        Api.AIUsageFeatureSummary,
+        Api.AIUsageSummary,
+        Api.AIDailyBriefItem,
+        Api.AIDailyBrief,
+        Api.AIReprocessResponse,
+        Api.AIQueuedTaskResponse,
+        Api.AIDailyBriefBackfillResponse,
+        Api.AITaskRunResponse,
+        Api.AITaskRunListResponse,
+        Api.AITaskEventResponse,
+        Api.AITaskRunDetailResponse,
+        Api.AILiveTaskResponse,
+        Api.AILiveStatusResponse,
+        Api.AIOverviewKpiResponse,
+        Api.AIOverviewPerModelResponse,
+        Api.AITimeSeriesPointResponse,
+        Api.AITokenEfficiencyResponse,
+        Api.AIRelevanceFeedResponse,
+        Api.AIRelevanceDistributionResponse,
+        Api.AICoverageStatsResponse,
+        Api.AIFailureGroupResponse,
+        Api.AIEndpointHealthResponse,
+        Api.AIFeatureHealthRowResponse,
+        Api.AIStorageStatsResponse,
+        Api.AICacheStatsResponse,
+        Api.AIOpsOverviewResponse,
+        Api.AIDailyBriefSourceItemResponse,
+        Api.AIAuditEntryResponse,
+      ]
+    >().toEqualTypeOf<
+      [
+        Ai.AIPromptPreview,
+        Ai.AIPromptPreviews,
+        Ai.AISettings,
+        Ai.AISettingsUpdateRequest,
+        Ai.AITestConnectionResponse,
+        Ai.AIUsageFeatureSummary,
+        Ai.AIUsageSummary,
+        Ai.AIDailyBriefItem,
+        Ai.AIDailyBrief,
+        Ai.AIReprocessResponse,
+        Ai.AIQueuedTaskResponse,
+        Ai.AIDailyBriefBackfillResponse,
+        Ai.AITaskRunResponse,
+        Ai.AITaskRunListResponse,
+        Ai.AITaskEventResponse,
+        Ai.AITaskRunDetailResponse,
+        Ai.AILiveTaskResponse,
+        Ai.AILiveStatusResponse,
+        Ai.AIOverviewKpiResponse,
+        Ai.AIOverviewPerModelResponse,
+        Ai.AITimeSeriesPointResponse,
+        Ai.AITokenEfficiencyResponse,
+        Ai.AIRelevanceFeedResponse,
+        Ai.AIRelevanceDistributionResponse,
+        Ai.AICoverageStatsResponse,
+        Ai.AIFailureGroupResponse,
+        Ai.AIEndpointHealthResponse,
+        Ai.AIFeatureHealthRowResponse,
+        Ai.AIStorageStatsResponse,
+        Ai.AICacheStatsResponse,
+        Ai.AIOpsOverviewResponse,
+        Ai.AIDailyBriefSourceItemResponse,
+        Ai.AIAuditEntryResponse,
+      ]
+    >()
+  })
+
+  it('does not add runtime exports', async () => {
+    expect(Object.keys(await import('./api'))).toEqual([])
+  })
+})

@@ -27,7 +27,7 @@ from app.models.saved_view import SavedView
 from app.models.tag import ItemTag, Tag, TagFeedbackEvent
 from app.models.user import User
 from app.schemas.user import UserUpdateRequest
-from app.core.security import get_password_hash
+from app.core.security import get_password_hash, verify_password
 from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
 from app.services.feed_probe import FeedProbeResult
@@ -296,6 +296,23 @@ def test_saved_view_endpoints_persist_versioned_payloads(client: TestClient, aut
     assert invalid_update.status_code == 422
 
 
+def test_saved_view_writes_reject_more_than_twelve_panels(client: TestClient, auth_headers):
+    payload = _saved_view_query_payload()
+    payload["windows"] = [
+        {**payload["windows"][0], "id": f"rss-{index}", "title": f"RSS Panel {index}"}
+        for index in range(1, 14)
+    ]
+
+    response = client.post(
+        "/views",
+        json={"name": "Oversized layout", "query_json": payload},
+        headers=auth_headers["viewer"],
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Saved views can contain at most 12 panels"
+
+
 def test_saved_view_listing_normalizes_legacy_payloads(client: TestClient, auth_headers, db_session, seed_users):
     viewer = seed_users["viewer"]
     legacy_view = SavedView(
@@ -519,6 +536,7 @@ def test_register_is_throttled_after_anonymous_attempts(client: TestClient, monk
     )
     monkeypatch.setattr("app.api.routes.auth.resolve_client_ip", lambda _request: "203.0.113.10")
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_ip_max_attempts", 1)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
     monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
 
@@ -575,6 +593,36 @@ def test_login_with_invalid_password_hash_returns_401(client: TestClient, db_ses
     )
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid email or password"
+
+
+def test_login_upgrades_existing_bcrypt_sha256_password_hash(
+    client: TestClient,
+    db_session,
+):
+    legacy_hash = (
+        "$bcrypt-sha256$v=2,t=2b,r=12$yjf1YwjNMpg6qj6gz9EIwe$"
+        "OE8Ps.Ull5TCbxx5DaDH7n02bicnVKG"
+    )
+    user = User(
+        id=uuid.uuid4(),
+        email="legacy-hash@example.com",
+        password_hash=legacy_hash,
+        role="viewer",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    response = client.post(
+        "/auth/login",
+        json={"email": user.email, "password": "hello"},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(user)
+    assert user.password_hash.startswith("$argon2id$")
+    assert verify_password("hello", user.password_hash) is True
 
 
 def test_change_password_with_invalid_stored_hash_returns_400(client: TestClient, db_session, seed_users):
@@ -1419,7 +1467,8 @@ def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkey
         def ping(self):
             return {}
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
     monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
 
     response = client.get("/health/ready")
@@ -1463,7 +1512,8 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
                 ]
             }
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
     monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
 
     response = client.get("/health/ready")
@@ -1678,7 +1728,7 @@ def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClien
                 return datetime.now(timezone.utc).isoformat()
             return stale_heartbeat
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
 
     response = client.get("/health/beat", headers=auth_headers["admin"])
     assert response.status_code == 503
@@ -1698,7 +1748,7 @@ def test_health_beat_endpoint_hides_internal_details_from_public(client: TestCli
             _ = key
             return stale_heartbeat
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
 
     response = client.get("/health/beat")
 

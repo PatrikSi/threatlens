@@ -1,0 +1,20 @@
+C:Q1N5wVbFPgzBQOh8ecCj3SK27lFVI=
+P:libgcc
+V:15.2.0-r5
+A:x86_64
+S:80348
+I:173920
+T:GNU C compiler runtime libraries
+U:https://gcc.gnu.org
+L:GPL-2.0-or-later AND LGPL-2.1-or-later
+o:gcc
+m:Ariadne Conill <ariadne@dereferenced.org>
+t:1780084766
+c:423a8ad043d07f2c7546c8ec3e2b0384cda360ae
+D:so:libc.musl-x86_64.so.1
+p:so:libgcc_s.so.1=1
+r:libstdc++ binutils
+F:usr
+F:usr/lib
+R:libgcc_s.so.1
+Z:Q1YhMjxUCltajewCPNF1Ce5n5rF44=

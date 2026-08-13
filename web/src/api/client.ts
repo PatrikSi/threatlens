@@ -63,6 +63,19 @@ export class ApiTransportError extends Error {
   }
 }
 
+export class ApiRequestError extends Error {
+  path: string
+  code: 'invalid_csrf_cookie'
+  retryable = false
+
+  constructor(message: string, path: string, code: 'invalid_csrf_cookie', cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause })
+    this.name = 'ApiRequestError'
+    this.path = path
+    this.code = code
+  }
+}
+
 export function buildApiUrl(path: string): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return `${API_BASE_URL}${normalizedPath}`
@@ -82,7 +95,17 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
     headers.set('Accept', 'application/json')
   }
   if (auth && UNSAFE_METHODS.has(method)) {
-    const csrfToken = getCookieValue(CSRF_COOKIE_NAME)
+    let csrfToken: string | null
+    try {
+      csrfToken = getCookieValue(CSRF_COOKIE_NAME)
+    } catch (error) {
+      throw new ApiRequestError(
+        'The browser security token is malformed. Refresh the page to renew the session.',
+        path,
+        'invalid_csrf_cookie',
+        error,
+      )
+    }
     if (csrfToken && !headers.has(CSRF_HEADER_NAME)) {
       headers.set(CSRF_HEADER_NAME, csrfToken)
     }

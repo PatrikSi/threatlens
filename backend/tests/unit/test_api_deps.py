@@ -52,6 +52,18 @@ def test_resolve_client_ip_ignores_forwarded_header_from_untrusted_peer(monkeypa
     assert deps.resolve_client_ip(request) == "198.51.100.7"
 
 
+def test_resolve_client_ip_trusts_exact_resolved_proxy_host(monkeypatch):
+    request = _make_request(client_host="172.22.0.8", forwarded_for="203.0.113.10")
+    monkeypatch.setattr(
+        deps,
+        "get_settings",
+        lambda: SimpleNamespace(trusted_proxy_cidrs=[], trusted_proxy_hosts=["web"]),
+    )
+    monkeypatch.setattr(deps, "_trusted_proxy_host_addresses", lambda _hosts: frozenset({"172.22.0.8"}))
+
+    assert deps.resolve_client_ip(request) == "203.0.113.10"
+
+
 def test_resolve_client_ip_ignores_invalid_forwarded_hops(monkeypatch):
     monkeypatch.setattr(
         deps,

@@ -9,9 +9,10 @@ from dataclasses import dataclass
 import redis
 
 from app.core.config import get_settings
+from app.core.redis_client import redis_client_from_url
 
 settings = get_settings()
-redis_client = redis.Redis.from_url(settings.redis_url, decode_responses=True)
+redis_client = redis_client_from_url(settings.redis_url, decode_responses=True, settings=settings)
 logger = logging.getLogger(__name__)
 
 
@@ -97,7 +98,7 @@ def _record_failure(email: str, ip: str, *, namespace: str) -> None:
         distinct_ip_count = _record_account_ip_failure(email, ip, namespace=namespace)
         if counts[email_ip_failure_key] >= _max_attempts():
             redis_client.set(_email_ip_lock_key(email, ip, namespace=namespace), "1", ex=_lockout_seconds(), nx=True)
-        if counts[ip_failure_key] >= _max_attempts():
+        if counts[ip_failure_key] >= _ip_max_attempts():
             redis_client.set(_ip_lock_key(ip, namespace=namespace), "1", ex=_lockout_seconds(), nx=True)
         if _should_lock_account(counts[account_failure_key], distinct_ip_count):
             redis_client.set(_account_lock_key(email, namespace=namespace), "1", ex=_lockout_seconds(), nx=True)
@@ -170,6 +171,7 @@ def _emergency_record_failure(email: str, ip: str, *, namespace: str) -> None:
     window_seconds = _failure_window_seconds()
     lockout_seconds = _lockout_seconds()
     max_attempts = _max_attempts()
+    ip_max_attempts = _ip_max_attempts()
     email_ip_failure_key = _email_ip_failure_key(email, ip, namespace=namespace)
     ip_failure_key = _ip_failure_key(ip, namespace=namespace)
     account_failure_key = _account_failure_key(email, namespace=namespace)
@@ -192,7 +194,7 @@ def _emergency_record_failure(email: str, ip: str, *, namespace: str) -> None:
             lock_until = now + lockout_seconds
             existing_lock_until = _emergency_locks.get(_email_ip_lock_key(email, ip, namespace=namespace), 0.0)
             _emergency_locks[_email_ip_lock_key(email, ip, namespace=namespace)] = max(existing_lock_until, lock_until)
-        if counts[ip_failure_key] >= max_attempts:
+        if counts[ip_failure_key] >= ip_max_attempts:
             lock_until = now + lockout_seconds
             existing_lock_until = _emergency_locks.get(_ip_lock_key(ip, namespace=namespace), 0.0)
             _emergency_locks[_ip_lock_key(ip, namespace=namespace)] = max(existing_lock_until, lock_until)
@@ -317,6 +319,10 @@ def _normalized_email_ip_bucket(email: str, ip: str) -> str:
 
 def _max_attempts() -> int:
     return max(1, int(settings.auth_login_max_attempts))
+
+
+def _ip_max_attempts() -> int:
+    return max(_max_attempts(), int(settings.auth_login_ip_max_attempts))
 
 
 def _failure_window_seconds() -> int:

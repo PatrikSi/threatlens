@@ -1,35 +1,35 @@
-C:Q1cPdzkZ5y416Nm7w2SSIXinZW86E=
+C:Q1gviBUWwEXwbyLX3AqDzGTKVU7xA=
 P:brotli-libs
-V:1.1.0-r2
+V:1.2.0-r1
 A:x86_64
-S:414536
-I:935432
+S:429608
+I:980488
 T:Generic lossless compressor (libraries)
 U:https://github.com/google/brotli
 L:MIT
 o:brotli
 m:prspkt <prspkt@protonmail.com>
-t:1712915016
-c:bdeb5ac39445d803f7d97bb9b3cf9171d9a35f52
+t:1774640349
+c:1ee249c9da168084b1c6c9f7488bdffa2ac33c84
 D:so:libc.musl-x86_64.so.1
-p:so:libbrotlicommon.so.1=1.1.0 so:libbrotlidec.so.1=1.1.0 so:libbrotlienc.so.1=1.1.0
+p:so:libbrotlicommon.so.1=1.2.0 so:libbrotlidec.so.1=1.2.0 so:libbrotlienc.so.1=1.2.0
 F:usr
 F:usr/lib
 R:libbrotlicommon.so.1
 a:0:0:777
-Z:Q1pRm/tG80ufAmy1q/8nSaPDq+u3w=
-R:libbrotlicommon.so.1.1.0
+Z:Q1uQhR0vqLeWvcZ9iNqEh1v32FClk=
+R:libbrotlicommon.so.1.2.0
 a:0:0:755
-Z:Q1P/dlGUJmsTEholzQWXi6ylgwqJM=
+Z:Q1yuWdi7g2hBCUmgIYe0ENqTxZ4gc=
 R:libbrotlidec.so.1
 a:0:0:777
-Z:Q11D70kpdqRWObgVG3VG8O1Ydo6GI=
-R:libbrotlidec.so.1.1.0
+Z:Q1FDKvJIjyATpEJ7krvW3yzymP/14=
+R:libbrotlidec.so.1.2.0
 a:0:0:755
-Z:Q1PT5tRK6qHwj83I0eI3JBo+kEIn8=
+Z:Q1u7YQhrHLaZaR/jnWF1u9pYYZdnY=
 R:libbrotlienc.so.1
 a:0:0:777
-Z:Q1p0/I+8EwnDorRaGv7dCdAdXiQv0=
-R:libbrotlienc.so.1.1.0
+Z:Q1t408qOc4Qll7mxmpj/U8G+GUC18=
+R:libbrotlienc.so.1.2.0
 a:0:0:755
-Z:Q1eAjrtu2cnJ87MUTzH7fOembRJG8=
+Z:Q1q+dK4U7zmdEzkd7dESIjgRFKuSA=

@@ -27,6 +27,13 @@ settings = get_settings()
 
 
 class SMTPIntegrationConnector:
+    SUPPORTED_EVENT_TYPES = (
+        "rss_item_new",
+        "alert_match",
+        "feed_failing",
+        "webhook_failed",
+        "daily_digest",
+    )
     definition = IntegrationConnectorDefinition(
         integration_type="smtp",
         direction="destination",
@@ -34,10 +41,14 @@ class SMTPIntegrationConnector:
         description="Send event notifications and AI Daily Briefs through an SMTP server.",
         config_schema_version=SMTP_CONFIG_SCHEMA_VERSION,
         supports_test=True,
+        supported_event_types=SUPPORTED_EVENT_TYPES,
         capabilities=("destination", "email", "test_connection", "test_delivery"),
     )
 
-    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
+    def supports_event_type(self, event_type: str) -> bool:
+        return event_type in self.definition.supported_event_types
+
+    def prepare_routing(self, db: Session, *, event: IntegrationEvent) -> None:
         instances = db.scalars(
             select(IntegrationInstance).where(
                 IntegrationInstance.integration_type == self.definition.integration_type,
@@ -46,6 +57,9 @@ class SMTPIntegrationConnector:
         ).all()
         for instance in instances:
             sync_smtp_subscriptions(db, instance)
+
+    def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
+        from app.services.integration_events import delivery_payload_for_owner
 
         feed_id = _payload_uuid(event, "feed_id", required=False)
         query = (
@@ -96,7 +110,10 @@ class SMTPIntegrationConnector:
                 delivery_kind="live",
                 state="pending",
                 idempotency_key=f"event:{event.id}:subscription:{subscription.id}:live",
-                payload_json=dict(event.payload_json or {}),
+                payload_json=delivery_payload_for_owner(
+                    event,
+                    owner_user_id=instance.owner_user_id,
+                ),
                 max_attempts=max(1, int(settings.integration_delivery_retry_max_attempts)),
             )
             db.add(delivery)

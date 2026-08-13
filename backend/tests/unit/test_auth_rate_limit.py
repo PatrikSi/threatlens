@@ -177,6 +177,22 @@ def test_login_throttle_blocks_after_repeated_failures(monkeypatch):
     assert state.retry_after_seconds == 120
 
 
+def test_ip_wide_lock_uses_distinct_higher_threshold(monkeypatch):
+    redis_client = _MemoryRedis()
+    monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_max_attempts", 1)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_ip_max_attempts", 3)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_window_seconds", 60)
+    monkeypatch.setattr(auth_rate_limit.settings, "auth_login_lockout_seconds", 120)
+
+    auth_rate_limit.record_login_failure("first@example.com", "203.0.113.10")
+    auth_rate_limit.record_login_failure("second@example.com", "203.0.113.10")
+    assert auth_rate_limit.check_login_throttle("fresh@example.com", "203.0.113.10").blocked is False
+
+    auth_rate_limit.record_login_failure("third@example.com", "203.0.113.10")
+    assert auth_rate_limit.check_login_throttle("fresh@example.com", "203.0.113.10").blocked is True
+
+
 def test_password_verification_throttle_uses_a_separate_namespace(monkeypatch):
     redis_client = _MemoryRedis()
     monkeypatch.setattr(auth_rate_limit, "redis_client", redis_client)

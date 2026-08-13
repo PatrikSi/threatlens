@@ -1,16 +1,16 @@
-C:Q1rXfJAEVCVvWYF6IsjtdnpxFKRWU=
+C:Q19QMIkG43lvBAaJ48gBGbWDlGvKY=
 P:libdav1d
-V:1.5.0-r0
+V:1.5.3-r0
 A:x86_64
-S:705487
-I:1709680
+S:727596
+I:1750640
 T:small and fast AV1 Decoder (libraries)
 U:https://code.videolan.org/videolan/dav1d
 L:BSD-2-Clause
 o:dav1d
 m:Bart Ribbers <bribbers@disroot.org>
-t:1729675785
-c:209790842fd2d60db34aed86d7e5f8b035f89b0e
+t:1767374408
+c:6a13170ddff8fdf27712aa7d0e5437aa2407ff56
 D:so:libc.musl-x86_64.so.1
 p:so:libdav1d.so.7=7.0.0
 F:usr
@@ -20,4 +20,4 @@ a:0:0:777
 Z:Q1fEp3wwM/aLQlwFOEgc79fPNdq4U=
 R:libdav1d.so.7.0.0
 a:0:0:755
-Z:Q1wtlu+R2JgrDNwHEDZEbGgmLslKk=
+Z:Q11/8NTk7sTouaE2VCbm6KiVw5Zbo=
