@@ -11,6 +11,7 @@ from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.item_ai_enrichment import ItemAIEnrichment
+from app.models.report import Report
 from app.schemas.ai import (
     AILiveStatusResponse,
     AILiveTaskResponse,
@@ -35,6 +36,7 @@ from app.services.ai_ops_common import (
     AI_TASK_TYPE_CONNECTION_TEST as AI_TASK_TYPE_CONNECTION_TEST,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPORT,
     AI_TASK_TYPE_REPROCESS,
     AI_TERMINAL_STATUSES,
     AI_TRIGGER_AUTO as AI_TRIGGER_AUTO,
@@ -310,6 +312,14 @@ def finish_ai_task_run(
         settled_at=now,
     )
     _settle_pending_daily_brief(
+        db,
+        run=run,
+        status=status,
+        reason=reason,
+        error=error,
+        settled_at=now,
+    )
+    _settle_pending_report(
         db,
         run=run,
         status=status,
@@ -880,6 +890,45 @@ def _settle_pending_daily_brief(
     db.add(brief)
 
 
+def _settle_pending_report(
+    db: Session,
+    *,
+    run: AITaskRun,
+    status: str,
+    reason: str | None,
+    error: str | None,
+    settled_at: datetime,
+) -> None:
+    if run.task_type != AI_TASK_TYPE_REPORT or run.report_id is None:
+        return
+    if status != AI_STATUS_ERROR and reason != "canceled":
+        return
+
+    report = db.scalar(
+        select(Report)
+        .where(Report.id == run.report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if report is None or report.status not in {AI_STATUS_QUEUED, AI_STATUS_RUNNING}:
+        return
+    if reason == "canceled":
+        report.status = AI_STATUS_SKIPPED
+        report.generation_stage = "canceled"
+        report.error_code = "canceled"
+        report.error = "Report generation was canceled."
+    else:
+        report.status = AI_STATUS_ERROR
+        report.generation_stage = "failed"
+        report.error_code = str(reason or "task_failed")[:64]
+        report.error = (
+            error
+            or "Report generation stopped before completion. Review the AI task history and retry."
+        )
+    report.generated_at = settled_at
+    db.add(report)
+
+
 def _reconcile_stale_ai_runs(
     db: Session,
     *,
@@ -924,7 +973,11 @@ def _reconcile_stale_ai_runs(
             select(AITaskRun)
             .where(
                 AITaskRun.task_type.in_(
-                    [AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TASK_TYPE_DAILY_BRIEF]
+                    [
+                        AI_TASK_TYPE_ITEM_ENRICHMENT,
+                        AI_TASK_TYPE_DAILY_BRIEF,
+                        AI_TASK_TYPE_REPORT,
+                    ]
                 ),
                 AITaskRun.finished_at.is_(None),
                 AITaskRun.status.in_([AI_STATUS_QUEUED, AI_STATUS_RUNNING]),

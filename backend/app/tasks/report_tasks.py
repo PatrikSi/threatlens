@@ -109,34 +109,52 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
         if started is None or started.status not in {"queued", "running"}:
             return {"status": "skipped", "reason": "run_not_available"}
         try:
-            result = generate_report(db, report_id=parsed_report_id, task_run_id=parsed_run_id)
+            result = generate_report(
+                db, report_id=parsed_report_id, task_run_id=parsed_run_id
+            )
         except Exception as exc:
             logger.exception("report_generation_failed report_id=%s", parsed_report_id)
             report = db.get(Report, parsed_report_id)
-            if report is not None and report.status not in {"ready", "error", "skipped"}:
-                report.status = "error"
-                report.generation_stage = "failed"
-                report.error_code = str(getattr(exc, "code", None) or "generation_failed")[:64]
+            if report is not None and report.status not in {
+                "ready",
+                "error",
+                "skipped",
+            }:
+                canceled = getattr(exc, "code", None) == "canceled"
+                report.status = "skipped" if canceled else "error"
+                report.generation_stage = "canceled" if canceled else "failed"
+                report.error_code = str(
+                    getattr(exc, "code", None) or "generation_failed"
+                )[:64]
                 report.error = _report_error_for_display(exc)
                 db.add(report)
             finish_ai_task_run(
                 db,
                 run_id=parsed_run_id,
                 status=AI_STATUS_ERROR,
-                reason=report.error_code if report is not None else getattr(exc, "code", "generation_failed"),
-                error=report.error if report is not None else _report_error_for_display(exc),
+                reason=report.error_code
+                if report is not None
+                else getattr(exc, "code", "generation_failed"),
+                error=report.error
+                if report is not None
+                else _report_error_for_display(exc),
                 worker_name=worker_name,
                 report_id=parsed_report_id,
             )
             db.commit()
-            return {"status": "error", "reason": getattr(exc, "code", "generation_failed")}
+            return {
+                "status": "error",
+                "reason": getattr(exc, "code", "generation_failed"),
+            }
 
         finish_ai_task_run(
             db,
             run_id=parsed_run_id,
             status=AI_STATUS_READY,
             worker_name=worker_name,
-            model=db.get(Report, parsed_report_id).model if db.get(Report, parsed_report_id) else None,
+            model=db.get(Report, parsed_report_id).model
+            if db.get(Report, parsed_report_id)
+            else None,
             prompt_tokens=result.prompt_tokens,
             completion_tokens=result.completion_tokens,
             total_tokens=result.total_tokens,
@@ -151,7 +169,9 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             )
         )
         db.commit()
-    notification_enqueued = enqueue_integration_event_routing([event_id]) if event_id else True
+    notification_enqueued = (
+        enqueue_integration_event_routing([event_id]) if event_id else True
+    )
     return {
         "status": "ready",
         "report_id": str(parsed_report_id),
@@ -168,28 +188,41 @@ def dispatch_due_report_schedules():
     with db_session() as db:
         schedule_ids = list_due_schedule_ids(db, now=now)
     for schedule_id in schedule_ids:
-        with db_session() as db:
-            reports = reserve_schedule_runs(db, schedule_id=schedule_id, now=now)
-            queue_entries = []
-            for report in reports:
-                if report.status != "queued":
-                    continue
-                run = create_report_task_run(
-                    db,
-                    report=report,
-                    actor_user_id=report.owner_user_id,
-                    trigger_source="scheduled",
-                )
-                queue_entries.append((report.id, run.id))
-            db.commit()
+        try:
+            with db_session() as db:
+                reports = reserve_schedule_runs(db, schedule_id=schedule_id, now=now)
+                queue_entries = []
+                for report in reports:
+                    if report.status != "queued":
+                        continue
+                    run = create_report_task_run(
+                        db,
+                        report=report,
+                        actor_user_id=report.owner_user_id,
+                        trigger_source="scheduled",
+                    )
+                    queue_entries.append((report.id, run.id))
+                db.commit()
+        except Exception:
+            failures += 1
+            logger.exception(
+                "scheduled_report_reservation_failed schedule_id=%s", schedule_id
+            )
+            continue
         for report_id, run_id in queue_entries:
             try:
                 enqueue_report_task(report_id=report_id, task_run_id=run_id)
                 queued += 1
             except Exception:
                 failures += 1
-                logger.exception("scheduled_report_enqueue_failed report_id=%s", report_id)
-    return {"status": "ok" if failures == 0 else "partial", "queued": queued, "failures": failures}
+                logger.exception(
+                    "scheduled_report_enqueue_failed report_id=%s", report_id
+                )
+    return {
+        "status": "ok" if failures == 0 else "partial",
+        "queued": queued,
+        "failures": failures,
+    }
 
 
 def _report_error_for_display(exc: Exception) -> str:
@@ -197,7 +230,9 @@ def _report_error_for_display(exc: Exception) -> str:
     from app.services.ai_provider_client import AIIntegrationError
     from app.services.report_generation import ReportGenerationError
 
-    if isinstance(exc, (AIContextBudgetError, AIIntegrationError, ReportGenerationError)):
+    if isinstance(
+        exc, (AIContextBudgetError, AIIntegrationError, ReportGenerationError)
+    ):
         return str(exc)[:4000]
     return "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
 

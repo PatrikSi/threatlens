@@ -44,7 +44,11 @@ from app.services.report_schedules import (
     report_schedule_response,
     reserve_schedule_runs,
 )
-from app.services.report_rendering import render_report_html, render_report_markdown, render_report_pdf
+from app.services.report_rendering import (
+    render_report_html,
+    render_report_markdown,
+    render_report_pdf,
+)
 from app.services.report_sources import (
     build_report_source_plan,
     filters_for_report_period,
@@ -88,7 +92,9 @@ def get_report_capabilities(
         .order_by(Tag.name.asc())
     ).all()
     classifications = db.scalars(
-        select(func.lower(ItemClassification.primary_category)).distinct().order_by(func.lower(ItemClassification.primary_category))
+        select(func.lower(ItemClassification.primary_category))
+        .distinct()
+        .order_by(func.lower(ItemClassification.primary_category))
     ).all()
     return ReportCapabilitiesResponse(
         reporting_enabled=active.ai_enabled and active.reporting_enabled,
@@ -125,7 +131,9 @@ def preview_report(
             active=active,
         )
     except AIContextBudgetError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     return report_preview_from_plan(plan, preview_limit=REPORT_PREVIEW_LIMIT)
 
 
@@ -134,10 +142,17 @@ def list_report_templates(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
 ):
-    return [report_template_response(template) for template in list_visible_report_templates(db, user_id=user.id)]
+    return [
+        report_template_response(template)
+        for template in list_visible_report_templates(db, user_id=user.id)
+    ]
 
 
-@router.post("/templates", response_model=ReportTemplateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/templates",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_template(
     payload: ReportTemplateCreate,
     db: Session = Depends(get_db),
@@ -146,7 +161,14 @@ def create_template(
     _require_report_author(user)
     _require_shared_template_admin(user, payload.visibility)
     template = create_report_template(db, user_id=user.id, payload=payload)
-    record_audit(db, actor_user_id=user.id, action="reports.template.create", resource_type="report_template", resource_id=str(template.id), metadata={"visibility": template.visibility})
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.template.create",
+        resource_type="report_template",
+        resource_id=str(template.id),
+        metadata={"visibility": template.visibility},
+    )
     db.commit()
     db.refresh(template)
     return report_template_response(template)
@@ -163,20 +185,34 @@ def update_template(
     _require_shared_template_admin(user, payload.visibility)
     template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
     if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
+        )
     _require_template_owner_or_admin(user, template.owner_user_id)
     try:
         update_report_template(template, payload=payload)
     except ReportTemplateError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     db.add(template)
-    record_audit(db, actor_user_id=user.id, action="reports.template.update", resource_type="report_template", resource_id=str(template.id))
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.template.update",
+        resource_type="report_template",
+        resource_id=str(template.id),
+    )
     db.commit()
     db.refresh(template)
     return report_template_response(template)
 
 
-@router.post("/templates/{template_id}/clone", response_model=ReportTemplateResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/templates/{template_id}/clone",
+    response_model=ReportTemplateResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def clone_template(
     template_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -185,9 +221,18 @@ def clone_template(
     _require_report_author(user)
     template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
     if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
+        )
     clone = clone_report_template(db, template=template, user_id=user.id)
-    record_audit(db, actor_user_id=user.id, action="reports.template.clone", resource_type="report_template", resource_id=str(clone.id), metadata={"source_template_id": str(template.id)})
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.template.clone",
+        resource_type="report_template",
+        resource_id=str(clone.id),
+        metadata={"source_template_id": str(template.id)},
+    )
     db.commit()
     db.refresh(clone)
     return report_template_response(clone)
@@ -202,17 +247,30 @@ def remove_template(
     _require_report_author(user)
     template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
     if template is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
+        )
     _require_template_owner_or_admin(user, template.owner_user_id)
     try:
         delete_report_template(db, template=template)
         db.flush()
     except ReportTemplateError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Template is used by a report schedule and cannot be deleted.") from exc
-    record_audit(db, actor_user_id=user.id, action="reports.template.delete", resource_type="report_template", resource_id=str(template_id))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Template is used by a report schedule and cannot be deleted.",
+        ) from exc
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.template.delete",
+        resource_type="report_template",
+        resource_id=str(template_id),
+    )
     db.commit()
 
 
@@ -227,13 +285,20 @@ def list_reports(
     query = select(Report)
     if report_status:
         if report_status not in {"queued", "running", "ready", "error", "skipped"}:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid report status filter")
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid report status filter",
+            )
         query = query.where(Report.status == report_status)
-    reports = db.scalars(query.order_by(Report.created_at.desc()).offset(offset).limit(limit)).all()
+    reports = db.scalars(
+        query.order_by(Report.created_at.desc()).offset(offset).limit(limit)
+    ).all()
     return [report_list_item(report) for report in reports]
 
 
-@router.post("", response_model=ReportQueueResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "", response_model=ReportQueueResponse, status_code=status.HTTP_202_ACCEPTED
+)
 def create_report(
     payload: ReportCreateRequest,
     db: Session = Depends(get_db),
@@ -243,24 +308,68 @@ def create_report(
     active = _active_reporting_settings(db)
     template = None
     if payload.template_id:
-        template = get_visible_report_template(db, template_id=payload.template_id, user_id=user.id)
+        template = get_visible_report_template(
+            db, template_id=payload.template_id, user_id=user.id
+        )
         if template is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found")
-    filters = filters_for_report_period(payload.filters, period_start=payload.period_start, period_end=payload.period_end)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Report template not found",
+            )
+    filters = filters_for_report_period(
+        payload.filters,
+        period_start=payload.period_start,
+        period_end=payload.period_end,
+    )
     payload = payload.model_copy(update={"filters": filters})
     try:
-        plan = build_report_source_plan(db, user_id=user.id, filters=filters, excluded_item_ids=payload.excluded_item_ids, prompt=payload.prompt, sections=payload.sections, active=active)
-        report = create_report_from_plan(db, user_id=user.id, payload=payload, plan=plan, template=template, active=active)
+        plan = build_report_source_plan(
+            db,
+            user_id=user.id,
+            filters=filters,
+            excluded_item_ids=payload.excluded_item_ids,
+            prompt=payload.prompt,
+            sections=payload.sections,
+            active=active,
+        )
+        report = create_report_from_plan(
+            db,
+            user_id=user.id,
+            payload=payload,
+            plan=plan,
+            template=template,
+            active=active,
+        )
     except (AIContextBudgetError, ReportStorageError) as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    run = create_report_task_run(db, report=report, actor_user_id=user.id, trigger_source="manual")
-    record_audit(db, actor_user_id=user.id, action="reports.generate.queue", resource_type="report", resource_id=str(report.id), metadata={"source_count": report.included_source_count, "estimated_input_tokens": report.estimated_input_tokens, "estimated_batches": report.generation_batches})
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    run = create_report_task_run(
+        db, report=report, actor_user_id=user.id, trigger_source="manual"
+    )
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.generate.queue",
+        resource_type="report",
+        resource_id=str(report.id),
+        metadata={
+            "source_count": report.included_source_count,
+            "estimated_input_tokens": report.estimated_input_tokens,
+            "estimated_batches": report.generation_batches,
+        },
+    )
     db.commit()
     try:
         task_id = enqueue_report_task(report_id=report.id, task_run_id=run.id)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The report was saved but could not be queued because the AI worker queue is unavailable. Retry the report after the queue recovers.") from exc
-    return ReportQueueResponse(report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The report was saved but could not be queued because the AI worker queue is unavailable. Retry the report after the queue recovers.",
+        ) from exc
+    return ReportQueueResponse(
+        report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued"
+    )
 
 
 @router.get("/{report_id:uuid}", response_model=ReportDetailResponse)
@@ -271,7 +380,9 @@ def get_report(
 ):
     report = db.get(Report, report_id)
     if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
+        )
     return report_detail_response(db, report=report)
 
 
@@ -284,9 +395,14 @@ def download_report(
 ):
     report = db.get(Report, report_id)
     if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
+        )
     if report.status != "ready":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only completed reports can be downloaded.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Only completed reports can be downloaded.",
+        )
     detail = report_detail_response(db, report=report)
     filename = f"threatlens-report-{report.id}"
     if format == "pdf":
@@ -304,11 +420,17 @@ def download_report(
     return Response(
         content=content,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}.{extension}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}.{extension}"'
+        },
     )
 
 
-@router.post("/{report_id:uuid}/retry", response_model=ReportQueueResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/{report_id:uuid}/retry",
+    response_model=ReportQueueResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def retry_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
@@ -317,20 +439,37 @@ def retry_report(
     _require_report_author(user)
     report = db.get(Report, report_id)
     if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
+        )
     _require_report_owner_or_admin(user, report.owner_user_id)
     try:
         reset_report_for_retry(db, report=report)
     except ReportStorageError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    run = create_report_task_run(db, report=report, actor_user_id=user.id, trigger_source="manual")
-    record_audit(db, actor_user_id=user.id, action="reports.generate.retry", resource_type="report", resource_id=str(report.id))
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    run = create_report_task_run(
+        db, report=report, actor_user_id=user.id, trigger_source="manual"
+    )
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.generate.retry",
+        resource_type="report",
+        resource_id=str(report.id),
+    )
     db.commit()
     try:
         task_id = enqueue_report_task(report_id=report.id, task_run_id=run.id)
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="The report retry could not be queued because the AI worker queue is unavailable.") from exc
-    return ReportQueueResponse(report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="The report retry could not be queued because the AI worker queue is unavailable.",
+        ) from exc
+    return ReportQueueResponse(
+        report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued"
+    )
 
 
 @router.delete("/{report_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -342,12 +481,23 @@ def remove_report(
     _require_report_author(user)
     report = db.get(Report, report_id)
     if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
+        )
     _require_report_owner_or_admin(user, report.owner_user_id)
     if report.status in {"queued", "running"}:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A queued or running report cannot be deleted.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A queued or running report cannot be deleted.",
+        )
     delete_report(db, report=report)
-    record_audit(db, actor_user_id=user.id, action="reports.delete", resource_type="report", resource_id=str(report_id))
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.delete",
+        resource_type="report",
+        resource_id=str(report_id),
+    )
     db.commit()
 
 
@@ -357,11 +507,17 @@ def list_schedules(
     user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
 ):
     _require_admin(user)
-    schedules = db.scalars(select(ReportSchedule).order_by(ReportSchedule.name.asc())).all()
+    schedules = db.scalars(
+        select(ReportSchedule).order_by(ReportSchedule.name.asc())
+    ).all()
     return [report_schedule_response(schedule) for schedule in schedules]
 
 
-@router.post("/schedules", response_model=ReportScheduleResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/schedules",
+    response_model=ReportScheduleResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_schedule(
     payload: ReportScheduleCreate,
     db: Session = Depends(get_db),
@@ -369,9 +525,17 @@ def create_schedule(
 ):
     _require_admin(user)
     if db.get(ReportTemplate, payload.template_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
+        )
     schedule = create_report_schedule(db, user_id=user.id, payload=payload)
-    record_audit(db, actor_user_id=user.id, action="reports.schedule.create", resource_type="report_schedule", resource_id=str(schedule.id))
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.schedule.create",
+        resource_type="report_schedule",
+        resource_id=str(schedule.id),
+    )
     db.commit()
     db.refresh(schedule)
     return report_schedule_response(schedule)
@@ -387,32 +551,72 @@ def update_schedule(
     _require_admin(user)
     schedule = db.get(ReportSchedule, schedule_id)
     if schedule is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
+        )
+    if db.get(ReportTemplate, payload.template_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
+        )
     apply_schedule_payload(schedule, payload)
     db.add(schedule)
-    record_audit(db, actor_user_id=user.id, action="reports.schedule.update", resource_type="report_schedule", resource_id=str(schedule.id))
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.schedule.update",
+        resource_type="report_schedule",
+        resource_id=str(schedule.id),
+    )
     db.commit()
     db.refresh(schedule)
     return report_schedule_response(schedule)
 
 
-@router.post("/schedules/{schedule_id}/run", response_model=list[ReportQueueResponse], status_code=status.HTTP_202_ACCEPTED)
+@router.post(
+    "/schedules/{schedule_id}/run",
+    response_model=list[ReportQueueResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+)
 def run_schedule(
     schedule_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
-    reports = reserve_schedule_runs(db, schedule_id=schedule_id, now=datetime.now(timezone.utc), force=True)
+    _active_reporting_settings(db)
+    try:
+        reports = reserve_schedule_runs(
+            db, schedule_id=schedule_id, now=datetime.now(timezone.utc), force=True
+        )
+    except (AIContextBudgetError, ReportStorageError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     if not reports and db.get(ReportSchedule, schedule_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
+        )
+    if not reports:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A report already exists for this schedule period. Open the existing report and retry it if needed.",
+        )
     entries = []
     for report in reports:
         if report.status != "queued":
             continue
-        run = create_report_task_run(db, report=report, actor_user_id=user.id, trigger_source="manual")
+        run = create_report_task_run(
+            db, report=report, actor_user_id=user.id, trigger_source="manual"
+        )
         entries.append((report.id, run.id))
-    record_audit(db, actor_user_id=user.id, action="reports.schedule.run", resource_type="report_schedule", resource_id=str(schedule_id), metadata={"queued": len(entries)})
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.schedule.run",
+        resource_type="report_schedule",
+        resource_id=str(schedule_id),
+        metadata={"queued": len(entries)},
+    )
     db.commit()
     responses = []
     enqueue_failures = 0
@@ -422,7 +626,14 @@ def run_schedule(
         except Exception:
             enqueue_failures += 1
             continue
-        responses.append(ReportQueueResponse(report_id=report_id, task_run_id=run_id, celery_task_id=task_id, status="queued"))
+        responses.append(
+            ReportQueueResponse(
+                report_id=report_id,
+                task_run_id=run_id,
+                celery_task_id=task_id,
+                status="queued",
+            )
+        )
     if enqueue_failures:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -443,41 +654,72 @@ def remove_schedule(
     _require_admin(user)
     schedule = db.get(ReportSchedule, schedule_id)
     if schedule is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
+        )
     db.delete(schedule)
-    record_audit(db, actor_user_id=user.id, action="reports.schedule.delete", resource_type="report_schedule", resource_id=str(schedule_id))
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="reports.schedule.delete",
+        resource_type="report_schedule",
+        resource_id=str(schedule_id),
+    )
     db.commit()
 
 
 def _active_reporting_settings(db: Session):
     active = load_active_ai_settings(db)
     if not active.ai_enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AI features are disabled by the server administrator.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI features are disabled by the server administrator.",
+        )
     if not active.ai_configured:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Configure and test an AI provider before generating reports.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Configure and test an AI provider before generating reports.",
+        )
     if not active.reporting_enabled:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="AI reporting is disabled in AI settings.")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="AI reporting is disabled in AI settings.",
+        )
     return active
 
 
 def _require_report_author(user: User) -> None:
     if user.role not in {ROLE_ADMIN, ROLE_ANALYST}:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Report generation requires the analyst or administrator role.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Report generation requires the analyst or administrator role.",
+        )
 
 
 def _require_admin(user: User) -> None:
     if user.role != ROLE_ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Report schedules and shared templates require the administrator role.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Report schedules and shared templates require the administrator role.",
+        )
 
 
 def _require_shared_template_admin(user: User, visibility: str) -> None:
     if visibility == "shared" and user.role != ROLE_ADMIN:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only administrators can create or update shared report templates.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators can create or update shared report templates.",
+        )
 
 
-def _require_template_owner_or_admin(user: User, owner_user_id: uuid.UUID | None) -> None:
+def _require_template_owner_or_admin(
+    user: User, owner_user_id: uuid.UUID | None
+) -> None:
     if user.role != ROLE_ADMIN and owner_user_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only modify your own private report templates.")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only modify your own private report templates.",
+        )
 
 
 def _require_report_owner_or_admin(user: User, owner_user_id: uuid.UUID | None) -> None:
