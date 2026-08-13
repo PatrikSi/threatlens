@@ -77,15 +77,29 @@ def truncate_to_token_estimate(text: str | None, *, max_tokens: int) -> tuple[st
         return value, False
     if max_tokens <= 0:
         return "", True
+    marker = "\n[Content truncated by context guardrail]"
+    marker_tokens = estimate_tokens(marker)
+    if marker_tokens >= max_tokens:
+        compact_marker = "[Truncated]"
+        return (
+            compact_marker if estimate_tokens(compact_marker) <= max_tokens else "",
+            True,
+        )
+    content_budget = max_tokens - marker_tokens
     low, high = 0, len(value)
     while low < high:
         midpoint = (low + high + 1) // 2
-        if estimate_tokens(value[:midpoint]) <= max_tokens:
+        if estimate_tokens(value[:midpoint]) <= content_budget:
             low = midpoint
         else:
             high = midpoint - 1
-    clipped = value[:low].rsplit(" ", 1)[0].strip() or value[:low].strip()
-    return f"{clipped}\n[Source excerpt truncated by context guardrail]", True
+    clipped = value[:low].rstrip()
+    if clipped and clipped[-1].isalnum():
+        boundary = max(clipped.rfind(" "), clipped.rfind("\n"), clipped.rfind("\t"))
+        if boundary >= len(clipped) - 64:
+            clipped = clipped[:boundary].rstrip()
+    result = f"{clipped}{marker}" if clipped else marker.strip()
+    return result, True
 
 
 def plan_evidence_batches(

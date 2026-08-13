@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -20,10 +19,9 @@ from app.schemas.reports import (
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_context_budget import (
     AIContextBudget,
+    AIContextBudgetError,
     build_context_budget,
     estimate_tokens,
-    plan_evidence_batches,
-    truncate_to_token_estimate,
 )
 from app.services.ai_prompting import build_company_context
 from app.services.export_models import ExportRecord
@@ -33,6 +31,11 @@ from app.services.export_query import (
     iter_export_records,
     load_export_counts,
     load_export_item_ids,
+)
+from app.services.report_prompt_budget import (
+    CONTEXT_COMPACTION_WARNING,
+    fit_evidence_to_stage,
+    plan_evidence_message_batches,
 )
 
 
@@ -60,6 +63,7 @@ class ReportSourcePlan:
     batch_count: int
     estimated_model_calls: int
     estimated_source_tokens: int
+    largest_batch_input_tokens: int
     omitted_source_count: int
     warnings: tuple[str, ...]
     metrics: dict
@@ -96,11 +100,19 @@ def build_report_source_plan(
         reserved_output_tokens=active.report_reserved_output_tokens,
         safety_percent=active.report_context_safety_percent,
     )
-    fixed_prompt_tokens = _estimate_fixed_prompt_tokens(prompt, sections, active)
-    batch_capacity = budget.usable_input_tokens - fixed_prompt_tokens
-    if batch_capacity < 256:
-        # Reuse the central error contract and actionable message.
-        plan_evidence_batches([], budget=budget, fixed_prompt_tokens=fixed_prompt_tokens)
+    prompt_payload = prompt.model_dump(mode="json")
+    generation_context = {
+        "company_context": build_company_context(active)
+        if prompt.use_company_context
+        else {},
+        "global_instructions": active.global_instructions,
+    }
+    empty_batch_plan = plan_evidence_message_batches(
+        [],
+        prompt=prompt_payload,
+        generation_context=generation_context,
+        budget=budget,
+    )
 
     context = build_export_query_context(user_id=user_id, filters=filters)
     counts = load_export_counts(db, context=context)
@@ -112,19 +124,27 @@ def build_report_source_plan(
     model_section_count = sum(
         1 for section in sections if section.enabled and section.key not in DETERMINISTIC_SECTION_KEYS
     )
-    max_batches = max(1, active.report_max_model_calls - model_section_count)
-    evidence_capacity = max_batches * batch_capacity
+    max_batches = active.report_max_model_calls - model_section_count
+    if max_batches < 1:
+        raise AIContextBudgetError(
+            "The enabled report sections use every allowed model call, leaving no call for evidence synthesis. "
+            "Disable an AI-generated section or increase the report model-call limit."
+        )
     selected_count = 0
     selected_tokens = 0
+    selected_evidence: list[str] = []
     planned: list[PlannedReportSource] = []
     context_omitted = 0
-    source_cap = min(active.report_source_token_cap, batch_capacity)
+    batch_plan = empty_batch_plan
 
     for record in records:
         citation_key = f"S{len(planned) + 1}"
-        evidence, _truncated = truncate_to_token_estimate(
+        evidence, _truncated = fit_evidence_to_stage(
             _build_evidence_text(record, citation_key=citation_key),
-            max_tokens=source_cap,
+            source_token_cap=active.report_source_token_cap,
+            prompt=prompt_payload,
+            generation_context=generation_context,
+            budget=budget,
         )
         token_count = estimate_tokens(evidence)
         reason: str | None = None
@@ -132,12 +152,21 @@ def build_report_source_plan(
             reason = "excluded_by_user"
         elif selected_count >= active.report_max_sources:
             reason = "source_limit"
-        elif selected_tokens + token_count > evidence_capacity:
-            reason = "context_budget"
-            context_omitted += 1
         else:
-            selected_count += 1
-            selected_tokens += token_count
+            candidate_plan = plan_evidence_message_batches(
+                [*selected_evidence, evidence],
+                prompt=prompt_payload,
+                generation_context=generation_context,
+                budget=budget,
+            )
+            if candidate_plan.batch_count > max_batches:
+                reason = "context_budget"
+                context_omitted += 1
+            else:
+                selected_count += 1
+                selected_tokens += token_count
+                selected_evidence.append(evidence)
+                batch_plan = candidate_plan
         planned.append(
             PlannedReportSource(
                 record=record,
@@ -149,14 +178,10 @@ def build_report_source_plan(
             )
         )
 
-    included_evidence = [source.evidence_text for source in planned if source.included]
-    batch_plan = plan_evidence_batches(
-        included_evidence,
-        budget=budget,
-        fixed_prompt_tokens=fixed_prompt_tokens,
-    )
     omitted = max(0, counts.total - selected_count)
     warnings: list[str] = []
+    if batch_plan.context_compacted:
+        warnings.append(CONTEXT_COMPACTION_WARNING)
     if counts.total > len(records):
         warnings.append(
             f"Only the highest-ranked {len(records):,} candidates were inspected; {counts.total - len(records):,} were outside the planning window."
@@ -167,7 +192,11 @@ def build_report_source_plan(
         warnings.append(
             f"The context and model-call guardrails omitted {context_omitted:,} candidate articles after the evidence budget was filled."
         )
-    if any("truncated by context guardrail" in source.evidence_text for source in planned if source.included):
+    if any(
+        "truncated by context guardrail" in source.evidence_text.lower()
+        for source in planned
+        if source.included
+    ):
         warnings.append("Long source text is represented by bounded excerpts; titles, metadata, summaries, and citations remain intact.")
     if not selected_count and counts.total:
         warnings.append("No articles fit the current exclusions and context budget.")
@@ -178,13 +207,14 @@ def build_report_source_plan(
         articles_with_text=counts.with_article_text,
         items_with_iocs=counts.with_iocs,
         budget=budget,
-        fixed_prompt_tokens=fixed_prompt_tokens,
+        fixed_prompt_tokens=batch_plan.fixed_prompt_tokens,
         batch_count=batch_plan.batch_count,
         estimated_model_calls=batch_plan.batch_count + model_section_count,
         estimated_source_tokens=selected_tokens,
         omitted_source_count=omitted,
         warnings=tuple(warnings),
         metrics=_build_metrics([source.record for source in planned if source.included]),
+        largest_batch_input_tokens=batch_plan.largest_batch_input_tokens,
     )
 
 
@@ -212,6 +242,7 @@ def report_preview_from_plan(plan: ReportSourcePlan, *, preview_limit: int) -> R
             usable_input_tokens=plan.budget.usable_input_tokens,
             estimated_source_tokens=plan.estimated_source_tokens,
             estimated_fixed_prompt_tokens=plan.fixed_prompt_tokens,
+            estimated_peak_input_tokens=plan.largest_batch_input_tokens,
             estimated_batches=plan.batch_count,
             estimated_model_calls=plan.estimated_model_calls,
             selected_source_count=len(plan.included_sources),
@@ -224,29 +255,6 @@ def report_preview_from_plan(plan: ReportSourcePlan, *, preview_limit: int) -> R
             warnings=list(plan.warnings),
         ),
     )
-
-
-def _estimate_fixed_prompt_tokens(
-    prompt: ReportPromptConfig,
-    sections: list[ReportSectionConfig],
-    active: ActiveAISettings,
-) -> int:
-    serialized = json.dumps(
-        {
-            "audience": prompt.audience,
-            "objective": prompt.objective,
-            "tone": prompt.tone,
-            "detail_level": prompt.detail_level,
-            "custom_instructions": prompt.custom_instructions,
-            "focus_topics": prompt.focus_topics,
-            "excluded_topics": prompt.excluded_topics,
-            "sections": [section.model_dump() for section in sections if section.enabled],
-            "company_context": build_company_context(active) if prompt.use_company_context else {},
-            "global_instructions": active.global_instructions,
-        },
-        sort_keys=True,
-    )
-    return max(256, estimate_tokens(serialized) + 180)
 
 
 def _build_evidence_text(record: ExportRecord, *, citation_key: str) -> str:

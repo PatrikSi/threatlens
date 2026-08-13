@@ -40,7 +40,7 @@ def test_truncation_stays_under_estimated_token_cap_and_marks_excerpt():
 
     assert truncated is True
     assert "truncated by context guardrail" in clipped
-    assert estimate_tokens(clipped) <= 115
+    assert estimate_tokens(clipped) <= 100
 
 
 def test_evidence_planner_preserves_order_and_splits_at_capacity():
