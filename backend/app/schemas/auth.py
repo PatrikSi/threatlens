@@ -50,6 +50,7 @@ class AppFeaturesResponse(BaseModel):
     ai_summary_enabled: bool
     ai_relevance_enabled: bool
     ai_daily_brief_enabled: bool
+    ai_reporting_enabled: bool
 
 
 class UserResponse(BaseModel):

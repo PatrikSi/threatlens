@@ -118,6 +118,7 @@ def daily_brief_context_from_payload(payload: object) -> DailyDigestContext:
         brief_text=str(snapshot.get("text") or "").strip(),
         key_points=_string_list(snapshot.get("key_points")),
         recommended_actions=_string_list(snapshot.get("recommended_actions")),
+        brief_url=str(snapshot.get("url") or "").strip(),
     )
 
 

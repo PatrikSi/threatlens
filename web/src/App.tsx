@@ -29,6 +29,7 @@ const FeedsPage = lazy(() => import('./pages/FeedsPage').then((module) => ({ def
 const IntegrationsSettingsPage = lazy(() =>
   import('./pages/IntegrationsSettingsPage').then((module) => ({ default: module.SMTPIntegrationSettingsPage })),
 )
+const ReportingPage = lazy(() => import('./pages/ReportingPage').then((module) => ({ default: module.ReportingPage })))
 const IdentitySettingsPage = lazy(() =>
   import('./pages/IdentitySettingsPage').then((module) => ({ default: module.IdentitySettingsPage })),
 )
@@ -97,6 +98,8 @@ function createAppRouter() {
           <Route path="feeds" element={suspenseRoute(<FeedsPage />, 'Loading feeds...')} />
           <Route path="stats" element={suspenseRoute(<StatsPage />, 'Loading statistics...')} />
           <Route path="export" element={suspenseRoute(<ExportPage />, 'Loading export workspace...')} />
+          <Route path="reporting" element={suspenseRoute(<ReportingPage />, 'Loading intelligence reporting...')} />
+          <Route path="reporting/:reportId" element={suspenseRoute(<ReportingPage />, 'Loading intelligence report...')} />
           <Route path="ai" element={<Navigate to="/settings/ai" replace />} />
           <Route path="settings" element={suspenseRoute(<SettingsLayout />, 'Loading settings...')}>
             <Route index element={<Navigate to="account" replace />} />

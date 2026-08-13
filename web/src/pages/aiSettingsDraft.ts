@@ -10,11 +10,18 @@ export type AISettingsDraft = {
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
+  reporting_enabled: boolean
   auto_enrich_new_items: boolean
   daily_brief_run_time_utc: string
   daily_brief_window_hours: string
   daily_brief_max_items: string
   daily_brief_history_limit: string
+  report_context_window_tokens: string
+  report_reserved_output_tokens: string
+  report_source_token_cap: string
+  report_max_sources: string
+  report_max_model_calls: string
+  report_context_safety_percent: string
   relevance_medium_threshold: string
   relevance_high_threshold: string
   company_name: string
@@ -45,11 +52,18 @@ export const DEFAULT_DRAFT: AISettingsDraft = {
   summary_enabled: true,
   relevance_enabled: true,
   daily_brief_enabled: true,
+  reporting_enabled: true,
   auto_enrich_new_items: true,
   daily_brief_run_time_utc: '09:00',
   daily_brief_window_hours: '24',
   daily_brief_max_items: '20',
   daily_brief_history_limit: '7',
+  report_context_window_tokens: '8192',
+  report_reserved_output_tokens: '1200',
+  report_source_token_cap: '700',
+  report_max_sources: '100',
+  report_max_model_calls: '20',
+  report_context_safety_percent: '15',
   relevance_medium_threshold: '0.55',
   relevance_high_threshold: '0.80',
   company_name: '',
@@ -82,6 +96,12 @@ const NUMBER_RULES: Array<{
   { key: 'daily_brief_window_hours', label: 'Daily Brief Window Hours', min: 6, max: 168, integer: true },
   { key: 'daily_brief_max_items', label: 'Daily Brief Max Articles', min: 5, max: 100, integer: true },
   { key: 'daily_brief_history_limit', label: 'Retained Daily Briefings', min: 1, max: 90, integer: true },
+  { key: 'report_context_window_tokens', label: 'Report Context Window', min: 2048, max: 1000000, integer: true },
+  { key: 'report_reserved_output_tokens', label: 'Report Output Reserve', min: 256, max: 65536, integer: true },
+  { key: 'report_source_token_cap', label: 'Per-source Token Cap', min: 128, max: 32768, integer: true },
+  { key: 'report_max_sources', label: 'Report Source Limit', min: 1, max: 1000, integer: true },
+  { key: 'report_max_model_calls', label: 'Report Model-call Limit', min: 2, max: 200, integer: true },
+  { key: 'report_context_safety_percent', label: 'Context Safety Margin', min: 5, max: 40, integer: true },
   { key: 'relevance_medium_threshold', label: 'Medium Relevance Threshold', min: 0, max: 1 },
   { key: 'relevance_high_threshold', label: 'High Relevance Threshold', min: 0, max: 1 },
 ]
@@ -152,6 +172,16 @@ export function validateAISettingsDraft(draft: AISettingsDraft): AISettingsDraft
   if (!isValidUtcTimeInput(draft.daily_brief_run_time_utc)) {
     errors.daily_brief_run_time_utc = 'Daily Brief Run Time must be a valid UTC time.'
   }
+  const contextWindow = Number(draft.report_context_window_tokens)
+  const outputReserve = Number(draft.report_reserved_output_tokens)
+  const safetyPercent = Number(draft.report_context_safety_percent)
+  const sourceCap = Number(draft.report_source_token_cap)
+  const usableBeforeProtocol = contextWindow - outputReserve - Math.ceil(contextWindow * safetyPercent / 100)
+  if (Number.isFinite(usableBeforeProtocol) && usableBeforeProtocol < 896) {
+    errors.report_context_window_tokens = 'Context window must leave at least 512 input tokens after output, safety, and protocol reserves.'
+  } else if (Number.isFinite(sourceCap) && sourceCap >= usableBeforeProtocol - 384) {
+    errors.report_source_token_cap = 'Per-source Token Cap must fit inside the usable report context.'
+  }
 
   return errors
 }
@@ -171,11 +201,18 @@ export function createDraftFromSettings(settings: AISettings): AISettingsDraft {
     summary_enabled: settings.summary_enabled,
     relevance_enabled: settings.relevance_enabled,
     daily_brief_enabled: settings.daily_brief_enabled,
+    reporting_enabled: settings.reporting_enabled ?? true,
     auto_enrich_new_items: settings.auto_enrich_new_items,
     daily_brief_run_time_utc: formatUtcTimeInput(settings.daily_brief_schedule_hour_utc, settings.daily_brief_schedule_minute_utc),
     daily_brief_window_hours: String(settings.daily_brief_window_hours),
     daily_brief_max_items: String(settings.daily_brief_max_items),
     daily_brief_history_limit: String(settings.daily_brief_history_limit),
+    report_context_window_tokens: String(settings.report_context_window_tokens ?? 8192),
+    report_reserved_output_tokens: String(settings.report_reserved_output_tokens ?? 1200),
+    report_source_token_cap: String(settings.report_source_token_cap ?? 700),
+    report_max_sources: String(settings.report_max_sources ?? 100),
+    report_max_model_calls: String(settings.report_max_model_calls ?? 20),
+    report_context_safety_percent: String(settings.report_context_safety_percent ?? 15),
     relevance_medium_threshold: String(settings.relevance_medium_threshold),
     relevance_high_threshold: String(settings.relevance_high_threshold),
     company_name: settings.company_name ?? '',
@@ -208,12 +245,19 @@ export function createRequestFromDraft(draft: AISettingsDraft): AISettingsUpdate
     summary_enabled: draft.summary_enabled,
     relevance_enabled: draft.relevance_enabled,
     daily_brief_enabled: draft.daily_brief_enabled,
+    reporting_enabled: draft.reporting_enabled,
     auto_enrich_new_items: draft.auto_enrich_new_items,
     daily_brief_schedule_hour_utc: dailyBriefSchedule.hour,
     daily_brief_schedule_minute_utc: dailyBriefSchedule.minute,
     daily_brief_window_hours: parseNumberOrDefault(draft.daily_brief_window_hours, 24),
     daily_brief_max_items: parseNumberOrDefault(draft.daily_brief_max_items, 20),
     daily_brief_history_limit: parseNumberOrDefault(draft.daily_brief_history_limit, 7),
+    report_context_window_tokens: parseNumberOrDefault(draft.report_context_window_tokens, 8192),
+    report_reserved_output_tokens: parseNumberOrDefault(draft.report_reserved_output_tokens, 1200),
+    report_source_token_cap: parseNumberOrDefault(draft.report_source_token_cap, 700),
+    report_max_sources: parseNumberOrDefault(draft.report_max_sources, 100),
+    report_max_model_calls: parseNumberOrDefault(draft.report_max_model_calls, 20),
+    report_context_safety_percent: parseNumberOrDefault(draft.report_context_safety_percent, 15),
     relevance_medium_threshold: parseNumberOrDefault(draft.relevance_medium_threshold, 0.55),
     relevance_high_threshold: parseNumberOrDefault(draft.relevance_high_threshold, 0.8),
     company_name: normalizeOptionalText(draft.company_name),

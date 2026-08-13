@@ -39,9 +39,10 @@ export function useNotificationWebhooksController() {
   const currentUserRole = currentUserQuery.data?.role
   const isReadOnlyViewer = currentUserRole === 'viewer' || (!currentUserRole && !currentUserQuery.isLoading)
   const canManageWebhooks = currentUserRole === 'admin' || currentUserRole === 'analyst'
-  const { availableEventOptions, unavailableDailyBriefSelected } = resolveNotificationEventAvailability(
+  const { availableEventOptions, unavailableDailyBriefSelected, unavailableReportSelected } = resolveNotificationEventAvailability(
     currentUserQuery.data?.features.ai_daily_brief_enabled === true,
     draft.event_type,
+    currentUserQuery.data?.features.ai_reporting_enabled === true,
   )
   const accessNotice = isReadOnlyViewer
     ? 'Viewer access is read-only. Webhook settings can only be changed by operators.'
@@ -249,6 +250,7 @@ export function useNotificationWebhooksController() {
     canManageWebhooks,
     availableEventOptions,
     unavailableDailyBriefSelected,
+    unavailableReportSelected,
     accessNotice,
     webhooksQuery,
     feedsQuery,

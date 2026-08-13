@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from app.models.integration import IntegrationEvent
 from app.models.report import Report
@@ -8,6 +9,7 @@ from app.models.report_source_item import ReportSourceItem
 from app.services.daily_brief_notifications import daily_brief_context_from_payload
 from app.services.integration_connectors.smtp import SMTPIntegrationConnector
 from app.services.integration_connectors.webhook import WebhookIntegrationConnector
+from app.services.notification_webhook_templates import render_notification_template_text
 from app.services.report_notifications import emit_report_ready_event
 from app.services.report_rendering import render_report_html, render_report_markdown, render_report_pdf
 from app.services.report_storage import report_detail_response
@@ -27,8 +29,18 @@ def test_report_ready_event_is_idempotent_and_uses_immutable_report_snapshot(db_
     assert first.payload_json["report_url"] == f"/reporting/{report.id}"
     assert context.brief_id == report.id
     assert context.title == report.title
+    assert context.brief_url == f"/reporting/{report.id}"
     assert context.total_items == 1
     assert context.key_points == ["Validate identity controls"]
+    rendered_url = render_notification_template_text(
+        "{{ brief.url }}|{{ brief.url_html }}",
+        user=SimpleNamespace(id=uuid.uuid4(), email="analyst@example.com"),
+        feed=None,
+        item=None,
+        event_type="report_ready",
+        digest_context=context,
+    )
+    assert rendered_url == f"/reporting/{report.id}|/reporting/{report.id}"
 
 
 def test_report_ready_is_supported_by_destination_connectors():

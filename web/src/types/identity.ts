@@ -27,6 +27,7 @@ export interface AppFeatures {
   ai_summary_enabled: boolean
   ai_relevance_enabled: boolean
   ai_daily_brief_enabled: boolean
+  ai_reporting_enabled?: boolean
 }
 
 export interface CurrentUser extends User {

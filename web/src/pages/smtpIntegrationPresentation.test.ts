@@ -16,7 +16,7 @@ describe('SMTP integration presentation helpers', () => {
       'alert_match',
       'feed_failing',
       'webhook_failed',
-    ])
+    ], false)
 
     expect(availability.availableEventTypes).toEqual([
       'rss_item_new',
@@ -29,10 +29,17 @@ describe('SMTP integration presentation helpers', () => {
   })
 
   it('preserves and identifies a legacy daily-brief selection while AI is disabled', () => {
-    const availability = resolveSMTPEventAvailability(false, ['daily_digest'])
+    const availability = resolveSMTPEventAvailability(false, ['daily_digest'], false)
 
     expect(availability.currentSendFor).toBe('custom')
     expect(availability.unavailableDailyBriefSelected).toBe(true)
+  })
+
+  it('preserves and identifies an inactive report selection', () => {
+    const availability = resolveSMTPEventAvailability(true, ['report_ready'], false)
+
+    expect(availability.currentSendFor).toBe('custom')
+    expect(availability.unavailableReportSelected).toBe(true)
   })
 
   it('limits an all-events template to events available to the current user', () => {

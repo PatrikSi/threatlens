@@ -24,6 +24,7 @@ export const ALL_EVENT_TYPES: NotificationEventType[] = [
   'feed_failing',
   'webhook_failed',
   'daily_digest',
+  'report_ready',
 ]
 export const SMTP_EVENT_OPTIONS: Array<{
   value: NotificationEventType
@@ -35,6 +36,7 @@ export const SMTP_EVENT_OPTIONS: Array<{
   { value: 'feed_failing', label: 'Feed Failing', description: 'Email when a feed reaches the repeated-failure threshold.' },
   { value: 'webhook_failed', label: 'Webhook Failed', description: 'Email when a webhook delivery reaches a terminal failure.' },
   { value: 'daily_digest', label: 'AI Daily Brief', description: 'Email the generated AI Daily Brief as soon as it is ready.' },
+  { value: 'report_ready', label: 'Intelligence Report', description: 'Email a scheduled or manually delivered report when generation completes.' },
 ]
 
 export function createNewHookDraft(defaults: SMTPTemplateDefault[]): SMTPHookDraft {
@@ -62,9 +64,11 @@ export function resolveSendForValue(
 export function resolveSMTPEventAvailability(
   aiDailyBriefAvailable: boolean,
   eventTypes: NotificationEventType[],
+  aiReportingAvailable = true,
 ) {
   const availableEventOptions = SMTP_EVENT_OPTIONS.filter(
-    (option) => option.value !== 'daily_digest' || aiDailyBriefAvailable,
+    (option) => (option.value !== 'daily_digest' || aiDailyBriefAvailable) &&
+      (option.value !== 'report_ready' || aiReportingAvailable),
   )
   const availableEventTypes = availableEventOptions.map((option) => option.value)
   return {
@@ -72,6 +76,7 @@ export function resolveSMTPEventAvailability(
     availableEventTypes,
     currentSendFor: resolveSendForValue(eventTypes, availableEventTypes),
     unavailableDailyBriefSelected: !aiDailyBriefAvailable && eventTypes.includes('daily_digest'),
+    unavailableReportSelected: !aiReportingAvailable && eventTypes.includes('report_ready'),
   }
 }
 
@@ -87,6 +92,12 @@ export function aiDailyBriefIsAvailable(
   currentUser: { features: { ai_daily_brief_enabled: boolean } } | undefined,
 ) {
   return currentUser?.features.ai_daily_brief_enabled === true
+}
+
+export function aiReportingIsAvailable(
+  currentUser: { features: { ai_reporting_enabled?: boolean } } | undefined,
+) {
+  return currentUser?.features.ai_reporting_enabled === true
 }
 
 export function resolveTestValidationError(
