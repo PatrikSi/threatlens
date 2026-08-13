@@ -318,6 +318,7 @@ def retry_report(
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    _require_report_owner_or_admin(user, report.owner_user_id)
     try:
         reset_report_for_retry(db, report=report)
     except ReportStorageError as exc:
@@ -342,6 +343,7 @@ def remove_report(
     report = db.get(Report, report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    _require_report_owner_or_admin(user, report.owner_user_id)
     if report.status in {"queued", "running"}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A queued or running report cannot be deleted.")
     delete_report(db, report=report)
@@ -413,12 +415,22 @@ def run_schedule(
     record_audit(db, actor_user_id=user.id, action="reports.schedule.run", resource_type="report_schedule", resource_id=str(schedule_id), metadata={"queued": len(entries)})
     db.commit()
     responses = []
+    enqueue_failures = 0
     for report_id, run_id in entries:
         try:
             task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
-        except Exception as exc:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="One or more scheduled reports were saved but could not be queued. Retry failed reports after the AI queue recovers.") from exc
+        except Exception:
+            enqueue_failures += 1
+            continue
         responses.append(ReportQueueResponse(report_id=report_id, task_run_id=run_id, celery_task_id=task_id, status="queued"))
+    if enqueue_failures:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"{enqueue_failures} of {len(entries)} scheduled reports were saved but could not be queued. "
+                "The failed reports are marked for retry after the AI queue recovers."
+            ),
+        )
     return responses
 
 
@@ -466,3 +478,11 @@ def _require_shared_template_admin(user: User, visibility: str) -> None:
 def _require_template_owner_or_admin(user: User, owner_user_id: uuid.UUID | None) -> None:
     if user.role != ROLE_ADMIN and owner_user_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only modify your own private report templates.")
+
+
+def _require_report_owner_or_admin(user: User, owner_user_id: uuid.UUID | None) -> None:
+    if user.role != ROLE_ADMIN and owner_user_id != user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only retry or delete reports that you generated.",
+        )

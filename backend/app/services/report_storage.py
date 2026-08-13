@@ -21,6 +21,7 @@ from app.schemas.reports import (
     ReportSourceResponse,
 )
 from app.services.ai_config import ActiveAISettings
+from app.services.ai_prompting import build_company_context
 from app.services.report_sources import ReportSourcePlan
 
 
@@ -57,6 +58,10 @@ def create_report_from_plan(
         period_end=payload.period_end,
         filters_json=payload.filters.model_dump(mode="json"),
         prompt_config_json=payload.prompt.model_dump(mode="json"),
+        generation_context_json={
+            "company_context": build_company_context(active) if payload.prompt.use_company_context else {},
+            "global_instructions": active.global_instructions,
+        },
         sections_config_json=[section.model_dump(mode="json") for section in payload.sections],
         metrics_json=plan.metrics,
         coverage_json={

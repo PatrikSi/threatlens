@@ -152,6 +152,7 @@ class Settings(BaseSettings):
     default_api_token_expiry_days: int = 90
     ai_enabled: bool = False
     ai_api_key: str | None = None
+    public_app_url: str | None = None
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
 
@@ -313,6 +314,29 @@ class Settings(BaseSettings):
         normalized = str(value).strip()
         if not normalized.startswith("/") or normalized.startswith("//") or "?" in normalized or "#" in normalized:
             raise ValueError("oidc_callback_path must be an absolute URL path without a query or fragment")
+        return normalized
+
+    @field_validator("public_app_url", mode="before")
+    @classmethod
+    def _normalize_public_app_url(cls, value):
+        normalized = str(value or "").strip().rstrip("/")
+        if not normalized:
+            return None
+        try:
+            parts = urlsplit(normalized)
+        except ValueError as exc:
+            raise ValueError("public_app_url must be a valid HTTP(S) URL") from exc
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.netloc
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError(
+                "public_app_url must be an HTTP(S) URL without credentials, query, or fragment"
+            )
         return normalized
 
     @field_validator(

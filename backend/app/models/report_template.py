@@ -25,6 +25,8 @@ class ReportTemplate(Base):
     detail_level: Mapped[str] = mapped_column(String(16), nullable=False, default="standard", server_default="standard")
     use_company_context: Mapped[bool] = mapped_column(nullable=False, default=True, server_default="true")
     custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    focus_topics_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    excluded_topics_json: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
     sections_json: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
     default_filters_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

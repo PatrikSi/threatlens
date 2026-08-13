@@ -148,16 +148,22 @@ def generate_report(
             counters.completion_tokens,
             counters.total_tokens,
         )
-    except (AIContextBudgetError, AIIntegrationError, ReportGenerationError) as exc:
+    except Exception as exc:
         db.rollback()
+        expected_error = isinstance(
+            exc,
+            (AIContextBudgetError, AIIntegrationError, ReportGenerationError),
+        )
         current = db.get(Report, report_id)
         if current is not None:
             current.status = "error"
             current.generation_stage = "failed"
-            current.error_code = getattr(exc, "code", None) or (
-                "context_budget" if isinstance(exc, AIContextBudgetError) else "provider_error"
+            current.error_code = _generation_error_code(exc, expected=expected_error)
+            current.error = (
+                str(exc)[:4000]
+                if expected_error
+                else "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
             )
-            current.error = str(exc)[:4000]
             current.model_calls = counters.model_calls
             current.prompt_tokens = counters.prompt_tokens or None
             current.completion_tokens = counters.completion_tokens or None
@@ -166,6 +172,15 @@ def generate_report(
             _record_stage(db, task_run_id, current, "failed", message=str(exc))
             db.commit()
         raise
+
+
+def _generation_error_code(exc: Exception, *, expected: bool) -> str:
+    if not expected:
+        return "internal_error"
+    code = getattr(exc, "code", None)
+    if code:
+        return str(code)
+    return "context_budget" if isinstance(exc, AIContextBudgetError) else "provider_error"
 
 
 @dataclass
@@ -227,7 +242,8 @@ def _synthesize_evidence_batches(
                 "role": "user",
                 "content": json.dumps(
                     {
-                        "report_objective": (report.prompt_config_json or {}).get("objective"),
+                        "report_prompt": report.prompt_config_json,
+                        "generation_context": report.generation_context_json,
                         "batch": index,
                         "evidence": list(batch),
                     },
@@ -243,7 +259,11 @@ def _synthesize_evidence_batches(
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
-            max_completion_tokens=min(active.report_reserved_output_tokens, 800),
+            max_completion_tokens=min(
+                active.report_reserved_output_tokens,
+                active.max_completion_tokens,
+                800,
+            ),
         )
         counters.add(completion)
         findings.extend(_normalize_findings(completion.payload.get("findings"), known_citations=known_citations))
@@ -301,6 +321,7 @@ def _generate_section(
                             "period_start": report.period_start.isoformat(),
                             "period_end": report.period_end.isoformat(),
                             "prompt": report.prompt_config_json,
+                            "generation_context": report.generation_context_json,
                             "metrics": report.metrics_json,
                         },
                         "findings": compact_findings,
@@ -317,7 +338,10 @@ def _generate_section(
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
-            max_completion_tokens=active.report_reserved_output_tokens,
+            max_completion_tokens=min(
+                active.report_reserved_output_tokens,
+                active.max_completion_tokens,
+            ),
         )
         counters.add(completion)
         body = str(completion.payload.get("body_markdown") or "").strip()

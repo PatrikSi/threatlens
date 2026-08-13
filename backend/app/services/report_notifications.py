@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.integration import IntegrationEvent
 from app.models.report import Report
 from app.models.report_section import ReportSection
+from app.core.config import get_settings
 from app.services.integration_events import emit_integration_event
 
 
@@ -45,11 +46,14 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
         narrative = full_text[:100_000]
     else:
         narrative = report.summary_text or "The intelligence report is ready."
+    report_path = f"/reporting/{report.id}"
+    public_app_url = get_settings().public_app_url
+    report_url = f"{public_app_url}{report_path}" if public_app_url else report_path
     payload = {
         "schema_version": REPORT_READY_SCHEMA_VERSION,
         "report_id": str(report.id),
         "scope_key": f"report:{report.id}:ready",
-        "report_url": f"/reporting/{report.id}",
+        "report_url": report_url,
         "delivery_mode": report.delivery_mode,
         "daily_brief": {
             "schema_version": REPORT_READY_SCHEMA_VERSION,
@@ -59,7 +63,7 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
             "window_start": report.period_start.isoformat(),
             "window_end": report.period_end.isoformat(),
             "title": report.title,
-            "url": f"/reporting/{report.id}",
+            "url": report_url,
             "text": narrative,
             "key_points": key_points,
             "recommended_actions": actions,

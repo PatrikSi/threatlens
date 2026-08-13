@@ -37,7 +37,7 @@ export function ReportBuilder({ controller }: { controller: ReportingController 
       </header>
 
       <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
-        <ExportFilterPanel capabilities={capabilities} controller={filterController} />
+        <ExportFilterPanel capabilities={capabilities} controller={filterController} includeUserStateFilters={false} />
         <div className="space-y-3">
           <PromptPanel controller={controller} />
           <SectionsPanel sections={controller.sections} onChange={controller.setSections} />

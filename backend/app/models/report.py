@@ -30,6 +30,7 @@ class Report(Base):
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     filters_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     prompt_config_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    generation_context_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     sections_config_json: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
     metrics_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     coverage_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

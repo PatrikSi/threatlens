@@ -24,6 +24,7 @@ from app.services.ai_context_budget import (
     plan_evidence_batches,
     truncate_to_token_estimate,
 )
+from app.services.ai_prompting import build_company_context
 from app.services.export_models import ExportRecord
 from app.services.export_query import (
     build_export_query_context,
@@ -94,7 +95,7 @@ def build_report_source_plan(
         reserved_output_tokens=active.report_reserved_output_tokens,
         safety_percent=active.report_context_safety_percent,
     )
-    fixed_prompt_tokens = _estimate_fixed_prompt_tokens(prompt, sections)
+    fixed_prompt_tokens = _estimate_fixed_prompt_tokens(prompt, sections, active)
     batch_capacity = budget.usable_input_tokens - fixed_prompt_tokens
     if batch_capacity < 256:
         # Reuse the central error contract and actionable message.
@@ -227,6 +228,7 @@ def report_preview_from_plan(plan: ReportSourcePlan, *, preview_limit: int) -> R
 def _estimate_fixed_prompt_tokens(
     prompt: ReportPromptConfig,
     sections: list[ReportSectionConfig],
+    active: ActiveAISettings,
 ) -> int:
     serialized = json.dumps(
         {
@@ -238,6 +240,8 @@ def _estimate_fixed_prompt_tokens(
             "focus_topics": prompt.focus_topics,
             "excluded_topics": prompt.excluded_topics,
             "sections": [section.model_dump() for section in sections if section.enabled],
+            "company_context": build_company_context(active) if prompt.use_company_context else {},
+            "global_instructions": active.global_instructions,
         },
         sort_keys=True,
     )
