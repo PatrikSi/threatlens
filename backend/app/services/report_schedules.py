@@ -250,6 +250,7 @@ def _create_one_scheduled_report(
         prompt=prompt,
         sections=sections,
         deliver_when_ready=schedule.delivery_enabled,
+        delivery_mode=schedule.delivery_mode,
     )
     try:
         return create_report_from_plan(
@@ -289,6 +290,7 @@ def _create_one_scheduled_report(
             model=active.model,
             error_code="no_sources",
             error="No matching source articles were available for the scheduled period.",
+            delivery_mode=schedule.delivery_mode,
         )
         try:
             with db.begin_nested():

@@ -201,6 +201,7 @@ def upgrade() -> None:
         sa.Column("error_code", sa.String(64), nullable=True),
         sa.Column("error", sa.Text(), nullable=True),
         sa.Column("delivery_requested", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("delivery_mode", sa.String(16), nullable=False, server_default="summary"),
         sa.Column("queued_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("generated_at", sa.DateTime(timezone=True), nullable=True),

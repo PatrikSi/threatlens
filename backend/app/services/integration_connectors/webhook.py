@@ -56,6 +56,7 @@ class WebhookIntegrationConnector:
         "feed_failing",
         "webhook_failed",
         "daily_digest",
+        "report_ready",
     )
     definition = IntegrationConnectorDefinition(
         integration_type="webhook",
@@ -208,6 +209,15 @@ class WebhookIntegrationConnector:
         if event.event_type == "daily_digest":
             return self._reserve_daily_digest(db, event=event, webhooks=webhooks)
 
+        if event.event_type == "report_ready":
+            return self._reserve_digest_like(
+                db,
+                event=event,
+                webhooks=webhooks,
+                event_type="report_ready",
+                item_label="Intelligence report",
+            )
+
         raise IntegrationEventContextError(f"Unsupported integration event type: {event.event_type}")
 
     def _reserve_snapshot_alert_deliveries(
@@ -301,6 +311,23 @@ class WebhookIntegrationConnector:
         event: IntegrationEvent,
         webhooks: list[NotificationWebhook],
     ) -> NotificationDeliveryReservationBatch:
+        return self._reserve_digest_like(
+            db,
+            event=event,
+            webhooks=webhooks,
+            event_type="daily_digest",
+            item_label="AI Daily Brief",
+        )
+
+    def _reserve_digest_like(
+        self,
+        db: Session,
+        *,
+        event: IntegrationEvent,
+        webhooks: list[NotificationWebhook],
+        event_type: str,
+        item_label: str,
+    ) -> NotificationDeliveryReservationBatch:
         try:
             digest_context = daily_brief_context_from_payload(event.payload_json)
         except DailyBriefNotificationContextError as exc:
@@ -319,7 +346,7 @@ class WebhookIntegrationConnector:
             if not try_acquire_notification_delivery_lock(
                 db,
                 webhook_id=webhook.id,
-                event_type="daily_digest",
+                event_type=event_type,
                 scope_key=scope_key,
             ):
                 skipped += 1
@@ -327,7 +354,7 @@ class WebhookIntegrationConnector:
             if has_recent_notification_delivery(
                 db,
                 webhook_id=webhook.id,
-                event_type="daily_digest",
+                event_type=event_type,
                 scope_key=scope_key,
             ):
                 skipped += 1
@@ -336,10 +363,10 @@ class WebhookIntegrationConnector:
                 db,
                 webhook=webhook,
                 user=user,
-                event_type="daily_digest",
+                event_type=event_type,
                 digest_context=digest_context,
                 item_title=digest_context.title,
-                feed_name="AI Daily Brief",
+                feed_name=item_label,
                 scope_key=scope_key,
             )
             delivery_ids.append(delivery.id)
@@ -432,7 +459,7 @@ def _legacy_webhook_matches_feed(
     event_type: str,
     feed_id: uuid.UUID | None,
 ) -> bool:
-    if event_type == "daily_digest":
+    if event_type in {"daily_digest", "report_ready"}:
         return True
     if webhook.feed_scope == "all":
         return True

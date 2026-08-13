@@ -155,6 +155,7 @@ class ReportCreateRequest(ReportSchema):
     prompt: ReportPromptConfig = Field(default_factory=ReportPromptConfig)
     sections: list[ReportSectionConfig] = Field(default_factory=list, min_length=1, max_length=20)
     deliver_when_ready: bool = False
+    delivery_mode: Literal["link", "summary", "full"] = "summary"
 
     @field_validator("title", mode="before")
     @classmethod
@@ -244,6 +245,7 @@ class ReportDetailResponse(ReportListItem):
     context_window_tokens: int
     generation_batches: int
     delivery_requested: bool
+    delivery_mode: Literal["link", "summary", "full"]
     sections: list[ReportSectionResponse]
     sources: list[ReportSourceResponse]
 
