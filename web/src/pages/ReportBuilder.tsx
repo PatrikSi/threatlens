@@ -235,7 +235,10 @@ function SectionsPanel({ sections, onChange }: { sections: ReportSectionConfig[]
 
 function ContextPanel({ controller }: { controller: ReportingController }) {
   const estimate = controller.previewQuery.data?.estimate
-  const used = estimate ? estimate.estimated_source_tokens + estimate.estimated_fixed_prompt_tokens : 0
+  const used = estimate
+    ? estimate.estimated_peak_input_tokens
+      ?? Math.min(estimate.usable_input_tokens, estimate.estimated_source_tokens + estimate.estimated_fixed_prompt_tokens)
+    : 0
   const ratio = estimate ? Math.min(100, Math.round(100 * used / estimate.usable_input_tokens)) : 0
   return (
     <section className="rounded-lg border border-slate/20 bg-white/80 p-3 dark:border-cyan-900/40 dark:bg-[#041612]/90" aria-live="polite">
@@ -247,7 +250,8 @@ function ContextPanel({ controller }: { controller: ReportingController }) {
         <Metric label="Coverage" value={`${estimate.coverage_percent}%`} />
         <Metric label="Batches" value={estimate.estimated_batches.toLocaleString()} />
         <Metric label="Model calls" value={estimate.estimated_model_calls.toLocaleString()} />
-        <Metric label="Input estimate" value={`~${estimate.estimated_source_tokens.toLocaleString()}`} />
+        <Metric label="Source tokens" value={`~${estimate.estimated_source_tokens.toLocaleString()}`} />
+        <Metric label="Peak input / batch" value={`~${used.toLocaleString()}`} />
         <Metric label="Usable / batch" value={estimate.usable_input_tokens.toLocaleString()} />
       </div>}
       {estimate?.warnings.map((warning) => <p key={warning} className="mt-2 rounded border border-amber-300/60 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">{warning}</p>)}

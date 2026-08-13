@@ -45,6 +45,7 @@ export interface ReportContextEstimate {
   usable_input_tokens: number
   estimated_source_tokens: number
   estimated_fixed_prompt_tokens: number
+  estimated_peak_input_tokens?: number
   estimated_batches: number
   estimated_model_calls: number
   selected_source_count: number

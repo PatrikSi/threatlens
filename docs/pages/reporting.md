@@ -24,7 +24,7 @@ The builder supports:
 - optional delivery through matching SMTP and webhook integrations
 - link-only, summary, or bounded full-report delivery content
 
-The live preview reports matching and selected source counts, estimated input tokens, batch count, model-call count, coverage, and omission warnings. Generation remains blocked while the preview is stale, invalid, empty, unavailable, or over a configured guardrail.
+The live preview reports matching and selected source counts, total source tokens, the exact estimated peak input for one serialized provider call, batch count, model-call count, coverage, and omission warnings. Generation remains blocked while the preview is stale, invalid, empty, unavailable, or over a configured guardrail.
 
 ## Local-Model Guardrails
 
@@ -32,17 +32,28 @@ Reporting does not place the full corpus into one prompt. It:
 
 1. conservatively estimates tokens using the larger of character- and word-based estimates
 2. reserves output, protocol overhead, and a configurable safety margin
-3. truncates each source to a configured token cap
-4. ranks and freezes at most the configured source limit
-5. partitions evidence into context-safe batches
-6. synthesizes bounded findings from each batch
-7. writes report sections separately and generates the executive summary last
-8. enforces a hard model-call ceiling
-9. rejects unknown citations and renders scope, source, and IOC sections deterministically
+3. measures the actual serialized provider message, including JSON escaping and prompt framing
+4. truncates each source to a configured token cap and tightens it further when a small context requires it
+5. ranks and freezes at most the configured source limit
+6. partitions evidence into context-safe batches without exceeding the model-call ceiling
+7. synthesizes bounded findings from each batch
+8. writes report sections from a representative, context-bounded finding set and generates the executive summary last
+9. enforces a hard model-call ceiling
+10. rejects unknown citations and renders scope, source, and IOC sections deterministically
 
-Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the selected model, not the model family maximum. For small local models, start with fewer sources, a 400-700 token per-source cap, a 15-25% safety margin, and AI worker concurrency `1`.
+Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the loaded model and runtime, not the model family maximum. Conservative starting points are:
 
-The exact company context and global instructions are frozen when a report is queued, so later edits do not change those prompt inputs. The worker revalidates the current provider, model, context limits, and model-call ceiling at execution and retry time; an incompatible reduction fails safely with an actionable context error. Provider usage, stages, model-call counts, and failures appear in AI task history.
+| Model context | Output reserve | Safety margin | Source cap |
+| --- | ---: | ---: | ---: |
+| 2K | 256 | 5-10% | 200-300 |
+| 4K | 512 | 10-15% | 300-500 |
+| 8K | 800-1,200 | 15-20% | 500-700 |
+
+Keep AI worker concurrency at `1` for memory-constrained local inference. These are admission-control settings, not quality guarantees; very small models may still struggle to return valid structured JSON or follow citation instructions.
+
+The exact company context and global instructions are frozen when a report is queued, so later edits do not change the durable snapshot. Before each provider call, ThreatLens builds a bounded working projection from that snapshot. It preserves the objective and global instructions first, then fits custom instructions, topic lists, structured company fields, and profile text into the remaining prompt allowance. Compaction is recorded in report warnings.
+
+The worker revalidates the current provider, model, context limits, and model-call ceiling at execution and retry time. If a queued report was planned for a larger model, execution tightens excerpts and omits only lower-ranked sources until the current limits fit, then records the changed coverage. It fails before a provider call only when the required protocol, objective, enabled AI sections, and one evidence unit cannot fit at all. Provider usage, exact planning telemetry, stages, model-call counts, and failures appear in AI task history and worker logs.
 
 ## Templates And Schedules
 
@@ -71,6 +82,7 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
 - Lost report workers are reconciled into a terminal failure instead of leaving the report indefinitely queued or running.
 - Provider and context errors retain actionable messages; unexpected exception details stay in worker logs while the UI receives a sanitized recovery message.
+- Adaptive context decisions log usable input, fixed prompt size, peak serialized input, batch count, selected sources, omitted sources, and whether optional context was compacted.
 - Failed or skipped reports can be retried by their owner or an administrator from the immutable source snapshot.
 - Queued and running reports cannot be deleted.
 - Scheduled empty periods are retained as skipped report records when **Skip periods with no sources** is enabled.
