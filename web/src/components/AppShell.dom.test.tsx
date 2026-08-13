@@ -152,6 +152,7 @@ describe('AppShell logout', () => {
     expect(mobileNavigation?.className).not.toContain('grid-cols-2')
     expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
     expect(mobileNavigation?.textContent).toContain('Export')
+    expect(mobileNavigation?.textContent).toContain('Reporting')
   })
 
   it('shows a subtle app version in the footer', () => {

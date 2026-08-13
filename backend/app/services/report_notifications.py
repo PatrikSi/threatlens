@@ -59,6 +59,7 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
             "window_start": report.period_start.isoformat(),
             "window_end": report.period_end.isoformat(),
             "title": report.title,
+            "url": f"/reporting/{report.id}",
             "text": narrative,
             "key_points": key_points,
             "recommended_actions": actions,

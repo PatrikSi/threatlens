@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createDraftFromSettings, createRequestFromDraft, validateAISettingsDraft } from './aiSettingsDraft'
+import { DEFAULT_DRAFT, createDraftFromSettings, createRequestFromDraft, validateAISettingsDraft } from './aiSettingsDraft'
 import { resolveAiReprocessQueueState } from './aiReprocessQueueState'
 import { resolveVisibleRunSelection } from './aiRunSelection'
 
@@ -112,6 +112,7 @@ describe('createDraftFromSettings', () => {
 describe('createRequestFromDraft', () => {
   it('normalizes optional text, deduplicates lists, and falls back to a safe UTC schedule', () => {
     const request = createRequestFromDraft({
+      ...DEFAULT_DRAFT,
       base_url: ' https://api.example.com/v1 ',
       model: ' threat-model ',
       temperature: '0.4',
@@ -156,6 +157,7 @@ describe('createRequestFromDraft', () => {
 
   it('preserves valid zero-valued numeric settings', () => {
     const request = createRequestFromDraft({
+      ...DEFAULT_DRAFT,
       base_url: 'http://localhost:11434/v1',
       model: 'local-threat-model',
       temperature: '0',
@@ -198,6 +200,7 @@ describe('createRequestFromDraft', () => {
 describe('validateAISettingsDraft', () => {
   it('matches backend numeric bounds before saving settings', () => {
     const validation = validateAISettingsDraft({
+      ...DEFAULT_DRAFT,
       base_url: 'http://localhost:11434/v1',
       model: 'local-threat-model',
       temperature: '2.1',
@@ -244,6 +247,7 @@ describe('validateAISettingsDraft', () => {
 
   it('matches backend text limits and rejects invalid scheduled brief times', () => {
     const validation = validateAISettingsDraft({
+      ...DEFAULT_DRAFT,
       base_url: 'x'.repeat(4001),
       model: 'm'.repeat(256),
       temperature: '0.2',
@@ -285,6 +289,7 @@ describe('validateAISettingsDraft', () => {
 
   it('rejects equal relevance thresholds before the backend does', () => {
     const validation = validateAISettingsDraft({
+      ...DEFAULT_DRAFT,
       base_url: 'http://localhost:11434/v1',
       model: 'local-threat-model',
       temperature: '0.2',

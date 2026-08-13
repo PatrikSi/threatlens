@@ -4,8 +4,8 @@ import { ExportMultiSelect } from './ExportMultiSelect'
 import { updateExportFilterDraft, type ExportPageController } from './useExportPageController'
 
 interface ExportFilterPanelProps {
-  capabilities: ArticleExportCapabilities
-  controller: ExportPageController
+  capabilities: Pick<ArticleExportCapabilities, 'feeds' | 'tags' | 'classifications'>
+  controller: Pick<ExportPageController, 'filterDraft' | 'setFilterDraft' | 'validationErrors'>
 }
 
 const INPUT_CLASS =

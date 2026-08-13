@@ -12,17 +12,17 @@ import {
 import { KeyValueEditor } from './NotificationWebhookShared'
 import { NotificationWebhooksController } from './useNotificationWebhooksController'
 
-function UnavailableDailyBriefNotice({ visible }: { visible: boolean }) {
+function UnavailableAIEventNotice({ visible, feature }: { visible: boolean; feature: string }) {
   if (!visible) return null
   return (
     <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-      This existing selection is inactive until AI Daily Brief generation is enabled and configured.
+      This existing selection is inactive until {feature} is enabled and configured.
     </p>
   )
 }
 
 function BasicRequestFields({ controller }: { controller: NotificationWebhooksController }) {
-  const { availableEventOptions, canManageWebhooks, draft, setDraft, unavailableDailyBriefSelected } = controller
+  const { availableEventOptions, canManageWebhooks, draft, setDraft, unavailableDailyBriefSelected, unavailableReportSelected } = controller
   return (
     <div className="mt-4 grid gap-4 md:grid-cols-2">
       <div>
@@ -48,7 +48,8 @@ function BasicRequestFields({ controller }: { controller: NotificationWebhooksCo
           {availableEventOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
         </select>
         <p className="mt-1 text-xs text-slate dark:text-white/60">{describeEventDescription(draft.event_type)}</p>
-        <UnavailableDailyBriefNotice visible={unavailableDailyBriefSelected} />
+        <UnavailableAIEventNotice visible={unavailableDailyBriefSelected} feature="AI Daily Brief generation" />
+        <UnavailableAIEventNotice visible={unavailableReportSelected} feature="AI reporting" />
       </div>
       <div>
         <label htmlFor="notification-webhook-method" className="text-sm font-semibold">HTTP Method</label>

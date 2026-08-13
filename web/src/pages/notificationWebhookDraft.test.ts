@@ -64,9 +64,12 @@ describe('notification webhook draft shaping', () => {
       unavailableDailyBriefSelected: true,
     })
     expect(
-      resolveNotificationEventAvailability(false, 'daily_digest').availableEventOptions.some(
+      resolveNotificationEventAvailability(false, 'daily_digest', false).availableEventOptions.some(
         (option) => option.value === 'daily_digest',
       ),
     ).toBe(false)
+    expect(resolveNotificationEventAvailability(true, 'report_ready', false)).toMatchObject({
+      unavailableReportSelected: true,
+    })
   })
 })

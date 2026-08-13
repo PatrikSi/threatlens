@@ -11,6 +11,9 @@ services:
   worker:
     pull_policy: never
 
+  worker-ai:
+    pull_policy: never
+
   worker-maintenance:
     pull_policy: never
 

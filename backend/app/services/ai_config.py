@@ -20,6 +20,7 @@ class PublicAIFeatureFlags:
     ai_summary_enabled: bool
     ai_relevance_enabled: bool
     ai_daily_brief_enabled: bool
+    ai_reporting_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -293,6 +294,7 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
             ai_summary_enabled=False,
             ai_relevance_enabled=False,
             ai_daily_brief_enabled=False,
+            ai_reporting_enabled=False,
         )
 
     settings = get_or_create_ai_settings(db)
@@ -306,6 +308,7 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
         ai_summary_enabled=configured and bool(settings.summary_enabled),
         ai_relevance_enabled=configured and bool(settings.relevance_enabled),
         ai_daily_brief_enabled=configured and bool(settings.daily_brief_enabled),
+        ai_reporting_enabled=configured and bool(settings.reporting_enabled),
     )
 
 

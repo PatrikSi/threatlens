@@ -87,7 +87,8 @@ SMTP_TEMPLATE_DEFAULTS: dict[str, tuple[list[NotificationEventType], str, str]] 
 <p>{{ brief.key_points_html }}</p>
 <p><strong>Recommended actions</strong></p>
 <p>{{ brief.recommended_actions_html }}</p>
-<p>Generated from {{ brief.item_count }} source items for the period ending {{ brief.date }}.</p>""",
+<p>Generated from {{ brief.item_count }} source items for the period ending {{ brief.date }}.</p>
+<p><a href="{{ brief.url_html }}">Open report in ThreatLens</a></p>""",
     ),
     "all": (
         list(ALL_SMTP_EVENT_TYPES),
