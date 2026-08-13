@@ -125,48 +125,105 @@ export function createDefaultAlertWindowFilters(): DashboardAlertWindowFilters {
   }
 }
 
+function resolveRssWindowFilterFallbacks(
+  fallback: Partial<DashboardRssWindowFilters> | undefined,
+  showAdvancedFallback: boolean,
+): DashboardRssWindowFilters {
+  const defaults = createDefaultRssWindowFilters(showAdvancedFallback)
+  return {
+    ...defaults,
+    ...fallback,
+    selected_feed_ids: fallback?.selected_feed_ids ?? defaults.selected_feed_ids,
+    selected_tags: fallback?.selected_tags ?? defaults.selected_tags,
+    q: fallback?.q ?? defaults.q,
+    read_status: fallback?.read_status ?? defaults.read_status,
+    star_status: fallback?.star_status ?? defaults.star_status,
+    ai_relevance: fallback?.ai_relevance ?? defaults.ai_relevance,
+    view_mode: fallback?.view_mode ?? defaults.view_mode,
+    page: fallback?.page ?? defaults.page,
+    page_size: fallback?.page_size ?? defaults.page_size,
+    sort: fallback?.sort ?? defaults.sort,
+    show_advanced_filters: fallback?.show_advanced_filters ?? defaults.show_advanced_filters,
+  }
+}
+
+function parseStringArrayCandidate(
+  value: unknown,
+  fallback: string[],
+  include: (value: string) => boolean = () => true,
+): string[] {
+  if (!Array.isArray(value)) return fallback
+  return value.filter((entry): entry is string => typeof entry === 'string' && include(entry))
+}
+
+function parseStringCandidate(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback
+}
+
+function parseReadStatusCandidate(value: unknown, fallback: ReadStatusFilter): ReadStatusFilter {
+  return value === 'read' || value === 'unread' ? value : fallback
+}
+
+function parseStarStatusCandidate(value: unknown, fallback: StarStatusFilter): StarStatusFilter {
+  return value === 'starred' || value === 'unstarred' ? value : fallback
+}
+
+function parseAIRelevanceCandidate(value: unknown, fallback: AIRelevanceFilter): AIRelevanceFilter {
+  return isAIRelevanceFilter(value) ? value : fallback
+}
+
+function parseExpandedViewModeCandidate(value: unknown, fallback: DashboardViewMode): DashboardViewMode {
+  return value === 'expanded' ? value : fallback
+}
+
+function parsePageCandidate(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 1 ? Math.floor(value) : fallback
+}
+
+function parsePageSizeCandidate(
+  value: unknown,
+  fallback: DashboardRssWindowFilters['page_size'],
+): DashboardRssWindowFilters['page_size'] {
+  return typeof value === 'number' && PAGE_SIZE_OPTIONS.includes(value as (typeof PAGE_SIZE_OPTIONS)[number])
+    ? (value as DashboardRssWindowFilters['page_size'])
+    : fallback
+}
+
+function parseTimeSortCandidate(value: unknown, fallback: TimeSort): TimeSort {
+  return isTimeSort(value) ? value : fallback
+}
+
+function parseBooleanCandidate(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
 export function parseRssWindowFiltersCandidate(
   value: unknown,
   fallback?: Partial<DashboardRssWindowFilters>,
   showAdvancedFallback = false,
 ): DashboardRssWindowFilters {
   const source = isRecord(value) ? value : {}
+  const resolvedFallback = resolveRssWindowFilterFallbacks(fallback, showAdvancedFallback)
   return {
-    ...createDefaultRssWindowFilters(showAdvancedFallback),
-    ...fallback,
-    selected_feed_ids: Array.isArray(source.selected_feed_ids)
-      ? source.selected_feed_ids.filter((entry): entry is string => typeof entry === 'string')
-      : fallback?.selected_feed_ids ?? [],
-    selected_tags: Array.isArray(source.selected_tags)
-      ? source.selected_tags.filter((entry): entry is string => typeof entry === 'string' && !HIDDEN_TAGS.has(entry))
-      : fallback?.selected_tags ?? [],
-    q: typeof source.q === 'string' ? source.q : fallback?.q ?? '',
-    read_status:
-      source.read_status === 'read' || source.read_status === 'unread'
-        ? source.read_status
-        : fallback?.read_status ?? 'all',
-    star_status:
-      source.star_status === 'starred' || source.star_status === 'unstarred'
-        ? source.star_status
-        : fallback?.star_status ?? 'all',
-    ai_relevance:
-      typeof source.ai_relevance === 'string' && isAIRelevanceFilter(source.ai_relevance)
-        ? source.ai_relevance
-        : fallback?.ai_relevance ?? 'all',
-    view_mode: source.view_mode === 'expanded' ? 'expanded' : fallback?.view_mode ?? 'compact',
-    page:
-      typeof source.page === 'number' && Number.isFinite(source.page) && source.page >= 1
-        ? Math.floor(source.page)
-        : fallback?.page ?? 1,
-    page_size:
-      typeof source.page_size === 'number' && PAGE_SIZE_OPTIONS.includes(source.page_size as (typeof PAGE_SIZE_OPTIONS)[number])
-        ? (source.page_size as DashboardRssWindowFilters['page_size'])
-        : fallback?.page_size ?? 25,
-    sort: typeof source.sort === 'string' && isTimeSort(source.sort) ? source.sort : fallback?.sort ?? 'published_at_desc',
-    show_advanced_filters:
-      typeof source.show_advanced_filters === 'boolean'
-        ? source.show_advanced_filters
-        : fallback?.show_advanced_filters ?? showAdvancedFallback,
+    ...resolvedFallback,
+    selected_feed_ids: parseStringArrayCandidate(source.selected_feed_ids, resolvedFallback.selected_feed_ids),
+    selected_tags: parseStringArrayCandidate(
+      source.selected_tags,
+      resolvedFallback.selected_tags,
+      (entry) => !HIDDEN_TAGS.has(entry),
+    ),
+    q: parseStringCandidate(source.q, resolvedFallback.q),
+    read_status: parseReadStatusCandidate(source.read_status, resolvedFallback.read_status),
+    star_status: parseStarStatusCandidate(source.star_status, resolvedFallback.star_status),
+    ai_relevance: parseAIRelevanceCandidate(source.ai_relevance, resolvedFallback.ai_relevance),
+    view_mode: parseExpandedViewModeCandidate(source.view_mode, resolvedFallback.view_mode),
+    page: parsePageCandidate(source.page, resolvedFallback.page),
+    page_size: parsePageSizeCandidate(source.page_size, resolvedFallback.page_size),
+    sort: parseTimeSortCandidate(source.sort, resolvedFallback.sort),
+    show_advanced_filters: parseBooleanCandidate(
+      source.show_advanced_filters,
+      resolvedFallback.show_advanced_filters,
+    ),
   }
 }
 
