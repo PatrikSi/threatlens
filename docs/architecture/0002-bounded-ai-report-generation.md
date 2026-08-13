@@ -21,6 +21,7 @@ ThreatLens uses a staged, bounded pipeline inside the existing backend and Celer
 - Compact optional prompt context by priority while preserving the report objective and global instructions.
 - Partition evidence into bounded synthesis batches, then generate individual sections from representative compact findings.
 - Re-plan immutable source snapshots at execution so retries can degrade safely after switching to a smaller model.
+- Expand truncated structured-output retries only into exact unused per-call context headroom.
 - Generate deterministic scope, observable, and source sections without an AI call.
 - Generate the executive summary after the evidence sections.
 - Enforce source, per-source token, model-call, and worker-concurrency limits.

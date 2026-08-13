@@ -201,3 +201,39 @@ def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits
             budget=budget,
         )
         assert estimate_message_tokens(messages) <= budget.usable_input_tokens
+
+
+def test_report_completion_retry_limit_uses_only_unused_context_headroom():
+    budget = build_context_budget(
+        context_window_tokens=2048,
+        reserved_output_tokens=256,
+        safety_percent=5,
+    )
+    active = SimpleNamespace(
+        report_reserved_output_tokens=256,
+        max_completion_tokens=5000,
+    )
+    messages = [{"role": "user", "content": "evidence " * 250}]
+
+    initial, maximum = report_generation._report_completion_limits(
+        active=active,
+        budget=budget,
+        messages=messages,
+    )
+
+    expected_maximum = (
+        budget.context_window_tokens
+        - budget.safety_margin_tokens
+        - budget.protocol_overhead_tokens
+        - estimate_message_tokens(messages)
+    )
+    assert initial == 256
+    assert maximum == expected_maximum
+    assert maximum > initial
+    assert (
+        estimate_message_tokens(messages)
+        + maximum
+        + budget.safety_margin_tokens
+        + budget.protocol_overhead_tokens
+        == budget.context_window_tokens
+    )
