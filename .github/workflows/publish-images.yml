@@ -147,7 +147,7 @@ jobs:
           printf '%s\n' '${{ steps.build.outputs.digest }}' > 'image-digests/${{ matrix.name }}-${{ matrix.platform-slug }}.txt'
 
       - name: Upload platform digest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: image-digest-${{ matrix.name }}-${{ matrix.platform-slug }}
           path: image-digests/*.txt
@@ -382,7 +382,7 @@ jobs:
 
       - name: Upload promoted image digests
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: promoted-image-digests
           path: promoted-digests/*.txt
