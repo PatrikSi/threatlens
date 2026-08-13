@@ -905,6 +905,7 @@ def _request_json_with_usage(
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
     max_completion_tokens: int | None = None,
+    max_retry_completion_tokens: int | None = None,
 ) -> AICompletionResult:
     max_attempts = max(1, active.request_max_retries + 1)
     last_error: AIIntegrationError | None = None
@@ -933,8 +934,18 @@ def _request_json_with_usage(
                 feature_type=feature_type,
                 current=request_max_tokens,
                 error=exc,
+                maximum=max_retry_completion_tokens,
             )
-            should_retry = attempt < max_attempts and _ai_error_is_retryable(exc)
+            report_truncation_has_headroom = not (
+                feature_type == FEATURE_REPORT
+                and exc.retry_hint == "expand_completion_budget"
+                and next_request_max_tokens <= request_max_tokens
+            )
+            should_retry = (
+                attempt < max_attempts
+                and _ai_error_is_retryable(exc)
+                and report_truncation_has_headroom
+            )
             retry_delay_seconds = _provider_retry_delay_seconds(attempt=attempt) if should_retry else None
             payload = {
                 **exc.debug_payload(),
@@ -1025,6 +1036,7 @@ def request_ai_json_with_usage(
     report_id: uuid.UUID | None = None,
     task_run_id: uuid.UUID | None = None,
     max_completion_tokens: int | None = None,
+    max_retry_completion_tokens: int | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     return _request_json_with_usage(
@@ -1035,6 +1047,7 @@ def request_ai_json_with_usage(
         report_id=report_id,
         task_run_id=task_run_id,
         max_completion_tokens=max_completion_tokens,
+        max_retry_completion_tokens=max_retry_completion_tokens,
     )
 
 
@@ -1062,11 +1075,14 @@ def _next_retry_max_completion_tokens(
     feature_type: str,
     current: int,
     error: AIIntegrationError,
+    maximum: int | None = None,
 ) -> int:
     if error.retry_hint != "expand_completion_budget":
         return current
     if feature_type == FEATURE_REPORT:
-        return current
+        if maximum is None or maximum <= current:
+            return current
+        return min(maximum, max(current + 256, int(current * 1.5)))
     if feature_type == FEATURE_DAILY_BRIEF:
         return min(8192, max(current, current + 512, int(current * 1.5)))
     return min(2048, max(current + 256, int(current * 1.5)))

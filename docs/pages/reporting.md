@@ -39,7 +39,8 @@ Reporting does not place the full corpus into one prompt. It:
 7. synthesizes bounded findings from each batch
 8. writes report sections from a representative, context-bounded finding set and generates the executive summary last
 9. enforces a hard model-call ceiling
-10. rejects unknown citations and renders scope, source, and IOC sections deterministically
+10. retries truncated structured output only within the exact unused context headroom for that call
+11. rejects unknown citations and renders scope, source, and IOC sections deterministically
 
 Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set **Model Context Window** to the actual context supported by the loaded model and runtime, not the model family maximum. Conservative starting points are:
 
@@ -49,7 +50,7 @@ Configure these limits in **Settings -> AI -> Report Context Guardrails**. Set *
 | 4K | 512 | 10-15% | 300-500 |
 | 8K | 800-1,200 | 15-20% | 500-700 |
 
-Keep AI worker concurrency at `1` for memory-constrained local inference. These are admission-control settings, not quality guarantees; very small models may still struggle to return valid structured JSON or follow citation instructions.
+Keep AI worker concurrency at `1` for memory-constrained local inference. These are admission-control settings, not quality guarantees; very small models may still struggle to return valid structured JSON or follow citation instructions. When a provider reports output truncation, ThreatLens can increase the completion allowance on a bounded retry, but only into the exact context headroom left by that serialized prompt and never beyond the configured model completion cap.
 
 The exact company context and global instructions are frozen when a report is queued, so later edits do not change the durable snapshot. Before each provider call, ThreatLens builds a bounded working projection from that snapshot. It preserves the objective and global instructions first, then fits custom instructions, topic lists, structured company fields, and profile text into the remaining prompt allowance. Compaction is recorded in report warnings.
 

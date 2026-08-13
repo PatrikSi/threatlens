@@ -28,6 +28,7 @@ from app.services.report_prompt_budget import (
     ReportMessageBatchPlan,
     build_evidence_messages,
     build_section_message_plan,
+    estimate_message_tokens,
     fit_evidence_to_stage,
     plan_evidence_message_batches,
 )
@@ -408,6 +409,12 @@ def _synthesize_evidence_batches(
             budget=budget,
         )
         _assert_messages_fit(messages, budget=budget)
+        completion_tokens, retry_completion_tokens = _report_completion_limits(
+            active=active,
+            budget=budget,
+            messages=messages,
+            stage_cap=800,
+        )
         completion = request_ai_json_with_usage(
             db,
             active,
@@ -415,11 +422,8 @@ def _synthesize_evidence_batches(
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
-            max_completion_tokens=min(
-                active.report_reserved_output_tokens,
-                active.max_completion_tokens,
-                800,
-            ),
+            max_completion_tokens=completion_tokens,
+            max_retry_completion_tokens=retry_completion_tokens,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)
@@ -495,6 +499,11 @@ def _generate_section(
         if message_plan.omitted_findings:
             _append_coverage_warning(report, FINDINGS_COMPACTION_WARNING)
         _assert_messages_fit(messages, budget=budget)
+        completion_tokens, retry_completion_tokens = _report_completion_limits(
+            active=active,
+            budget=budget,
+            messages=messages,
+        )
         completion = request_ai_json_with_usage(
             db,
             active,
@@ -502,10 +511,8 @@ def _generate_section(
             messages=messages,
             report_id=report.id,
             task_run_id=task_run_id,
-            max_completion_tokens=min(
-                active.report_reserved_output_tokens,
-                active.max_completion_tokens,
-            ),
+            max_completion_tokens=completion_tokens,
+            max_retry_completion_tokens=retry_completion_tokens,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)
@@ -618,13 +625,34 @@ def _normalize_findings(value: object, *, known_citations: set[str]) -> list[dic
 
 
 def _assert_messages_fit(messages: list[dict[str, str]], *, budget) -> None:
-    token_count = sum(estimate_tokens(message.get("content")) for message in messages)
+    token_count = estimate_message_tokens(messages)
     if token_count > budget.usable_input_tokens:
         raise AIContextBudgetError(
             f"A report stage is estimated at {token_count:,} input tokens, above the usable "
             f"{budget.usable_input_tokens:,}-token budget after adaptive compaction. "
             "Reduce the output reserve or increase the model context window."
         )
+
+
+def _report_completion_limits(
+    *,
+    active: ActiveAISettings,
+    budget,
+    messages: list[dict[str, str]],
+    stage_cap: int | None = None,
+) -> tuple[int, int]:
+    initial = min(active.report_reserved_output_tokens, active.max_completion_tokens)
+    maximum = min(
+        active.max_completion_tokens,
+        budget.context_window_tokens
+        - budget.safety_margin_tokens
+        - budget.protocol_overhead_tokens
+        - estimate_message_tokens(messages),
+    )
+    if stage_cap is not None:
+        initial = min(initial, stage_cap)
+        maximum = min(maximum, stage_cap)
+    return initial, max(initial, maximum)
 
 
 def _append_coverage_warning(report: Report, warning: str) -> None:
