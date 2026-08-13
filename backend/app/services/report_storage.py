@@ -77,6 +77,7 @@ def create_report_from_plan(
         provider=active.provider_type,
         model=active.model,
         delivery_requested=payload.deliver_when_ready,
+        delivery_mode=payload.delivery_mode,
     )
     db.add(report)
     db.flush()
@@ -165,6 +166,7 @@ def report_detail_response(db: Session, *, report: Report) -> ReportDetailRespon
         context_window_tokens=report.context_window_tokens,
         generation_batches=report.generation_batches,
         delivery_requested=report.delivery_requested,
+        delivery_mode=report.delivery_mode,
         sections=[
             ReportSectionResponse(
                 key=section.section_key,

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -44,6 +44,7 @@ from app.services.report_schedules import (
     report_schedule_response,
     reserve_schedule_runs,
 )
+from app.services.report_rendering import render_report_html, render_report_markdown, render_report_pdf
 from app.services.report_sources import (
     build_report_source_plan,
     filters_for_report_period,
@@ -272,6 +273,39 @@ def get_report(
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
     return report_detail_response(db, report=report)
+
+
+@router.get("/{report_id:uuid}/download")
+def download_report(
+    report_id: uuid.UUID,
+    format: str = Query(default="markdown", pattern="^(markdown|html|pdf)$"),
+    db: Session = Depends(get_db),
+    _user: User = Depends(require_token_scopes(SCOPE_READ_REPORTS)),
+):
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found")
+    if report.status != "ready":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Only completed reports can be downloaded.")
+    detail = report_detail_response(db, report=report)
+    filename = f"threatlens-report-{report.id}"
+    if format == "pdf":
+        content = render_report_pdf(detail)
+        media_type = "application/pdf"
+        extension = "pdf"
+    elif format == "html":
+        content = render_report_html(detail).encode("utf-8")
+        media_type = "text/html; charset=utf-8"
+        extension = "html"
+    else:
+        content = render_report_markdown(detail).encode("utf-8")
+        media_type = "text/markdown; charset=utf-8"
+        extension = "md"
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}.{extension}"'},
+    )
 
 
 @router.post("/{report_id:uuid}/retry", response_model=ReportQueueResponse, status_code=status.HTTP_202_ACCEPTED)

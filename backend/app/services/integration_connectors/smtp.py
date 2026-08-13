@@ -33,6 +33,7 @@ class SMTPIntegrationConnector:
         "feed_failing",
         "webhook_failed",
         "daily_digest",
+        "report_ready",
     )
     definition = IntegrationConnectorDefinition(
         integration_type="smtp",
@@ -72,7 +73,7 @@ class SMTPIntegrationConnector:
                 IntegrationSubscription.event_type == event.event_type,
             )
         )
-        if feed_id is None and event.event_type != "daily_digest":
+        if feed_id is None and event.event_type not in {"daily_digest", "report_ready"}:
             query = query.where(IntegrationSubscription.feed_scope == "all")
         elif feed_id is not None:
             query = query.outerjoin(

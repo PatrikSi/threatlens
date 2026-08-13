@@ -32,12 +32,25 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
         (list(section.key_points_json or []) for section in sections if section.section_key == "recommended_actions"),
         [],
     )
+    full_text = "\n\n".join(
+        f"## {section.title}\n\n{section.body_markdown}"
+        for section in sections
+        if section.body_markdown
+    )
+    if report.delivery_mode == "link":
+        narrative = "The intelligence report is ready. Open ThreatLens to review the sourced report."
+        key_points = []
+        actions = []
+    elif report.delivery_mode == "full":
+        narrative = full_text[:100_000]
+    else:
+        narrative = report.summary_text or "The intelligence report is ready."
     payload = {
         "schema_version": REPORT_READY_SCHEMA_VERSION,
         "report_id": str(report.id),
         "scope_key": f"report:{report.id}:ready",
         "report_url": f"/reporting/{report.id}",
-        "delivery_mode": "summary",
+        "delivery_mode": report.delivery_mode,
         "daily_brief": {
             "schema_version": REPORT_READY_SCHEMA_VERSION,
             "id": str(report.id),
@@ -46,7 +59,7 @@ def emit_report_ready_event(db: Session, *, report: Report) -> IntegrationEvent:
             "window_start": report.period_start.isoformat(),
             "window_end": report.period_end.isoformat(),
             "title": report.title,
-            "text": report.summary_text or "The intelligence report is ready.",
+            "text": narrative,
             "key_points": key_points,
             "recommended_actions": actions,
             "item_count": report.included_source_count,

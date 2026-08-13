@@ -50,6 +50,7 @@ class Report(Base):
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     delivery_requested: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    delivery_mode: Mapped[str] = mapped_column(String(16), nullable=False, default="summary", server_default="summary")
     queued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
