@@ -17,7 +17,8 @@ It stores feeds, extracts article text, and gives a single pane of glass to revi
 - RSS feed collection and article extraction
 - Read/starred state, notes, tags, and saved dashboard views
 - Keyword alert interests with preview before saving
-- Feed import/export plus webhook and multi-hook SMTP notifications
+- Filtered article export as CSV, JSONL, ThreatLens ZIP, STIX 2.1, MISP, or readable PDF bundles
+- Feed backup/restore plus webhook and multi-hook SMTP notifications
 - Role-based users: `admin`, `analyst`, and `viewer`
 - OpenID Connect SSO with account linking, verified-email JIT provisioning, and claim-to-role mapping
 - API tokens and audit logs

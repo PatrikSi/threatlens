@@ -48,6 +48,7 @@ This documentation covers:
 - [Dashboard](./pages/dashboard.md)
 - [Alerts](./pages/alerts.md)
 - [Feeds](./pages/feeds.md)
+- [Export](./pages/export.md)
 - [Stats](./pages/stats.md)
 - [Settings](./pages/settings.md) including integrations, tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
