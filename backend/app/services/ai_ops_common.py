@@ -7,6 +7,7 @@ from typing import Any
 
 AI_TASK_TYPE_ITEM_ENRICHMENT = "item_enrichment"
 AI_TASK_TYPE_DAILY_BRIEF = "daily_brief"
+AI_TASK_TYPE_REPORT = "report"
 AI_TASK_TYPE_CONNECTION_TEST = "connection_test"
 AI_TASK_TYPE_REPROCESS = "reprocess"
 
@@ -32,10 +33,12 @@ AI_TASK_NAMES = {
     "app.tasks.feed_tasks.reprocess_recent_ai_items": AI_TASK_TYPE_REPROCESS,
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": AI_TASK_TYPE_REPROCESS,
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": AI_TASK_TYPE_DAILY_BRIEF,
+    "app.tasks.feed_tasks.generate_intelligence_report": AI_TASK_TYPE_REPORT,
 }
 AI_CONNECTION_TEST_BLOCKING_TASK_TYPES = {
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_DAILY_BRIEF,
+    AI_TASK_TYPE_REPORT,
     AI_TASK_TYPE_REPROCESS,
 }
 

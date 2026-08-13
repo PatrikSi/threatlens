@@ -10,8 +10,8 @@ from app.services.url_utils import is_fetchable_url, normalize_url
 
 AIProviderType = Literal["openai_compatible"]
 AIRelevanceLabel = Literal["low", "medium", "high"]
-AIUsageFeatureType = Literal["item_enrichment", "daily_brief", "connection_test"]
-AITaskType = Literal["item_enrichment", "daily_brief", "connection_test", "reprocess"]
+AIUsageFeatureType = Literal["item_enrichment", "daily_brief", "report", "connection_test"]
+AITaskType = Literal["item_enrichment", "daily_brief", "report", "connection_test", "reprocess"]
 AITriggerSource = Literal["auto", "manual", "scheduled"]
 AITaskStatus = Literal["queued", "running", "ready", "error", "skipped"]
 _SHARED_AI_API_KEY_ALLOWED_HOSTS = frozenset({"api.openai.com"})
@@ -63,12 +63,19 @@ class AISettingsUpdate(BaseModel):
     summary_enabled: bool = True
     relevance_enabled: bool = True
     daily_brief_enabled: bool = True
+    reporting_enabled: bool = True
     auto_enrich_new_items: bool = True
     daily_brief_window_hours: int = Field(default=24, ge=6, le=168)
     daily_brief_max_items: int = Field(default=20, ge=5, le=100)
     daily_brief_history_limit: int = Field(default=7, ge=1, le=90)
     daily_brief_schedule_hour_utc: int = Field(default=9, ge=0, le=23)
     daily_brief_schedule_minute_utc: int = Field(default=0, ge=0, le=59)
+    report_context_window_tokens: int = Field(default=8192, ge=2048, le=1_000_000)
+    report_reserved_output_tokens: int = Field(default=1200, ge=256, le=65_536)
+    report_source_token_cap: int = Field(default=700, ge=128, le=32_768)
+    report_max_sources: int = Field(default=100, ge=1, le=1000)
+    report_max_model_calls: int = Field(default=20, ge=2, le=200)
+    report_context_safety_percent: int = Field(default=15, ge=5, le=40)
     relevance_medium_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
     relevance_high_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     company_name: str | None = Field(default=None, max_length=255)
@@ -168,6 +175,18 @@ class AISettingsUpdate(BaseModel):
             raise ValueError("relevance_high_threshold must be greater than relevance_medium_threshold")
         return self
 
+    @model_validator(mode="after")
+    def _validate_report_context_budget(self):
+        reserved = self.report_reserved_output_tokens
+        safety = self.report_context_window_tokens * self.report_context_safety_percent // 100
+        if reserved + safety + 512 >= self.report_context_window_tokens:
+            raise ValueError(
+                "report context window must leave at least 512 tokens after the output reserve and safety margin"
+            )
+        if self.report_source_token_cap >= self.report_context_window_tokens - reserved - safety:
+            raise ValueError("report source token cap must fit inside the usable report context budget")
+        return self
+
 
 class AISettingsResponse(BaseModel):
     id: uuid.UUID
@@ -184,12 +203,19 @@ class AISettingsResponse(BaseModel):
     summary_enabled: bool
     relevance_enabled: bool
     daily_brief_enabled: bool
+    reporting_enabled: bool
     auto_enrich_new_items: bool
     daily_brief_window_hours: int
     daily_brief_max_items: int
     daily_brief_history_limit: int
     daily_brief_schedule_hour_utc: int
     daily_brief_schedule_minute_utc: int
+    report_context_window_tokens: int
+    report_reserved_output_tokens: int
+    report_source_token_cap: int
+    report_max_sources: int
+    report_max_model_calls: int
+    report_context_safety_percent: int
     relevance_medium_threshold: float
     relevance_high_threshold: float
     company_name: str | None

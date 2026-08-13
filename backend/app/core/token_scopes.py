@@ -24,6 +24,8 @@ SCOPE_READ_AI = "read:ai"
 SCOPE_WRITE_AI = "write:ai"
 SCOPE_READ_INTEGRATIONS = "read:integrations"
 SCOPE_WRITE_INTEGRATIONS = "write:integrations"
+SCOPE_READ_REPORTS = "read:reports"
+SCOPE_WRITE_REPORTS = "write:reports"
 SCOPE_READ_HEALTH = "read:health"
 
 SCOPE_READ_ALL = "read:*"
@@ -54,6 +56,8 @@ ALLOWED_API_TOKEN_SCOPES = {
     SCOPE_WRITE_AI,
     SCOPE_READ_INTEGRATIONS,
     SCOPE_WRITE_INTEGRATIONS,
+    SCOPE_READ_REPORTS,
+    SCOPE_WRITE_REPORTS,
     SCOPE_READ_HEALTH,
     SCOPE_READ_ALL,
     SCOPE_WRITE_ALL,
@@ -84,6 +88,8 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
             SCOPE_WRITE_ITEMS,
             SCOPE_WRITE_TAGS,
             SCOPE_WRITE_NOTIFICATIONS,
+            SCOPE_READ_REPORTS,
+            SCOPE_WRITE_REPORTS,
         }
     ),
     ROLE_VIEWER: frozenset(
@@ -96,6 +102,7 @@ ROLE_API_TOKEN_SCOPE_GRANTS = {
             SCOPE_WRITE_ALERTS,
             SCOPE_WRITE_VIEWS,
             SCOPE_WRITE_TOKENS,
+            SCOPE_READ_REPORTS,
         }
     ),
 }
