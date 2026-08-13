@@ -90,6 +90,16 @@ def _record() -> ExportRecord:
                 first_seen_at=now,
                 last_seen_at=now,
             ),
+            ExportIOC(
+                id=uuid.uuid4(),
+                type="program",
+                value="PowerShell",
+                source_section="article",
+                occurrences=1,
+                confidence=0.9,
+                first_seen_at=now,
+                last_seen_at=now,
+            ),
         ],
     )
 
@@ -124,7 +134,7 @@ def test_generate_export_artifact_formats(export_format: str):
         elif export_format == "stix":
             bundle = parse(artifact.path.read_text(encoding="utf-8"), allow_custom=False)
             object_types = {entry.type for entry in bundle.objects}
-            assert {"identity", "indicator", "vulnerability", "report"} <= object_types
+            assert {"identity", "indicator", "software", "vulnerability", "report"} <= object_types
         elif export_format == "misp":
             payload = json.loads(artifact.path.read_text(encoding="utf-8"))
             event = payload["response"][0]["Event"]
