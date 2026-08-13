@@ -112,12 +112,19 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             result = generate_report(db, report_id=parsed_report_id, task_run_id=parsed_run_id)
         except Exception as exc:
             logger.exception("report_generation_failed report_id=%s", parsed_report_id)
+            report = db.get(Report, parsed_report_id)
+            if report is not None and report.status not in {"ready", "error", "skipped"}:
+                report.status = "error"
+                report.generation_stage = "failed"
+                report.error_code = str(getattr(exc, "code", None) or "generation_failed")[:64]
+                report.error = _report_error_for_display(exc)
+                db.add(report)
             finish_ai_task_run(
                 db,
                 run_id=parsed_run_id,
                 status=AI_STATUS_ERROR,
-                reason=getattr(exc, "code", "generation_failed"),
-                error=str(exc)[:4000],
+                reason=report.error_code if report is not None else getattr(exc, "code", "generation_failed"),
+                error=report.error if report is not None else _report_error_for_display(exc),
                 worker_name=worker_name,
                 report_id=parsed_report_id,
             )
@@ -183,6 +190,16 @@ def dispatch_due_report_schedules():
                 failures += 1
                 logger.exception("scheduled_report_enqueue_failed report_id=%s", report_id)
     return {"status": "ok" if failures == 0 else "partial", "queued": queued, "failures": failures}
+
+
+def _report_error_for_display(exc: Exception) -> str:
+    from app.services.ai_context_budget import AIContextBudgetError
+    from app.services.ai_provider_client import AIIntegrationError
+    from app.services.report_generation import ReportGenerationError
+
+    if isinstance(exc, (AIContextBudgetError, AIIntegrationError, ReportGenerationError)):
+        return str(exc)[:4000]
+    return "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
 
 
 __all__ = [

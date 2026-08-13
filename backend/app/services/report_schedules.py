@@ -22,6 +22,7 @@ from app.schemas.reports import (
     ReportSectionConfig,
 )
 from app.services.ai_config import load_active_ai_settings
+from app.services.ai_prompting import build_company_context
 from app.services.report_sources import build_report_source_plan, filters_for_report_period
 from app.services.report_storage import ReportStorageError, create_report_from_plan
 
@@ -225,6 +226,8 @@ def _create_one_scheduled_report(
         detail_level=template.detail_level,
         use_company_context=template.use_company_context,
         custom_instructions=_join_instructions(template.custom_instructions, schedule.custom_instructions),
+        focus_topics=list(template.focus_topics_json or []),
+        excluded_topics=list(template.excluded_topics_json or []),
     )
     sections = [ReportSectionConfig.model_validate(entry) for entry in template.sections_json or []]
     filters = filters_for_report_period(
@@ -281,6 +284,10 @@ def _create_one_scheduled_report(
             period_end=period_end,
             filters_json=filters.model_dump(mode="json"),
             prompt_config_json=prompt.model_dump(mode="json"),
+            generation_context_json={
+                "company_context": build_company_context(active) if prompt.use_company_context else {},
+                "global_instructions": active.global_instructions,
+            },
             sections_config_json=[section.model_dump(mode="json") for section in sections],
             metrics_json=plan.metrics,
             coverage_json={"warnings": list(plan.warnings)},

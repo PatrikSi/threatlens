@@ -6,6 +6,7 @@ import { updateExportFilterDraft, type ExportPageController } from './useExportP
 interface ExportFilterPanelProps {
   capabilities: Pick<ArticleExportCapabilities, 'feeds' | 'tags' | 'classifications'>
   controller: Pick<ExportPageController, 'filterDraft' | 'setFilterDraft' | 'validationErrors'>
+  includeUserStateFilters?: boolean
 }
 
 const INPUT_CLASS =
@@ -23,7 +24,7 @@ const RELEVANCE_LABELS: Array<{ id: ArticleExportRelevanceLabel; label: string }
   { id: 'low', label: 'Low' },
 ]
 
-export function ExportFilterPanel({ capabilities, controller }: ExportFilterPanelProps) {
+export function ExportFilterPanel({ capabilities, controller, includeUserStateFilters = true }: ExportFilterPanelProps) {
   const { filterDraft, setFilterDraft, validationErrors } = controller
   const update = (updates: Partial<ExportFilterDraft>) => updateExportFilterDraft(setFilterDraft, updates)
 
@@ -200,13 +201,15 @@ export function ExportFilterPanel({ capabilities, controller }: ExportFilterPane
           </div>
         </fieldset>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <TriStateFilter label="Read state" value={filterDraft.isRead} onChange={(isRead) => update({ isRead })} />
-          <TriStateFilter
-            label="Starred state"
-            value={filterDraft.isStarred}
-            onChange={(isStarred) => update({ isStarred })}
-          />
+        <div className={`grid grid-cols-2 gap-2 ${includeUserStateFilters ? 'sm:grid-cols-3' : ''}`}>
+          {includeUserStateFilters && <TriStateFilter label="Read state" value={filterDraft.isRead} onChange={(isRead) => update({ isRead })} />}
+          {includeUserStateFilters && (
+            <TriStateFilter
+              label="Starred state"
+              value={filterDraft.isStarred}
+              onChange={(isStarred) => update({ isStarred })}
+            />
+          )}
           <TriStateFilter
             label="Article text"
             value={filterDraft.hasArticleText}

@@ -87,6 +87,8 @@ def clone_report_template(
         detail_level=template.detail_level,
         use_company_context=template.use_company_context,
         custom_instructions=template.custom_instructions,
+        focus_topics_json=list(template.focus_topics_json or []),
+        excluded_topics_json=list(template.excluded_topics_json or []),
         sections_json=list(template.sections_json or []),
         default_filters_json=dict(template.default_filters_json or {}),
     )
@@ -111,6 +113,8 @@ def report_template_response(template: ReportTemplate) -> ReportTemplateResponse
             detail_level=template.detail_level,
             use_company_context=template.use_company_context,
             custom_instructions=template.custom_instructions,
+            focus_topics=list(template.focus_topics_json or []),
+            excluded_topics=list(template.excluded_topics_json or []),
         ),
         sections=[ReportSectionConfig.model_validate(entry) for entry in template.sections_json or []],
         default_filters=ArticleExportFilters.model_validate(template.default_filters_json or {}),
@@ -133,5 +137,7 @@ def _apply_template_payload(
     template.detail_level = payload.prompt.detail_level
     template.use_company_context = payload.prompt.use_company_context
     template.custom_instructions = payload.prompt.custom_instructions
+    template.focus_topics_json = list(payload.prompt.focus_topics)
+    template.excluded_topics_json = list(payload.prompt.excluded_topics)
     template.sections_json = [section.model_dump(mode="json") for section in payload.sections]
     template.default_filters_json = payload.default_filters.model_dump(mode="json")

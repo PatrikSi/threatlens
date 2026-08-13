@@ -4,7 +4,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.schemas.ai import AISettingsUpdate
-from app.schemas.reports import ReportCreateRequest, ReportScheduleCreate, ReportSectionConfig
+from app.schemas.reports import (
+    ReportCreateRequest,
+    ReportPreviewRequest,
+    ReportScheduleCreate,
+    ReportSectionConfig,
+)
 
 
 def test_ai_settings_reject_context_budget_with_no_usable_input():
@@ -43,3 +48,9 @@ def test_schedule_rejects_unknown_timezone():
             name="Bad timezone",
             timezone="Mars/Olympus",
         )
+
+
+@pytest.mark.parametrize("state_filter", [{"is_read": True}, {"is_starred": False}])
+def test_shared_report_inputs_reject_private_user_state(state_filter):
+    with pytest.raises(ValidationError, match="private read or starred state"):
+        ReportPreviewRequest(filters=state_filter)

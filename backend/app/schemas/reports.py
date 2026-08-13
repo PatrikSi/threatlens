@@ -21,6 +21,16 @@ class ReportSchema(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ReportArticleFilters(ArticleExportFilters):
+    @model_validator(mode="after")
+    def _reject_private_user_state(self):
+        if self.is_read is not None or self.is_starred is not None:
+            raise ValueError(
+                "report filters cannot use private read or starred state because generated reports are shared"
+            )
+        return self
+
+
 class ReportSectionConfig(ReportSchema):
     key: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_]*$")
     title: str = Field(min_length=1, max_length=255)
@@ -61,7 +71,7 @@ class ReportPromptConfig(ReportSchema):
 
 
 class ReportPreviewRequest(ReportSchema):
-    filters: ArticleExportFilters = Field(default_factory=ArticleExportFilters)
+    filters: ReportArticleFilters = Field(default_factory=ReportArticleFilters)
     excluded_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
     prompt: ReportPromptConfig = Field(default_factory=ReportPromptConfig)
     sections: list[ReportSectionConfig] = Field(default_factory=list, max_length=20)
@@ -118,7 +128,7 @@ class ReportTemplateCreate(ReportSchema):
     visibility: Literal["private", "shared"] = "private"
     prompt: ReportPromptConfig = Field(default_factory=ReportPromptConfig)
     sections: list[ReportSectionConfig] = Field(default_factory=list, min_length=1, max_length=20)
-    default_filters: ArticleExportFilters = Field(default_factory=ArticleExportFilters)
+    default_filters: ReportArticleFilters = Field(default_factory=ReportArticleFilters)
 
     @field_validator("name", "description", "report_type", mode="before")
     @classmethod
@@ -150,7 +160,7 @@ class ReportCreateRequest(ReportSchema):
     title: str | None = Field(default=None, max_length=255)
     period_start: datetime
     period_end: datetime
-    filters: ArticleExportFilters = Field(default_factory=ArticleExportFilters)
+    filters: ReportArticleFilters = Field(default_factory=ReportArticleFilters)
     excluded_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
     prompt: ReportPromptConfig = Field(default_factory=ReportPromptConfig)
     sections: list[ReportSectionConfig] = Field(default_factory=list, min_length=1, max_length=20)
@@ -262,7 +272,7 @@ class ReportScheduleCreate(ReportSchema):
     timezone: str = Field(default="UTC", min_length=1, max_length=64)
     window_type: ReportWindowType = "previous_complete_week"
     rolling_days: int = Field(default=7, ge=1, le=365)
-    filters: ArticleExportFilters = Field(default_factory=ArticleExportFilters)
+    filters: ReportArticleFilters = Field(default_factory=ReportArticleFilters)
     custom_instructions: str | None = Field(default=None, max_length=4000)
     delivery_enabled: bool = False
     delivery_mode: Literal["link", "summary", "full"] = "summary"
