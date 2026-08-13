@@ -1467,7 +1467,8 @@ def test_health_ready_endpoint_requires_worker_health(client: TestClient, monkey
         def ping(self):
             return {}
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
     monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
 
     response = client.get("/health/ready")
@@ -1511,7 +1512,8 @@ def test_health_ready_endpoint_requires_beat_health(client: TestClient, monkeypa
                 ]
             }
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.api.routes.health.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
     monkeypatch.setattr("app.api.routes.health.celery_app.control.inspect", lambda timeout: _Inspector())
 
     response = client.get("/health/ready")
@@ -1726,7 +1728,7 @@ def test_health_beat_endpoint_reports_stale_when_heartbeat_old(client: TestClien
                 return datetime.now(timezone.utc).isoformat()
             return stale_heartbeat
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
 
     response = client.get("/health/beat", headers=auth_headers["admin"])
     assert response.status_code == 503
@@ -1746,7 +1748,7 @@ def test_health_beat_endpoint_hides_internal_details_from_public(client: TestCli
             _ = key
             return stale_heartbeat
 
-    monkeypatch.setattr("app.api.routes.health.redis.Redis.from_url", lambda *_args, **_kwargs: _RedisClient())
+    monkeypatch.setattr("app.services.beat_heartbeat.redis_client_from_url", lambda *_args, **_kwargs: _RedisClient())
 
     response = client.get("/health/beat")
 
