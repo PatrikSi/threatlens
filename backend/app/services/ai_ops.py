@@ -7,11 +7,8 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models.ai_daily_brief import AIDailyBrief
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
-from app.models.item_ai_enrichment import ItemAIEnrichment
-from app.models.report import Report
 from app.schemas.ai import (
     AILiveStatusResponse,
     AILiveTaskResponse,
@@ -24,9 +21,9 @@ from app.services.ai_ops_common import (
     AI_CONNECTION_TEST_BLOCKING_TASK_TYPES,
     AI_DAILY_BRIEF_BACKFILL_SCOPE,
     AI_PARENT_PROGRESS_ELIGIBLE_METADATA_KEY,
-    AI_PROVIDER_CLAIM_DAILY_BRIEF,
-    AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
-    AI_PROVIDER_CLAIM_METADATA_KEY,
+    AI_PROVIDER_CLAIM_DAILY_BRIEF as AI_PROVIDER_CLAIM_DAILY_BRIEF,
+    AI_PROVIDER_CLAIM_ITEM_ENRICHMENT as AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
+    AI_PROVIDER_CLAIM_METADATA_KEY as AI_PROVIDER_CLAIM_METADATA_KEY,
     AI_STATUS_ERROR,
     AI_STATUS_QUEUED,
     AI_STATUS_READY,
@@ -85,6 +82,7 @@ from app.services.ai_task_runtime import (
     _normalize_live_task_snapshot as _normalize_live_task_snapshot,
     get_ai_db_live_status as get_ai_db_live_status,
 )
+from app.services.ai_task_settlement import settle_pending_ai_resource
 from app.tasks.celery_app import celery_app
 
 
@@ -303,23 +301,7 @@ def finish_ai_task_run(
         run.duration_ms = _duration_ms_between(run.started_at, now)
     if metadata_updates:
         run.metadata_json = _merge_metadata(run.metadata_json, metadata_updates)
-    _settle_pending_item_enrichment(
-        db,
-        run=run,
-        status=status,
-        reason=reason,
-        error=error,
-        settled_at=now,
-    )
-    _settle_pending_daily_brief(
-        db,
-        run=run,
-        status=status,
-        reason=reason,
-        error=error,
-        settled_at=now,
-    )
-    _settle_pending_report(
+    settle_pending_ai_resource(
         db,
         run=run,
         status=status,
@@ -818,117 +800,6 @@ def _resolve_parent_terminal_state(run: AITaskRun) -> tuple[str, str | None]:
     return AI_STATUS_READY, None
 
 
-def _settle_pending_item_enrichment(
-    db: Session,
-    *,
-    run: AITaskRun,
-    status: str,
-    reason: str | None,
-    error: str | None,
-    settled_at: datetime,
-) -> None:
-    if run.task_type != AI_TASK_TYPE_ITEM_ENRICHMENT or run.item_id is None:
-        return
-    if status != AI_STATUS_ERROR and reason != "canceled":
-        return
-
-    enrichment = db.scalar(
-        select(ItemAIEnrichment)
-        .where(ItemAIEnrichment.item_id == run.item_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if enrichment is None or enrichment.status != "pending":
-        return
-    if not _provider_claim_matches(
-        run,
-        resource_type=AI_PROVIDER_CLAIM_ITEM_ENRICHMENT,
-        resource_id=run.item_id,
-        resource_updated_at=enrichment.updated_at,
-    ):
-        return
-
-    enrichment.status = AI_STATUS_ERROR
-    enrichment.error = error or reason or "task_failed"
-    enrichment.generated_at = settled_at
-    db.add(enrichment)
-
-
-def _settle_pending_daily_brief(
-    db: Session,
-    *,
-    run: AITaskRun,
-    status: str,
-    reason: str | None,
-    error: str | None,
-    settled_at: datetime,
-) -> None:
-    if run.task_type != AI_TASK_TYPE_DAILY_BRIEF or run.daily_brief_id is None:
-        return
-    if status != AI_STATUS_ERROR and reason != "canceled":
-        return
-
-    brief = db.scalar(
-        select(AIDailyBrief)
-        .where(AIDailyBrief.id == run.daily_brief_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if brief is None or brief.status != "pending":
-        return
-    if not _provider_claim_matches(
-        run,
-        resource_type=AI_PROVIDER_CLAIM_DAILY_BRIEF,
-        resource_id=run.daily_brief_id,
-        resource_updated_at=brief.updated_at,
-    ):
-        return
-
-    brief.status = AI_STATUS_ERROR
-    brief.error = error or reason or "task_failed"
-    brief.generated_at = settled_at
-    db.add(brief)
-
-
-def _settle_pending_report(
-    db: Session,
-    *,
-    run: AITaskRun,
-    status: str,
-    reason: str | None,
-    error: str | None,
-    settled_at: datetime,
-) -> None:
-    if run.task_type != AI_TASK_TYPE_REPORT or run.report_id is None:
-        return
-    if status != AI_STATUS_ERROR and reason != "canceled":
-        return
-
-    report = db.scalar(
-        select(Report)
-        .where(Report.id == run.report_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if report is None or report.status not in {AI_STATUS_QUEUED, AI_STATUS_RUNNING}:
-        return
-    if reason == "canceled":
-        report.status = AI_STATUS_SKIPPED
-        report.generation_stage = "canceled"
-        report.error_code = "canceled"
-        report.error = "Report generation was canceled."
-    else:
-        report.status = AI_STATUS_ERROR
-        report.generation_stage = "failed"
-        report.error_code = str(reason or "task_failed")[:64]
-        report.error = (
-            error
-            or "Report generation stopped before completion. Review the AI task history and retry."
-        )
-    report.generated_at = settled_at
-    db.add(report)
-
-
 def _reconcile_stale_ai_runs(
     db: Session,
     *,
@@ -1221,23 +1092,4 @@ def _is_cancel_requested_run(run: AITaskRun) -> bool:
         bool(metadata.get("cancel_requested_at"))
         or run.reason == "cancel_requested"
         or run.reason == "canceled"
-    )
-
-
-def _provider_claim_matches(
-    run: AITaskRun,
-    *,
-    resource_type: str,
-    resource_id: uuid.UUID,
-    resource_updated_at: datetime,
-) -> bool:
-    raw_claim = (run.metadata_json or {}).get(AI_PROVIDER_CLAIM_METADATA_KEY)
-    if raw_claim is None:
-        return True
-    if not isinstance(raw_claim, dict):
-        return False
-    return (
-        raw_claim.get("resource_type") == resource_type
-        and raw_claim.get("resource_id") == str(resource_id)
-        and raw_claim.get("updated_at") == _coerce_utc(resource_updated_at).isoformat()
     )
