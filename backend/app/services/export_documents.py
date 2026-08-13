@@ -25,6 +25,7 @@ CSV_FIELDS = (
     "summary",
     "source_summary",
     "ai_summary",
+    "full_article_text",
     "ioc_count",
     "iocs",
     "is_read",
@@ -117,7 +118,12 @@ def csv_header_bytes(*, ioc_export: bool = False) -> bytes:
     return _csv_line(dict.fromkeys(fields, ""), fields=fields, write_header=True)
 
 
-def record_to_csv_bytes(record: ExportRecord, *, options: ArticleExportOptions) -> bytes:
+def record_to_csv_bytes(
+    record: ExportRecord,
+    *,
+    options: ArticleExportOptions,
+    include_article_text: bool,
+) -> bytes:
     ai_summary = record.ai.summary if options.include_ai_details and record.ai else None
     row: dict[str, object] = {
         "id": str(record.id),
@@ -137,6 +143,9 @@ def record_to_csv_bytes(record: ExportRecord, *, options: ArticleExportOptions) 
         "summary": ai_summary or record.summary,
         "source_summary": record.summary,
         "ai_summary": ai_summary,
+        "full_article_text": (
+            record.article.text if include_article_text and record.article is not None else None
+        ),
         "ioc_count": len(record.iocs) if options.include_iocs else 0,
         "iocs": "; ".join(f"{ioc.type}:{ioc.value}" for ioc in record.iocs) if options.include_iocs else "",
         "is_read": record.state.is_read if options.include_user_state else None,

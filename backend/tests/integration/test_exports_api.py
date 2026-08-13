@@ -53,6 +53,8 @@ def test_export_capabilities_and_preview_filters(
     }
     assert any(entry["id"] == str(data["matching_feed"].id) for entry in capability_payload["feeds"])
     assert any(entry["id"] == str(data["tag"].id) for entry in capability_payload["tags"])
+    csv_capability = next(entry for entry in capability_payload["formats"] if entry["id"] == "csv")
+    assert csv_capability["supports_article_text"] is True
 
     preview = client.post(
         "/exports/preview",
@@ -96,6 +98,7 @@ def test_download_each_export_format(
             "filters": {"feed_ids": [str(data["matching_feed"].id)]},
             "options": {
                 "include_article_text": True,
+                "csv_include_article_text": True,
                 "include_ai_details": True,
                 "include_tag_metadata": True,
                 "include_iocs": True,
@@ -117,6 +120,7 @@ def test_download_each_export_format(
         rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
         assert rows[0]["title"].startswith("'=Critical")
         assert rows[0]["note"] == "Review with IR"
+        assert rows[0]["full_article_text"] == "Full extracted article text."
     elif export_format == "jsonl":
         payload = json.loads(response.text)
         assert payload["article"]["text"] == "Full extracted article text."
@@ -133,6 +137,10 @@ def test_download_each_export_format(
             if export_format == "threat_bundle":
                 assert "articles.jsonl" in archive.namelist()
                 assert "iocs.csv" in archive.namelist()
+                rows = list(
+                    csv.DictReader(io.StringIO(archive.read("articles.csv").decode("utf-8-sig")))
+                )
+                assert rows[0]["full_article_text"] == "Full extracted article text."
             else:
                 pdf_name = next(name for name in archive.namelist() if name.endswith(".pdf"))
                 assert archive.read(pdf_name).startswith(b"%PDF-")

@@ -83,7 +83,7 @@ def _build_event_report(record: ExportRecord, *, options: ArticleExportOptions) 
     if record.summary:
         parts.extend(["## Source summary", record.summary])
     if options.include_article_text and record.article and record.article.text:
-        parts.extend(["## Extracted article text", record.article.text])
+        parts.extend(["## Full article text", record.article.text])
     if options.include_user_state:
         parts.extend(
             [

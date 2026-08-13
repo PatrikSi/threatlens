@@ -138,7 +138,15 @@ def _write_csv(
     with path.open("wb") as output:
         _write_bounded(output, csv_header_bytes(), budget=budget)
         for record in records:
-            _write_bounded(output, record_to_csv_bytes(record, options=options), budget=budget)
+            _write_bounded(
+                output,
+                record_to_csv_bytes(
+                    record,
+                    options=options,
+                    include_article_text=options.csv_include_article_text,
+                ),
+                budget=budget,
+            )
 
 
 def _write_jsonl(
@@ -224,7 +232,15 @@ def _write_threat_bundle(
                 for record in records:
                     document = _json_bytes(record_to_document(record, options=options)) + b"\n"
                     _write_bounded(jsonl_output, document, budget=budget)
-                    _write_bounded(csv_output, record_to_csv_bytes(record, options=options), budget=budget)
+                    _write_bounded(
+                        csv_output,
+                        record_to_csv_bytes(
+                            record,
+                            options=options,
+                            include_article_text=options.include_article_text,
+                        ),
+                        budget=budget,
+                    )
                     if ioc_output is not None:
                         for ioc in record.iocs:
                             _write_bounded(ioc_output, ioc_to_csv_bytes(record, ioc), budget=budget)

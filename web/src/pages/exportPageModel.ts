@@ -131,6 +131,7 @@ export function createDefaultExportOptions(format: ArticleExportFormat): Article
   const structured = format === 'jsonl' || format === 'threat_bundle'
   return {
     include_article_text: structured,
+    csv_include_article_text: false,
     include_ai_details: true,
     include_tag_metadata: true,
     include_iocs: true,

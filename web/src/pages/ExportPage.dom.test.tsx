@@ -30,7 +30,7 @@ const CAPABILITIES = {
       extension: '.csv',
       media_type: 'text/csv',
       description: 'Spreadsheet-ready article inventory.',
-      supports_article_text: false,
+      supports_article_text: true,
       supports_iocs: true,
       supports_user_state: true,
     },
@@ -203,7 +203,8 @@ describe('ExportPage', () => {
     })
 
     expect(view.textContent).toContain('Limit: 500 articles')
-    expect(view.textContent).toContain('Full article text in PDFs')
+    expect(view.textContent).toContain('Full article text')
+    expect(view.textContent).not.toContain('Full article text in PDFs')
     expect(view.textContent).toContain('Generate PDF bundle')
   })
 
@@ -228,15 +229,22 @@ describe('ExportPage', () => {
     const view = renderPage()
     await waitForPreview(view)
     const generateButton = Array.from(view.querySelectorAll('button')).find((button) => button.textContent?.includes('Generate CSV'))
+    const fullTextToggle = Array.from(view.querySelectorAll('label'))
+      .find((label) => label.textContent?.trim() === 'Full article text')
+      ?.querySelector<HTMLInputElement>('input')
 
     await act(async () => {
+      fullTextToggle?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       generateButton?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
       await vi.waitFor(() => expect(exportPageDomMocks.apiDownload).toHaveBeenCalledTimes(1))
     })
 
     const request = exportPageDomMocks.apiDownload.mock.calls[0]?.[1]
     const body = JSON.parse(String(request?.body))
-    expect(body).toMatchObject({ format: 'csv', options: { include_article_text: false } })
+    expect(body).toMatchObject({
+      format: 'csv',
+      options: { include_article_text: false, csv_include_article_text: true },
+    })
     expect(body.filters.since).toBeTruthy()
     expect(exportPageDomMocks.anchorClick).toHaveBeenCalledTimes(1)
     expect(view.textContent).toContain('Export ready: threatlens-research.csv')

@@ -23,13 +23,13 @@ Preview rows show the source, effective publication time, classification, tags, 
 
 ### CSV
 
-CSV is the spreadsheet-oriented default. It includes stable article and feed IDs, title, source and canonical URLs, publication and first-seen times, processing status, tags, classification and confidence, AI relevance and summaries, IOC count and flattened IOC values, and optional requesting-user state.
+CSV is the spreadsheet-oriented default. It includes stable article and feed IDs, title, source and canonical URLs, publication and first-seen times, processing status, tags, classification and confidence, AI relevance and summaries, IOC count and flattened IOC values, and optional requesting-user state. Full article text can be included in the `full_article_text` column when needed.
 
-The file is UTF-8 with a byte-order mark for spreadsheet compatibility. Text that could be interpreted as a spreadsheet formula is escaped. Extracted full article text is intentionally omitted from CSV.
+The file is UTF-8 with a byte-order mark for spreadsheet compatibility. Text that could be interpreted as a spreadsheet formula is escaped. Full article text is excluded by default because it can make spreadsheet exports substantially larger.
 
 ### JSONL
 
-JSONL writes one complete article document per line. It preserves nested classification scores, AI reasons, tag provenance, article retrieval metadata, optional extracted text, IOCs, and optional requesting-user state without flattening future fields into columns. Every record carries `schema_version: 1`.
+JSONL writes one complete article document per line. It preserves nested classification scores, AI reasons, tag provenance, article retrieval metadata, optional full article text, IOCs, and optional requesting-user state without flattening future fields into columns. Every record carries `schema_version: 1`.
 
 ### ThreatLens Bundle
 
@@ -63,7 +63,7 @@ IOC mappings include `ip-dst`, `domain`, `md5`, `sha1`, `sha256`, `vulnerability
 
 ### PDF Bundle
 
-The readable bundle is a ZIP with `manifest.json` and one PDF per article under `articles/`. PDFs contain source metadata, summaries, tags, classification, AI relevance, IOCs, optional requesting-user state, and optionally the full extracted article text. It has a lower item limit because rendering and storing many PDFs is more resource intensive.
+The readable bundle is a ZIP with `manifest.json` and one PDF per article under `articles/`. PDFs contain source metadata, summaries, tags, classification, AI relevance, IOCs, optional requesting-user state, and optionally the full article text. It has a lower item limit because rendering and storing many PDFs is more resource intensive.
 
 ## Data and Privacy
 

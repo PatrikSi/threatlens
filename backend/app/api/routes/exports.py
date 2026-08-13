@@ -54,7 +54,7 @@ FORMAT_CAPABILITIES = (
         extension=".csv",
         media_type="text/csv",
         description="Spreadsheet-ready article inventory with flat intelligence fields.",
-        supports_article_text=False,
+        supports_article_text=True,
         supports_iocs=True,
         supports_user_state=True,
     ),

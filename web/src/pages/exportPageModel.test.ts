@@ -90,6 +90,7 @@ describe('export page model', () => {
     const jsonl = changeExportFormat('jsonl', csv)
     const pdf = changeExportFormat('pdf_bundle', jsonl)
 
+    expect(csv).toMatchObject({ csv_include_article_text: false, include_article_text: false })
     expect(jsonl).toMatchObject({ include_article_text: true, include_ioc_csv: false, filename_prefix: 'research-weekly' })
     expect(pdf).toMatchObject({ pdf_include_article_text: true, filename_prefix: 'research-weekly' })
   })
