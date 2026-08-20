@@ -1,7 +1,8 @@
 import logging
+import threading
 import uuid
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator
 
 from redis.exceptions import RedisError
 
@@ -9,6 +10,14 @@ from app.core.config import Settings
 from app.core.redis_client import redis_client_from_url
 
 logger = logging.getLogger(__name__)
+_RENEW_LOCK_SCRIPT = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('expire', KEYS[1], ARGV[2]) else return 0 end"
+)
+_RELEASE_LOCK_SCRIPT = (
+    "if redis.call('get', KEYS[1]) == ARGV[1] then "
+    "return redis.call('del', KEYS[1]) else return 0 end"
+)
 
 
 class ExportAlreadyRunningError(RuntimeError):
@@ -31,16 +40,87 @@ def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[N
     if not acquired:
         raise ExportAlreadyRunningError("Another export is already running for this user")
 
+    stop_renewal = threading.Event()
+    renewal_thread = threading.Thread(
+        target=_renew_export_lock_until_stopped,
+        kwargs={
+            "client": client,
+            "key": key,
+            "token": token,
+            "ttl_seconds": settings.export_lock_ttl_seconds,
+            "stop_event": stop_renewal,
+            "user_id": user_id,
+        },
+        name=f"threatlens-export-lock:{user_id}",
+        daemon=True,
+    )
+    renewal_thread.start()
     try:
         yield
-    finally:
         try:
-            client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then "
-                "return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                token,
+            still_owned = _renew_export_lock(
+                client,
+                key=key,
+                token=token,
+                ttl_seconds=settings.export_lock_ttl_seconds,
             )
+        except RedisError as exc:
+            raise ExportLockUnavailableError(
+                "Export concurrency lock could not be verified"
+            ) from exc
+        if not still_owned:
+            raise ExportLockUnavailableError(
+                "Export concurrency lock expired before generation completed"
+            )
+    finally:
+        stop_renewal.set()
+        renewal_thread.join(timeout=1)
+        try:
+            client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
         except RedisError:
             logger.warning("export_lock_release_failed user_id=%s", user_id, exc_info=True)
+
+
+def _renew_export_lock(
+    client: Any,
+    *,
+    key: str,
+    token: str,
+    ttl_seconds: int,
+) -> bool:
+    return bool(
+        client.eval(
+            _RENEW_LOCK_SCRIPT,
+            1,
+            key,
+            token,
+            ttl_seconds,
+        )
+    )
+
+
+def _renew_export_lock_until_stopped(
+    *,
+    client: Any,
+    key: str,
+    token: str,
+    ttl_seconds: int,
+    stop_event: threading.Event,
+    user_id: uuid.UUID,
+) -> None:
+    interval_seconds = _lock_renewal_interval_seconds(ttl_seconds)
+    while not stop_event.wait(interval_seconds):
+        try:
+            if not _renew_export_lock(
+                client, key=key, token=token, ttl_seconds=ttl_seconds
+            ):
+                logger.error("export_lock_ownership_lost user_id=%s", user_id)
+                return
+        except RedisError:
+            logger.warning(
+                "export_lock_renewal_failed user_id=%s", user_id, exc_info=True
+            )
+
+
+def _lock_renewal_interval_seconds(ttl_seconds: int) -> float:
+    return max(1.0, ttl_seconds / 3)

@@ -206,6 +206,8 @@ def download_export(
             detail="Another export is already running for this account. Wait for it to finish and try again.",
         ) from exc
     except ExportLockUnavailableError as exc:
+        if artifact is not None:
+            remove_export_artifact(artifact.path)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Export coordination is temporarily unavailable. Try again later.",
