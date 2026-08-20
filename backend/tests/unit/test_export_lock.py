@@ -14,6 +14,7 @@ class FakeLockRedis:
         self.fail = fail
         self.released = False
         self.renewals = 0
+        self.closed = False
 
     def set(self, *_args, **_kwargs):
         if self.fail:
@@ -27,6 +28,9 @@ class FakeLockRedis:
             self.released = True
         return 1
 
+    def close(self):
+        self.closed = True
+
 
 def test_export_lock_is_released(monkeypatch: pytest.MonkeyPatch):
     backend = FakeLockRedis()
@@ -36,6 +40,7 @@ def test_export_lock_is_released(monkeypatch: pytest.MonkeyPatch):
         assert backend.released is False
 
     assert backend.released is True
+    assert backend.closed is True
 
 
 def test_export_lock_rejects_overlapping_work(monkeypatch: pytest.MonkeyPatch):
@@ -46,6 +51,8 @@ def test_export_lock_rejects_overlapping_work(monkeypatch: pytest.MonkeyPatch):
         with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
             pass
 
+    assert backend.closed is True
+
 
 def test_export_lock_reports_redis_failure(monkeypatch: pytest.MonkeyPatch):
     backend = FakeLockRedis(fail=True)
@@ -54,6 +61,8 @@ def test_export_lock_reports_redis_failure(monkeypatch: pytest.MonkeyPatch):
     with pytest.raises(export_lock.ExportLockUnavailableError):
         with export_lock.acquire_export_lock(user_id=uuid.uuid4(), settings=get_settings()):
             pass
+
+    assert backend.closed is True
 
 
 def test_export_lock_is_renewed_during_slow_generation(
@@ -98,3 +107,7 @@ def test_export_lock_rejects_artifact_when_ownership_is_lost(
             pass
 
     assert backend.released is True
+
+
+def test_export_lock_renews_before_short_ttl_expires():
+    assert export_lock._lock_renewal_interval_seconds(1) == pytest.approx(1 / 3)
