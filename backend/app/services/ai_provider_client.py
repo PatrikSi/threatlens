@@ -37,6 +37,7 @@ class AIIntegrationError(ValueError):
         self.status_code = status_code
         self.retry_hint = retry_hint
         self.retryable = retryable
+        self.attempt_count = 1
 
     def debug_payload(self) -> dict[str, object]:
         payload = sanitize_provider_exchange(
