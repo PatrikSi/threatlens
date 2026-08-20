@@ -36,8 +36,10 @@ def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[N
     try:
         acquired = client.set(key, token, nx=True, ex=settings.export_lock_ttl_seconds)
     except RedisError as exc:
+        _close_export_client(client, user_id=user_id)
         raise ExportLockUnavailableError("Export concurrency service is unavailable") from exc
     if not acquired:
+        _close_export_client(client, user_id=user_id)
         raise ExportAlreadyRunningError("Another export is already running for this user")
 
     stop_renewal = threading.Event()
@@ -54,8 +56,10 @@ def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[N
         name=f"threatlens-export-lock:{user_id}",
         daemon=True,
     )
-    renewal_thread.start()
+    renewal_started = False
     try:
+        renewal_thread.start()
+        renewal_started = True
         yield
         try:
             still_owned = _renew_export_lock(
@@ -73,12 +77,14 @@ def acquire_export_lock(*, user_id: uuid.UUID, settings: Settings) -> Iterator[N
                 "Export concurrency lock expired before generation completed"
             )
     finally:
-        stop_renewal.set()
-        renewal_thread.join(timeout=1)
+        if renewal_started:
+            stop_renewal.set()
+            renewal_thread.join(timeout=1)
         try:
             client.eval(_RELEASE_LOCK_SCRIPT, 1, key, token)
         except RedisError:
             logger.warning("export_lock_release_failed user_id=%s", user_id, exc_info=True)
+        _close_export_client(client, user_id=user_id)
 
 
 def _renew_export_lock(
@@ -123,4 +129,11 @@ def _renew_export_lock_until_stopped(
 
 
 def _lock_renewal_interval_seconds(ttl_seconds: int) -> float:
-    return max(1.0, ttl_seconds / 3)
+    return max(0.1, ttl_seconds / 3)
+
+
+def _close_export_client(client: Any, *, user_id: uuid.UUID) -> None:
+    try:
+        client.close()
+    except RedisError:
+        logger.warning("export_lock_close_failed user_id=%s", user_id, exc_info=True)
