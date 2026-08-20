@@ -22,11 +22,21 @@ from app.schemas.reports import (
 )
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_prompting import build_company_context
+from app.services.report_prompt_budget import (
+    CONTEXT_COMPACTION_WARNING,
+    FINDINGS_COMPACTION_WARNING,
+)
 from app.services.report_sources import ReportSourcePlan
 
 
 class ReportStorageError(ValueError):
     pass
+
+
+_SOURCE_TIGHTENING_WARNING = (
+    "Source excerpts were tightened at execution to fit the current model context window."
+)
+_RUNTIME_WARNING_PREFIXES = ("Execution omitted ",)
 
 
 def create_report_from_plan(
@@ -106,6 +116,47 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     report.completion_tokens = None
     report.total_tokens = None
     report.model_calls = 0
+    report.summary_text = None
+    report.citation_count = 0
+    sources = list(
+        db.scalars(
+            select(ReportSourceItem).where(ReportSourceItem.report_id == report.id)
+        ).all()
+    )
+    for source in sources:
+        if source.exclusion_reason == "execution_context_budget":
+            source.included = True
+            source.exclusion_reason = None
+            db.add(source)
+    included_sources = [source for source in sources if source.included]
+    report.included_source_count = len(included_sources)
+    report.excluded_source_count = max(
+        0, report.source_count - report.included_source_count
+    )
+    report.estimated_input_tokens = sum(
+        source.estimated_tokens for source in included_sources
+    )
+    coverage = dict(report.coverage_json or {})
+    coverage["included_sources"] = report.included_source_count
+    coverage["omitted_sources"] = report.excluded_source_count
+    coverage["coverage_percent"] = (
+        round(100 * report.included_source_count / report.source_count, 1)
+        if report.source_count
+        else 100.0
+    )
+    coverage["warnings"] = [
+        warning
+        for warning in coverage.get("warnings") or []
+        if warning not in {
+            CONTEXT_COMPACTION_WARNING,
+            FINDINGS_COMPACTION_WARNING,
+            _SOURCE_TIGHTENING_WARNING,
+        }
+        and not any(
+            warning.startswith(prefix) for prefix in _RUNTIME_WARNING_PREFIXES
+        )
+    ]
+    report.coverage_json = coverage
     for section in db.scalars(select(ReportSection).where(ReportSection.report_id == report.id)).all():
         section.status = "pending"
         section.body_markdown = ""
