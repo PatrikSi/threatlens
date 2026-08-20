@@ -249,7 +249,7 @@ class _UsageCounters:
     total_tokens: int = 0
 
     def add(self, completion) -> None:
-        self.model_calls += 1
+        self.model_calls += completion.attempt_count
         self.prompt_tokens += (
             completion.prompt_tokens or completion.prompt_char_count // 3 or 0
         )
@@ -424,6 +424,8 @@ def _synthesize_evidence_batches(
             task_run_id=task_run_id,
             max_completion_tokens=completion_tokens,
             max_retry_completion_tokens=retry_completion_tokens,
+            max_provider_attempts=active.report_max_model_calls
+            - counters.model_calls,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)
@@ -513,6 +515,8 @@ def _generate_section(
             task_run_id=task_run_id,
             max_completion_tokens=completion_tokens,
             max_retry_completion_tokens=retry_completion_tokens,
+            max_provider_attempts=active.report_max_model_calls
+            - counters.model_calls,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)

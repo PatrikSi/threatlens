@@ -773,6 +773,52 @@ def test_report_retry_expands_only_to_exact_context_headroom(
 
     assert result.payload == {"ok": True}
     assert requested == [256, 512, 700]
+    assert result.attempt_count == 3
+
+
+def test_report_retry_respects_provider_attempt_budget(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=3,
+            max_completion_tokens=2000,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    requested: list[int] = []
+
+    def _always_truncated(active, *, messages, max_completion_tokens):
+        _ = (active, messages)
+        requested.append(max_completion_tokens)
+        raise AIIntegrationError(
+            "truncated", retry_hint="expand_completion_budget", retryable=True
+        )
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _always_truncated
+    )
+
+    with pytest.raises(AIIntegrationError, match="truncated"):
+        request_ai_json_with_usage(
+            db_session,
+            active,
+            feature_type=FEATURE_REPORT,
+            messages=[{"role": "user", "content": "report"}],
+            max_completion_tokens=256,
+            max_retry_completion_tokens=1000,
+            max_provider_attempts=2,
+        )
+
+    assert requested == [256, 512]
 
 
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
