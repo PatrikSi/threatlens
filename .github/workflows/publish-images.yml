@@ -202,6 +202,12 @@ jobs:
           backend_ref="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-backend@$(cat image-digests/backend-${{ matrix.platform-slug }}.txt)"
           web_ref="${REGISTRY}/${IMAGE_NAMESPACE}/threatlens-web@$(cat image-digests/web-${{ matrix.platform-slug }}.txt)"
           cat > "$RUNNER_TEMP/release-images.yml" <<EOF
+          x-smoke-worker-health: &smoke-worker-health
+            interval: 90s
+            timeout: 180s
+            retries: 2
+            start_period: 120s
+
           services:
             api: &backend-image
               image: ${backend_ref}
@@ -209,12 +215,24 @@ jobs:
               pull_policy: always
             worker:
               <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
+            worker-ai:
+              <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
             worker-maintenance:
               <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
             worker-notifications:
               <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
             beat:
               <<: *backend-image
+              healthcheck:
+                <<: *smoke-worker-health
             web:
               image: ${web_ref}
               platform: ${{ matrix.platform }}
@@ -225,7 +243,7 @@ jobs:
       - name: Pull and start exact image pair
         run: |
           timeout 10m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" pull
-          timeout 7m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" up -d --wait --wait-timeout 300
+          timeout 10m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" up -d --wait --wait-timeout 480
 
       - name: Verify running stack
         run: |
