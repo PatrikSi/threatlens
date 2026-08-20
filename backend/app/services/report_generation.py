@@ -16,7 +16,6 @@ from app.services.ai_config import ActiveAISettings, load_active_ai_settings
 from app.services.ai_context_budget import (
     AIContextBudgetError,
     build_context_budget,
-    estimate_tokens,
 )
 from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usage
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
@@ -92,6 +91,10 @@ def generate_report(
         reserved_output_tokens=active.report_reserved_output_tokens,
         safety_percent=active.report_context_safety_percent,
     )
+    report.provider = active.provider_type
+    report.model = active.model
+    report.context_window_tokens = budget.context_window_tokens
+    db.add(report)
     sources = list(
         db.scalars(
             select(ReportSourceItem)
@@ -326,10 +329,6 @@ def _prepare_runtime_evidence(
             db.add(source)
             dropped += 1
             continue
-        if evidence != source.evidence_text:
-            source.evidence_text = evidence
-            source.estimated_tokens = estimate_tokens(evidence)
-            db.add(source)
         truncated += int(was_truncated)
         selected.append(source)
         selected_evidence.append(evidence)

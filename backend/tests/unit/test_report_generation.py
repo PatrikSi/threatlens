@@ -10,6 +10,7 @@ from app.models.report_source_item import ReportSourceItem
 from app.services import report_generation
 from app.services.ai_context_budget import build_context_budget
 from app.services.report_prompt_budget import build_evidence_messages, estimate_message_tokens
+from app.services.report_storage import reset_report_for_retry
 
 
 def test_unexpected_generation_error_moves_report_to_terminal_state(
@@ -77,6 +78,8 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
             report_context_safety_percent=15,
             report_source_token_cap=700,
             report_max_model_calls=20,
+            provider_type="openai_compatible",
+            model="local-threat-model",
         ),
     )
     monkeypatch.setattr(
@@ -102,6 +105,9 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
         failed.error
         == "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
     )
+    assert failed.provider == "openai_compatible"
+    assert failed.model == "local-threat-model"
+    assert failed.context_window_tokens == 8192
 
 
 def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits(
@@ -165,6 +171,10 @@ def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits
     ]
     db_session.add_all(sections)
     db_session.commit()
+    original_evidence = {
+        source.id: (source.evidence_text, source.estimated_tokens)
+        for source in sources
+    }
     budget = build_context_budget(
         context_window_tokens=4096,
         reserved_output_tokens=512,
@@ -193,6 +203,10 @@ def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits
         source.exclusion_reason == "execution_context_budget"
         for source in sources[len(selected) :]
     )
+    assert {
+        source.id: (source.evidence_text, source.estimated_tokens)
+        for source in sources
+    } == original_evidence
     for batch in plan.batches:
         messages, _ = build_evidence_messages(
             prompt=report.prompt_config_json,
@@ -201,6 +215,18 @@ def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits
             budget=budget,
         )
         assert estimate_message_tokens(messages) <= budget.usable_input_tokens
+
+    report.status = "error"
+    reset_report_for_retry(db_session, report=report)
+
+    assert all(source.included for source in sources)
+    assert all(source.exclusion_reason is None for source in sources)
+    assert report.included_source_count == len(sources)
+    assert report.excluded_source_count == 0
+    assert not any(
+        warning.startswith("Execution omitted ")
+        for warning in report.coverage_json["warnings"]
+    )
 
 
 def test_report_completion_retry_limit_uses_only_unused_context_headroom():
