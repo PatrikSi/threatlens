@@ -32,17 +32,23 @@ jobs:
           BEFORE_SHA: ${{ github.event.before }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
+          generated_legal_artifacts=(
+            ':(exclude)docs/reference/backend-runtime-package-legal/**'
+            ':(exclude)docs/reference/backend-os-package-legal/**'
+            ':(exclude)docs/reference/frontend-runtime-package-legal/**'
+            ':(exclude)docs/reference/frontend-os-package-legal/**'
+          )
           base_sha="${PR_BASE_SHA:-${BEFORE_SHA:-}}"
           if [[ -z "$base_sha" || "$base_sha" =~ ^0+$ ]] || ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
             base_sha="$(git rev-parse --verify HEAD^ 2>/dev/null || true)"
           fi
           if [[ -n "$base_sha" ]]; then
             echo "Checking whitespace errors in ${base_sha}...HEAD"
-            git diff --check "${base_sha}...HEAD"
+            git diff --check "${base_sha}...HEAD" -- . "${generated_legal_artifacts[@]}"
           else
             empty_tree="$(git hash-object -t tree /dev/null)"
             echo "Checking whitespace errors from the empty tree to HEAD"
-            git diff --check "$empty_tree" HEAD
+            git diff --check "$empty_tree" HEAD -- . "${generated_legal_artifacts[@]}"
           fi
 
   backend:
