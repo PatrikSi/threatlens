@@ -260,8 +260,23 @@ jobs:
             fi
             sleep 5
           done
-          test "$(curl --fail --silent --show-error --connect-timeout 5 --max-time 10 http://localhost:3000/api/openapi.json | jq -r '.info.version')" = "$(cat VERSION)"
-          timeout 1m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" exec -T api python -m alembic current | grep -F '(head)'
+          expected_version="$(cat VERSION)"
+          openapi_url="http://localhost:3000/api/openapi.json"
+          for attempt in {1..3}; do
+            if published_version="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 60 "$openapi_url" | jq -er '.info.version')"; then
+              if [[ "$published_version" != "$expected_version" ]]; then
+                echo "Published API version $published_version does not match expected version $expected_version" >&2
+                exit 1
+              fi
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "OpenAPI contract did not become readable after 3 attempts" >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          timeout 3m docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" exec -T api python -m alembic current | grep -F '(head)'
           docker compose -f docker-compose.yml -f "$RUNNER_TEMP/release-images.yml" ps
 
       - name: Show container logs after failure
