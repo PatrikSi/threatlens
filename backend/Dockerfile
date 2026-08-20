@@ -1,12 +1,7 @@
 FROM python:3.12.13-slim-bookworm
 
-ARG BUILD_DATE=unknown
-ARG APP_VERSION=1.5.0
-ARG VCS_REF=unknown
-
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    APP_VERSION=${APP_VERSION}
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
@@ -33,6 +28,11 @@ RUN addgroup --system app && adduser --system --ingroup app app && chown -R app:
 
 ENV PYTHONPATH=/app
 USER app
+
+ARG BUILD_DATE=unknown
+ARG APP_VERSION=1.5.0
+ARG VCS_REF=unknown
+ENV APP_VERSION=${APP_VERSION}
 
 LABEL org.opencontainers.image.title="ThreatLens Backend" \
       org.opencontainers.image.description="ThreatLens FastAPI and Celery backend image" \
