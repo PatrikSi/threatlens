@@ -81,7 +81,7 @@ The readable bundle is a ZIP with `manifest.json` and one PDF per article under 
 | `EXPORT_PDF_MAX_ITEMS` | `500` | Maximum articles in a PDF bundle. |
 | `EXPORT_PREVIEW_LIMIT` | `25` | Maximum rows returned in a preview. |
 | `EXPORT_MAX_UNCOMPRESSED_BYTES` | `250000000` | Maximum generated content before or after compression. |
-| `EXPORT_LOCK_TTL_SECONDS` | `900` | Per-user export lock expiry and crash recovery window. |
+| `EXPORT_LOCK_TTL_SECONDS` | `900` | Per-user export lock expiry and crash recovery window. Active exports renew the lock every third of this interval. |
 
 Only one generated export per user can run at a time. Results are loaded in bounded batches and written to disk rather than assembled completely in memory. A changing result set, exhausted size budget, unavailable Redis lock, or competing export produces a clear failure instead of a partial artifact. Narrow filters and retry after the current export finishes.
 
