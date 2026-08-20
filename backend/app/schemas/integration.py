@@ -29,6 +29,7 @@ ALL_SMTP_EVENT_TYPES: tuple[NotificationEventType, ...] = (
     "feed_failing",
     "webhook_failed",
     "daily_digest",
+    "report_ready",
 )
 SMTP_TEMPLATE_DEFAULTS: dict[str, tuple[list[NotificationEventType], str, str]] = {
     "rss_item_new": (
@@ -76,6 +77,18 @@ SMTP_TEMPLATE_DEFAULTS: dict[str, tuple[list[NotificationEventType], str, str]] 
 <p><strong>Recommended actions</strong></p>
 <p>{{ brief.recommended_actions_html }}</p>
 <p>Generated for {{ brief.date }} from {{ brief.item_count }} source items.</p>""",
+    ),
+    "report_ready": (
+        ["report_ready"],
+        "[ThreatLens] Intelligence report ready: {{ brief.title }}",
+        """<h2>{{ brief.title_html }}</h2>
+<p>{{ brief.text_html }}</p>
+<p><strong>Key findings</strong></p>
+<p>{{ brief.key_points_html }}</p>
+<p><strong>Recommended actions</strong></p>
+<p>{{ brief.recommended_actions_html }}</p>
+<p>Generated from {{ brief.item_count }} source items for the period ending {{ brief.date }}.</p>
+<p><a href="{{ brief.url_html }}">Open report in ThreatLens</a></p>""",
     ),
     "all": (
         list(ALL_SMTP_EVENT_TYPES),

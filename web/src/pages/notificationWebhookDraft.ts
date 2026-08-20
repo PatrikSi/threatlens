@@ -20,6 +20,7 @@ export const EVENT_OPTIONS: Array<{
   { value: 'feed_failing', label: 'Feed Failing', description: 'Fire when a feed hits repeated fetch failures.' },
   { value: 'webhook_failed', label: 'Webhook Failed', description: 'Fire when one of your other webhook deliveries fails.' },
   { value: 'daily_digest', label: 'AI Daily Brief', description: 'Send the generated AI Daily Brief as soon as it is ready.' },
+  { value: 'report_ready', label: 'Intelligence Report', description: 'Send a completed intelligence report when delivery is requested.' },
 ]
 
 const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebhookField[]> = {
@@ -49,6 +50,16 @@ const EVENT_DEFAULT_JSON_FIELDS: Record<NotificationEventType, NotificationWebho
   ],
   daily_digest: [
     { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'brief.date', value: '{{ brief.date }}' },
+    { key: 'brief.title', value: '{{ brief.title }}' },
+    { key: 'brief.text', value: '{{ brief.text }}' },
+    { key: 'brief.item_count', value: '{{ brief.item_count }}' },
+    { key: 'brief.key_points', value: '{{ brief.key_points }}' },
+    { key: 'brief.recommended_actions', value: '{{ brief.recommended_actions }}' },
+  ],
+  report_ready: [
+    { key: 'event.type', value: '{{ event.type }}' },
+    { key: 'report.url', value: '{{ brief.url }}' },
     { key: 'brief.date', value: '{{ brief.date }}' },
     { key: 'brief.title', value: '{{ brief.title }}' },
     { key: 'brief.text', value: '{{ brief.text }}' },
@@ -212,12 +223,15 @@ export function describeEventDescription(eventType: NotificationEventType): stri
 export function resolveNotificationEventAvailability(
   aiDailyBriefAvailable: boolean,
   selectedEventType: NotificationEventType,
+  aiReportingAvailable = true,
 ) {
   return {
     availableEventOptions: EVENT_OPTIONS.filter(
-      (option) => option.value !== 'daily_digest' || aiDailyBriefAvailable,
+      (option) => (option.value !== 'daily_digest' || aiDailyBriefAvailable) &&
+        (option.value !== 'report_ready' || aiReportingAvailable),
     ),
     unavailableDailyBriefSelected: !aiDailyBriefAvailable && selectedEventType === 'daily_digest',
+    unavailableReportSelected: !aiReportingAvailable && selectedEventType === 'report_ready',
   }
 }
 

@@ -140,6 +140,8 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
+    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI},
+    "app.tasks.feed_tasks.dispatch_due_report_schedules": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.record_beat_heartbeat": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.history_maintenance_tasks.maintain_application_history": {"queue": QUEUE_MAINTENANCE},
@@ -221,6 +223,10 @@ celery_app.conf.update(
         "dispatch-daily-ai-brief-generation": {
             "task": "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation",
             "schedule": crontab(minute="*"),
+        },
+        "dispatch-due-report-schedules": {
+            "task": "app.tasks.feed_tasks.dispatch_due_report_schedules",
+            "schedule": 60.0,
         },
         "reconcile-ai-task-runs": {
             "task": "app.tasks.feed_tasks.reconcile_ai_task_runs",

@@ -20,6 +20,7 @@ class PublicAIFeatureFlags:
     ai_summary_enabled: bool
     ai_relevance_enabled: bool
     ai_daily_brief_enabled: bool
+    ai_reporting_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,13 @@ class ActiveAISettings:
     item_summary_instructions: str | None
     relevance_instructions: str | None
     daily_brief_instructions: str | None
+    reporting_enabled: bool = True
+    report_context_window_tokens: int = 8192
+    report_reserved_output_tokens: int = 1200
+    report_source_token_cap: int = 700
+    report_max_sources: int = 100
+    report_max_model_calls: int = 20
+    report_context_safety_percent: int = 15
 
 
 DEFAULT_ITEM_ENRICHMENT_SYSTEM_PROMPT = "\n".join(
@@ -106,12 +114,19 @@ def get_or_create_ai_settings(db: Session) -> AISettings:
         summary_enabled=True,
         relevance_enabled=True,
         daily_brief_enabled=True,
+        reporting_enabled=True,
         auto_enrich_new_items=True,
         daily_brief_window_hours=24,
         daily_brief_max_items=20,
         daily_brief_history_limit=7,
         daily_brief_schedule_hour_utc=9,
         daily_brief_schedule_minute_utc=0,
+        report_context_window_tokens=8192,
+        report_reserved_output_tokens=1200,
+        report_source_token_cap=700,
+        report_max_sources=100,
+        report_max_model_calls=20,
+        report_context_safety_percent=15,
         relevance_medium_threshold=0.55,
         relevance_high_threshold=0.8,
     )
@@ -138,12 +153,19 @@ def apply_ai_settings_update(settings: AISettings, payload: AISettingsUpdate) ->
     settings.summary_enabled = payload.summary_enabled
     settings.relevance_enabled = payload.relevance_enabled
     settings.daily_brief_enabled = payload.daily_brief_enabled
+    settings.reporting_enabled = payload.reporting_enabled
     settings.auto_enrich_new_items = payload.auto_enrich_new_items
     settings.daily_brief_window_hours = payload.daily_brief_window_hours
     settings.daily_brief_max_items = payload.daily_brief_max_items
     settings.daily_brief_history_limit = payload.daily_brief_history_limit
     settings.daily_brief_schedule_hour_utc = payload.daily_brief_schedule_hour_utc
     settings.daily_brief_schedule_minute_utc = payload.daily_brief_schedule_minute_utc
+    settings.report_context_window_tokens = payload.report_context_window_tokens
+    settings.report_reserved_output_tokens = payload.report_reserved_output_tokens
+    settings.report_source_token_cap = payload.report_source_token_cap
+    settings.report_max_sources = payload.report_max_sources
+    settings.report_max_model_calls = payload.report_max_model_calls
+    settings.report_context_safety_percent = payload.report_context_safety_percent
     settings.relevance_medium_threshold = payload.relevance_medium_threshold
     settings.relevance_high_threshold = payload.relevance_high_threshold
     settings.company_name = _normalize_optional_text(payload.company_name)
@@ -183,12 +205,19 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
+        reporting_enabled=bool(settings.reporting_enabled),
         auto_enrich_new_items=bool(settings.auto_enrich_new_items),
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
         daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
         daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
+        report_context_window_tokens=int(settings.report_context_window_tokens),
+        report_reserved_output_tokens=int(settings.report_reserved_output_tokens),
+        report_source_token_cap=int(settings.report_source_token_cap),
+        report_max_sources=int(settings.report_max_sources),
+        report_max_model_calls=int(settings.report_max_model_calls),
+        report_context_safety_percent=int(settings.report_context_safety_percent),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
@@ -221,12 +250,19 @@ def ai_settings_response_from_model(settings: AISettings) -> AISettingsResponse:
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
+        reporting_enabled=bool(settings.reporting_enabled),
         auto_enrich_new_items=bool(settings.auto_enrich_new_items),
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
         daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
         daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
+        report_context_window_tokens=int(settings.report_context_window_tokens),
+        report_reserved_output_tokens=int(settings.report_reserved_output_tokens),
+        report_source_token_cap=int(settings.report_source_token_cap),
+        report_max_sources=int(settings.report_max_sources),
+        report_max_model_calls=int(settings.report_max_model_calls),
+        report_context_safety_percent=int(settings.report_context_safety_percent),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,
@@ -258,6 +294,7 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
             ai_summary_enabled=False,
             ai_relevance_enabled=False,
             ai_daily_brief_enabled=False,
+            ai_reporting_enabled=False,
         )
 
     settings = get_or_create_ai_settings(db)
@@ -271,6 +308,7 @@ def load_public_ai_feature_flags(db: Session) -> PublicAIFeatureFlags:
         ai_summary_enabled=configured and bool(settings.summary_enabled),
         ai_relevance_enabled=configured and bool(settings.relevance_enabled),
         ai_daily_brief_enabled=configured and bool(settings.daily_brief_enabled),
+        ai_reporting_enabled=configured and bool(settings.reporting_enabled),
     )
 
 
@@ -296,12 +334,19 @@ def load_active_ai_settings(db: Session) -> ActiveAISettings:
         summary_enabled=bool(settings.summary_enabled),
         relevance_enabled=bool(settings.relevance_enabled),
         daily_brief_enabled=bool(settings.daily_brief_enabled),
+        reporting_enabled=bool(settings.reporting_enabled),
         auto_enrich_new_items=bool(settings.auto_enrich_new_items),
         daily_brief_window_hours=int(settings.daily_brief_window_hours),
         daily_brief_max_items=int(settings.daily_brief_max_items),
         daily_brief_history_limit=int(settings.daily_brief_history_limit),
         daily_brief_schedule_hour_utc=int(settings.daily_brief_schedule_hour_utc),
         daily_brief_schedule_minute_utc=int(settings.daily_brief_schedule_minute_utc),
+        report_context_window_tokens=int(settings.report_context_window_tokens),
+        report_reserved_output_tokens=int(settings.report_reserved_output_tokens),
+        report_source_token_cap=int(settings.report_source_token_cap),
+        report_max_sources=int(settings.report_max_sources),
+        report_max_model_calls=int(settings.report_max_model_calls),
+        report_context_safety_percent=int(settings.report_context_safety_percent),
         relevance_medium_threshold=float(settings.relevance_medium_threshold),
         relevance_high_threshold=float(settings.relevance_high_threshold),
         company_name=settings.company_name,

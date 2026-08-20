@@ -26,6 +26,9 @@ Route tree:
   - `/alerts` -> `AlertsPage`
   - `/feeds` -> `FeedsPage`
   - `/stats` -> `StatsPage`
+  - `/export` -> `ExportPage`
+  - `/reporting` -> `ReportingPage`
+  - `/reporting/:reportId` -> `ReportingPage` report detail
   - `/ai` -> redirect to `/settings/ai`
   - `/settings` -> `SettingsLayout`
     - index -> redirect to `/settings/account`
@@ -47,6 +50,7 @@ Route tree:
 - Production fallback base URL is `/api/v1`; development fallback base URL is `http(s)://<host>:8000/v1`.
 - `VITE_API_BASE_URL` overrides the fallback, and the shipped compose stack passes it from `WEB_VITE_API_BASE_URL` (default `/api/v1`).
 - Adds `Content-Type: application/json` for requests.
+- Supports binary downloads with structured API errors and sanitized `Content-Disposition` filenames.
 - Sends browser credentials (`credentials: include`) for cookie-based session auth.
 - Adds CSRF header (`x-csrf-token` by default) on mutating requests when `auth=true`.
 - Uses an `AbortController` timeout (`REQUEST_TIMEOUT_MS`, default `15000`) and distinguishes timeouts from network failures.
@@ -93,6 +97,8 @@ Top navigation links:
 - `Alerts`
 - `Feeds`
 - `Stats`
+- `Export`
+- `Reporting`
 - `Settings`
 
 Top-right controls:
@@ -350,6 +356,55 @@ API calls:
 - `GET /stats/activity-heatmap?...`
 - `GET /stats/signal-radar?...`
 
+### `ExportPage`
+
+UI elements:
+
+- Debounced full-text, feed, tag, classification, AI relevance, user-state, article-text, and date filters
+- Live match, article-text, IOC, and preview-row counters
+- CSV, JSONL, ThreatLens ZIP, STIX 2.1, MISP, and PDF ZIP format selector
+- Format-aware content options, including requester state and private notes
+- STIX TLP marking and MISP distribution selectors
+- Responsive preview table on desktop and compact preview rows on mobile
+- Preflight validation for empty, stale, invalid, and over-limit result sets
+- Binary download action with a five-minute client timeout
+
+API calls:
+
+- `GET /exports/capabilities`
+- `POST /exports/preview`
+- `POST /exports`
+
+### `ReportingPage`
+
+UI elements:
+
+- Reports, templates, and admin-only schedules views
+- Filtered seven-day builder with source inclusion controls
+- Audience, objective, tone, detail, company-context, focus, exclusion, and custom-instruction controls
+- Ordered/enabled report sections
+- Live context, source, batch, model-call, and coverage estimates
+- Private/shared template save, immutable built-in clone, and template delete controls
+- Report library with queued, running, ready, skipped, and error states
+- Report detail with stage progress, coverage warnings, source evidence, owner/admin retry/delete, and Markdown/HTML/PDF downloads
+- Weekly/monthly IANA-time-zone schedule create/edit/pause/run/delete controls
+- Optional `report_ready` SMTP/webhook delivery using link, summary, or bounded full content
+
+API calls:
+
+- `GET /reports/capabilities`
+- `POST /reports/preview`
+- `GET|POST /reports/templates`
+- `PUT|DELETE /reports/templates/{template_id}`
+- `POST /reports/templates/{template_id}/clone`
+- `GET|POST /reports`
+- `GET|DELETE /reports/{report_id}`
+- `POST /reports/{report_id}/retry`
+- `GET /reports/{report_id}/download`
+- `GET|POST /reports/schedules`
+- `PUT|DELETE /reports/schedules/{schedule_id}`
+- `POST /reports/schedules/{schedule_id}/run`
+
 ### `SettingsLayout`
 
 UI elements:
@@ -546,6 +601,21 @@ API calls:
 | `pages/UsersPage.tsx` | `POST` | `/users` |
 | `pages/UsersPage.tsx` | `PATCH` | `/users/{id}` |
 | `pages/AccountPage.tsx` | `POST` | `/auth/change-password` |
+| `pages/ExportPage.tsx` | `GET` | `/exports/capabilities` |
+| `pages/ExportPage.tsx` | `POST` | `/exports/preview` |
+| `pages/ExportPage.tsx` | `POST` | `/exports` |
+| `pages/useReportingController.ts` | `GET` | `/reports/capabilities` |
+| `pages/useReportingController.ts` | `POST` | `/reports/preview` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports` |
+| `pages/useReportingController.ts` | `GET`, `DELETE` | `/reports/{report_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/{report_id}/retry` |
+| `pages/useReportingController.ts` | `GET` | `/reports/{report_id}/download` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports/templates` |
+| `pages/useReportingController.ts` | `PUT`, `DELETE` | `/reports/templates/{template_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/templates/{template_id}/clone` |
+| `pages/useReportingController.ts` | `GET`, `POST` | `/reports/schedules` |
+| `pages/useReportingController.ts` | `PUT`, `DELETE` | `/reports/schedules/{schedule_id}` |
+| `pages/useReportingController.ts` | `POST` | `/reports/schedules/{schedule_id}/run` |
 | `pages/NotificationsPage.tsx` | `GET` | `/feeds` |
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/template-variables` |
 | `pages/NotificationsPage.tsx` | `GET` | `/notifications/webhooks` |

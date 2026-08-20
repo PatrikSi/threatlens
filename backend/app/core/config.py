@@ -152,6 +152,7 @@ class Settings(BaseSettings):
     default_api_token_expiry_days: int = 90
     ai_enabled: bool = False
     ai_api_key: str | None = None
+    public_app_url: str | None = None
     expose_api_docs_in_production: bool = False
     expose_openapi_schema_in_production: bool = True
 
@@ -226,6 +227,12 @@ class Settings(BaseSettings):
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
+
+    export_max_items: int = 10_000
+    export_pdf_max_items: int = 500
+    export_preview_limit: int = 25
+    export_max_uncompressed_bytes: int = 250_000_000
+    export_lock_ttl_seconds: int = 900
 
     log_level: str = "INFO"
     log_level_overrides: Annotated[list[str], NoDecode] = []
@@ -309,6 +316,29 @@ class Settings(BaseSettings):
             raise ValueError("oidc_callback_path must be an absolute URL path without a query or fragment")
         return normalized
 
+    @field_validator("public_app_url", mode="before")
+    @classmethod
+    def _normalize_public_app_url(cls, value):
+        normalized = str(value or "").strip().rstrip("/")
+        if not normalized:
+            return None
+        try:
+            parts = urlsplit(normalized)
+        except ValueError as exc:
+            raise ValueError("public_app_url must be a valid HTTP(S) URL") from exc
+        if (
+            parts.scheme not in {"http", "https"}
+            or not parts.netloc
+            or parts.username
+            or parts.password
+            or parts.query
+            or parts.fragment
+        ):
+            raise ValueError(
+                "public_app_url must be an HTTP(S) URL without credentials, query, or fragment"
+            )
+        return normalized
+
     @field_validator(
         "oidc_transaction_ttl_seconds",
         "oidc_metadata_cache_seconds",
@@ -346,6 +376,27 @@ class Settings(BaseSettings):
         if value <= 0:
             raise ValueError("Authentication and database limits must be greater than zero")
         return value
+
+    @field_validator(
+        "export_max_items",
+        "export_pdf_max_items",
+        "export_preview_limit",
+        "export_max_uncompressed_bytes",
+        "export_lock_ttl_seconds",
+    )
+    @classmethod
+    def _validate_positive_export_limits(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("Export limits must be greater than zero")
+        return value
+
+    @model_validator(mode="after")
+    def _validate_export_limits(self):
+        if self.export_pdf_max_items > self.export_max_items:
+            raise ValueError("export_pdf_max_items must not exceed export_max_items")
+        if self.export_preview_limit > self.export_max_items:
+            raise ValueError("export_preview_limit must not exceed export_max_items")
+        return self
 
     @model_validator(mode="after")
     def _validate_login_ip_threshold(self):

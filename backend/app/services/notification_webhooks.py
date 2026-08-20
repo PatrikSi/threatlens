@@ -273,7 +273,7 @@ def test_notification_webhook(
             error="HTTP 500",
             attempted_at=datetime.now(timezone.utc),
         )
-    elif payload.event_type == "daily_digest":
+    elif payload.event_type in {"daily_digest", "report_ready"}:
         digest_context = get_latest_daily_brief_notification_context(db)
         if digest_context is None:
             now = datetime.now(timezone.utc)
@@ -845,7 +845,7 @@ def _reserve_notification_webhook_delivery_from_current_context(
         )
         if failed_webhook_context is None:
             return None
-    if event_type == "daily_digest":
+    if event_type in {"daily_digest", "report_ready"}:
         digest_context = _daily_brief_context_for_webhook_delivery(
             db, delivery=delivery
         )

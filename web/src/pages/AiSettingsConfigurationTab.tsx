@@ -1,6 +1,6 @@
 import { AiConfigurationAudit, AiConfigurationSidebar } from './AiConfigurationSummary'
 import { AiCompanyContextConfiguration, AiPromptConfiguration } from './AiContextConfiguration'
-import { AiDailyBriefConfiguration, AiFeatureControls } from './AiFeatureConfiguration'
+import { AiDailyBriefConfiguration, AiFeatureControls, AiReportingConfiguration } from './AiFeatureConfiguration'
 import { AiProviderConfiguration } from './AiProviderConfiguration'
 import { AiSettingsConfigurationTabProps } from './AiSettingsConfigurationTypes'
 
@@ -36,6 +36,7 @@ export function ConfigurationTab(props: AiSettingsConfigurationTabProps) {
         />
         <AiFeatureControls {...draftProps} />
         <AiDailyBriefConfiguration {...draftProps} />
+        <AiReportingConfiguration {...draftProps} />
         <AiCompanyContextConfiguration {...draftProps} />
         <AiPromptConfiguration {...draftProps} />
         <AiConfigurationAudit promptHistory={props.promptHistory} manualActions={props.manualActions} />

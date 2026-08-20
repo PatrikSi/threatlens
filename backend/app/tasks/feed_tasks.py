@@ -76,6 +76,10 @@ from app.tasks.item_processing_tasks import (
     run_extract_item_iocs as _run_extract_item_iocs,
     run_reapply_recent_item_tags as _run_reapply_recent_item_tags,
 )
+from app.tasks.report_tasks import (
+    dispatch_due_report_schedules,
+    generate_intelligence_report,
+)
 from app.tasks.ai_brief_tasks import (
     DAILY_BRIEF_STALE_RETRY_WINDOW,
     _daily_brief_backfill_attempt_is_settled,
@@ -229,9 +233,11 @@ __all__ = [
     "claim_tagging_reapply_dispatch",
     "daily_ai_brief_lock",
     "dispatch_daily_ai_brief_generation",
+    "dispatch_due_report_schedules",
     "dispatch_alert_match_notification_webhooks",
     "dispatch_daily_digest_notification_webhooks",
     "dispatch_feed_failing_notification_webhooks",
+    "generate_intelligence_report",
     "dispatch_new_item_notification_webhooks",
     "dispatch_pending_notification_webhook_deliveries",
     "dispatch_pending_integration_deliveries",

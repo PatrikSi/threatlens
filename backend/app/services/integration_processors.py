@@ -303,7 +303,7 @@ def _load_smtp_delivery_context(db: Session, *, delivery: IntegrationDelivery) -
             error=source_delivery.error,
             attempted_at=source_delivery.attempted_at,
         )
-    elif delivery.event_type == "daily_digest":
+    elif delivery.event_type in {"daily_digest", "report_ready"}:
         try:
             digest_context = daily_brief_context_from_payload(payload)
         except DailyBriefNotificationContextError as exc:

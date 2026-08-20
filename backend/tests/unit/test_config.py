@@ -187,6 +187,28 @@ def test_logging_settings_normalize_supported_values():
 @pytest.mark.parametrize(
     "field_name",
     [
+        "export_max_items",
+        "export_pdf_max_items",
+        "export_preview_limit",
+        "export_max_uncompressed_bytes",
+        "export_lock_ttl_seconds",
+    ],
+)
+def test_export_limits_must_be_positive(field_name: str):
+    with pytest.raises(ValueError, match="greater than zero"):
+        isolated_settings(**{field_name: 0})
+
+
+def test_export_pdf_and_preview_limits_must_fit_item_limit():
+    with pytest.raises(ValueError, match="export_pdf_max_items"):
+        isolated_settings(export_max_items=10, export_pdf_max_items=11)
+    with pytest.raises(ValueError, match="export_preview_limit"):
+        isolated_settings(export_max_items=10, export_pdf_max_items=10, export_preview_limit=11)
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    [
         "beat_heartbeat_ttl_seconds",
         "beat_heartbeat_stale_after_seconds",
         "beat_heartbeat_interval_seconds",

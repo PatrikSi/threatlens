@@ -134,7 +134,7 @@ function UnreadableSecretNotice({ hook }: { hook: SMTPHook | null }) {
 }
 
 function SMTPEventFields({ controller }: { controller: SMTPIntegrationController }) {
-  const { availableEventOptions, currentSendFor, unavailableDailyBriefSelected } = controller.eventAvailability
+  const { availableEventOptions, currentSendFor, unavailableDailyBriefSelected, unavailableReportSelected } = controller.eventAvailability
   return (
     <div className="mt-4 grid gap-4 md:grid-cols-2">
       <TextInput
@@ -160,17 +160,18 @@ function SMTPEventFields({ controller }: { controller: SMTPIntegrationController
           <option value="all">All notification events</option>
         </select>
         <p className="mt-1 text-xs text-slate dark:text-white/60">Changing this selection loads its default email template.</p>
-        <UnavailableDailyBriefNotice visible={unavailableDailyBriefSelected} />
+        <UnavailableAIEventNotice visible={unavailableDailyBriefSelected} feature="AI Daily Brief generation" />
+        <UnavailableAIEventNotice visible={unavailableReportSelected} feature="AI reporting" />
       </div>
     </div>
   )
 }
 
-function UnavailableDailyBriefNotice({ visible }: { visible: boolean }) {
+function UnavailableAIEventNotice({ visible, feature }: { visible: boolean; feature: string }) {
   if (!visible) return null
   return (
     <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-      This existing selection is inactive until AI Daily Brief generation is enabled and configured.
+      This existing selection is inactive until {feature} is enabled and configured.
     </p>
   )
 }

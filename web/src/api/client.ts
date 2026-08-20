@@ -14,6 +14,12 @@ type ApiFetchOptions = RequestInit & {
   timeoutMs?: number
 }
 
+export interface ApiDownloadResult {
+  blob: Blob
+  filename: string | null
+  contentType: string | null
+}
+
 export class ApiError extends Error {
   status: number
   path: string
@@ -82,6 +88,47 @@ export function buildApiUrl(path: string): string {
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, auth = true): Promise<T> {
+  const response = await requestApiResponse(path, options, auth, 'application/json')
+
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const raw = await response.text()
+  if (!raw.trim()) {
+    return undefined as T
+  }
+
+  const parsed = tryParseJsonResult(raw)
+  if (!parsed.ok) {
+    throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
+      responseBody: raw,
+      code: 'invalid_response',
+      requestId: response.headers.get('x-request-id'),
+    })
+  }
+  return parsed.value as T
+}
+
+export async function apiDownload(
+  path: string,
+  options: ApiFetchOptions = {},
+  auth = true,
+): Promise<ApiDownloadResult> {
+  const response = await requestApiResponse(path, options, auth, 'application/octet-stream')
+  return {
+    blob: await response.blob(),
+    filename: parseDownloadFilename(response.headers.get('content-disposition')),
+    contentType: response.headers.get('content-type'),
+  }
+}
+
+async function requestApiResponse(
+  path: string,
+  options: ApiFetchOptions,
+  auth: boolean,
+  defaultAccept: string,
+): Promise<Response> {
   const { timeoutMs, ...requestOptions } = options
   const headers = new Headers(requestOptions.headers)
   const hasBody = requestOptions.body !== undefined && requestOptions.body !== null
@@ -92,7 +139,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
     headers.set('Content-Type', 'application/json')
   }
   if (!headers.has('Accept')) {
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', defaultAccept)
   }
   if (auth && UNSAFE_METHODS.has(method)) {
     let csrfToken: string | null
@@ -163,24 +210,32 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
     })
   }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
+  return response
+}
 
-  const raw = await response.text()
-  if (!raw.trim()) {
-    return undefined as T
+function parseDownloadFilename(contentDisposition: string | null): string | null {
+  if (!contentDisposition) {
+    return null
   }
-
-  const parsed = tryParseJsonResult(raw)
-  if (!parsed.ok) {
-    throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
-      responseBody: raw,
-      code: 'invalid_response',
-      requestId: response.headers.get('x-request-id'),
-    })
+  const encodedMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  const simpleMatch = contentDisposition.match(/filename=(?:"([^"]+)"|([^;]+))/i)
+  const raw = encodedMatch?.[1] ?? simpleMatch?.[1] ?? simpleMatch?.[2]
+  if (!raw) {
+    return null
   }
-  return parsed.value as T
+  let decoded = raw.trim()
+  try {
+    decoded = decodeURIComponent(decoded)
+  } catch {
+    // Keep the server-provided fallback when percent decoding fails.
+  }
+  const filename = Array.from(decoded, (character) => {
+    const codePoint = character.codePointAt(0) ?? 0
+    return character === '/' || character === '\\' || codePoint < 32 || codePoint === 127 ? '-' : character
+  })
+    .join('')
+    .trim()
+  return filename || null
 }
 
 function extractProblemDetails(parsed: unknown): {

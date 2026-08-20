@@ -829,7 +829,7 @@ def _smtp_config_matches_event(
         return False
     if feed_scope == "all":
         return True
-    if event_type == "daily_digest":
+    if event_type in {"daily_digest", "report_ready"}:
         return True
     feed_id = getattr(feed, "id", None)
     return feed_id is not None and feed_id in feed_ids
@@ -905,7 +905,7 @@ def _render_test_message_content(active: ActiveSMTPSettings) -> tuple[str, str]:
             key_points=["Review identity telemetry", "Track exposed edge services"],
             recommended_actions=["Validate MFA coverage", "Confirm edge patch status"],
         )
-        if event_type == "daily_digest"
+        if event_type in {"daily_digest", "report_ready"}
         else None
     )
     subject = render_notification_template_text(

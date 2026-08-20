@@ -122,6 +122,22 @@
     ]
   },
   {
+    "name": "antlr4-python3-runtime",
+    "version": "4.13.2",
+    "license": "BSD",
+    "license_source": "license",
+    "summary": "ANTLR 4.13.2 runtime for Python 3",
+    "author": "Terence Parr, Sam Harwell",
+    "metadata_license": "BSD",
+    "license_files": [],
+    "notice_files": [],
+    "redistribution_files": [],
+    "project_urls": [
+      "Homepage, http://www.antlr.org"
+    ],
+    "redistribution_note": "No LICENSE/NOTICE/COPYING/AUTHORS-style file was published in the installed Python distribution."
+  },
+  {
     "name": "anyio",
     "version": "4.14.2",
     "license": "MIT",
@@ -848,6 +864,40 @@
     ]
   },
   {
+    "name": "Deprecated",
+    "version": "1.3.1",
+    "license": "MIT",
+    "license_source": "license",
+    "summary": "Python @deprecated decorator to deprecate old python classes, functions or methods.",
+    "home_page": "https://github.com/laurent-laporte-pro/deprecated",
+    "author": "Laurent LAPORTE",
+    "metadata_license": "MIT",
+    "license_files": [
+      "LICENSE.rst"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.rst",
+        "source_path": "deprecated-1.3.1.dist-info/licenses/LICENSE.rst",
+        "artifact_path": "Deprecated/1.3.1/deprecated-1.3.1.dist-info/licenses/LICENSE.rst",
+        "sha256": "1e83edd15be419b5d5bde372e325e527ff4f9915f548e7c75314b41f6699e83c"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://deprecated.readthedocs.io/en/latest/",
+      "Source, https://github.com/laurent-laporte-pro/deprecated",
+      "Bug Tracker, https://github.com/laurent-laporte-pro/deprecated/issues"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: MIT License"
+    ],
+    "metadata_license_files": [
+      "LICENSE.rst"
+    ]
+  },
+  {
     "name": "dnspython",
     "version": "2.8.0",
     "license": "ISC",
@@ -1477,6 +1527,39 @@
     ]
   },
   {
+    "name": "pillow",
+    "version": "12.3.0",
+    "license": "MIT-CMU",
+    "license_source": "license_expression",
+    "summary": "Python Imaging Library (fork)",
+    "metadata_license_expression": "MIT-CMU",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "pillow-12.3.0.dist-info/licenses/LICENSE",
+        "artifact_path": "pillow/12.3.0/pillow-12.3.0.dist-info/licenses/LICENSE",
+        "sha256": "dda12a98c1979cf3d94df1cff45d27a4cb3f04a60c76f76902ac54cac03ec0ce"
+      }
+    ],
+    "project_urls": [
+      "Release notes, https://pillow.readthedocs.io/en/stable/releasenotes/index.html",
+      "Changelog, https://github.com/python-pillow/Pillow/releases",
+      "Documentation, https://pillow.readthedocs.io",
+      "Funding, https://tidelift.com/subscription/pkg/pypi-pillow?utm_source=pypi-pillow&utm_medium=pypi",
+      "Homepage, https://python-pillow.github.io",
+      "Mastodon, https://fosstodon.org/@pillow",
+      "Source, https://github.com/python-pillow/Pillow"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "name": "pip",
     "version": "25.0.1",
     "license": "MIT",
@@ -1820,6 +1903,36 @@
     ]
   },
   {
+    "name": "pymisp",
+    "version": "2.5.34.1",
+    "license": "BSD-2-Clause",
+    "license_source": "license_expression",
+    "summary": "Python API for MISP.",
+    "author": "Rapha\u00ebl Vinot",
+    "metadata_license_expression": "BSD-2-Clause",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "pymisp-2.5.34.1.dist-info/licenses/LICENSE",
+        "artifact_path": "pymisp/2.5.34.1/pymisp-2.5.34.1.dist-info/licenses/LICENSE",
+        "sha256": "d683d256fb3deaa2e36c9562de63e7d32bd6b3ee9aa0817a04d5e2ea95651666"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://pymisp.readthedocs.io",
+      "Repository, https://github.com/MISP/PyMISP",
+      "issues, https://github.com/MISP/PyMISP/issues"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
     "name": "python-dateutil",
     "version": "2.9.0.post0",
     "license": "Dual License",
@@ -2066,6 +2179,98 @@
     ]
   },
   {
+    "name": "reportlab",
+    "version": "4.4.10",
+    "license": "BSD license (see license.txt for details), Copyright (c) 2000-2025, ReportLab Inc.",
+    "license_source": "license",
+    "summary": "The Reportlab Toolkit",
+    "home_page": "https://www.reportlab.com/",
+    "author": "Andy Robinson, Robin Becker, the ReportLab team and the community",
+    "metadata_license": "BSD license (see license.txt for details), Copyright (c) 2000-2025, ReportLab Inc.",
+    "license_files": [
+      "LICENSE",
+      "bitstream-vera-license.txt"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "reportlab-4.4.10.dist-info/licenses/LICENSE",
+        "artifact_path": "reportlab/4.4.10/reportlab-4.4.10.dist-info/licenses/LICENSE",
+        "sha256": "ef831761646313921375fc2cb888e8eeaf7da213d0b92852c10c42f3a0b4d138"
+      },
+      {
+        "kind": "license",
+        "file_name": "bitstream-vera-license.txt",
+        "source_path": "reportlab/fonts/bitstream-vera-license.txt",
+        "artifact_path": "reportlab/4.4.10/reportlab/fonts/bitstream-vera-license.txt",
+        "sha256": "3361d054759a2fc686a2c058be82deaf9c2e6fe549be9004d7935a6c1736315d"
+      },
+      {
+        "kind": "copying",
+        "file_name": "DarkGarden-copying-gpl.txt",
+        "source_path": "reportlab/fonts/DarkGarden-copying-gpl.txt",
+        "artifact_path": "reportlab/4.4.10/reportlab/fonts/DarkGarden-copying-gpl.txt",
+        "sha256": "1b2a567f289f66a143c56353e7b3d4fa5862514a5e3c5cfdf8b02ee5e5aaa953"
+      },
+      {
+        "kind": "copying",
+        "file_name": "DarkGarden-copying.txt",
+        "source_path": "reportlab/fonts/DarkGarden-copying.txt",
+        "artifact_path": "reportlab/4.4.10/reportlab/fonts/DarkGarden-copying.txt",
+        "sha256": "3cd1020510efa7f6b3166a5a2740f92bd664a695ea179e0bda442e74cd0ef3a4"
+      }
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "requests",
+    "version": "2.34.2",
+    "license": "Apache-2.0",
+    "license_source": "license",
+    "summary": "Python HTTP for Humans.",
+    "metadata_license": "Apache-2.0",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [
+      "NOTICE"
+    ],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "requests-2.34.2.dist-info/licenses/LICENSE",
+        "artifact_path": "requests/2.34.2/requests-2.34.2.dist-info/licenses/LICENSE",
+        "sha256": "09e8a9bcec8067104652c168685ab0931e7868f9c8284b66f5ae6edae5f1130b"
+      },
+      {
+        "kind": "notice",
+        "file_name": "NOTICE",
+        "source_path": "requests-2.34.2.dist-info/licenses/NOTICE",
+        "artifact_path": "requests/2.34.2/requests-2.34.2.dist-info/licenses/NOTICE",
+        "sha256": "f5110972dedad2b4e9d314518daf3b7d72d6e02e499acd802181de6f74571dcc"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://requests.readthedocs.io",
+      "Source, https://github.com/psf/requests"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: Apache Software License"
+    ],
+    "metadata_license_files": [
+      "LICENSE",
+      "NOTICE"
+    ]
+  },
+  {
     "name": "sgmllib3k",
     "version": "1.0.0",
     "license": "BSD License",
@@ -2081,6 +2286,32 @@
       "License :: OSI Approved :: BSD License"
     ],
     "redistribution_note": "No LICENSE/NOTICE/COPYING/AUTHORS-style file was published in the installed Python distribution."
+  },
+  {
+    "name": "simplejson",
+    "version": "4.1.1",
+    "license": "MIT OR AFL-2.1",
+    "license_source": "license",
+    "summary": "Simple, fast, extensible JSON encoder/decoder for Python",
+    "home_page": "https://github.com/simplejson/simplejson",
+    "author": "Bob Ippolito",
+    "metadata_license": "MIT OR AFL-2.1",
+    "license_files": [
+      "LICENSE.txt"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE.txt",
+        "source_path": "simplejson-4.1.1.dist-info/licenses/LICENSE.txt",
+        "artifact_path": "simplejson/4.1.1/simplejson-4.1.1.dist-info/licenses/LICENSE.txt",
+        "sha256": "fcaa1e313a99304322e2e0836ea4ee7d839ce9a480438f3922a853edfdde129f"
+      }
+    ],
+    "metadata_license_files": [
+      "LICENSE.txt"
+    ]
   },
   {
     "name": "six",
@@ -2200,6 +2431,68 @@
     ],
     "metadata_license_files": [
       "LICENSE.md"
+    ]
+  },
+  {
+    "name": "stix2",
+    "version": "3.0.2",
+    "license": "BSD",
+    "license_source": "license",
+    "summary": "Produce and consume STIX 2 JSON content",
+    "home_page": "https://oasis-open.github.io/cti-documentation/",
+    "author": "OASIS Cyber Threat Intelligence Technical Committee",
+    "metadata_license": "BSD",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "stix2-3.0.2.dist-info/licenses/LICENSE",
+        "artifact_path": "stix2/3.0.2/stix2-3.0.2.dist-info/licenses/LICENSE",
+        "sha256": "5a49619a52ec1bc3f4bc22865798a84332f3a23731e26692d99f1e213c871efe"
+      }
+    ],
+    "project_urls": [
+      "Documentation, https://stix2.readthedocs.io/",
+      "Source Code, https://github.com/oasis-open/cti-python-stix2/",
+      "Bug Tracker, https://github.com/oasis-open/cti-python-stix2/issues/"
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "stix2-patterns",
+    "version": "2.1.2",
+    "license": "OSI Approved :: BSD License",
+    "license_source": "classifier",
+    "summary": "Validate STIX 2 Patterns.",
+    "home_page": "https://github.com/oasis-open/cti-pattern-validator",
+    "author": "OASIS Cyber Threat Intelligence Technical Committee",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "stix2_patterns-2.1.2.dist-info/licenses/LICENSE",
+        "artifact_path": "stix2-patterns/2.1.2/stix2_patterns-2.1.2.dist-info/licenses/LICENSE",
+        "sha256": "6a23b2cdf8fc03e855944a1edcce357100c4fa5d14cb0274bab1aaf85f4c44a5"
+      }
+    ],
+    "license_classifiers": [
+      "License :: OSI Approved :: BSD License"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
     ]
   },
   {
@@ -2643,6 +2936,36 @@
       "Documentation, https://websockets.readthedocs.io/",
       "Funding, https://tidelift.com/subscription/pkg/pypi-websockets?utm_source=pypi-websockets&utm_medium=referral&utm_campaign=readme",
       "Tracker, https://github.com/python-websockets/websockets/issues"
+    ],
+    "metadata_license_files": [
+      "LICENSE"
+    ]
+  },
+  {
+    "name": "wrapt",
+    "version": "2.3.0",
+    "license": "BSD-2-Clause",
+    "license_source": "license_expression",
+    "summary": "Module for decorators, wrappers and monkey patching.",
+    "metadata_license_expression": "BSD-2-Clause",
+    "license_files": [
+      "LICENSE"
+    ],
+    "notice_files": [],
+    "redistribution_files": [
+      {
+        "kind": "license",
+        "file_name": "LICENSE",
+        "source_path": "wrapt-2.3.0.dist-info/licenses/LICENSE",
+        "artifact_path": "wrapt/2.3.0/wrapt-2.3.0.dist-info/licenses/LICENSE",
+        "sha256": "d4f66854a24dda2f2a5282912aedebe6b18186b86284510a433d78fadcd88e5d"
+      }
+    ],
+    "project_urls": [
+      "Homepage, https://github.com/GrahamDumpleton/wrapt",
+      "Bug Tracker, https://github.com/GrahamDumpleton/wrapt/issues/",
+      "Changelog, https://wrapt.readthedocs.io/en/latest/changes.html",
+      "Documentation, https://wrapt.readthedocs.io/"
     ],
     "metadata_license_files": [
       "LICENSE"

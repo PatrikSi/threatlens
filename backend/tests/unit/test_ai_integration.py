@@ -34,6 +34,7 @@ from app.services.ai_integration import (
     AICompletionResult,
     AIIntegrationError,
     FEATURE_DAILY_BRIEF,
+    FEATURE_REPORT,
     _call_ai_json,
     _build_chat_completion_url,
     _next_retry_max_completion_tokens,
@@ -42,6 +43,7 @@ from app.services.ai_integration import (
     get_latest_daily_brief,
     run_daily_brief_generation,
     run_item_ai_enrichment,
+    request_ai_json_with_usage,
 )
 from app.services.ai_ops import AI_TASK_TYPE_DAILY_BRIEF, AI_TASK_TYPE_ITEM_ENRICHMENT, AI_TRIGGER_MANUAL, queue_ai_task_run
 from app.schemas.ai import AISettingsUpdate
@@ -717,6 +719,107 @@ def test_daily_brief_retry_budget_never_shrinks_after_truncation():
     )
 
     assert next_budget >= 5000
+
+
+def test_report_retry_expands_only_to_exact_context_headroom(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=2,
+            max_completion_tokens=2000,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    requested: list[int] = []
+
+    def _truncated_then_valid(active, *, messages, max_completion_tokens):
+        _ = (active, messages)
+        requested.append(max_completion_tokens)
+        if len(requested) < 3:
+            raise AIIntegrationError(
+                "truncated", retry_hint="expand_completion_budget", retryable=True
+            )
+        return AICompletionResult(
+            payload={"ok": True},
+            provider="openai_compatible",
+            model="local-threat-model",
+            latency_ms=10,
+            prompt_tokens=100,
+            completion_tokens=600,
+            total_tokens=700,
+        )
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _truncated_then_valid
+    )
+
+    result = request_ai_json_with_usage(
+        db_session,
+        active,
+        feature_type=FEATURE_REPORT,
+        messages=[{"role": "user", "content": "report"}],
+        max_completion_tokens=256,
+        max_retry_completion_tokens=700,
+    )
+
+    assert result.payload == {"ok": True}
+    assert requested == [256, 512, 700]
+    assert result.attempt_count == 3
+
+
+def test_report_retry_respects_provider_attempt_budget(
+    db_session,
+    ai_enabled_env,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    settings = get_or_create_ai_settings(db_session)
+    apply_ai_settings_update(
+        settings,
+        AISettingsUpdate(
+            base_url="http://localhost:11434/v1",
+            model="local-threat-model",
+            request_max_retries=3,
+            max_completion_tokens=2000,
+        ),
+    )
+    db_session.add(settings)
+    db_session.commit()
+    active = load_active_ai_settings(db_session)
+    requested: list[int] = []
+
+    def _always_truncated(active, *, messages, max_completion_tokens):
+        _ = (active, messages)
+        requested.append(max_completion_tokens)
+        raise AIIntegrationError(
+            "truncated", retry_hint="expand_completion_budget", retryable=True
+        )
+
+    monkeypatch.setattr(
+        "app.services.ai_integration._call_ai_json", _always_truncated
+    )
+
+    with pytest.raises(AIIntegrationError, match="truncated") as exc_info:
+        request_ai_json_with_usage(
+            db_session,
+            active,
+            feature_type=FEATURE_REPORT,
+            messages=[{"role": "user", "content": "report"}],
+            max_completion_tokens=256,
+            max_retry_completion_tokens=1000,
+            max_provider_attempts=2,
+        )
+
+    assert requested == [256, 512]
+    assert exc_info.value.attempt_count == 2
 
 
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):

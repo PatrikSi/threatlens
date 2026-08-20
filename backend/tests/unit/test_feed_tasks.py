@@ -2995,10 +2995,14 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
     db_session.flush()
     db_session.add(article)
     db_session.commit()
+    item_id = item.id
 
     @contextmanager
     def _db_session_override():
-        yield db_session
+        try:
+            yield db_session
+        finally:
+            db_session.expunge_all()
 
     captured: dict[str, str] = {}
 
@@ -3022,10 +3026,10 @@ def test_classify_item_queues_ai_enrichment_when_enabled(db_session, monkeypatch
         lambda item_id, force=False, task_run_id=None: captured.update({"item_id": item_id, "force": str(force), "task_run_id": str(task_run_id or "")}),
     )
 
-    result = classify_item.run(str(item.id))
+    result = classify_item.run(str(item_id))
 
     assert result["status"] == "ok"
-    assert captured["item_id"] == str(item.id)
+    assert captured["item_id"] == str(item_id)
     assert captured["force"] == "False"
     assert captured["task_run_id"]
 
