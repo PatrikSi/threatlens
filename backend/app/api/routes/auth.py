@@ -54,11 +54,13 @@ def _resolve_app_features(db: Session | None = None) -> AppFeaturesResponse:
             ai_summary_enabled=False,
             ai_relevance_enabled=False,
             ai_daily_brief_enabled=False,
+            ai_reporting_enabled=False,
         )
 
     ai_summary_enabled = True
     ai_relevance_enabled = True
     ai_daily_brief_enabled = True
+    ai_reporting_enabled = True
     ai_configured = False
     if db is not None:
         from app.services.ai_config import load_public_ai_feature_flags
@@ -67,6 +69,7 @@ def _resolve_app_features(db: Session | None = None) -> AppFeaturesResponse:
         ai_summary_enabled = flags.ai_summary_enabled
         ai_relevance_enabled = flags.ai_relevance_enabled
         ai_daily_brief_enabled = flags.ai_daily_brief_enabled
+        ai_reporting_enabled = flags.ai_reporting_enabled
         ai_configured = flags.ai_configured
 
     return AppFeaturesResponse(
@@ -75,6 +78,7 @@ def _resolve_app_features(db: Session | None = None) -> AppFeaturesResponse:
         ai_summary_enabled=ai_summary_enabled,
         ai_relevance_enabled=ai_relevance_enabled,
         ai_daily_brief_enabled=ai_daily_brief_enabled,
+        ai_reporting_enabled=ai_reporting_enabled,
     )
 
 

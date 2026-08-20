@@ -24,6 +24,7 @@ x-backend-environment: &backend-environment
   DEFAULT_API_TOKEN_EXPIRY_DAYS: "${DEFAULT_API_TOKEN_EXPIRY_DAYS:-90}"
   AI_ENABLED: "${AI_ENABLED:-false}"
   AI_API_KEY: "${AI_API_KEY:-}"
+  PUBLIC_APP_URL: "${PUBLIC_APP_URL:-}"
   EXPOSE_API_DOCS_IN_PRODUCTION: "${EXPOSE_API_DOCS_IN_PRODUCTION:-false}"
   EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION: "${EXPOSE_OPENAPI_SCHEMA_IN_PRODUCTION:-true}"
   FEED_MAX_BYTES: "${FEED_MAX_BYTES:-2000000}"
@@ -89,6 +90,11 @@ x-backend-environment: &backend-environment
   DISPATCH_AI_REPROCESS_BATCH_SIZE: "${DISPATCH_AI_REPROCESS_BATCH_SIZE:-100}"
   ALERT_MATCHES_KEYWORD_CAP: "${ALERT_MATCHES_KEYWORD_CAP:-512}"
   STATS_TOP_DOMAINS_LIMIT: "${STATS_TOP_DOMAINS_LIMIT:-10}"
+  EXPORT_MAX_ITEMS: "${EXPORT_MAX_ITEMS:-10000}"
+  EXPORT_PDF_MAX_ITEMS: "${EXPORT_PDF_MAX_ITEMS:-500}"
+  EXPORT_PREVIEW_LIMIT: "${EXPORT_PREVIEW_LIMIT:-25}"
+  EXPORT_MAX_UNCOMPRESSED_BYTES: "${EXPORT_MAX_UNCOMPRESSED_BYTES:-250000000}"
+  EXPORT_LOCK_TTL_SECONDS: "${EXPORT_LOCK_TTL_SECONDS:-900}"
   SEED_ADMIN_FORCE_ROLE: "${SEED_ADMIN_FORCE_ROLE:-false}"
   SEED_ADMIN_REACTIVATE_EXISTING: "${SEED_ADMIN_REACTIVATE_EXISTING:-false}"
   SEED_ADMIN_RESET_PASSWORD_ON_STARTUP: "${SEED_ADMIN_RESET_PASSWORD_ON_STARTUP:-false}"
@@ -227,7 +233,7 @@ services:
         "worker",
         "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${WORKER_CONCURRENCY:-4}",
-        "--queues=default,ingest,processing,ai",
+        "--queues=default,ingest,processing",
         "-n",
         "worker@%h",
       ]
@@ -236,6 +242,46 @@ services:
         [
           "CMD-SHELL",
           "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'worker@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    networks:
+      - backplane
+
+  worker-ai:
+    image: ghcr.io/patriksi/threatlens-backend:${THREATLENS_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      RUN_MIGRATIONS_ON_STARTUP: "false"
+      SEED_ADMIN_ON_STARTUP: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app.celery_app",
+        "worker",
+        "--loglevel=${LOG_LEVEL:-INFO}",
+        "--concurrency=${AI_WORKER_CONCURRENCY:-1}",
+        "--queues=ai",
+        "-n",
+        "ai@%h",
+      ]
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
         ]
       interval: 30s
       timeout: 10s

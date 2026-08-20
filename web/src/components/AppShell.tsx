@@ -13,6 +13,8 @@ const NAV_LINKS = [
   { to: '/alerts', label: 'Alerts' },
   { to: '/feeds', label: 'Feeds' },
   { to: '/stats', label: 'Stats' },
+  { to: '/export', label: 'Export' },
+  { to: '/reporting', label: 'Reporting' },
   { to: '/settings', label: 'Settings' },
 ]
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0'

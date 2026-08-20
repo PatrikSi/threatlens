@@ -1,4 +1,5 @@
 import type { RefObject } from 'react'
+import { Link } from 'react-router-dom'
 
 import { resolveApiErrorMessage } from '../api/errors'
 import type { AIDailyBriefSourceItemResponse, AITaskRunResponse } from '../types/api'
@@ -170,6 +171,14 @@ function RunSummary({
         <p className="mt-3 rounded border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-700 dark:text-red-300">
           {run.error}
         </p>
+      )}
+      {run.report_id && (
+        <Link
+          className="mt-3 inline-flex rounded border border-slate/30 px-3 py-2 text-xs font-semibold text-cyan-900 dark:border-cyan-900/40 dark:text-cyan-100"
+          to={`/reporting/${run.report_id}`}
+        >
+          Open Report
+        </Link>
       )}
       {run.task_type === 'reprocess' && <RunProgress run={run} />}
     </div>

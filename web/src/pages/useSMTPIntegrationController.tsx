@@ -31,6 +31,7 @@ import {
 } from './smtpHookDraft'
 import {
   aiDailyBriefIsAvailable,
+  aiReportingIsAvailable,
   createNewHookDraft,
   EMPTY_TEMPLATE_DEFAULTS,
   NoticeState,
@@ -105,6 +106,7 @@ export function useSMTPIntegrationController() {
   const eventAvailability = resolveSMTPEventAvailability(
     aiDailyBriefIsAvailable(currentUserQuery.data),
     draft.event_types,
+    aiReportingIsAvailable(currentUserQuery.data),
   )
 
   const setDraft: Dispatch<SetStateAction<SMTPHookDraft>> = (value) => {

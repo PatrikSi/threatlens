@@ -31,12 +31,14 @@ All API paths on this page are relative to the published `/api/v1` base.
   - `daily_brief`
   - `connection_test`
   - `reprocess`
+  - `report`
 - Run detail view with:
   - status, timing, worker, model, token counts
   - parent/child progress for reprocess jobs
   - article-level child runs
   - provider exchange inspection (request / response snapshots when available)
 - Daily brief source-item drilldown
+- Report run linkage back to the generated report identifier
 - Manual action history
 - Prompt-change history
 
@@ -49,12 +51,20 @@ All API paths on this page are relative to the published `/api/v1` base.
   - AI summaries
   - relevance scoring
   - daily brief
+  - intelligence report generation
   - auto-enrich new items
 - Daily brief controls:
   - run time (UTC)
   - lookback window
   - max articles
   - retained brief history
+- Report context guardrails:
+  - model context window
+  - reserved output tokens
+  - per-source token cap
+  - maximum sources
+  - maximum model calls
+  - context safety margin
 - Company profile / context:
   - name
   - industry
@@ -78,6 +88,7 @@ All API paths on this page are relative to the published `/api/v1` base.
 - When a normal scheduled or manual brief becomes ready, its integration event is written in the same database transaction. SMTP and webhook delivery is queued immediately after commit and uses an immutable snapshot of the generated brief.
 - A five-minute reconciliation task recovers a ready current-day brief if immediate queue publication fails. Integration delivery retries can make a failed destination receive the brief later than its generation time.
 - Historical backfill runs populate brief history without sending notifications.
+- Report generation uses bounded evidence batches and section-level calls. The builder exposes the conservative preflight estimate before work can be queued.
 
 ## Dashboard Integration
 

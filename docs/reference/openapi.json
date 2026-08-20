@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "1.5.0",
-    "x-threatlens-contract-sha256": "b042ecd98b11119e77c32268f149c78162451c02254d2f9d5825e7e310eea11d"
+    "version": "1.6.0",
+    "x-threatlens-contract-sha256": "11ee76857e2f32c2b70b183de1cf94c869ede874fc08eb3e79b7b0235e4ecb14"
   },
   "servers": [
     {
@@ -562,6 +562,1062 @@
           {
             "SessionCookieAuth": []
           }
+        ]
+      }
+    },
+    "/v1/exports/capabilities": {
+      "get": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Get Export Capabilities",
+        "operationId": "get_export_capabilities_v1_exports_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportCapabilitiesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports/preview": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Preview Export",
+        "operationId": "preview_export_v1_exports_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleExportPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArticleExportPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/exports": {
+      "post": {
+        "tags": [
+          "exports"
+        ],
+        "summary": "Download Export",
+        "operationId": "download_export_v1_exports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:items"
+        ]
+      }
+    },
+    "/v1/reports/capabilities": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Report Capabilities",
+        "operationId": "get_report_capabilities_v1_reports_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportCapabilitiesResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:reports"
+        ]
+      }
+    },
+    "/v1/reports/preview": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Preview Report",
+        "operationId": "preview_report_v1_reports_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/templates": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Report Templates",
+        "operationId": "list_report_templates_v1_reports_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportTemplateResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Report Templates V1 Reports Templates Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:reports"
+        ]
+      },
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Create Template",
+        "operationId": "create_template_v1_reports_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportTemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportTemplateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/templates/{template_id}": {
+      "put": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Update Template",
+        "operationId": "update_template_v1_reports_templates__template_id__put",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportTemplateUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportTemplateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      },
+      "delete": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Remove Template",
+        "operationId": "remove_template_v1_reports_templates__template_id__delete",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/templates/{template_id}/clone": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Clone Template",
+        "operationId": "clone_template_v1_reports_templates__template_id__clone_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "template_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Template Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportTemplateResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Reports",
+        "operationId": "list_reports_v1_reports_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportListItem"
+                  },
+                  "title": "Response List Reports V1 Reports Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "read:reports"
+        ]
+      },
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Create Report",
+        "operationId": "create_report_v1_reports_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportQueueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/{report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Get Report",
+        "operationId": "get_report_v1_reports__report_id__get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDetailResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Remove Report",
+        "operationId": "remove_report_v1_reports__report_id__delete",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}/download": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Download Report",
+        "operationId": "download_report_v1_reports__report_id__download_get",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(markdown|html|pdf)$",
+              "default": "markdown",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/{report_id}/retry": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Retry Report",
+        "operationId": "retry_report_v1_reports__report_id__retry_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportQueueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/reports/schedules": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "List Schedules",
+        "operationId": "list_schedules_v1_reports_schedules_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ReportScheduleResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Schedules V1 Reports Schedules Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "read:reports"
+        ]
+      },
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Create Schedule",
+        "operationId": "create_schedule_v1_reports_schedules_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportScheduleCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/schedules/{schedule_id}": {
+      "put": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Update Schedule",
+        "operationId": "update_schedule_v1_reports_schedules__schedule_id__put",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportScheduleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportScheduleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      },
+      "delete": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Remove Schedule",
+        "operationId": "remove_schedule_v1_reports_schedules__schedule_id__delete",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
+        ]
+      }
+    },
+    "/v1/reports/schedules/{schedule_id}/run": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Run Schedule",
+        "operationId": "run_schedule_v1_reports_schedules__schedule_id__run_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Schedule Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportQueueResponse"
+                  },
+                  "title": "Response Run Schedule V1 Reports Schedules  Schedule Id  Run Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "x-threatlens-required-token-scopes": [
+          "write:reports"
         ]
       }
     },
@@ -7699,6 +8755,10 @@
             "type": "boolean",
             "title": "Daily Brief Enabled"
           },
+          "reporting_enabled": {
+            "type": "boolean",
+            "title": "Reporting Enabled"
+          },
           "auto_enrich_new_items": {
             "type": "boolean",
             "title": "Auto Enrich New Items"
@@ -7722,6 +8782,30 @@
           "daily_brief_schedule_minute_utc": {
             "type": "integer",
             "title": "Daily Brief Schedule Minute Utc"
+          },
+          "report_context_window_tokens": {
+            "type": "integer",
+            "title": "Report Context Window Tokens"
+          },
+          "report_reserved_output_tokens": {
+            "type": "integer",
+            "title": "Report Reserved Output Tokens"
+          },
+          "report_source_token_cap": {
+            "type": "integer",
+            "title": "Report Source Token Cap"
+          },
+          "report_max_sources": {
+            "type": "integer",
+            "title": "Report Max Sources"
+          },
+          "report_max_model_calls": {
+            "type": "integer",
+            "title": "Report Max Model Calls"
+          },
+          "report_context_safety_percent": {
+            "type": "integer",
+            "title": "Report Context Safety Percent"
           },
           "relevance_medium_threshold": {
             "type": "number",
@@ -7895,12 +8979,19 @@
           "summary_enabled",
           "relevance_enabled",
           "daily_brief_enabled",
+          "reporting_enabled",
           "auto_enrich_new_items",
           "daily_brief_window_hours",
           "daily_brief_max_items",
           "daily_brief_history_limit",
           "daily_brief_schedule_hour_utc",
           "daily_brief_schedule_minute_utc",
+          "report_context_window_tokens",
+          "report_reserved_output_tokens",
+          "report_source_token_cap",
+          "report_max_sources",
+          "report_max_model_calls",
+          "report_context_safety_percent",
           "relevance_medium_threshold",
           "relevance_high_threshold",
           "company_name",
@@ -7998,6 +9089,11 @@
             "title": "Daily Brief Enabled",
             "default": true
           },
+          "reporting_enabled": {
+            "type": "boolean",
+            "title": "Reporting Enabled",
+            "default": true
+          },
           "auto_enrich_new_items": {
             "type": "boolean",
             "title": "Auto Enrich New Items",
@@ -8037,6 +9133,48 @@
             "minimum": 0.0,
             "title": "Daily Brief Schedule Minute Utc",
             "default": 0
+          },
+          "report_context_window_tokens": {
+            "type": "integer",
+            "maximum": 1000000.0,
+            "minimum": 2048.0,
+            "title": "Report Context Window Tokens",
+            "default": 8192
+          },
+          "report_reserved_output_tokens": {
+            "type": "integer",
+            "maximum": 65536.0,
+            "minimum": 256.0,
+            "title": "Report Reserved Output Tokens",
+            "default": 1200
+          },
+          "report_source_token_cap": {
+            "type": "integer",
+            "maximum": 32768.0,
+            "minimum": 128.0,
+            "title": "Report Source Token Cap",
+            "default": 700
+          },
+          "report_max_sources": {
+            "type": "integer",
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Report Max Sources",
+            "default": 100
+          },
+          "report_max_model_calls": {
+            "type": "integer",
+            "maximum": 200.0,
+            "minimum": 2.0,
+            "title": "Report Max Model Calls",
+            "default": 20
+          },
+          "report_context_safety_percent": {
+            "type": "integer",
+            "maximum": 40.0,
+            "minimum": 5.0,
+            "title": "Report Context Safety Percent",
+            "default": 15
           },
           "relevance_medium_threshold": {
             "type": "number",
@@ -8354,6 +9492,7 @@
             "enum": [
               "item_enrichment",
               "daily_brief",
+              "report",
               "connection_test",
               "reprocess"
             ],
@@ -8515,6 +9654,18 @@
               }
             ],
             "title": "Daily Brief Id"
+          },
+          "report_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Id"
           },
           "parent_run_id": {
             "anyOf": [
@@ -8943,6 +10094,7 @@
             "enum": [
               "item_enrichment",
               "daily_brief",
+              "report",
               "connection_test"
             ],
             "title": "Feature Type"
@@ -9781,6 +10933,10 @@
           "ai_daily_brief_enabled": {
             "type": "boolean",
             "title": "Ai Daily Brief Enabled"
+          },
+          "ai_reporting_enabled": {
+            "type": "boolean",
+            "title": "Ai Reporting Enabled"
           }
         },
         "type": "object",
@@ -9789,9 +10945,527 @@
           "ai_configured",
           "ai_summary_enabled",
           "ai_relevance_enabled",
-          "ai_daily_brief_enabled"
+          "ai_daily_brief_enabled",
+          "ai_reporting_enabled"
         ],
         "title": "AppFeaturesResponse"
+      },
+      "ArticleExportCapabilitiesResponse": {
+        "properties": {
+          "formats": {
+            "items": {
+              "$ref": "#/components/schemas/ExportFormatCapability"
+            },
+            "type": "array",
+            "title": "Formats"
+          },
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Feeds"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Classifications"
+          },
+          "max_items": {
+            "type": "integer",
+            "title": "Max Items"
+          },
+          "max_pdf_items": {
+            "type": "integer",
+            "title": "Max Pdf Items"
+          },
+          "max_uncompressed_bytes": {
+            "type": "integer",
+            "title": "Max Uncompressed Bytes"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "formats",
+          "feeds",
+          "tags",
+          "classifications",
+          "max_items",
+          "max_pdf_items",
+          "max_uncompressed_bytes",
+          "preview_limit"
+        ],
+        "title": "ArticleExportCapabilitiesResponse"
+      },
+      "ArticleExportFilters": {
+        "properties": {
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Feed Ids"
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Tag Ids"
+          },
+          "tags_mode": {
+            "type": "string",
+            "enum": [
+              "any",
+              "all"
+            ],
+            "title": "Tags Mode",
+            "default": "any"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Classifications"
+          },
+          "ai_relevance_labels": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Ai Relevance Labels"
+          },
+          "ai_score_min": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Min"
+          },
+          "ai_score_max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Max"
+          },
+          "is_read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Article Text"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "date_basis": {
+            "type": "string",
+            "enum": [
+              "first_seen_at",
+              "published_at_or_first_seen_at"
+            ],
+            "title": "Date Basis",
+            "default": "published_at_or_first_seen_at"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportFilters"
+      },
+      "ArticleExportOptions": {
+        "properties": {
+          "include_article_text": {
+            "type": "boolean",
+            "title": "Include Article Text",
+            "default": true
+          },
+          "csv_include_article_text": {
+            "type": "boolean",
+            "title": "Csv Include Article Text",
+            "default": false
+          },
+          "include_ai_details": {
+            "type": "boolean",
+            "title": "Include Ai Details",
+            "default": true
+          },
+          "include_tag_metadata": {
+            "type": "boolean",
+            "title": "Include Tag Metadata",
+            "default": true
+          },
+          "include_iocs": {
+            "type": "boolean",
+            "title": "Include Iocs",
+            "default": true
+          },
+          "include_ioc_csv": {
+            "type": "boolean",
+            "title": "Include Ioc Csv",
+            "default": true
+          },
+          "include_user_state": {
+            "type": "boolean",
+            "title": "Include User State",
+            "default": false
+          },
+          "include_user_notes": {
+            "type": "boolean",
+            "title": "Include User Notes",
+            "default": false
+          },
+          "pdf_include_article_text": {
+            "type": "boolean",
+            "title": "Pdf Include Article Text",
+            "default": true
+          },
+          "stix_marking": {
+            "type": "string",
+            "enum": [
+              "none",
+              "TLP:WHITE",
+              "TLP:GREEN",
+              "TLP:AMBER",
+              "TLP:RED"
+            ],
+            "title": "Stix Marking",
+            "default": "TLP:WHITE"
+          },
+          "misp_distribution": {
+            "type": "integer",
+            "maximum": 3.0,
+            "minimum": 0.0,
+            "title": "Misp Distribution",
+            "default": 0
+          },
+          "filename_prefix": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filename Prefix"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportOptions"
+      },
+      "ArticleExportPreviewItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "feed_name": {
+            "type": "string",
+            "title": "Feed Name"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "ai_relevance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Score"
+          },
+          "ai_relevance_label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Label"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "is_read": {
+            "type": "boolean",
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "type": "boolean",
+            "title": "Has Article Text"
+          },
+          "ioc_count": {
+            "type": "integer",
+            "title": "Ioc Count"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "feed_name",
+          "published_at",
+          "first_seen_at",
+          "classification",
+          "ai_relevance_score",
+          "ai_relevance_label",
+          "tags",
+          "is_read",
+          "is_starred",
+          "has_article_text",
+          "ioc_count"
+        ],
+        "title": "ArticleExportPreviewItem"
+      },
+      "ArticleExportPreviewRequest": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleExportPreviewRequest"
+      },
+      "ArticleExportPreviewResponse": {
+        "properties": {
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches"
+          },
+          "articles_with_text": {
+            "type": "integer",
+            "title": "Articles With Text"
+          },
+          "items_with_iocs": {
+            "type": "integer",
+            "title": "Items With Iocs"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          },
+          "exceeds_export_limit": {
+            "type": "boolean",
+            "title": "Exceeds Export Limit"
+          },
+          "exceeds_pdf_limit": {
+            "type": "boolean",
+            "title": "Exceeds Pdf Limit"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ArticleExportPreviewItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_matches",
+          "articles_with_text",
+          "items_with_iocs",
+          "preview_limit",
+          "exceeds_export_limit",
+          "exceeds_pdf_limit",
+          "items"
+        ],
+        "title": "ArticleExportPreviewResponse"
+      },
+      "ArticleExportRequest": {
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Format"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          },
+          "options": {
+            "$ref": "#/components/schemas/ArticleExportOptions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "format"
+        ],
+        "title": "ArticleExportRequest"
       },
       "ArticleResponse": {
         "properties": {
@@ -10406,6 +12080,83 @@
         },
         "type": "object",
         "title": "EncryptedDataStartupScan"
+      },
+      "ExportFormatCapability": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "jsonl",
+              "threat_bundle",
+              "stix",
+              "misp",
+              "pdf_bundle"
+            ],
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "extension": {
+            "type": "string",
+            "title": "Extension"
+          },
+          "media_type": {
+            "type": "string",
+            "title": "Media Type"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "supports_article_text": {
+            "type": "boolean",
+            "title": "Supports Article Text"
+          },
+          "supports_iocs": {
+            "type": "boolean",
+            "title": "Supports Iocs"
+          },
+          "supports_user_state": {
+            "type": "boolean",
+            "title": "Supports User State"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "extension",
+          "media_type",
+          "description",
+          "supports_article_text",
+          "supports_iocs",
+          "supports_user_state"
+        ],
+        "title": "ExportFormatCapability"
+      },
+      "ExportOptionEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ExportOptionEntry"
       },
       "FeedCreate": {
         "properties": {
@@ -12254,7 +14005,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type"
           },
@@ -12518,7 +14270,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type"
           },
@@ -12797,7 +14550,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type"
           },
@@ -13078,7 +14832,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type",
             "default": "rss_item_new"
@@ -13671,6 +15426,2123 @@
         ],
         "title": "RegistrationSettingsResponse"
       },
+      "ReportArticleFilters": {
+        "properties": {
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "feed_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Feed Ids"
+          },
+          "tag_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 250,
+            "title": "Tag Ids"
+          },
+          "tags_mode": {
+            "type": "string",
+            "enum": [
+              "any",
+              "all"
+            ],
+            "title": "Tags Mode",
+            "default": "any"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Classifications"
+          },
+          "ai_relevance_labels": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high"
+              ]
+            },
+            "type": "array",
+            "maxItems": 3,
+            "title": "Ai Relevance Labels"
+          },
+          "ai_score_min": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Min"
+          },
+          "ai_score_max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 1.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Score Max"
+          },
+          "is_read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has Article Text"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
+          "date_basis": {
+            "type": "string",
+            "enum": [
+              "first_seen_at",
+              "published_at_or_first_seen_at"
+            ],
+            "title": "Date Basis",
+            "default": "published_at_or_first_seen_at"
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "published_at_desc",
+              "published_at_asc",
+              "first_seen_desc",
+              "first_seen_asc"
+            ],
+            "title": "Sort",
+            "default": "published_at_desc"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportArticleFilters"
+      },
+      "ReportCapabilitiesResponse": {
+        "properties": {
+          "reporting_enabled": {
+            "type": "boolean",
+            "title": "Reporting Enabled"
+          },
+          "ai_configured": {
+            "type": "boolean",
+            "title": "Ai Configured"
+          },
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Feeds"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/ExportOptionEntry"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Classifications"
+          },
+          "max_sources": {
+            "type": "integer",
+            "title": "Max Sources"
+          },
+          "preview_limit": {
+            "type": "integer",
+            "title": "Preview Limit"
+          },
+          "context_window_tokens": {
+            "type": "integer",
+            "title": "Context Window Tokens"
+          },
+          "reserved_output_tokens": {
+            "type": "integer",
+            "title": "Reserved Output Tokens"
+          },
+          "source_token_cap": {
+            "type": "integer",
+            "title": "Source Token Cap"
+          },
+          "max_model_calls": {
+            "type": "integer",
+            "title": "Max Model Calls"
+          },
+          "safety_percent": {
+            "type": "integer",
+            "title": "Safety Percent"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "reporting_enabled",
+          "ai_configured",
+          "feeds",
+          "tags",
+          "classifications",
+          "max_sources",
+          "preview_limit",
+          "context_window_tokens",
+          "reserved_output_tokens",
+          "source_token_cap",
+          "max_model_calls",
+          "safety_percent"
+        ],
+        "title": "ReportCapabilitiesResponse"
+      },
+      "ReportContextEstimate": {
+        "properties": {
+          "context_window_tokens": {
+            "type": "integer",
+            "title": "Context Window Tokens"
+          },
+          "reserved_output_tokens": {
+            "type": "integer",
+            "title": "Reserved Output Tokens"
+          },
+          "safety_margin_tokens": {
+            "type": "integer",
+            "title": "Safety Margin Tokens"
+          },
+          "usable_input_tokens": {
+            "type": "integer",
+            "title": "Usable Input Tokens"
+          },
+          "estimated_source_tokens": {
+            "type": "integer",
+            "title": "Estimated Source Tokens"
+          },
+          "estimated_fixed_prompt_tokens": {
+            "type": "integer",
+            "title": "Estimated Fixed Prompt Tokens"
+          },
+          "estimated_peak_input_tokens": {
+            "type": "integer",
+            "title": "Estimated Peak Input Tokens"
+          },
+          "estimated_batches": {
+            "type": "integer",
+            "title": "Estimated Batches"
+          },
+          "estimated_model_calls": {
+            "type": "integer",
+            "title": "Estimated Model Calls"
+          },
+          "selected_source_count": {
+            "type": "integer",
+            "title": "Selected Source Count"
+          },
+          "omitted_source_count": {
+            "type": "integer",
+            "title": "Omitted Source Count"
+          },
+          "coverage_percent": {
+            "type": "number",
+            "title": "Coverage Percent"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "context_window_tokens",
+          "reserved_output_tokens",
+          "safety_margin_tokens",
+          "usable_input_tokens",
+          "estimated_source_tokens",
+          "estimated_fixed_prompt_tokens",
+          "estimated_peak_input_tokens",
+          "estimated_batches",
+          "estimated_model_calls",
+          "selected_source_count",
+          "omitted_source_count",
+          "coverage_percent",
+          "warnings"
+        ],
+        "title": "ReportContextEstimate"
+      },
+      "ReportCreateRequest": {
+        "properties": {
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period End"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          },
+          "excluded_item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Excluded Item Ids"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sections"
+          },
+          "deliver_when_ready": {
+            "type": "boolean",
+            "title": "Deliver When Ready",
+            "default": false
+          },
+          "delivery_mode": {
+            "type": "string",
+            "enum": [
+              "link",
+              "summary",
+              "full"
+            ],
+            "title": "Delivery Mode",
+            "default": "summary"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "period_start",
+          "period_end"
+        ],
+        "title": "ReportCreateRequest"
+      },
+      "ReportDetailResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "schedule_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Id"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "report_type": {
+            "type": "string",
+            "title": "Report Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "ready",
+              "error",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "trigger_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled",
+              "retry"
+            ],
+            "title": "Trigger Source"
+          },
+          "generation_stage": {
+            "type": "string",
+            "title": "Generation Stage"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period End"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "included_source_count": {
+            "type": "integer",
+            "title": "Included Source Count"
+          },
+          "model_calls": {
+            "type": "integer",
+            "title": "Model Calls"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections_config": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "title": "Sections Config"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "coverage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Coverage"
+          },
+          "summary_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Text"
+          },
+          "estimated_input_tokens": {
+            "type": "integer",
+            "title": "Estimated Input Tokens"
+          },
+          "prompt_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Tokens"
+          },
+          "completion_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Tokens"
+          },
+          "total_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Tokens"
+          },
+          "context_window_tokens": {
+            "type": "integer",
+            "title": "Context Window Tokens"
+          },
+          "generation_batches": {
+            "type": "integer",
+            "title": "Generation Batches"
+          },
+          "delivery_requested": {
+            "type": "boolean",
+            "title": "Delivery Requested"
+          },
+          "delivery_mode": {
+            "type": "string",
+            "enum": [
+              "link",
+              "summary",
+              "full"
+            ],
+            "title": "Delivery Mode"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionResponse"
+            },
+            "type": "array",
+            "title": "Sections"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSourceResponse"
+            },
+            "type": "array",
+            "title": "Sources"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "template_id",
+          "schedule_id",
+          "owner_user_id",
+          "title",
+          "report_type",
+          "status",
+          "trigger_source",
+          "generation_stage",
+          "period_start",
+          "period_end",
+          "source_count",
+          "included_source_count",
+          "model_calls",
+          "provider",
+          "model",
+          "error_code",
+          "error",
+          "generated_at",
+          "created_at",
+          "filters",
+          "prompt",
+          "sections_config",
+          "metrics",
+          "coverage",
+          "summary_text",
+          "estimated_input_tokens",
+          "prompt_tokens",
+          "completion_tokens",
+          "total_tokens",
+          "context_window_tokens",
+          "generation_batches",
+          "delivery_requested",
+          "delivery_mode",
+          "sections",
+          "sources"
+        ],
+        "title": "ReportDetailResponse"
+      },
+      "ReportListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "template_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template Id"
+          },
+          "schedule_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Id"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "report_type": {
+            "type": "string",
+            "title": "Report Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "ready",
+              "error",
+              "skipped"
+            ],
+            "title": "Status"
+          },
+          "trigger_source": {
+            "type": "string",
+            "enum": [
+              "manual",
+              "scheduled",
+              "retry"
+            ],
+            "title": "Trigger Source"
+          },
+          "generation_stage": {
+            "type": "string",
+            "title": "Generation Stage"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Period End"
+          },
+          "source_count": {
+            "type": "integer",
+            "title": "Source Count"
+          },
+          "included_source_count": {
+            "type": "integer",
+            "title": "Included Source Count"
+          },
+          "model_calls": {
+            "type": "integer",
+            "title": "Model Calls"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "template_id",
+          "schedule_id",
+          "owner_user_id",
+          "title",
+          "report_type",
+          "status",
+          "trigger_source",
+          "generation_stage",
+          "period_start",
+          "period_end",
+          "source_count",
+          "included_source_count",
+          "model_calls",
+          "provider",
+          "model",
+          "error_code",
+          "error",
+          "generated_at",
+          "created_at"
+        ],
+        "title": "ReportListItem"
+      },
+      "ReportPreviewItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "feed_name": {
+            "type": "string",
+            "title": "Feed Name"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "ai_relevance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Score"
+          },
+          "ai_relevance_label": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Relevance Label"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "is_read": {
+            "type": "boolean",
+            "title": "Is Read"
+          },
+          "is_starred": {
+            "type": "boolean",
+            "title": "Is Starred"
+          },
+          "has_article_text": {
+            "type": "boolean",
+            "title": "Has Article Text"
+          },
+          "ioc_count": {
+            "type": "integer",
+            "title": "Ioc Count"
+          },
+          "estimated_tokens": {
+            "type": "integer",
+            "title": "Estimated Tokens"
+          },
+          "selected": {
+            "type": "boolean",
+            "title": "Selected"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "url",
+          "feed_name",
+          "published_at",
+          "first_seen_at",
+          "classification",
+          "ai_relevance_score",
+          "ai_relevance_label",
+          "tags",
+          "is_read",
+          "is_starred",
+          "has_article_text",
+          "ioc_count",
+          "estimated_tokens",
+          "selected"
+        ],
+        "title": "ReportPreviewItem"
+      },
+      "ReportPreviewRequest": {
+        "properties": {
+          "filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          },
+          "excluded_item_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Excluded Item Ids"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Sections"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportPreviewRequest"
+      },
+      "ReportPreviewResponse": {
+        "properties": {
+          "total_matches": {
+            "type": "integer",
+            "title": "Total Matches"
+          },
+          "articles_with_text": {
+            "type": "integer",
+            "title": "Articles With Text"
+          },
+          "items_with_iocs": {
+            "type": "integer",
+            "title": "Items With Iocs"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReportPreviewItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "estimate": {
+            "$ref": "#/components/schemas/ReportContextEstimate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total_matches",
+          "articles_with_text",
+          "items_with_iocs",
+          "items",
+          "estimate"
+        ],
+        "title": "ReportPreviewResponse"
+      },
+      "ReportPromptConfig": {
+        "properties": {
+          "audience": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Audience",
+            "default": "security_team"
+          },
+          "objective": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Objective",
+            "default": "Summarize material security developments."
+          },
+          "tone": {
+            "type": "string",
+            "enum": [
+              "analytical",
+              "concise",
+              "executive",
+              "technical"
+            ],
+            "title": "Tone",
+            "default": "analytical"
+          },
+          "detail_level": {
+            "type": "string",
+            "enum": [
+              "brief",
+              "standard",
+              "detailed"
+            ],
+            "title": "Detail Level",
+            "default": "standard"
+          },
+          "use_company_context": {
+            "type": "boolean",
+            "title": "Use Company Context",
+            "default": true
+          },
+          "custom_instructions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instructions"
+          },
+          "focus_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Focus Topics"
+          },
+          "excluded_topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 50,
+            "title": "Excluded Topics"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReportPromptConfig"
+      },
+      "ReportQueueResponse": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Report Id"
+          },
+          "task_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Task Run Id"
+          },
+          "celery_task_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Celery Task Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "report_id",
+          "task_run_id",
+          "celery_task_id",
+          "status"
+        ],
+        "title": "ReportQueueResponse"
+      },
+      "ReportScheduleCreate": {
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Template Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "monthly"
+            ],
+            "title": "Cadence",
+            "default": "weekly"
+          },
+          "day_of_week": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Day Of Week",
+            "default": 0
+          },
+          "day_of_month": {
+            "type": "integer",
+            "maximum": 28.0,
+            "minimum": 1.0,
+            "title": "Day Of Month",
+            "default": 1
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour",
+            "default": 9
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute",
+            "default": 0
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "default": "UTC"
+          },
+          "window_type": {
+            "type": "string",
+            "enum": [
+              "previous_complete_week",
+              "rolling_days",
+              "previous_complete_month"
+            ],
+            "title": "Window Type",
+            "default": "previous_complete_week"
+          },
+          "rolling_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Rolling Days",
+            "default": 7
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          },
+          "custom_instructions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instructions"
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "title": "Delivery Enabled",
+            "default": false
+          },
+          "delivery_mode": {
+            "type": "string",
+            "enum": [
+              "link",
+              "summary",
+              "full"
+            ],
+            "title": "Delivery Mode",
+            "default": "summary"
+          },
+          "skip_empty": {
+            "type": "boolean",
+            "title": "Skip Empty",
+            "default": true
+          },
+          "missed_run_policy": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip",
+              "all"
+            ],
+            "title": "Missed Run Policy",
+            "default": "latest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template_id",
+          "name"
+        ],
+        "title": "ReportScheduleCreate"
+      },
+      "ReportScheduleResponse": {
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Template Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "monthly"
+            ],
+            "title": "Cadence",
+            "default": "weekly"
+          },
+          "day_of_week": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Day Of Week",
+            "default": 0
+          },
+          "day_of_month": {
+            "type": "integer",
+            "maximum": 28.0,
+            "minimum": 1.0,
+            "title": "Day Of Month",
+            "default": 1
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour",
+            "default": 9
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute",
+            "default": 0
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "default": "UTC"
+          },
+          "window_type": {
+            "type": "string",
+            "enum": [
+              "previous_complete_week",
+              "rolling_days",
+              "previous_complete_month"
+            ],
+            "title": "Window Type",
+            "default": "previous_complete_week"
+          },
+          "rolling_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Rolling Days",
+            "default": 7
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          },
+          "custom_instructions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instructions"
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "title": "Delivery Enabled",
+            "default": false
+          },
+          "delivery_mode": {
+            "type": "string",
+            "enum": [
+              "link",
+              "summary",
+              "full"
+            ],
+            "title": "Delivery Mode",
+            "default": "summary"
+          },
+          "skip_empty": {
+            "type": "boolean",
+            "title": "Skip Empty",
+            "default": true
+          },
+          "missed_run_policy": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip",
+              "all"
+            ],
+            "title": "Missed Run Policy",
+            "default": "latest"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "last_run_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Run At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template_id",
+          "name",
+          "id",
+          "owner_user_id",
+          "next_run_at",
+          "last_run_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReportScheduleResponse"
+      },
+      "ReportScheduleUpdate": {
+        "properties": {
+          "template_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Template Id"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "cadence": {
+            "type": "string",
+            "enum": [
+              "weekly",
+              "monthly"
+            ],
+            "title": "Cadence",
+            "default": "weekly"
+          },
+          "day_of_week": {
+            "type": "integer",
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Day Of Week",
+            "default": 0
+          },
+          "day_of_month": {
+            "type": "integer",
+            "maximum": 28.0,
+            "minimum": 1.0,
+            "title": "Day Of Month",
+            "default": 1
+          },
+          "hour": {
+            "type": "integer",
+            "maximum": 23.0,
+            "minimum": 0.0,
+            "title": "Hour",
+            "default": 9
+          },
+          "minute": {
+            "type": "integer",
+            "maximum": 59.0,
+            "minimum": 0.0,
+            "title": "Minute",
+            "default": 0
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Timezone",
+            "default": "UTC"
+          },
+          "window_type": {
+            "type": "string",
+            "enum": [
+              "previous_complete_week",
+              "rolling_days",
+              "previous_complete_month"
+            ],
+            "title": "Window Type",
+            "default": "previous_complete_week"
+          },
+          "rolling_days": {
+            "type": "integer",
+            "maximum": 365.0,
+            "minimum": 1.0,
+            "title": "Rolling Days",
+            "default": 7
+          },
+          "filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          },
+          "custom_instructions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Custom Instructions"
+          },
+          "delivery_enabled": {
+            "type": "boolean",
+            "title": "Delivery Enabled",
+            "default": false
+          },
+          "delivery_mode": {
+            "type": "string",
+            "enum": [
+              "link",
+              "summary",
+              "full"
+            ],
+            "title": "Delivery Mode",
+            "default": "summary"
+          },
+          "skip_empty": {
+            "type": "boolean",
+            "title": "Skip Empty",
+            "default": true
+          },
+          "missed_run_policy": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip",
+              "all"
+            ],
+            "title": "Missed Run Policy",
+            "default": "latest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "template_id",
+          "name"
+        ],
+        "title": "ReportScheduleUpdate"
+      },
+      "ReportSectionConfig": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[a-z][a-z0-9_]*$",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          },
+          "instructions": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instructions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "title"
+        ],
+        "title": "ReportSectionConfig"
+      },
+      "ReportSectionResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "body_markdown": {
+            "type": "string",
+            "title": "Body Markdown"
+          },
+          "key_points": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Key Points"
+          },
+          "citations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Citations"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "key",
+          "title",
+          "position",
+          "status",
+          "body_markdown",
+          "key_points",
+          "citations",
+          "error"
+        ],
+        "title": "ReportSectionResponse"
+      },
+      "ReportSourceResponse": {
+        "properties": {
+          "citation_key": {
+            "type": "string",
+            "title": "Citation Key"
+          },
+          "item_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Id"
+          },
+          "included": {
+            "type": "boolean",
+            "title": "Included"
+          },
+          "rank": {
+            "type": "integer",
+            "title": "Rank"
+          },
+          "exclusion_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclusion Reason"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "feed_name": {
+            "type": "string",
+            "title": "Feed Name"
+          },
+          "url": {
+            "type": "string",
+            "title": "Url"
+          },
+          "classification": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Classification"
+          },
+          "relevance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevance Score"
+          },
+          "relevance_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevance Label"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "first_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "First Seen At"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "iocs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Iocs"
+          },
+          "estimated_tokens": {
+            "type": "integer",
+            "title": "Estimated Tokens"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "citation_key",
+          "item_id",
+          "included",
+          "rank",
+          "exclusion_reason",
+          "title",
+          "feed_name",
+          "url",
+          "classification",
+          "relevance_score",
+          "relevance_label",
+          "published_at",
+          "first_seen_at",
+          "tags",
+          "iocs",
+          "estimated_tokens"
+        ],
+        "title": "ReportSourceResponse"
+      },
+      "ReportTemplateCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "report_type": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Report Type",
+            "default": "custom"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "shared"
+            ],
+            "title": "Visibility",
+            "default": "private"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sections"
+          },
+          "default_filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ReportTemplateCreate"
+      },
+      "ReportTemplateResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
+          },
+          "builtin_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Builtin Key"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "report_type": {
+            "type": "string",
+            "title": "Report Type"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "shared"
+            ],
+            "title": "Visibility"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "title": "Sections"
+          },
+          "default_filters": {
+            "$ref": "#/components/schemas/ArticleExportFilters"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "owner_user_id",
+          "builtin_key",
+          "name",
+          "description",
+          "report_type",
+          "visibility",
+          "prompt",
+          "sections",
+          "default_filters",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReportTemplateResponse"
+      },
+      "ReportTemplateUpdate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "report_type": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Report Type",
+            "default": "custom"
+          },
+          "visibility": {
+            "type": "string",
+            "enum": [
+              "private",
+              "shared"
+            ],
+            "title": "Visibility",
+            "default": "private"
+          },
+          "prompt": {
+            "$ref": "#/components/schemas/ReportPromptConfig"
+          },
+          "sections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSectionConfig"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Sections"
+          },
+          "default_filters": {
+            "$ref": "#/components/schemas/ReportArticleFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ReportTemplateUpdate"
+      },
       "SMTPAnalyticsEventSummary": {
         "properties": {
           "event_type": {
@@ -13680,7 +17552,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type"
           },
@@ -13969,7 +17842,8 @@
               "alert_match",
               "feed_failing",
               "webhook_failed",
-              "daily_digest"
+              "daily_digest",
+              "report_ready"
             ],
             "title": "Event Type"
           },
@@ -14268,7 +18142,8 @@
                 "alert_match",
                 "feed_failing",
                 "webhook_failed",
-                "daily_digest"
+                "daily_digest",
+                "report_ready"
               ]
             },
             "type": "array",
@@ -14645,7 +18520,8 @@
                 "alert_match",
                 "feed_failing",
                 "webhook_failed",
-                "daily_digest"
+                "daily_digest",
+                "report_ready"
               ]
             },
             "type": "array",
@@ -14902,7 +18778,8 @@
                 "alert_match",
                 "feed_failing",
                 "webhook_failed",
-                "daily_digest"
+                "daily_digest",
+                "report_ready"
               ]
             },
             "type": "array",
@@ -14955,7 +18832,8 @@
                 "alert_match",
                 "feed_failing",
                 "webhook_failed",
-                "daily_digest"
+                "daily_digest",
+                "report_ready"
               ]
             },
             "type": "array",

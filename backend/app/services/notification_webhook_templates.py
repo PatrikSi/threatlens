@@ -58,6 +58,7 @@ class DailyDigestContext:
     brief_text: str = ""
     key_points: list[str] | None = None
     recommended_actions: list[str] | None = None
+    brief_url: str = ""
 
 
 TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
@@ -162,6 +163,8 @@ TEMPLATE_VARIABLES: tuple[NotificationTemplateVariable, ...] = (
     NotificationTemplateVariable(key="brief.window_end", description="End of the AI Daily Brief source window in UTC.", example="2026-03-25T09:00:00+00:00"),
     NotificationTemplateVariable(key="brief.title", description="Generated AI Daily Brief title.", example="Daily threat intelligence brief"),
     NotificationTemplateVariable(key="brief.title_html", description="HTML-escaped generated AI Daily Brief title.", example="Daily threat intelligence brief"),
+    NotificationTemplateVariable(key="brief.url", description="ThreatLens location for the generated brief or report when available.", example="/reporting/a8636d41-f2e8-4690-a385-272e6f852441"),
+    NotificationTemplateVariable(key="brief.url_html", description="HTML-escaped ThreatLens location for the generated brief or report.", example="/reporting/a8636d41-f2e8-4690-a385-272e6f852441"),
     NotificationTemplateVariable(key="brief.text", description="Generated AI Daily Brief narrative.", example="Identity-focused campaigns remain the highest-priority development."),
     NotificationTemplateVariable(key="brief.text_html", description="HTML-escaped AI Daily Brief narrative with preserved line breaks.", example="Identity-focused campaigns remain the highest-priority development."),
     NotificationTemplateVariable(key="brief.item_count", description="Number of source items considered for the AI Daily Brief.", example="18"),
@@ -284,6 +287,8 @@ def build_template_context(
         "brief.window_end": isoformat(digest_context.window_end if digest_context else None),
         "brief.title": digest_context.title if digest_context else "",
         "brief.title_html": escape(digest_context.title) if digest_context else "",
+        "brief.url": digest_context.brief_url if digest_context else "",
+        "brief.url_html": escape(digest_context.brief_url, quote=True) if digest_context else "",
         "brief.text": digest_context.brief_text if digest_context else "",
         "brief.text_html": _html_text(digest_context.brief_text) if digest_context else "",
         "brief.item_count": str(digest_context.total_items if digest_context else 0),

@@ -44,6 +44,12 @@ class AITaskRun(Base):
         nullable=True,
         index=True,
     )
+    report_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("reports.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("ai_task_runs.id", ondelete="SET NULL"),

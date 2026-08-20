@@ -92,12 +92,13 @@ def run_classify_item(item_id: str, *, runtime: ModuleType):
                     db, event_type="alert_match", item=item, feed=feed
                 )
             )
+        primary_category = row.primary_category
         db.commit()
 
     return _complete_classification(
         item_id,
         parsed_item_id,
-        row.primary_category,
+        primary_category,
         feed_name,
         active_ai_settings,
         ai_skip_reason,

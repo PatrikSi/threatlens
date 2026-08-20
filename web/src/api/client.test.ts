@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { ApiError, ApiRequestError, ApiTransportError, apiFetch } from './client'
+import { ApiError, ApiRequestError, ApiTransportError, apiDownload, apiFetch } from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -231,6 +231,69 @@ describe('apiFetch', () => {
     await expect(apiFetch('/mixed-error')).rejects.toMatchObject({
       status: 422,
       message: 'first problem; second problem',
+    })
+  })
+})
+
+describe('apiDownload', () => {
+  it('returns the response blob and a decoded attachment filename', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('article export', {
+            status: 200,
+            headers: {
+              'content-type': 'application/zip',
+              'content-disposition': "attachment; filename*=UTF-8''ThreatLens%20research.zip",
+            },
+          }),
+        ),
+      ),
+    )
+
+    const result = await apiDownload('/exports', { method: 'POST', body: '{}' })
+
+    expect(result.filename).toBe('ThreatLens research.zip')
+    expect(result.contentType).toBe('application/zip')
+    expect(result.blob.size).toBeGreaterThan(0)
+  })
+
+  it('sanitizes path separators in server-provided filenames', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response('csv', {
+            status: 200,
+            headers: { 'content-disposition': 'attachment; filename="../unsafe.csv"' },
+          }),
+        ),
+      ),
+    )
+
+    await expect(apiDownload('/exports', { method: 'POST', body: '{}' })).resolves.toMatchObject({
+      filename: '..-unsafe.csv',
+    })
+  })
+
+  it('preserves structured API errors for failed downloads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ detail: 'Narrow the filters.' }), {
+            status: 413,
+            headers: { 'content-type': 'application/json', 'x-request-id': 'export-request' },
+          }),
+        ),
+      ),
+    )
+
+    await expect(apiDownload('/exports', { method: 'POST', body: '{}' })).rejects.toMatchObject({
+      status: 413,
+      message: 'Narrow the filters.',
+      requestId: 'export-request',
     })
   })
 })

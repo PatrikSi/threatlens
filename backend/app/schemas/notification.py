@@ -5,7 +5,7 @@ from urllib.parse import parse_qsl, urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest"]
+NotificationEventType = Literal["rss_item_new", "alert_match", "feed_failing", "webhook_failed", "daily_digest", "report_ready"]
 NotificationMethod = Literal["GET", "POST", "PUT", "PATCH", "DELETE"]
 NotificationFeedScope = Literal["all", "selected"]
 NotificationBodyMode = Literal["none", "json", "form", "raw"]

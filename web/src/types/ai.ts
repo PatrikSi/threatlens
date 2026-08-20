@@ -24,12 +24,19 @@ export interface AISettings {
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
+  reporting_enabled?: boolean
   auto_enrich_new_items: boolean
   daily_brief_window_hours: number
   daily_brief_max_items: number
   daily_brief_history_limit: number
   daily_brief_schedule_hour_utc: number
   daily_brief_schedule_minute_utc: number
+  report_context_window_tokens?: number
+  report_reserved_output_tokens?: number
+  report_source_token_cap?: number
+  report_max_sources?: number
+  report_max_model_calls?: number
+  report_context_safety_percent?: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null
@@ -62,12 +69,19 @@ export interface AISettingsUpdateRequest {
   summary_enabled: boolean
   relevance_enabled: boolean
   daily_brief_enabled: boolean
+  reporting_enabled: boolean
   auto_enrich_new_items: boolean
   daily_brief_window_hours: number
   daily_brief_max_items: number
   daily_brief_history_limit: number
   daily_brief_schedule_hour_utc: number
   daily_brief_schedule_minute_utc: number
+  report_context_window_tokens: number
+  report_reserved_output_tokens: number
+  report_source_token_cap: number
+  report_max_sources: number
+  report_max_model_calls: number
+  report_context_safety_percent: number
   relevance_medium_threshold: number
   relevance_high_threshold: number
   company_name: string | null
@@ -99,7 +113,7 @@ export interface AITestConnectionResponse {
 }
 
 export interface AIUsageFeatureSummary {
-  feature_type: 'item_enrichment' | 'daily_brief' | 'connection_test'
+  feature_type: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test'
   total_requests: number
   successful_requests: number
   failed_requests: number
@@ -169,7 +183,7 @@ export interface AIDailyBriefBackfillResponse extends AIQueuedTaskResponse {
 
 export interface AITaskRunResponse {
   id: string
-  task_type: 'item_enrichment' | 'daily_brief' | 'connection_test' | 'reprocess'
+  task_type: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
   trigger_source: 'auto' | 'manual' | 'scheduled'
   status: 'queued' | 'running' | 'ready' | 'error' | 'skipped'
   reason: string | null
@@ -184,6 +198,7 @@ export interface AITaskRunResponse {
   item_first_seen_at: string | null
   item_published_at: string | null
   daily_brief_id: string | null
+  report_id?: string | null
   parent_run_id: string | null
   model: string | null
   prompt_tokens: number | null
@@ -234,7 +249,7 @@ export interface AITaskRunDetailResponse {
 export interface AILiveTaskResponse {
   worker_name: string
   celery_task_id: string | null
-  task_name: 'item_enrichment' | 'daily_brief' | 'connection_test' | 'reprocess'
+  task_name: 'item_enrichment' | 'daily_brief' | 'report' | 'connection_test' | 'reprocess'
   state: 'active' | 'reserved' | 'scheduled'
   run_id: string | null
   item_id: string | null

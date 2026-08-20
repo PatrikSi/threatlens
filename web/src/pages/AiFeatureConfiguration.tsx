@@ -13,6 +13,11 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
           checked={draft.daily_brief_enabled}
           onChange={(checked) => updateDraft(setDraft, 'daily_brief_enabled', checked)}
         />
+        <CheckboxRow
+          label="Intelligence report generation"
+          checked={draft.reporting_enabled}
+          onChange={(checked) => updateDraft(setDraft, 'reporting_enabled', checked)}
+        />
         <CheckboxRow label="Auto-enrich new items" checked={draft.auto_enrich_new_items} onChange={(checked) => updateDraft(setDraft, 'auto_enrich_new_items', checked)} />
         <Field label="Medium Relevance Threshold">
           <input
@@ -34,6 +39,30 @@ export function AiFeatureControls({ draft, setDraft, validation }: AiConfigurati
           />
           <FieldError message={validation.relevance_high_threshold} />
         </Field>
+      </div>
+    </Panel>
+  )
+}
+
+export function AiReportingConfiguration({ draft, setDraft, validation }: AiConfigurationDraftProps) {
+  const fields: Array<{ key: keyof typeof draft; label: string; note: string }> = [
+    { key: 'report_context_window_tokens', label: 'Model Context Window', note: 'The actual context window supported by the configured model.' },
+    { key: 'report_reserved_output_tokens', label: 'Output Token Reserve', note: 'Held back from every report call for valid structured output.' },
+    { key: 'report_source_token_cap', label: 'Per-source Token Cap', note: 'Long article text is truncated to this conservative estimate.' },
+    { key: 'report_max_sources', label: 'Maximum Sources', note: 'Highest-ranked matching sources frozen into one report.' },
+    { key: 'report_max_model_calls', label: 'Maximum Model Calls', note: 'Hard ceiling across evidence batches and report sections.' },
+    { key: 'report_context_safety_percent', label: 'Context Safety Margin (%)', note: 'Extra space for tokenizer differences and provider framing.' },
+  ]
+  return (
+    <Panel title="Report Context Guardrails" subtitle="Bound each stage so local and smaller-context models receive predictable work.">
+      <div className="grid gap-3 md:grid-cols-2">
+        {fields.map((field) => (
+          <Field key={field.key} label={field.label}>
+            <input className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]" value={String(draft[field.key])} onChange={(event) => updateDraft(setDraft, field.key, event.target.value as never)} inputMode="numeric" aria-invalid={Boolean(validation[field.key])} />
+            <FieldError message={validation[field.key]} />
+            <span className="mt-1 block text-xs text-slate dark:text-white/60">{field.note}</span>
+          </Field>
+        ))}
       </div>
     </Panel>
   )
