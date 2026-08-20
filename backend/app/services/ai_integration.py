@@ -989,6 +989,7 @@ def _request_json_with_usage(
                 if retry_delay_seconds is not None and retry_delay_seconds > 0:
                     time.sleep(retry_delay_seconds)
                 continue
+            exc.attempt_count = attempt
             raise
 
         if task_run_id is not None:
@@ -1031,6 +1032,7 @@ def _request_json_with_usage(
 
     if last_error is None:
         raise AIIntegrationError("AI request failed unexpectedly")
+    last_error.attempt_count = max_attempts
     raise last_error
 
 

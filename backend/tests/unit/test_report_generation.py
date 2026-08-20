@@ -9,6 +9,7 @@ from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.services import report_generation
 from app.services.ai_context_budget import build_context_budget
+from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_prompt_budget import build_evidence_messages, estimate_message_tokens
 from app.services.report_storage import reset_report_for_retry
 
@@ -108,6 +109,27 @@ def test_unexpected_generation_error_moves_report_to_terminal_state(
     assert failed.provider == "openai_compatible"
     assert failed.model == "local-threat-model"
     assert failed.context_window_tokens == 8192
+
+    reset_report_for_retry(db_session, report=failed)
+    db_session.commit()
+    provider_error = AIIntegrationError("provider unavailable", retryable=True)
+    provider_error.attempt_count = 3
+    monkeypatch.setattr(
+        report_generation,
+        "_synthesize_evidence_batches",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(provider_error),
+    )
+
+    with pytest.raises(AIIntegrationError, match="provider unavailable"):
+        report_generation.generate_report(
+            db_session, report_id=report.id, task_run_id=None
+        )
+
+    db_session.expire_all()
+    provider_failed = db_session.get(Report, report.id)
+    assert provider_failed is not None
+    assert provider_failed.error_code == "provider_error"
+    assert provider_failed.model_calls == 3
 
 
 def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits(

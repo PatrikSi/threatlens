@@ -202,6 +202,8 @@ def generate_report(
             counters.total_tokens,
         )
     except Exception as exc:
+        if isinstance(exc, AIIntegrationError):
+            counters.model_calls += exc.attempt_count
         db.rollback()
         expected_error = isinstance(
             exc,

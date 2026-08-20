@@ -807,7 +807,7 @@ def test_report_retry_respects_provider_attempt_budget(
         "app.services.ai_integration._call_ai_json", _always_truncated
     )
 
-    with pytest.raises(AIIntegrationError, match="truncated"):
+    with pytest.raises(AIIntegrationError, match="truncated") as exc_info:
         request_ai_json_with_usage(
             db_session,
             active,
@@ -819,6 +819,7 @@ def test_report_retry_respects_provider_attempt_budget(
         )
 
     assert requested == [256, 512]
+    assert exc_info.value.attempt_count == 2
 
 
 def test_generate_item_ai_enrichment_stores_summary_relevance_and_usage(db_session, ai_enabled_env, monkeypatch: pytest.MonkeyPatch):
