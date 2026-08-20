@@ -70,6 +70,7 @@ class AICompletionResult:
     response_json: object | None = None
     status_code: int | None = None
     finish_reason: str | None = None
+    attempt_count: int = 1
 
 
 def call_ai_json(

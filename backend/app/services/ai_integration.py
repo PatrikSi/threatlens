@@ -4,7 +4,7 @@ import json
 import random
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -906,8 +906,15 @@ def _request_json_with_usage(
     task_run_id: uuid.UUID | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
+    max_provider_attempts: int | None = None,
 ) -> AICompletionResult:
     max_attempts = max(1, active.request_max_retries + 1)
+    if max_provider_attempts is not None:
+        if max_provider_attempts < 1:
+            raise AIIntegrationError(
+                "AI provider attempt budget is exhausted", retryable=False
+            )
+        max_attempts = min(max_attempts, max_provider_attempts)
     last_error: AIIntegrationError | None = None
     request_max_tokens = max_completion_tokens or active.max_completion_tokens
     db.commit()
@@ -1020,7 +1027,7 @@ def _request_json_with_usage(
             latency_ms=completion.latency_ms,
         )
         db.commit()
-        return completion
+        return replace(completion, attempt_count=attempt)
 
     if last_error is None:
         raise AIIntegrationError("AI request failed unexpectedly")
@@ -1037,6 +1044,7 @@ def request_ai_json_with_usage(
     task_run_id: uuid.UUID | None = None,
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
+    max_provider_attempts: int | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     return _request_json_with_usage(
@@ -1048,6 +1056,7 @@ def request_ai_json_with_usage(
         task_run_id=task_run_id,
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
+        max_provider_attempts=max_provider_attempts,
     )
 
 

@@ -237,3 +237,22 @@ def test_report_completion_retry_limit_uses_only_unused_context_headroom():
         + budget.protocol_overhead_tokens
         == budget.context_window_tokens
     )
+
+
+def test_usage_counters_count_provider_attempts():
+    counters = report_generation._UsageCounters()
+    completion = SimpleNamespace(
+        attempt_count=3,
+        prompt_tokens=100,
+        completion_tokens=50,
+        total_tokens=150,
+        prompt_char_count=0,
+        response_char_count=0,
+    )
+
+    counters.add(completion)
+
+    assert counters.model_calls == 3
+    assert counters.prompt_tokens == 100
+    assert counters.completion_tokens == 50
+    assert counters.total_tokens == 150
