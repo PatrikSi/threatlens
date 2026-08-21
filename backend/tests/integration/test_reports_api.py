@@ -1,9 +1,114 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
+from app.api.routes import reports as reports_routes
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
+from app.services.ai_context_budget import AIContextBudgetError
+from app.services.export_query import ExportSnapshotChangedError
+
+
+def _reporting_settings_stub():
+    return SimpleNamespace(
+        ai_enabled=True,
+        ai_configured=True,
+        reporting_enabled=True,
+    )
+
+
+def test_report_preview_returns_actionable_context_budget_error(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+
+    def _reject_plan(*_args, **_kwargs):
+        raise AIContextBudgetError("The report objective leaves no room for evidence.")
+
+    monkeypatch.setattr(reports_routes, "build_report_source_plan", _reject_plan)
+
+    response = client.post(
+        "/reports/preview",
+        json={},
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "The report objective leaves no room for evidence."
+
+
+def test_report_preview_returns_retryable_snapshot_conflict(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+
+    def _change_snapshot(*_args, **_kwargs):
+        raise ExportSnapshotChangedError("source changed")
+
+    monkeypatch.setattr(reports_routes, "build_report_source_plan", _change_snapshot)
+
+    response = client.post(
+        "/reports/preview",
+        json={},
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Matching articles changed while report context was being prepared. "
+        "Refresh the estimate and try again."
+    )
+
+
+def test_report_creation_returns_snapshot_conflict_without_persisting_report(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+
+    def _change_snapshot(*_args, **_kwargs):
+        raise ExportSnapshotChangedError("source changed")
+
+    monkeypatch.setattr(reports_routes, "build_report_source_plan", _change_snapshot)
+    now = datetime.now(timezone.utc)
+
+    response = client.post(
+        "/reports",
+        json={
+            "period_start": (now - timedelta(days=7)).isoformat(),
+            "period_end": now.isoformat(),
+            "sections": [
+                {"key": "executive_summary", "title": "Executive Summary"}
+            ],
+        },
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Matching articles changed while the report was being prepared. "
+        "Try generating it again."
+    )
+    assert db_session.query(Report).count() == 0
 
 
 def test_analyst_cannot_retry_or_delete_another_users_report(

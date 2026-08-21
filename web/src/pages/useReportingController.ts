@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { apiDownload, apiFetch } from '../api/client'
+import { ApiError, ApiTransportError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -27,6 +27,13 @@ import {
   reportPeriodFromFilters,
   validateReportBuilder,
 } from './reportingPageModel'
+import {
+  REPORT_CREATE_TIMEOUT_MS,
+  REPORT_PREVIEW_TIMEOUT_MS,
+  reportPreviewErrorBlocksCreation,
+  resolveReportCreateBlockedReason,
+  shouldRetryReportPreview,
+} from './reportingResilience'
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
 
@@ -112,6 +119,7 @@ export function useReportingController() {
       method: 'POST',
       body: JSON.stringify(debouncedPreviewPayload),
       signal,
+      timeoutMs: REPORT_PREVIEW_TIMEOUT_MS,
     }),
     enabled: Boolean(
       debouncedPreviewPayload &&
@@ -120,6 +128,7 @@ export function useReportingController() {
       canAuthor,
     ),
     placeholderData: keepPreviousData,
+    retry: shouldRetryReportPreview,
   })
 
   const createReportMutation = useMutation({
@@ -138,7 +147,7 @@ export function useReportingController() {
           deliver_when_ready: deliverWhenReady,
           delivery_mode: deliveryMode,
         }),
-        timeoutMs: 30_000,
+        timeoutMs: REPORT_CREATE_TIMEOUT_MS,
       })
     },
     onSuccess: (result) => {
@@ -228,21 +237,24 @@ export function useReportingController() {
 
   const selectedTemplate = templatesQuery.data?.find((entry) => entry.id === selectedTemplateId)
   const previewIsCurrent = previewPayload === debouncedPreviewPayload
-  const createBlockedReason = !canAuthor
-    ? 'The analyst or administrator role is required to generate reports.'
-    : !capabilitiesQuery.data?.reporting_enabled
-      ? 'AI reporting is disabled in AI settings.'
-      : !capabilitiesQuery.data?.ai_configured
-        ? 'Configure and test the AI provider before generating reports.'
-        : validation.errors[0]
-          ? validation.errors[0]
-          : !previewIsCurrent || previewQuery.isFetching
-            ? 'Wait for the source and context estimate to update.'
-            : previewQuery.isError
-              ? 'The source preview must load before generation.'
-              : !previewQuery.data?.estimate.selected_source_count
-                ? 'No matching articles fit the current source and context guardrails.'
-                : null
+  const previewErrorBlocksCreate = previewQuery.isError && reportPreviewErrorBlocksCreation(previewQuery.error)
+  const previewErrorMessage = previewQuery.isError
+    ? resolveApiErrorMessage(
+        previewQuery.error,
+        'The context estimate could not be calculated',
+        { retryGuidance: previewErrorBlocksCreate ? undefined : 'You can retry the estimate or let the server validate the report when it is generated.' },
+      )
+    : null
+  const createBlockedReason = resolveReportCreateBlockedReason({
+    canAuthor,
+    reportingEnabled: Boolean(capabilitiesQuery.data?.reporting_enabled),
+    aiConfigured: Boolean(capabilitiesQuery.data?.ai_configured),
+    validationError: validation.errors[0],
+    previewIsCurrent,
+    previewIsFetching: previewQuery.isFetching,
+    previewError: previewQuery.error,
+    selectedSourceCount: previewQuery.data?.estimate.selected_source_count,
+  })
 
   async function downloadReport(reportId: string, format: 'markdown' | 'html' | 'pdf') {
     const result = await apiDownload(`/reports/${reportId}/download?format=${format}`, { timeoutMs: 60_000 })
@@ -269,6 +281,8 @@ export function useReportingController() {
     schedulesQuery,
     reportDetailQuery,
     previewQuery,
+    previewErrorBlocksCreate,
+    previewErrorMessage,
     selectedTemplate,
     selectedTemplateId,
     setSelectedTemplateId,
@@ -302,8 +316,7 @@ export function useReportingController() {
     downloadReport,
     openReport,
     closeReport,
-    actionError: resolveMutationError([
-      createReportMutation,
+    actionError: resolveMutationError(createReportMutation, [
       retryMutation,
       deleteMutation,
       templateMutation,
@@ -341,7 +354,21 @@ function schedulePayload(schedule: ReportSchedule) {
   }
 }
 
-function resolveMutationError(mutations: Array<{ isError: boolean; error: unknown }>): string | null {
+function resolveMutationError(
+  createMutation: { isError: boolean; error: unknown },
+  mutations: Array<{ isError: boolean; error: unknown }>,
+): string | null {
+  if (createMutation.isError) {
+    const ambiguous = createMutation.error instanceof ApiTransportError
+      || (createMutation.error instanceof ApiError && createMutation.error.status >= 500)
+    return resolveApiErrorMessage(
+      createMutation.error,
+      'The report could not be queued',
+      ambiguous
+        ? { retryGuidance: 'Check the report library before submitting again because the server may have accepted the request.' }
+        : {},
+    )
+  }
   const failed = mutations.find((mutation) => mutation.isError)
   return failed ? resolveApiErrorMessage(failed.error, 'The reporting action could not be completed') : null
 }
