@@ -28,6 +28,7 @@ from app.services.report_prompt_budget import (
     build_evidence_messages,
     build_section_message_plan,
     estimate_message_tokens,
+    extend_evidence_message_batch_plan,
     fit_evidence_to_stage,
     plan_evidence_message_batches,
 )
@@ -302,7 +303,6 @@ def _prepare_runtime_evidence(
         )
 
     selected: list[ReportSourceItem] = []
-    selected_evidence: list[str] = []
     batch_plan = plan_evidence_message_batches(
         [],
         prompt=report.prompt_config_json,
@@ -319,8 +319,9 @@ def _prepare_runtime_evidence(
             generation_context=report.generation_context_json,
             budget=budget,
         )
-        candidate_plan = plan_evidence_message_batches(
-            [*selected_evidence, evidence],
+        candidate_plan = extend_evidence_message_batch_plan(
+            batch_plan,
+            evidence,
             prompt=report.prompt_config_json,
             generation_context=report.generation_context_json,
             budget=budget,
@@ -333,7 +334,6 @@ def _prepare_runtime_evidence(
             continue
         truncated += int(was_truncated)
         selected.append(source)
-        selected_evidence.append(evidence)
         batch_plan = candidate_plan
 
     if not selected:
