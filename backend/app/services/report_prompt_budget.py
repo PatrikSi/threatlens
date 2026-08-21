@@ -164,6 +164,44 @@ def plan_evidence_message_batches(
     )
 
 
+def extend_evidence_message_batch_plan(
+    plan: ReportMessageBatchPlan,
+    evidence: str,
+    *,
+    prompt: dict,
+    generation_context: dict,
+    budget: AIContextBudget,
+) -> ReportMessageBatchPlan:
+    """Append one evidence unit without replanning already completed batches."""
+    if not plan.batches:
+        return plan_evidence_message_batches(
+            [evidence],
+            prompt=prompt,
+            generation_context=generation_context,
+            budget=budget,
+        )
+
+    tail_plan = plan_evidence_message_batches(
+        [*plan.batches[-1], evidence],
+        prompt=prompt,
+        generation_context=generation_context,
+        budget=budget,
+    )
+    batches = (*plan.batches[:-1], *tail_plan.batches)
+    evidence_tokens = estimate_tokens(evidence)
+    return ReportMessageBatchPlan(
+        batches=batches,
+        fixed_prompt_tokens=plan.fixed_prompt_tokens,
+        estimated_input_tokens=plan.estimated_input_tokens + evidence_tokens,
+        largest_evidence_tokens=max(plan.largest_evidence_tokens, evidence_tokens),
+        largest_batch_input_tokens=max(
+            plan.largest_batch_input_tokens,
+            tail_plan.largest_batch_input_tokens,
+        ),
+        context_compacted=plan.context_compacted or tail_plan.context_compacted,
+    )
+
+
 def fit_evidence_to_stage(
     evidence: str,
     *,

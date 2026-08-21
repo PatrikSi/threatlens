@@ -255,7 +255,24 @@ function ContextPanel({ controller }: { controller: ReportingController }) {
         <Metric label="Usable / batch" value={estimate.usable_input_tokens.toLocaleString()} />
       </div>}
       {estimate?.warnings.map((warning) => <p key={warning} className="mt-2 rounded border border-amber-300/60 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200">{warning}</p>)}
-      {controller.previewQuery.isError && <p role="alert" className="mt-2 text-xs text-red-700 dark:text-red-300">The context estimate could not be calculated.</p>}
+      {controller.previewQuery.isError && (
+        <div
+          role="alert"
+          className={`mt-2 rounded border px-2 py-2 text-xs ${controller.previewErrorBlocksCreate
+            ? 'border-red-300/70 bg-red-50 text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200'
+            : 'border-amber-300/70 bg-amber-50 text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/20 dark:text-amber-200'}`}
+        >
+          <p>{controller.previewErrorMessage}</p>
+          <button
+            type="button"
+            className="mt-2 rounded border border-current px-2 py-1 font-semibold"
+            disabled={controller.previewQuery.isFetching}
+            onClick={() => void controller.previewQuery.refetch()}
+          >
+            {controller.previewQuery.isFetching ? 'Retrying...' : 'Retry estimate'}
+          </button>
+        </div>
+      )}
     </section>
   )
 }

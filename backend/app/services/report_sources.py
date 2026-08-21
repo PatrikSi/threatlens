@@ -34,6 +34,7 @@ from app.services.export_query import (
 )
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
+    extend_evidence_message_batch_plan,
     fit_evidence_to_stage,
     plan_evidence_message_batches,
 )
@@ -132,7 +133,6 @@ def build_report_source_plan(
         )
     selected_count = 0
     selected_tokens = 0
-    selected_evidence: list[str] = []
     planned: list[PlannedReportSource] = []
     context_omitted = 0
     batch_plan = empty_batch_plan
@@ -153,8 +153,9 @@ def build_report_source_plan(
         elif selected_count >= active.report_max_sources:
             reason = "source_limit"
         else:
-            candidate_plan = plan_evidence_message_batches(
-                [*selected_evidence, evidence],
+            candidate_plan = extend_evidence_message_batch_plan(
+                batch_plan,
+                evidence,
                 prompt=prompt_payload,
                 generation_context=generation_context,
                 budget=budget,
@@ -165,7 +166,6 @@ def build_report_source_plan(
             else:
                 selected_count += 1
                 selected_tokens += token_count
-                selected_evidence.append(evidence)
                 batch_plan = candidate_plan
         planned.append(
             PlannedReportSource(

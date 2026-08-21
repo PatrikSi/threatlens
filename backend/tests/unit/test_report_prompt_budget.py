@@ -3,6 +3,7 @@ from app.services.report_prompt_budget import (
     build_evidence_messages,
     build_section_message_plan,
     estimate_message_tokens,
+    extend_evidence_message_batch_plan,
     fit_evidence_to_stage,
     plan_evidence_message_batches,
 )
@@ -104,6 +105,47 @@ def test_two_thousand_token_model_retains_room_for_adaptive_evidence():
     assert estimate_tokens(evidence) <= 700
     assert plan.batch_count == 1
     assert plan.largest_batch_input_tokens <= budget.usable_input_tokens
+
+
+def test_incremental_evidence_plan_matches_full_replanning_at_every_step():
+    budget = build_context_budget(
+        context_window_tokens=4096,
+        reserved_output_tokens=700,
+        safety_percent=10,
+    )
+    prompt, context = _oversized_prompt_context()
+    evidence = [
+        fit_evidence_to_stage(
+            f"[S{index}] Evidence\n" + ("technical detail " * (100 + index * 17)),
+            source_token_cap=500,
+            prompt=prompt,
+            generation_context=context,
+            budget=budget,
+        )[0]
+        for index in range(1, 13)
+    ]
+    incremental = plan_evidence_message_batches(
+        [],
+        prompt=prompt,
+        generation_context=context,
+        budget=budget,
+    )
+
+    for index, entry in enumerate(evidence, start=1):
+        incremental = extend_evidence_message_batch_plan(
+            incremental,
+            entry,
+            prompt=prompt,
+            generation_context=context,
+            budget=budget,
+        )
+        full = plan_evidence_message_batches(
+            evidence[:index],
+            prompt=prompt,
+            generation_context=context,
+            budget=budget,
+        )
+        assert incremental == full
 
 
 def test_section_plan_bounds_context_instructions_metrics_and_findings():
