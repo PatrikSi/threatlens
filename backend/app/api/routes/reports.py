@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -38,6 +40,7 @@ from app.schemas.reports import (
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.audit import record_audit
+from app.services.export_query import ExportSnapshotChangedError
 from app.services.report_schedules import (
     apply_schedule_payload,
     create_report_schedule,
@@ -77,6 +80,7 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 REPORT_PREVIEW_LIMIT = 25
+logger = logging.getLogger(__name__)
 
 
 @router.get("/capabilities", response_model=ReportCapabilitiesResponse)
@@ -120,6 +124,7 @@ def preview_report(
 ):
     _require_report_author(user)
     active = _active_reporting_settings(db)
+    started_at = time.monotonic()
     try:
         plan = build_report_source_plan(
             db,
@@ -131,9 +136,32 @@ def preview_report(
             active=active,
         )
     except AIContextBudgetError as exc:
+        logger.info(
+            "report_preview_rejected user_id=%s reason=context_budget duration_ms=%d",
+            user.id,
+            round((time.monotonic() - started_at) * 1000),
+        )
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    except ExportSnapshotChangedError as exc:
+        logger.info(
+            "report_preview_rejected user_id=%s reason=snapshot_changed duration_ms=%d",
+            user.id,
+            round((time.monotonic() - started_at) * 1000),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Matching articles changed while report context was being prepared. Refresh the estimate and try again.",
+        ) from exc
+    logger.info(
+        "report_preview_planned user_id=%s total_matches=%d selected_sources=%d batches=%d duration_ms=%d",
+        user.id,
+        plan.total_matches,
+        len(plan.included_sources),
+        plan.batch_count,
+        round((time.monotonic() - started_at) * 1000),
+    )
     return report_preview_from_plan(plan, preview_limit=REPORT_PREVIEW_LIMIT)
 
 
@@ -286,7 +314,7 @@ def list_reports(
     if report_status:
         if report_status not in {"queued", "running", "ready", "error", "skipped"}:
             raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 detail="Invalid report status filter",
             )
         query = query.where(Report.status == report_status)
@@ -340,9 +368,14 @@ def create_report(
             template=template,
             active=active,
         )
+    except ExportSnapshotChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Matching articles changed while the report was being prepared. Try generating it again.",
+        ) from exc
     except (AIContextBudgetError, ReportStorageError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     run = create_report_task_run(
         db, report=report, actor_user_id=user.id, trigger_source="manual"
@@ -590,7 +623,7 @@ def run_schedule(
         )
     except (AIContextBudgetError, ReportStorageError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
     if not reports and db.get(ReportSchedule, schedule_id) is None:
         raise HTTPException(
