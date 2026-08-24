@@ -118,4 +118,37 @@ describe('serialized reporting writes', () => {
     await expect(first).rejects.toThrow('first failed')
     await expect(second).resolves.toBe('saved')
   })
+
+  it('preserves the final intent for an A then B then A submission sequence', async () => {
+    const started: string[] = []
+    let releaseFirst: (() => void) | undefined
+    let releaseSecond: (() => void) | undefined
+    const first = serializeReportingWrite('template-2', 'A', () => {
+      started.push('A1')
+      return new Promise<string>((resolve) => {
+        releaseFirst = () => resolve('A1')
+      })
+    })
+    const second = serializeReportingWrite('template-2', 'B', () => {
+      started.push('B')
+      return new Promise<string>((resolve) => {
+        releaseSecond = () => resolve('B')
+      })
+    })
+    const final = serializeReportingWrite('template-2', 'A', () => {
+      started.push('A2')
+      return Promise.resolve('A2')
+    })
+
+    await Promise.resolve()
+    expect(started).toEqual(['A1'])
+    releaseFirst?.()
+    await expect(first).resolves.toBe('A1')
+    await Promise.resolve()
+    expect(started).toEqual(['A1', 'B'])
+    releaseSecond?.()
+    await expect(second).resolves.toBe('B')
+    await expect(final).resolves.toBe('A2')
+    expect(started).toEqual(['A1', 'B', 'A2'])
+  })
 })
