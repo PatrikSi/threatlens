@@ -228,7 +228,7 @@ export function useReportingController() {
           path,
           requestScope,
           { method: 'POST' },
-          (value) => requireReportQueueResponse(value, path),
+          (value) => requireReportQueueResponse(value, path, reportId),
         ),
       )
     },
@@ -287,6 +287,7 @@ export function useReportingController() {
             path,
             'report template update',
             200,
+            entityKey,
           ),
         )
       }
@@ -441,6 +442,7 @@ export function useReportingController() {
           path,
           'report schedule update',
           200,
+          schedule.id,
         ),
       )
     },

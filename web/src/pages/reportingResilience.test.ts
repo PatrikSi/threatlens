@@ -158,4 +158,19 @@ describe('report mutation response validation', () => {
     expect(error).toBeInstanceOf(ApiError)
     expect(error).toMatchObject({ status: 200, code: 'invalid_response' })
   })
+
+  it('rejects valid-looking confirmations for a different resource', () => {
+    expect(() => requireReportQueueResponse(
+      { ...queueResponse, report_id: 'report-2' },
+      '/reports/report-1/retry',
+      'report-1',
+    )).toThrow('different report')
+    expect(() => requireReportingResource(
+      { id: 'schedule-2' },
+      '/reports/schedules/schedule-1',
+      'schedule update',
+      200,
+      'schedule-1',
+    )).toThrow('different resource')
+  })
 })

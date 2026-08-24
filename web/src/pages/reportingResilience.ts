@@ -21,12 +21,21 @@ export function isAmbiguousReportingMutationError(error: unknown): boolean {
 export function requireReportQueueResponse(
   value: unknown,
   path: string,
+  expectedReportId?: string,
 ): ReportQueueResponse {
   if (!isReportQueueResponse(value)) {
     throw invalidReportingResponse(
       path,
       value,
       'The API accepted the report request but returned an incomplete queue confirmation.',
+      202,
+    )
+  }
+  if (expectedReportId && value.report_id !== expectedReportId) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      'The API returned a queue confirmation for a different report.',
       202,
     )
   }
@@ -53,12 +62,21 @@ export function requireReportingResource<T extends { id: string }>(
   path: string,
   resourceLabel: string,
   responseStatus: 200 | 201,
+  expectedResourceId?: string,
 ): T {
   if (!isRecord(value) || !isNonEmptyString(value.id)) {
     throw invalidReportingResponse(
       path,
       value,
       `The API accepted the ${resourceLabel} request but did not identify the saved resource.`,
+      responseStatus,
+    )
+  }
+  if (expectedResourceId && value.id !== expectedResourceId) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      `The API returned a different resource after the ${resourceLabel} request.`,
       responseStatus,
     )
   }

@@ -1,4 +1,5 @@
 const PENDING_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
+const STORAGE_KEY_PREFIX = 'threatlens.reporting-request.'
 
 type PendingRequest = {
   key: string
@@ -9,7 +10,14 @@ type PendingRequest = {
 
 const pendingRequests = new Map<string, PendingRequest>()
 const activeRequests = new Map<string, Promise<unknown>>()
-const writeTails = new Map<string, Promise<void>>()
+const writeTails = new Map<string, WriteTail>()
+const knownStorageKeys = new Set<string>()
+
+type WriteTail = {
+  requestKey: string
+  request: Promise<unknown>
+  settled: Promise<void>
+}
 
 export type ReportingRequestOutcome = 'confirmed' | 'ambiguous' | 'rejected'
 
@@ -25,7 +33,7 @@ export function reportingRequestScope(
 
 export function beginPendingReportingRequest(scope: string): string {
   const now = Date.now()
-  let request = pendingRequests.get(scope)
+  let request = pendingRequests.get(scope) ?? loadPendingRequest(scope)
   if (
     !request
     || (request.inFlight === 0 && now - request.createdAt >= PENDING_REQUEST_TTL_MS)
@@ -37,6 +45,7 @@ export function beginPendingReportingRequest(scope: string): string {
       retainAfterSettlement: false,
     }
     pendingRequests.set(scope, request)
+    persistPendingRequest(scope, request)
   }
   if (request.inFlight === 0) request.retainAfterSettlement = false
   request.inFlight += 1
@@ -55,6 +64,9 @@ export function settlePendingReportingRequest(
   if (outcome === 'ambiguous') request.retainAfterSettlement = true
   if (request.inFlight === 0 && !request.retainAfterSettlement) {
     pendingRequests.delete(scope)
+    removePersistedRequest(scope)
+  } else {
+    persistPendingRequest(scope, request)
   }
 }
 
@@ -63,6 +75,8 @@ export function resetPendingReportingKeys(): void {
   pendingRequests.clear()
   activeRequests.clear()
   writeTails.clear()
+  for (const key of persistedRequestKeys()) removeSessionStorageItem(key)
+  knownStorageKeys.clear()
 }
 
 
@@ -93,23 +107,130 @@ export function serializeReportingWrite<Result>(
   requestKey: string,
   createRequest: () => Promise<Result>,
 ): Promise<Result> {
-  const activeRequest = activeRequests.get(requestKey)
-  if (activeRequest) return activeRequest as Promise<Result>
-
   const predecessor = writeTails.get(entityKey)
-  const request = (predecessor ?? Promise.resolve()).then(createRequest)
-  activeRequests.set(requestKey, request)
+  if (predecessor?.requestKey === requestKey) {
+    return predecessor.request as Promise<Result>
+  }
+  const request = (predecessor?.settled ?? Promise.resolve()).then(createRequest)
 
-  const tail = request.then(
+  const settled = request.then(
     () => undefined,
     () => undefined,
   )
+  const tail: WriteTail = { requestKey, request, settled }
   writeTails.set(entityKey, tail)
-  void tail.then(() => {
-    if (activeRequests.get(requestKey) === request) activeRequests.delete(requestKey)
+  void settled.then(() => {
     if (writeTails.get(entityKey) === tail) writeTails.delete(entityKey)
   })
   return request
+}
+
+
+function loadPendingRequest(scope: string): PendingRequest | undefined {
+  const storageKey = pendingRequestStorageKey(scope)
+  const raw = getSessionStorageItem(storageKey)
+  if (!raw) return undefined
+  try {
+    const stored = JSON.parse(raw) as Partial<PendingRequest>
+    const now = Date.now()
+    if (
+      typeof stored.key !== 'string'
+      || stored.key.length === 0
+      || typeof stored.createdAt !== 'number'
+      || !Number.isFinite(stored.createdAt)
+      || stored.createdAt < 0
+      || stored.createdAt > now
+    ) {
+      removeSessionStorageItem(storageKey)
+      return undefined
+    }
+    knownStorageKeys.add(storageKey)
+    const request = {
+      key: stored.key,
+      createdAt: stored.createdAt,
+      inFlight: 0,
+      retainAfterSettlement: false,
+    }
+    pendingRequests.set(scope, request)
+    return request
+  } catch {
+    removeSessionStorageItem(storageKey)
+    return undefined
+  }
+}
+
+
+function persistPendingRequest(scope: string, request: PendingRequest): void {
+  const storageKey = pendingRequestStorageKey(scope)
+  knownStorageKeys.add(storageKey)
+  setSessionStorageItem(storageKey, JSON.stringify({
+    key: request.key,
+    createdAt: request.createdAt,
+  }))
+}
+
+
+function removePersistedRequest(scope: string): void {
+  const storageKey = pendingRequestStorageKey(scope)
+  knownStorageKeys.delete(storageKey)
+  removeSessionStorageItem(storageKey)
+}
+
+
+function persistedRequestKeys(): string[] {
+  try {
+    if (typeof window === 'undefined') return [...knownStorageKeys]
+    const keys: string[] = []
+    for (let index = 0; index < window.sessionStorage.length; index += 1) {
+      const key = window.sessionStorage.key(index)
+      if (key?.startsWith(STORAGE_KEY_PREFIX)) keys.push(key)
+    }
+    return keys
+  } catch {
+    return [...knownStorageKeys]
+  }
+}
+
+
+function pendingRequestStorageKey(scope: string): string {
+  return `${STORAGE_KEY_PREFIX}${scopeDigest(scope)}`
+}
+
+
+function scopeDigest(scope: string): string {
+  let hash = 0xcbf29ce484222325n
+  for (let index = 0; index < scope.length; index += 1) {
+    hash ^= BigInt(scope.charCodeAt(index))
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
+  }
+  return `${scope.length.toString(16)}-${hash.toString(16).padStart(16, '0')}`
+}
+
+
+function getSessionStorageItem(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+
+function setSessionStorageItem(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.setItem(key, value)
+  } catch {
+    // In-memory coordination remains available when browser storage is denied.
+  }
+}
+
+
+function removeSessionStorageItem(key: string): void {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.removeItem(key)
+  } catch {
+    // The in-memory record has already been removed.
+  }
 }
 
 
