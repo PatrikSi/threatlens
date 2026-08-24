@@ -4,8 +4,9 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -14,6 +15,7 @@ from app.api.deps import require_token_scopes
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
 from app.db.session import get_db
+from app.models.ai_task_run import AITaskRun
 from app.models.feed import Feed
 from app.models.item_classification import ItemClassification
 from app.models.report import Report
@@ -55,6 +57,15 @@ from app.services.report_rendering import (
     render_report_html,
     render_report_markdown,
     render_report_pdf,
+)
+from app.services.report_idempotency import (
+    ReportIdempotencyConflictError,
+    ReportIdempotencyError,
+    ReportRequestIdentity,
+    build_report_create_identity,
+    build_report_retry_identity,
+    find_report_create_replay,
+    find_report_retry_replay,
 )
 from app.services.report_sources import (
     build_report_source_plan,
@@ -333,10 +344,25 @@ def list_reports(
 )
 def create_report(
     payload: ReportCreateRequest,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
+    filters = filters_for_report_period(
+        payload.filters,
+        period_start=payload.period_start,
+        period_end=payload.period_end,
+    )
+    payload = payload.model_copy(update={"filters": filters})
+    identity = _create_request_identity(idempotency_key, payload=payload)
+    replay = _find_create_replay(db, user_id=user.id, identity=identity)
+    if replay is not None:
+        return _queue_response(*replay)
+
     active = _active_reporting_settings(db)
     template = None
     if payload.template_id:
@@ -348,12 +374,6 @@ def create_report(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Report template not found",
             )
-    filters = filters_for_report_period(
-        payload.filters,
-        period_start=payload.period_start,
-        period_end=payload.period_end,
-    )
-    payload = payload.model_copy(update={"filters": filters})
     try:
         plan = build_report_source_plan(
             db,
@@ -371,7 +391,25 @@ def create_report(
             plan=plan,
             template=template,
             active=active,
+            request_idempotency_key_hash=(identity.key_hash if identity else None),
+            request_fingerprint=(identity.fingerprint if identity else None),
         )
+        run = create_report_task_run(
+            db, report=report, actor_user_id=user.id, trigger_source="manual"
+        )
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="reports.generate.queue",
+            resource_type="report",
+            resource_id=str(report.id),
+            metadata={
+                "source_count": report.included_source_count,
+                "estimated_input_tokens": report.estimated_input_tokens,
+                "estimated_batches": report.generation_batches,
+            },
+        )
+        db.commit()
     except ExportSnapshotChangedError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -381,32 +419,16 @@ def create_report(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
-    run = create_report_task_run(
-        db, report=report, actor_user_id=user.id, trigger_source="manual"
-    )
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="reports.generate.queue",
-        resource_type="report",
-        resource_id=str(report.id),
-        metadata={
-            "source_count": report.included_source_count,
-            "estimated_input_tokens": report.estimated_input_tokens,
-            "estimated_batches": report.generation_batches,
-        },
-    )
-    db.commit()
-    try:
-        task_id = enqueue_report_task(report_id=report.id, task_run_id=run.id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The report was saved but could not be queued because the AI worker queue is unavailable. Retry the report after the queue recovers.",
-        ) from exc
-    return ReportQueueResponse(
-        report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued"
-    )
+    except IntegrityError:
+        db.rollback()
+        replay = _find_create_replay(db, user_id=user.id, identity=identity)
+        if replay is not None:
+            return _queue_response(*replay)
+        raise
+    report_id = report.id
+    run_id = run.id
+    task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
+    return _queue_response(report, run, celery_task_id=task_id)
 
 
 @router.get("/{report_id:uuid}", response_model=ReportDetailResponse)
@@ -470,43 +492,82 @@ def download_report(
 )
 def retry_report(
     report_id: uuid.UUID,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
-    report = db.get(Report, report_id)
+    identity = _retry_request_identity(idempotency_key, report_id=report_id)
+    report = db.scalar(
+        select(Report)
+        .where(Report.id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if report is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
         )
     _require_report_owner_or_admin(user, report.owner_user_id)
+    replay = _find_retry_replay(
+        db,
+        user_id=user.id,
+        report_id=report.id,
+        identity=identity,
+    )
+    if replay is not None:
+        return _queue_response(report, replay)
     try:
         reset_report_for_retry(db, report=report)
+        run = create_report_task_run(
+            db,
+            report=report,
+            actor_user_id=user.id,
+            trigger_source="manual",
+            request_idempotency_key_hash=(identity.key_hash if identity else None),
+            request_fingerprint=(identity.fingerprint if identity else None),
+        )
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="reports.generate.retry",
+            resource_type="report",
+            resource_id=str(report.id),
+        )
+        db.commit()
     except ReportStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
-    run = create_report_task_run(
-        db, report=report, actor_user_id=user.id, trigger_source="manual"
-    )
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="reports.generate.retry",
-        resource_type="report",
-        resource_id=str(report.id),
-    )
-    db.commit()
-    try:
-        task_id = enqueue_report_task(report_id=report.id, task_run_id=run.id)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="The report retry could not be queued because the AI worker queue is unavailable.",
-        ) from exc
-    return ReportQueueResponse(
-        report_id=report.id, task_run_id=run.id, celery_task_id=task_id, status="queued"
-    )
+    except IntegrityError as exc:
+        db.rollback()
+        replay = _find_retry_replay(
+            db,
+            user_id=user.id,
+            report_id=report_id,
+            identity=identity,
+        )
+        if replay is not None:
+            current_report = db.get(Report, report_id)
+            if current_report is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Report not found",
+                ) from exc
+            return _queue_response(current_report, replay)
+        if _integrity_constraint_name(exc) == "uq_ai_task_runs_active_report":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This report already has a queued or running generation attempt.",
+            ) from exc
+        raise
+    report_id = report.id
+    run_id = run.id
+    task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
+    return _queue_response(report, run, celery_task_id=task_id)
 
 
 @router.delete("/{report_id:uuid}", status_code=status.HTTP_204_NO_CONTENT)
@@ -661,13 +722,8 @@ def run_schedule(
     )
     db.commit()
     responses = []
-    enqueue_failures = 0
     for report_id, run_id in entries:
-        try:
-            task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
-        except Exception:
-            enqueue_failures += 1
-            continue
+        task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
         responses.append(
             ReportQueueResponse(
                 report_id=report_id,
@@ -675,14 +731,6 @@ def run_schedule(
                 celery_task_id=task_id,
                 status="queued",
             )
-        )
-    if enqueue_failures:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                f"{enqueue_failures} of {len(entries)} scheduled reports were saved but could not be queued. "
-                "The failed reports are marked for retry after the AI queue recovers."
-            ),
         )
     return responses
 
@@ -720,6 +768,90 @@ def _active_reporting_settings(db: Session):
             detail=str(exc),
         ) from exc
     return active
+
+
+def _create_request_identity(
+    key: str | None,
+    *,
+    payload: ReportCreateRequest,
+) -> ReportRequestIdentity | None:
+    try:
+        return build_report_create_identity(key, payload=payload)
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
+def _retry_request_identity(
+    key: str | None,
+    *,
+    report_id: uuid.UUID,
+) -> ReportRequestIdentity | None:
+    try:
+        return build_report_retry_identity(key, report_id=report_id)
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
+def _find_create_replay(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    identity: ReportRequestIdentity | None,
+) -> tuple[Report, AITaskRun] | None:
+    try:
+        return find_report_create_replay(
+            db,
+            user_id=user_id,
+            identity=identity,
+        )
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
+def _find_retry_replay(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    report_id: uuid.UUID,
+    identity: ReportRequestIdentity | None,
+) -> AITaskRun | None:
+    try:
+        return find_report_retry_replay(
+            db,
+            user_id=user_id,
+            report_id=report_id,
+            identity=identity,
+        )
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
+def _raise_idempotency_http_error(exc: ReportIdempotencyError) -> NoReturn:
+    status_code = (
+        status.HTTP_409_CONFLICT
+        if isinstance(exc, ReportIdempotencyConflictError)
+        else status.HTTP_400_BAD_REQUEST
+    )
+    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+
+def _queue_response(
+    report: Report,
+    run: AITaskRun,
+    *,
+    celery_task_id: str | None = None,
+) -> ReportQueueResponse:
+    return ReportQueueResponse(
+        report_id=report.id,
+        task_run_id=run.id,
+        celery_task_id=celery_task_id or run.celery_task_id,
+        status=run.status,
+    )
+
+
+def _integrity_constraint_name(exc: IntegrityError) -> str | None:
+    diagnostic = getattr(exc.orig, "diag", None)
+    return getattr(diagnostic, "constraint_name", None)
 
 
 def _require_report_author(user: User) -> None:

@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app.api.routes import reports as reports_routes
+from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
@@ -16,6 +17,68 @@ def _reporting_settings_stub():
         ai_configured=True,
         reporting_enabled=True,
     )
+
+
+def _report_payload(*, title: str | None = None) -> dict:
+    now = datetime.now(timezone.utc)
+    return {
+        "title": title,
+        "period_start": (now - timedelta(days=7)).isoformat(),
+        "period_end": now.isoformat(),
+        "sections": [{"key": "executive_summary", "title": "Executive Summary"}],
+    }
+
+
+def _install_report_creation_stubs(monkeypatch):
+    plan_calls = {"count": 0}
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+
+    def _build_plan(*_args, **_kwargs):
+        plan_calls["count"] += 1
+        return object()
+
+    def _create_report(db, *, user_id, payload, **kwargs):
+        report = Report(
+            owner_user_id=user_id,
+            title=payload.title or "Generated report",
+            report_type="custom",
+            status="queued",
+            trigger_source="manual",
+            generation_stage="queued",
+            request_idempotency_key_hash=kwargs.get(
+                "request_idempotency_key_hash"
+            ),
+            request_fingerprint=kwargs.get("request_fingerprint"),
+            period_start=payload.period_start,
+            period_end=payload.period_end,
+            filters_json=payload.filters.model_dump(mode="json"),
+            prompt_config_json=payload.prompt.model_dump(mode="json"),
+            sections_config_json=[
+                section.model_dump(mode="json") for section in payload.sections
+            ],
+            metrics_json={},
+            coverage_json={},
+            source_count=1,
+            included_source_count=1,
+            estimated_input_tokens=100,
+            generation_batches=1,
+        )
+        db.add(report)
+        db.flush()
+        return report
+
+    monkeypatch.setattr(reports_routes, "build_report_source_plan", _build_plan)
+    monkeypatch.setattr(reports_routes, "create_report_from_plan", _create_report)
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        lambda *, task_run_id, **_kwargs: f"report-{task_run_id}",
+    )
+    return plan_calls
 
 
 def test_report_preview_returns_actionable_context_budget_error(
@@ -109,6 +172,149 @@ def test_report_creation_returns_snapshot_conflict_without_persisting_report(
         "Try generating it again."
     )
     assert db_session.query(Report).count() == 0
+
+
+def test_report_creation_idempotency_replays_without_replanning(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    calls = _install_report_creation_stubs(monkeypatch)
+    payload = _report_payload()
+    raw_key = "report-create-test-key"
+    headers = {**auth_headers["analyst"], "Idempotency-Key": raw_key}
+
+    first = client.post("/reports", json=payload, headers=headers)
+    second = client.post("/reports", json=payload, headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["report_id"] == first.json()["report_id"]
+    assert second.json()["task_run_id"] == first.json()["task_run_id"]
+    assert calls["count"] == 1
+    assert db_session.query(Report).count() == 1
+    report = db_session.get(Report, uuid.UUID(first.json()["report_id"]))
+    assert report is not None
+    assert report.request_idempotency_key_hash != raw_key
+    assert len(report.request_idempotency_key_hash or "") == 64
+    assert len(report.request_fingerprint or "") == 64
+
+
+def test_report_creation_idempotency_rejects_changed_payload(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    calls = _install_report_creation_stubs(monkeypatch)
+    payload = _report_payload(title="First title")
+    headers = {
+        **auth_headers["analyst"],
+        "Idempotency-Key": "report-create-conflict-key",
+    }
+
+    first = client.post("/reports", json=payload, headers=headers)
+    changed = client.post(
+        "/reports",
+        json={**payload, "title": "Changed title"},
+        headers=headers,
+    )
+
+    assert first.status_code == 202
+    assert changed.status_code == 409
+    assert "different report request" in changed.json()["detail"]
+    assert calls["count"] == 1
+    assert db_session.query(Report).count() == 1
+
+
+def test_report_creation_rejects_blank_idempotency_key(
+    client,
+    db_session,
+    auth_headers,
+):
+    response = client.post(
+        "/reports",
+        json=_report_payload(),
+        headers={**auth_headers["analyst"], "Idempotency-Key": "   "},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Idempotency-Key must not be blank."
+    assert db_session.query(Report).count() == 0
+
+
+def test_report_creation_remains_accepted_when_broker_is_unavailable(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    _install_report_creation_stubs(monkeypatch)
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        lambda **_kwargs: None,
+    )
+
+    response = client.post(
+        "/reports",
+        json=_report_payload(),
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 202
+    assert response.json()["celery_task_id"] is None
+    report = db_session.get(Report, uuid.UUID(response.json()["report_id"]))
+    run = db_session.get(AITaskRun, uuid.UUID(response.json()["task_run_id"]))
+    assert report is not None and report.status == "queued"
+    assert run is not None and run.status == "queued"
+
+
+def test_report_retry_idempotency_replays_the_same_attempt(
+    client,
+    db_session,
+    seed_users,
+    auth_headers,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    report = Report(
+        owner_user_id=seed_users["analyst"].id,
+        title="Retry report",
+        report_type="custom",
+        status="error",
+        trigger_source="manual",
+        generation_stage="failed",
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.commit()
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        lambda *, task_run_id, **_kwargs: f"report-{task_run_id}",
+    )
+    headers = {
+        **auth_headers["analyst"],
+        "Idempotency-Key": "report-retry-test-key",
+    }
+
+    first = client.post(f"/reports/{report.id}/retry", headers=headers)
+    second = client.post(f"/reports/{report.id}/retry", headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()["task_run_id"] == first.json()["task_run_id"]
+    runs = db_session.query(AITaskRun).filter(AITaskRun.report_id == report.id).all()
+    assert len(runs) == 1
+    assert runs[0].request_idempotency_key_hash != "report-retry-test-key"
 
 
 def test_analyst_cannot_retry_or_delete_another_users_report(

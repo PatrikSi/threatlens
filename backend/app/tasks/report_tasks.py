@@ -17,7 +17,6 @@ from app.services.ai_ops import (
     finish_ai_task_run,
     queue_ai_task_run,
     start_ai_task_run,
-    update_ai_task_run_celery,
 )
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services.report_generation import generate_report
@@ -28,6 +27,14 @@ from app.services.report_execution import (
     renew_report_generation,
 )
 from app.services.report_notifications import REPORT_READY_EVENT_TYPE
+from app.services.report_dispatch import (
+    claim_report_dispatch,
+    initialize_report_dispatch,
+    list_due_report_dispatches,
+    record_report_dispatch_failure,
+    record_report_dispatch_success,
+    stable_report_task_id,
+)
 from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
 from app.services.report_schedules import record_schedule_failure
 from app.services.report_availability import (
@@ -50,8 +57,10 @@ def create_report_task_run(
     report: Report,
     actor_user_id: uuid.UUID | None,
     trigger_source: str,
+    request_idempotency_key_hash: str | None = None,
+    request_fingerprint: str | None = None,
 ):
-    return queue_ai_task_run(
+    run = queue_ai_task_run(
         db,
         task_type=AI_TASK_TYPE_REPORT,
         trigger_source=trigger_source,
@@ -66,36 +75,77 @@ def create_report_task_run(
         },
         target_count=report.included_source_count,
     )
+    run.request_idempotency_key_hash = request_idempotency_key_hash
+    run.request_fingerprint = request_fingerprint
+    initialize_report_dispatch(run)
+    return run
 
 
 def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str | None:
+    now = datetime.now(timezone.utc)
     try:
-        task = generate_intelligence_report.delay(str(report_id), str(task_run_id))
-    except Exception as exc:
         with db_session() as db:
-            report = db.get(Report, report_id)
-            if report is not None:
-                report.status = "error"
-                report.generation_stage = "failed"
-                report.error_code = "enqueue_failed"
-                report.error = "The report worker queue is unavailable. Retry after the queue service recovers."
-                db.add(report)
-            finish_ai_task_run(
+            claim = claim_report_dispatch(
                 db,
-                run_id=task_run_id,
-                status=AI_STATUS_ERROR,
-                reason="enqueue_failed",
-                error=f"{type(exc).__name__}: {exc}"[:4000],
-                worker_name="api",
                 report_id=report_id,
+                task_run_id=task_run_id,
+                now=now,
             )
             db.commit()
-        raise
-    task_id = getattr(task, "id", None)
-    if task_id:
+    except Exception:
+        logger.exception(
+            "report_dispatch_claim_failed report_id=%s task_run_id=%s",
+            report_id,
+            task_run_id,
+        )
+        return None
+    if not claim.claimed:
+        return claim.celery_task_id
+
+    task_id = stable_report_task_id(task_run_id)
+    try:
+        generate_intelligence_report.apply_async(
+            args=[str(report_id), str(task_run_id)],
+            task_id=task_id,
+        )
+    except Exception:
+        logger.exception(
+            "report_dispatch_publish_failed report_id=%s task_run_id=%s",
+            report_id,
+            task_run_id,
+        )
+        try:
+            with db_session() as db:
+                record_report_dispatch_failure(
+                    db,
+                    report_id=report_id,
+                    task_run_id=task_run_id,
+                    now=datetime.now(timezone.utc),
+                )
+                db.commit()
+        except Exception:
+            logger.exception(
+                "report_dispatch_failure_record_failed report_id=%s task_run_id=%s",
+                report_id,
+                task_run_id,
+            )
+        return None
+
+    try:
         with db_session() as db:
-            update_ai_task_run_celery(db, run_id=task_run_id, celery_task_id=task_id)
+            record_report_dispatch_success(
+                db,
+                report_id=report_id,
+                task_run_id=task_run_id,
+                celery_task_id=task_id,
+            )
             db.commit()
+    except Exception:
+        logger.exception(
+            "report_dispatch_metadata_update_failed report_id=%s task_run_id=%s",
+            report_id,
+            task_run_id,
+        )
     return task_id
 
 
@@ -129,6 +179,10 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             celery_task_id=celery_task_id,
             metadata_updates={"report_id": str(parsed_report_id)},
         )
+        if started is not None:
+            started.dispatch_next_attempt_at = None
+            started.dispatch_error = None
+            db.add(started)
         claimed_by_task = (
             started is not None
             and started.status in {"queued", "running"}
@@ -324,18 +378,32 @@ def dispatch_due_report_schedules():
                 )
             continue
         for report_id, run_id in queue_entries:
-            try:
-                enqueue_report_task(report_id=report_id, task_run_id=run_id)
-                queued += 1
-            except Exception:
-                failures += 1
-                logger.exception(
-                    "scheduled_report_enqueue_failed report_id=%s", report_id
-                )
+            enqueue_report_task(report_id=report_id, task_run_id=run_id)
+            queued += 1
     return {
         "status": "ok" if failures == 0 else "partial",
         "queued": queued,
         "failures": failures,
+    }
+
+
+@celery_app.task(name="app.tasks.feed_tasks.dispatch_pending_report_tasks")
+def dispatch_pending_report_tasks():
+    now = datetime.now(timezone.utc)
+    with db_session() as db:
+        entries = list_due_report_dispatches(db, now=now)
+    dispatched = 0
+    deferred = 0
+    for report_id, run_id in entries:
+        task_id = enqueue_report_task(report_id=report_id, task_run_id=run_id)
+        if task_id:
+            dispatched += 1
+        else:
+            deferred += 1
+    return {
+        "status": "ok" if deferred == 0 else "partial",
+        "dispatched": dispatched,
+        "deferred": deferred,
     }
 
 
@@ -416,6 +484,7 @@ def _settle_terminal_report_run(
 __all__ = [
     "create_report_task_run",
     "dispatch_due_report_schedules",
+    "dispatch_pending_report_tasks",
     "enqueue_report_task",
     "generate_intelligence_report",
 ]

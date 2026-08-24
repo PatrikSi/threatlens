@@ -17,6 +17,21 @@ class AITaskRun(Base):
             "status",
             postgresql_where=text("status IN ('queued', 'running')"),
         ),
+        Index(
+            "uq_ai_task_runs_active_report",
+            "report_id",
+            unique=True,
+            postgresql_where=text(
+                "report_id IS NOT NULL AND task_type = 'report' "
+                "AND status IN ('queued', 'running') AND finished_at IS NULL"
+            ),
+        ),
+        Index(
+            "uq_ai_task_runs_actor_request_idempotency_key",
+            "actor_user_id",
+            "request_idempotency_key_hash",
+            unique=True,
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -69,6 +84,8 @@ class AITaskRun(Base):
     dispatch_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     dispatch_next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     dispatch_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     target_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     processed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")

@@ -229,6 +229,10 @@ class Settings(BaseSettings):
     report_schedule_max_attempts: int = 5
     report_schedule_retry_backoff_seconds: int = 60
     report_schedule_retry_max_backoff_seconds: int = 3600
+    report_dispatch_batch_size: int = 100
+    report_dispatch_max_attempts: int = 10
+    report_dispatch_retry_backoff_seconds: int = 15
+    report_dispatch_retry_max_backoff_seconds: int = 900
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
@@ -380,6 +384,10 @@ class Settings(BaseSettings):
         "report_schedule_max_attempts",
         "report_schedule_retry_backoff_seconds",
         "report_schedule_retry_max_backoff_seconds",
+        "report_dispatch_batch_size",
+        "report_dispatch_max_attempts",
+        "report_dispatch_retry_backoff_seconds",
+        "report_dispatch_retry_max_backoff_seconds",
     )
     @classmethod
     def _validate_positive_operational_limits(cls, value: int) -> int:
@@ -405,6 +413,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "report_schedule_retry_max_backoff_seconds must be at least "
                 "report_schedule_retry_backoff_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_dispatch_retry_limits(self):
+        if (
+            self.report_dispatch_retry_max_backoff_seconds
+            < self.report_dispatch_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_dispatch_retry_max_backoff_seconds must be at least "
+                "report_dispatch_retry_backoff_seconds"
             )
         return self
 

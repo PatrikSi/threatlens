@@ -78,6 +78,7 @@ from app.tasks.item_processing_tasks import (
 )
 from app.tasks.report_tasks import (
     dispatch_due_report_schedules,
+    dispatch_pending_report_tasks,
     generate_intelligence_report,
 )
 from app.tasks.ai_brief_tasks import (
@@ -234,6 +235,7 @@ __all__ = [
     "daily_ai_brief_lock",
     "dispatch_daily_ai_brief_generation",
     "dispatch_due_report_schedules",
+    "dispatch_pending_report_tasks",
     "dispatch_alert_match_notification_webhooks",
     "dispatch_daily_digest_notification_webhooks",
     "dispatch_feed_failing_notification_webhooks",
