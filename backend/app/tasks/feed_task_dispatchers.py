@@ -239,12 +239,17 @@ def dispatch_feed_metadata_backfill(
     backfill_feed_metadata_task: Any,
     logger: logging.Logger,
 ) -> dict[str, int]:
+    now = datetime.now(timezone.utc)
     queued = 0
     with db_session_factory() as db:
         feeds = db.scalars(
             select(Feed)
             .where(
                 Feed.enabled.is_(True),
+                or_(
+                    Feed.dispatch_backoff_until.is_(None),
+                    Feed.dispatch_backoff_until <= now,
+                ),
                 or_(
                     func.trim(Feed.name) == "",
                     func.lower(func.trim(Feed.name)).like("http://%"),

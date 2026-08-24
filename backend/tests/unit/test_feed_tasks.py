@@ -2576,6 +2576,57 @@ def test_dispatch_feed_metadata_backfill_queues_url_placeholder_names_with_site_
     assert queued_feed_ids == [str(feed.id)]
 
 
+def test_dispatch_feed_metadata_backfill_honors_persisted_coordination_backoff(
+    db_session,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    backed_off_feed = Feed(
+        id=uuid.uuid4(),
+        name="",
+        url="https://example.com/backed-off-metadata.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_backoff_until=now + timedelta(minutes=5),
+        created_at=now - timedelta(hours=2),
+    )
+    due_feed = Feed(
+        id=uuid.uuid4(),
+        name="",
+        url="https://example.com/due-metadata.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_backoff_until=now - timedelta(seconds=1),
+        created_at=now - timedelta(hours=1),
+    )
+    db_session.add_all([backed_off_feed, due_feed])
+    db_session.commit()
+    queued_feed_ids: list[str] = []
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.settings.dispatch_feed_metadata_scan_limit",
+        10,
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.settings.dispatch_feed_metadata_queue_limit",
+        10,
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.backfill_feed_metadata.delay",
+        lambda feed_id: queued_feed_ids.append(feed_id),
+    )
+
+    result = dispatch_feed_metadata_backfill.run()
+
+    assert result == {"queued": 1}
+    assert queued_feed_ids == [str(due_feed.id)]
+
+
 def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):
     feed = Feed(
         id=uuid.uuid4(),
