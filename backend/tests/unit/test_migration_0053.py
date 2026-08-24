@@ -164,6 +164,20 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
                     ),
                     {"id": receipt_id},
                 ) == resource_id
+
+            command.downgrade(config, "base")
+            with schema_engine.connect() as connection:
+                inspector = inspect(connection)
+                assert not inspector.has_table(
+                    "report_operation_receipts",
+                    schema=schema_name,
+                )
+                assert not inspector.has_table("users", schema=schema_name)
+            with admin_engine.connect() as connection:
+                assert inspect(connection).has_table(
+                    "report_operation_receipts",
+                    schema="public",
+                )
     finally:
         schema_engine.dispose()
         get_settings.cache_clear()

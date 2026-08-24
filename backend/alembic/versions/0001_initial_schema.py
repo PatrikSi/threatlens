@@ -16,6 +16,17 @@ branch_labels = None
 depends_on = None
 
 
+def _drop_preserved_future_tables() -> None:
+    """Remove additive tables deliberately retained by later downgrades."""
+    connection = op.get_bind()
+    current_schema = connection.scalar(sa.text("SELECT current_schema()"))
+    if current_schema and sa.inspect(connection).has_table(
+        "report_operation_receipts",
+        schema=current_schema,
+    ):
+        op.drop_table("report_operation_receipts", schema=current_schema)
+
+
 def upgrade() -> None:
     op.create_table(
         "users",
@@ -145,5 +156,6 @@ def downgrade() -> None:
     op.drop_index("ix_items_feed_id", table_name="items")
     op.drop_table("items")
     op.drop_table("feeds")
+    _drop_preserved_future_tables()
     op.drop_index("ix_users_email", table_name="users")
     op.drop_table("users")
