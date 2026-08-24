@@ -1,9 +1,14 @@
 import time
 from contextlib import contextmanager
+from types import SimpleNamespace
+from urllib.parse import urlsplit
 
+import httpx
 import pytest
 import redis
 
+from app.services import safe_fetch
+from app.services.safe_fetch import SAFE_FETCH_REQUEST_GUARD_EXTENSION
 from app.tasks import feed_task_coordination, feed_tasks
 from app.tasks.article_fetch_tasks import _fetch_candidate
 from app.tasks.feed_task_coordination import LeaseOwnershipLostError
@@ -60,7 +65,10 @@ def test_domain_slot_still_times_out_under_sustained_contention(monkeypatch: pyt
     monkeypatch.setattr(feed_task_coordination, "redis_client", _SaturatedRedis())
     monkeypatch.setattr(feed_task_coordination.time, "sleep", lambda _seconds: None)
 
-    with pytest.raises(TimeoutError, match="domain slot timeout"):
+    with pytest.raises(
+        feed_tasks.CoordinationUnavailableError,
+        match="domain slot timeout",
+    ):
         with feed_tasks.domain_slot("example.com", max_wait_seconds=0.01):
             pass
 
@@ -108,6 +116,8 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
         headers = {"content-type": "text/html"}
         url = "https://example.com/article"
         closed = False
+        extensions: dict[str, object] = {}
+        guard_context = None
 
         def iter_bytes(self):
             yield b"<html>"
@@ -115,6 +125,9 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
 
         def close(self):
             self.closed = True
+            if self.guard_context is not None:
+                self.guard_context.__exit__(None, None, None)
+                self.guard_context = None
 
     class Client:
         def __enter__(self):
@@ -125,6 +138,16 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
             return False
 
     response = Response()
+
+    def safe_stream_with_guard(_client, _method, url, **kwargs):
+        guard_context = kwargs["request_context"](url)
+        current_lease = guard_context.__enter__()
+        response.guard_context = guard_context
+        response.extensions = {
+            SAFE_FETCH_REQUEST_GUARD_EXTENSION: current_lease,
+        }
+        return response
+
     monkeypatch.setattr(feed_tasks, "domain_slot", domain_slot)
     monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
     monkeypatch.setattr(
@@ -135,13 +158,72 @@ def test_article_stream_aborts_when_domain_lease_is_replaced(
     monkeypatch.setattr(
         feed_tasks,
         "safe_stream_with_redirects",
-        lambda *_args, **_kwargs: response,
+        safe_stream_with_guard,
     )
 
     with pytest.raises(LeaseOwnershipLostError):
         _fetch_candidate("https://example.com/article", runtime=feed_tasks)
 
     assert response.closed is True
+
+
+def test_safe_stream_transfers_domain_guard_across_redirects_without_nesting(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    active_domains: list[str] = []
+    guard_events: list[tuple[str, str]] = []
+
+    @contextmanager
+    def request_context(request_url: str):
+        domain = urlsplit(request_url).hostname or "unknown"
+        assert active_domains == []
+        active_domains.append(domain)
+        guard_events.append(("enter", domain))
+        try:
+            yield SimpleNamespace(domain=domain)
+        finally:
+            assert active_domains == [domain]
+            active_domains.clear()
+            guard_events.append(("exit", domain))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert active_domains == [request.url.host]
+        if request.url.host == "origin.example":
+            return httpx.Response(
+                302,
+                headers={"location": "https://redirected.example/final"},
+                request=request,
+            )
+
+        class BodyStream(httpx.SyncByteStream):
+            def __iter__(self):
+                assert active_domains == ["redirected.example"]
+                yield b"redirected body"
+
+        return httpx.Response(200, stream=BodyStream(), request=request)
+
+    monkeypatch.setattr(safe_fetch, "_ensure_target", lambda *_args: None)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        response = safe_fetch.safe_stream_with_redirects(
+            client,
+            "GET",
+            "https://origin.example/start",
+            request_context=request_context,
+        )
+        assert active_domains == ["redirected.example"]
+        guard = safe_fetch.safe_fetch_request_guard(response)
+        assert guard.domain == "redirected.example"
+        assert b"".join(response.iter_bytes()) == b"redirected body"
+        assert active_domains == []
+        response.close()
+
+    assert active_domains == []
+    assert guard_events == [
+        ("enter", "origin.example"),
+        ("exit", "origin.example"),
+        ("enter", "redirected.example"),
+        ("exit", "redirected.example"),
+    ]
 
 
 def test_lease_scripts_are_atomic_with_real_redis(

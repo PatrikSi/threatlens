@@ -2,11 +2,23 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from typing import Mapping
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.feed import Feed
+
+
+FEED_FETCH_CONFIGURATION_FIELDS = frozenset(
+    {
+        "url",
+        "enabled",
+        "fetch_mode",
+        "fetch_interval_seconds",
+        "schedule_cron",
+    }
+)
 
 
 class FeedFetchOwnershipLostError(RuntimeError):
@@ -18,6 +30,28 @@ class FeedFetchFence:
     feed_id: uuid.UUID
     fence: int
     url_digest: str
+
+
+def apply_feed_fetch_configuration(
+    feed: Feed,
+    values: Mapping[str, object],
+) -> frozenset[str]:
+    """Apply material settings once; persistent feeds must be row-locked by the caller."""
+    unsupported_fields = set(values) - FEED_FETCH_CONFIGURATION_FIELDS
+    if unsupported_fields:
+        unsupported = ", ".join(sorted(unsupported_fields))
+        raise ValueError(f"unsupported feed fetch configuration fields: {unsupported}")
+
+    changed_fields = frozenset(
+        field_name
+        for field_name, value in values.items()
+        if getattr(feed, field_name) != value
+    )
+    for field_name in changed_fields:
+        setattr(feed, field_name, values[field_name])
+    if changed_fields:
+        feed.fetch_fence = int(feed.fetch_fence or 0) + 1
+    return changed_fields
 
 
 def claim_feed_fetch(db: Session, *, feed: Feed) -> FeedFetchFence:
@@ -56,8 +90,10 @@ def ensure_feed_fetch_owned(
 
 
 __all__ = [
+    "FEED_FETCH_CONFIGURATION_FIELDS",
     "FeedFetchFence",
     "FeedFetchOwnershipLostError",
+    "apply_feed_fetch_configuration",
     "claim_feed_fetch",
     "ensure_feed_fetch_owned",
 ]

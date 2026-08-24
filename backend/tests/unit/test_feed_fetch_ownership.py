@@ -13,10 +13,112 @@ from app.models.integration import IntegrationEvent
 from app.models.item import Item
 from app.services.feed_fetch_ownership import (
     FeedFetchOwnershipLostError,
+    apply_feed_fetch_configuration,
     claim_feed_fetch,
     ensure_feed_fetch_owned,
 )
 from app.tasks.feed_tasks import fetch_feed
+
+
+@pytest.mark.parametrize(
+    ("field_name", "new_value"),
+    [
+        ("url", "https://example.net/reconfigured.xml"),
+        ("enabled", False),
+        ("fetch_mode", "schedule"),
+        ("fetch_interval_seconds", 3600),
+        ("schedule_cron", "0 * * * *"),
+    ],
+)
+def test_material_feed_configuration_change_invalidates_stale_fetch(
+    database_engine,
+    field_name: str,
+    new_value: object,
+):
+    session_factory = sessionmaker(
+        bind=database_engine,
+        autoflush=False,
+        expire_on_commit=False,
+        class_=Session,
+    )
+    feed_id = uuid.uuid4()
+
+    with session_factory() as setup:
+        setup.add(
+            Feed(
+                id=feed_id,
+                name="Mutable feed",
+                url=f"https://example.com/{feed_id}.xml",
+                enabled=True,
+                fetch_mode="interval",
+                fetch_interval_seconds=1800,
+            )
+        )
+        setup.commit()
+
+    try:
+        with session_factory() as stale_worker:
+            stale_feed = stale_worker.scalar(
+                select(Feed).where(Feed.id == feed_id).with_for_update()
+            )
+            assert stale_feed is not None
+            stale_claim = claim_feed_fetch(stale_worker, feed=stale_feed)
+            stale_worker.commit()
+
+            with session_factory() as configuration_writer:
+                current_feed = configuration_writer.scalar(
+                    select(Feed).where(Feed.id == feed_id).with_for_update()
+                )
+                assert current_feed is not None
+                changed_fields = apply_feed_fetch_configuration(
+                    current_feed,
+                    {field_name: new_value},
+                )
+                configuration_writer.commit()
+                assert changed_fields == {field_name}
+                assert current_feed.fetch_fence == stale_claim.fence + 1
+
+            stale_feed.last_error = "stale-worker-write"
+            with pytest.raises(FeedFetchOwnershipLostError):
+                ensure_feed_fetch_owned(stale_worker, claim=stale_claim)
+            stale_worker.rollback()
+
+        with session_factory() as verify:
+            persisted_feed = verify.get(Feed, feed_id)
+            assert persisted_feed is not None
+            assert persisted_feed.fetch_fence == stale_claim.fence + 1
+            assert persisted_feed.last_error is None
+    finally:
+        with session_factory() as cleanup:
+            cleanup.execute(delete(Feed).where(Feed.id == feed_id))
+            cleanup.commit()
+
+
+def test_feed_configuration_noop_does_not_advance_fence(db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Stable feed",
+        url="https://example.com/stable.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        fetch_fence=7,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    changed_fields = apply_feed_fetch_configuration(
+        feed,
+        {
+            "url": feed.url,
+            "enabled": feed.enabled,
+            "fetch_mode": feed.fetch_mode,
+            "fetch_interval_seconds": feed.fetch_interval_seconds,
+            "schedule_cron": feed.schedule_cron,
+        },
+    )
+
+    assert changed_fields == frozenset()
+    assert feed.fetch_fence == 7
 
 
 def test_newer_feed_fetch_fence_prevents_stale_worker_commit(database_engine):

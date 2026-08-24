@@ -45,6 +45,10 @@ class LeaseOwnershipLostError(CoordinationUnavailableError):
     pass
 
 
+class DomainSlotUnavailableError(CoordinationUnavailableError):
+    pass
+
+
 @dataclass
 class RedisLeaseGuard:
     key: str
@@ -73,12 +77,25 @@ class RedisLeaseGuard:
             elapsed = time.monotonic() - self._last_successful_renewal
             fail_closed_after = max(0.5, self.ttl_seconds * 0.8)
             if elapsed >= fail_closed_after:
+                logger.warning(
+                    "coordination_lease_verification_failed key=%s elapsed_seconds=%.3f error_type=%s",
+                    self.key,
+                    elapsed,
+                    type(exc).__name__,
+                )
                 raise CoordinationUnavailableError(
                     "coordination lease could not be verified before expiry"
                 ) from exc
+            logger.debug(
+                "coordination_lease_verification_deferred key=%s elapsed_seconds=%.3f error_type=%s",
+                self.key,
+                elapsed,
+                type(exc).__name__,
+            )
             return
         if not renewed:
             self._ownership_lost.set()
+            logger.warning("coordination_lease_ownership_lost key=%s", self.key)
             raise LeaseOwnershipLostError("coordination lease ownership was lost")
         self._last_successful_renewal = time.monotonic()
 
@@ -224,8 +241,15 @@ def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_messa
             new_heartbeat,
             ttl_seconds,
         )
+        if replaced:
+            logger.info("coordination_stale_lease_replaced key=%s", key)
         return bool(replaced)
     except redis.RedisError as exc:
+        logger.warning(
+            "coordination_lease_operation_failed key=%s error_type=%s",
+            key,
+            type(exc).__name__,
+        )
         raise CoordinationUnavailableError(error_message) from exc
 
 
@@ -295,8 +319,12 @@ def _best_effort_release_lease(key: str, token: str) -> None:
             _lease_heartbeat_key(key),
             token,
         )
-    except redis.RedisError:
-        pass
+    except redis.RedisError as exc:
+        logger.warning(
+            "coordination_lease_release_failed key=%s error_type=%s",
+            key,
+            type(exc).__name__,
+        )
 
 
 def ensure_lease_owned(lease: object) -> None:
@@ -328,6 +356,11 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
                         error_message="domain slot unavailable",
                     )
             except redis.RedisError as exc:
+                logger.warning(
+                    "coordination_domain_slot_failed domain=%s error_type=%s",
+                    domain,
+                    type(exc).__name__,
+                )
                 raise CoordinationUnavailableError("domain slot unavailable") from exc
 
             if acquired:
@@ -338,7 +371,8 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
             time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
 
     if acquired_key is None:
-        raise TimeoutError(f"domain slot timeout for {domain}")
+        logger.warning("coordination_domain_slot_timeout domain=%s", domain)
+        raise DomainSlotUnavailableError(f"domain slot timeout for {domain}")
 
     try:
         with _redis_lease_heartbeat(
@@ -362,6 +396,11 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
         if not acquired:
             acquired = _try_take_stale_lease(key, ttl_seconds, token, error_message="feed lock unavailable")
     except redis.RedisError as exc:
+        logger.warning(
+            "coordination_feed_lock_failed feed_id=%s error_type=%s",
+            feed_id,
+            type(exc).__name__,
+        )
         raise CoordinationUnavailableError("feed lock unavailable") from exc
 
     if not acquired:

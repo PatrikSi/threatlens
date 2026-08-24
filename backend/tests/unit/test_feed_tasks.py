@@ -307,7 +307,12 @@ def test_feed_lease_guard_fails_closed_after_token_replacement(
 ):
     redis_client = _HeartbeatRedis()
     feed_key = "threatlens:feed:lock:feed-replaced"
+    warning_messages: list[str] = []
     monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr(
+        "app.tasks.feed_task_coordination.logger.warning",
+        lambda message, *args: warning_messages.append(message % args),
+    )
 
     with feed_lock("feed-replaced", ttl_seconds=30) as lease:
         redis_client.set(feed_key, "replacement-token", ex=30)
@@ -316,6 +321,12 @@ def test_feed_lease_guard_fails_closed_after_token_replacement(
             match="ownership was lost",
         ):
             lease.ensure_owned()
+
+    log_output = "\n".join(warning_messages)
+    assert "coordination_lease_ownership_lost" in log_output
+    assert feed_key in log_output
+    assert lease.token not in log_output
+    assert "replacement-token" not in log_output
 
 
 @pytest.mark.parametrize("heartbeat", [None, "malformed-heartbeat"])
