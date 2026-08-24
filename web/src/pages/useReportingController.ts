@@ -132,8 +132,18 @@ export function useReportingController() {
   })
 
   useEffect(() => {
-    if (selectedTemplateId || !templatesQuery.data?.length) return
-    setSelectedTemplateId(templatesQuery.data[0].id)
+    const templates = templatesQuery.data
+    if (!templates) return
+    if (!templates.length) {
+      if (selectedTemplateId) setSelectedTemplateId('')
+      return
+    }
+    if (
+      !selectedTemplateId
+      || !templates.some((template) => template.id === selectedTemplateId)
+    ) {
+      setSelectedTemplateId(templates[0].id)
+    }
   }, [selectedTemplateId, templatesQuery.data])
 
   useEffect(() => {
@@ -323,23 +333,33 @@ export function useReportingController() {
     },
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
+      queryClient.setQueryData<ReportTemplate[]>(
+        ['reports', 'templates'],
+        (templates) => upsertReportingResource(templates, template),
+      )
       setSelectedTemplateId(template.id)
       setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
-    onError: (error, payload) => (
-      payload.mode === 'create'
-        ? setIdempotentActionError(
-            setFeedback,
-            error,
-            'The report template could not be saved',
-          )
-        : setActionError(
-            setFeedback,
-            error,
-            'The report template could not be saved',
-          )
-    ),
+    onError: async (error, payload) => {
+      if (payload.mode === 'create') {
+        setIdempotentActionError(
+          setFeedback,
+          error,
+          'The report template could not be saved',
+        )
+        return
+      }
+      setActionError(
+        setFeedback,
+        error,
+        'The report template could not be saved',
+      )
+      await queryClient.resetQueries({
+        queryKey: ['reports', 'templates'],
+        exact: true,
+      })
+    },
   })
   const cloneTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'clone'],
@@ -461,15 +481,25 @@ export function useReportingController() {
       )
     },
     onMutate: () => setFeedback(null),
-    onSuccess: () => {
+    onSuccess: (schedule) => {
+      queryClient.setQueryData<ReportSchedule[]>(
+        ['reports', 'schedules'],
+        (schedules) => upsertReportingResource(schedules, schedule),
+      )
       setFeedback({ kind: 'success', message: 'Report schedule updated.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report schedule could not be updated',
-    ),
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report schedule could not be updated',
+      )
+      await queryClient.resetQueries({
+        queryKey: ['reports', 'schedules'],
+        exact: true,
+      })
+    },
   })
   const deleteScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'delete'],
@@ -708,6 +738,16 @@ function schedulePayload(schedule: ReportSchedule) {
     skip_empty: schedule.skip_empty,
     missed_run_policy: schedule.missed_run_policy,
   }
+}
+
+function upsertReportingResource<Resource extends { id: string }>(
+  resources: Resource[] | undefined,
+  resource: Resource,
+): Resource[] {
+  if (!resources) return [resource]
+  const existingIndex = resources.findIndex((entry) => entry.id === resource.id)
+  if (existingIndex < 0) return [...resources, resource]
+  return resources.map((entry, index) => index === existingIndex ? resource : entry)
 }
 
 function resolveReportQueueError(error: unknown): string {

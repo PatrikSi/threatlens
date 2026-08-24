@@ -31,7 +31,7 @@ export function requireReportQueueResponse(
       202,
     )
   }
-  if (expectedReportId && value.report_id !== expectedReportId) {
+  if (expectedReportId && !resourceIdentifiersEqual(value.report_id, expectedReportId)) {
     throw invalidReportingResponse(
       path,
       value,
@@ -59,7 +59,8 @@ export function requireReportQueueResponseList(
     expectedScheduleId
     && value.some(
       (entry) => entry.schedule_id !== undefined
-        && entry.schedule_id !== expectedScheduleId,
+        && entry.schedule_id !== null
+        && !resourceIdentifiersEqual(entry.schedule_id, expectedScheduleId),
     )
   ) {
     throw invalidReportingResponse(
@@ -90,7 +91,7 @@ export function requireReportingResource<T extends { id: string }>(
       responseStatus,
     )
   }
-  if (expectedResourceId && value.id !== expectedResourceId) {
+  if (expectedResourceId && !resourceIdentifiersEqual(value.id, expectedResourceId)) {
     throw invalidReportingResponse(
       path,
       value,
@@ -113,7 +114,7 @@ export function requireClonedReportingResource<T extends { id: string }>(
     resourceLabel,
     201,
   )
-  if (resource.id === sourceResourceId) {
+  if (resourceIdentifiersEqual(resource.id, sourceResourceId)) {
     throw invalidReportingResponse(
       path,
       value,
@@ -262,11 +263,16 @@ function isResourceIdentifier(
   return isUuid(value) || (
     isNonEmptyString(value)
     && expectedResourceId !== undefined
-    && value === expectedResourceId
+    && resourceIdentifiersEqual(value, expectedResourceId)
   )
 }
 
 function isUuid(value: unknown): value is string {
   return typeof value === 'string'
-    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function resourceIdentifiersEqual(left: string, right: string): boolean {
+  if (isUuid(left) && isUuid(right)) return left.toLowerCase() === right.toLowerCase()
+  return left === right
 }
