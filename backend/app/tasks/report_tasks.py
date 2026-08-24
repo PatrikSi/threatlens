@@ -47,7 +47,7 @@ from app.services.report_availability import (
     ensure_reporting_available,
 )
 from app.services.ai_config import load_active_ai_settings
-from app.tasks.celery_app import celery_app
+from app.tasks.celery_app import QUEUE_AI_REPORTS, celery_app
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 from app.tasks.task_session import db_session
 
@@ -120,6 +120,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     try:
         generate_intelligence_report.apply_async(
             args=[str(report_id), str(task_run_id)],
+            queue=QUEUE_AI_REPORTS,
             task_id=task_id,
         )
     except Exception:
@@ -295,9 +296,13 @@ def generate_intelligence_report(
     if claim.status == "busy":
         raise self.retry(
             countdown=_busy_report_retry_delay(claim.lease_expires_at),
-            headers=_report_retry_headers(self),
+            headers=_report_retry_headers(
+                self,
+                infrastructure_retry_count=infrastructure_retry_count,
+            ),
             kwargs={},
             max_retries=None,
+            queue=QUEUE_AI_REPORTS,
         )
 
     generation_fence = _required_generation_fence(claim)
@@ -690,6 +695,7 @@ def _retry_or_settle_report_infrastructure(
             headers=retry_headers,
             kwargs={},
             max_retries=None,
+            queue=QUEUE_AI_REPORTS,
         ) from exc
 
     logger.error(
@@ -707,6 +713,7 @@ def _retry_or_settle_report_infrastructure(
         worker_name=worker_name,
         lease_token=lease_token,
         generation_fence=generation_fence,
+        celery_task_id=getattr(task.request, "id", None),
         retry_count=retry_count,
         phase=phase,
     )
@@ -719,6 +726,7 @@ def _settle_exhausted_report_infrastructure(
     worker_name: str | None,
     lease_token: str,
     generation_fence: int | None,
+    celery_task_id: str | None,
     retry_count: int,
     phase: str,
 ) -> dict[str, str]:
@@ -753,6 +761,18 @@ def _settle_exhausted_report_infrastructure(
                     "status": run.status,
                     "reason": run.reason or "already_settled",
                 }
+            if run.celery_task_id not in (None, celery_task_id):
+                db.rollback()
+                logger.error(
+                    "report_generation_infrastructure_settlement_deferred "
+                    "report_id=%s task_run_id=%s reason=publication_moved",
+                    report_id,
+                    run_id,
+                )
+                return {"status": "skipped", "reason": "publication_moved"}
+            if celery_task_id is not None and run.celery_task_id is None:
+                run.celery_task_id = celery_task_id
+                db.add(run)
 
             report = db.scalar(
                 select(Report)
@@ -826,11 +846,7 @@ def _settle_exhausted_report_infrastructure(
                     "reason": "worker_infrastructure_reconciliation_pending",
                 }
 
-            release_owned_generation = bool(
-                owns_generation
-                and report is not None
-                and report.status in {"queued", "running"}
-            )
+            release_owned_generation = owns_generation
             event_id = None
             if report is None or report.status in {"ready", "error", "skipped"}:
                 result, event_id = _settle_terminal_report_run(
@@ -892,11 +908,15 @@ def _coerce_infrastructure_retry_count(value: object) -> int:
 
 def _request_infrastructure_retry_count(task, *, legacy_value: object = 0) -> int:
     headers = getattr(task.request, "headers", None)
-    if isinstance(headers, dict) and REPORT_INFRASTRUCTURE_RETRY_HEADER in headers:
-        return _coerce_infrastructure_retry_count(
-            headers[REPORT_INFRASTRUCTURE_RETRY_HEADER]
-        )
-    return _coerce_infrastructure_retry_count(legacy_value)
+    header_value = (
+        headers.get(REPORT_INFRASTRUCTURE_RETRY_HEADER)
+        if isinstance(headers, dict)
+        else None
+    )
+    return max(
+        _coerce_infrastructure_retry_count(header_value),
+        _coerce_infrastructure_retry_count(legacy_value),
+    )
 
 
 def _report_retry_headers(

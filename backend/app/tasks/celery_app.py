@@ -105,6 +105,7 @@ QUEUE_INGEST = "ingest"
 QUEUE_PROCESSING = "processing"
 QUEUE_NOTIFICATIONS = "notifications"
 QUEUE_AI = "ai"
+QUEUE_AI_REPORTS = "ai-reports-v2"
 QUEUE_MAINTENANCE = "maintenance"
 
 TASK_ROUTES = {
@@ -140,7 +141,7 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
-    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI},
+    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS},
     "app.tasks.feed_tasks.dispatch_due_report_schedules": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.dispatch_pending_report_tasks": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
@@ -168,6 +169,7 @@ celery_app.conf.update(
         Queue(QUEUE_PROCESSING),
         Queue(QUEUE_NOTIFICATIONS),
         Queue(QUEUE_AI),
+        Queue(QUEUE_AI_REPORTS),
         Queue(QUEUE_MAINTENANCE),
     ),
     task_routes=TASK_ROUTES,

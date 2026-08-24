@@ -83,6 +83,12 @@ def test_source_build_version_ignores_runtime_app_version_override():
     ) == 2
 
 
+def test_ai_worker_consumes_the_versioned_report_queue():
+    compose_text = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert '"--queues=ai,ai-reports-v2"' in compose_text
+
+
 def test_configuration_reference_inventories_every_backend_setting():
     documentation = (ROOT / "docs/reference/configuration.md").read_text(
         encoding="utf-8"

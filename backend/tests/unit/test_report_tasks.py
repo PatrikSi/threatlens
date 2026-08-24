@@ -77,15 +77,29 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
             AssertionError("duplicate task must not generate the report")
         ),
     )
+    retry_options = {}
 
-    with pytest.raises(Retry):
+    def _retry(**kwargs):
+        retry_options.update(kwargs)
+        return Retry()
+
+    monkeypatch.setattr(report_tasks.generate_intelligence_report, "retry", _retry)
+
+    with pytest.raises(Retry) as retry_info:
         report_tasks.generate_intelligence_report.run(
             str(report.id),
             str(run.id),
+            4,
         )
 
     db_session.expire_all()
     assert db_session.get(Report, report.id).status == "queued"
+    assert retry_info.value.sig is None
+    assert retry_options["kwargs"] == {}
+    assert retry_options["queue"] == report_tasks.QUEUE_AI_REPORTS
+    assert retry_options["headers"] == {
+        report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 4,
+    }
 
 
 def test_report_task_allows_unbounded_ownership_waits():
@@ -122,11 +136,28 @@ def test_report_infrastructure_retry_uses_classified_exponential_countdown():
 
     assert captured["countdown"] == 120
     assert captured["max_retries"] is None
+    assert captured["queue"] == report_tasks.QUEUE_AI_REPORTS
     assert captured["kwargs"] == {}
     assert captured["headers"] == {
         report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 3,
         "trace-context": "preserved",
     }
+
+
+def test_report_infrastructure_retry_uses_highest_mixed_version_count():
+    task = SimpleNamespace(
+        request=SimpleNamespace(
+            headers={report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 2}
+        )
+    )
+
+    assert (
+        report_tasks._request_infrastructure_retry_count(
+            task,
+            legacy_value=4,
+        )
+        == 4
+    )
 
 
 def test_report_task_terminalizes_exhausted_startup_failures(
@@ -192,6 +223,7 @@ def test_exhausted_report_task_defers_to_foreign_generation_owner(
         worker_name="exhausted-worker",
         lease_token="different-worker",
         generation_fence=None,
+        celery_task_id="report-task",
         retry_count=3,
         phase="starting report generation",
     )
@@ -230,6 +262,7 @@ def test_exhausted_report_task_recovers_ambiguous_committed_claim(
         worker_name="ambiguous-worker",
         lease_token=owner_token,
         generation_fence=None,
+        celery_task_id="report-task",
         retry_count=3,
         phase="committing generation ownership",
     )
@@ -239,6 +272,71 @@ def test_exhausted_report_task_recovers_ambiguous_committed_claim(
     stored_lease = db_session.get(ReportGenerationLease, report.id)
     assert result == {"status": "error", "reason": "worker_infrastructure_error"}
     assert stored_report.status == "error"
+    assert stored_report.generation_lease_token is None
+    assert stored_lease.lease_token is None
+
+
+def test_exhausted_report_task_rejects_an_obsolete_publication(
+    db_session,
+    monkeypatch,
+):
+    report = _report()
+    run = _task_run(db_session, report)
+    _use_test_session(monkeypatch, db_session)
+
+    result = report_tasks._settle_exhausted_report_infrastructure(
+        report_id=report.id,
+        run_id=run.id,
+        worker_name="obsolete-worker",
+        lease_token="obsolete-lease",
+        generation_fence=None,
+        celery_task_id="obsolete-task",
+        retry_count=3,
+        phase="starting report generation",
+    )
+
+    db_session.expire_all()
+    assert result == {"status": "skipped", "reason": "publication_moved"}
+    assert db_session.get(Report, report.id).status == "queued"
+    assert db_session.get(AITaskRun, run.id).status == "queued"
+
+
+def test_exhausted_report_task_releases_owned_terminal_generation(
+    db_session,
+    monkeypatch,
+):
+    owner_token = "terminal-owner"
+    report = _report(lease_token=owner_token)
+    report.status = "ready"
+    report.generation_stage = "ready"
+    run = _task_run(db_session, report)
+    db_session.add(
+        ReportGenerationLease(
+            report_id=report.id,
+            generation_fence=11,
+            lease_token=owner_token,
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    db_session.commit()
+    _use_test_session(monkeypatch, db_session)
+
+    result = report_tasks._settle_exhausted_report_infrastructure(
+        report_id=report.id,
+        run_id=run.id,
+        worker_name="terminal-worker",
+        lease_token=owner_token,
+        generation_fence=11,
+        celery_task_id="report-task",
+        retry_count=3,
+        phase="recording report completion",
+    )
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    stored_lease = db_session.get(ReportGenerationLease, report.id)
+    assert result["status"] == "ready"
+    assert db_session.get(AITaskRun, run.id).status == "ready"
     assert stored_report.generation_lease_token is None
     assert stored_lease.lease_token is None
 
@@ -286,6 +384,54 @@ def test_report_task_uses_only_committed_claim_for_exhaustion(
     assert result == {"status": "error", "reason": "worker_infrastructure_error"}
     assert db_session.get(Report, report.id).status == "error"
     assert db_session.get(AITaskRun, run.id).status == "error"
+
+
+def test_report_task_recovers_when_claim_commit_succeeds_then_raises(
+    db_session,
+    monkeypatch,
+):
+    report = _report()
+    run = _task_run(db_session, report)
+    commit_calls = 0
+
+    class CommitThenRaise:
+        def __getattr__(self, name):
+            return getattr(db_session, name)
+
+        def commit(self):
+            nonlocal commit_calls
+            commit_calls += 1
+            db_session.commit()
+            if commit_calls == 1:
+                raise RuntimeError("claim commit result was ambiguous")
+
+    @contextmanager
+    def _session():
+        try:
+            yield CommitThenRaise()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    monkeypatch.setattr(report_tasks, "db_session", _session)
+
+    result = report_tasks.generate_intelligence_report.apply(
+        args=[str(report.id), str(run.id)],
+        headers={
+            report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: (
+                report_tasks.settings.report_task_infrastructure_max_retries
+            )
+        },
+        task_id="report-task",
+    ).get()
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    stored_lease = db_session.get(ReportGenerationLease, report.id)
+    assert result == {"status": "error", "reason": "worker_infrastructure_error"}
+    assert stored_report.status == "error"
+    assert stored_report.generation_lease_token is None
+    assert stored_lease.lease_token is None
 
 
 def test_report_task_persists_legacy_guard_before_retry(db_session, monkeypatch):

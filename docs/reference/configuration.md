@@ -8,7 +8,7 @@
 - `redis`: Redis 7 (`6379`)
 - `api`: FastAPI (internal only on `8000`)
 - `worker`: Celery worker for ingestion and processing queues
-- `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation
+- `worker-ai`: isolated Celery worker for AI enrichment, daily briefs, and report generation; it consumes both `ai` and the rolling-upgrade-safe `ai-reports-v2` report queue
 - `worker-maintenance`: isolated Celery worker for scheduler heartbeats, outbox recovery, and maintenance tasks
 - `worker-notifications`: isolated Celery worker for integration event routing and outbound deliveries
 - `beat`: Celery beat scheduler
@@ -215,7 +215,7 @@ Outside production:
 - On first boot, either set `SEED_ADMIN_ON_STARTUP=true` for the API service or run `docker compose exec api python -m app.scripts.seed_admin` after migrations, then keep `SEED_ADMIN_ON_STARTUP=false` and `SEED_ADMIN_RESET_PASSWORD_ON_STARTUP=false` for steady state.
 - All workers and `beat` depend on healthy `api`, plus healthy DB/Redis, so they start only after schema startup work completes.
 - `beat` runs as a dedicated scheduler service so periodic jobs do not multiply with worker replicas.
-- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes only `ai`; `worker-maintenance` consumes only `maintenance`; `worker-notifications` consumes only `notifications`.
+- `worker` consumes `default`, `ingest`, and `processing`; `worker-ai` consumes `ai` and `ai-reports-v2`; `worker-maintenance` consumes only `maintenance`; `worker-notifications` consumes only `notifications`. The versioned report queue keeps newly published fenced report tasks away from pre-fencing AI workers during rolling upgrades.
 - Compose worker concurrency defaults to `4`, `1`, `1`, and `4` respectively. Override these with `WORKER_CONCURRENCY`, `AI_WORKER_CONCURRENCY`, `MAINTENANCE_WORKER_CONCURRENCY`, and `NOTIFICATION_WORKER_CONCURRENCY`. Keep AI concurrency at `1` for a memory-constrained local provider unless provider capacity has been measured.
 - The API is not published on a host port by default; use the web service at `http://localhost:3000/api/v1/*` or place the stack behind your own reverse proxy.
 - The published OpenAPI schema is exposed through the web proxy at `http://localhost:3000/api/openapi.json`.
