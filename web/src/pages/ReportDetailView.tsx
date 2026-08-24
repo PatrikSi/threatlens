@@ -31,7 +31,12 @@ export function ReportDetailView({
         canManage={canManage}
       />
 
-      {running && <GenerationStatus stage={report.generation_stage} />}
+      {running && (
+        <GenerationStatus
+          status={report.status}
+          stage={report.generation_stage}
+        />
+      )}
       {report.error && <GenerationError report={report} />}
       {warnings.map((warning) => (
         <p
@@ -188,7 +193,44 @@ function DownloadButton({
 }
 
 
-function GenerationStatus({ stage }: { stage: string }) {
+function GenerationStatus({
+  status,
+  stage,
+}: {
+  status: ReportDetail['status']
+  stage: string
+}) {
+  if (stage === 'waiting_for_worker') {
+    return (
+      <div
+        role="status"
+        className="rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-3 text-sm text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100"
+      >
+        <p className="font-semibold">Waiting for an AI report worker</p>
+        <p className="mt-1 text-xs">
+          No active worker is subscribed to the report queue. An administrator
+          should recreate the worker-ai service with the current deployment
+          configuration. The queued report will resume automatically.
+        </p>
+      </div>
+    )
+  }
+
+  if (status === 'queued') {
+    return (
+      <div
+        role="status"
+        className="rounded-lg border border-cyan/25 bg-cyan/5 px-3 py-3 text-sm text-cyan-900 dark:border-cyan-800/50 dark:text-cyan-100"
+      >
+        <p className="font-semibold">Waiting for report generation</p>
+        <p className="mt-1 text-xs">
+          The request is queued for the AI worker. Busy local models can take a
+          few minutes to begin. This view refreshes automatically.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div
       role="status"
@@ -198,8 +240,8 @@ function GenerationStatus({ stage }: { stage: string }) {
         Generation in progress: {stage.replaceAll('_', ' ')}
       </p>
       <p className="mt-1 text-xs">
-        The AI worker is processing bounded evidence batches. This view refreshes
-        automatically.
+        The AI worker is processing bounded evidence batches. Local models can
+        take several minutes per stage. This view refreshes automatically.
       </p>
     </div>
   )
