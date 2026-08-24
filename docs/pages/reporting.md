@@ -91,7 +91,9 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Queued and running reports cannot be deleted.
 - Scheduled empty periods are retained as skipped report records when **Skip periods with no sources** is enabled.
 
-Operators can tune durable dispatch, schedule retry, and generation lease limits with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. The broker visibility timeout should remain longer than the maximum expected report run so an active task is not redelivered merely because it is still generating.
+Operators can tune durable dispatch, schedule retry, and generation lease limits with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. Keep the broker visibility timeout longer than the maximum expected report run to reduce duplicate queue load. If a run exceeds it, redelivery reuses the stable task ID and waits behind the renewable generation fence instead of repeating owned provider work.
+
+Migration `0050_report_idempotency_compat` keeps both idempotency columns during a normal rolling downgrade to `0049`. A deployment that accepted report requests on the unreleased rename-based draft must not roll back below `0047`: hash-only keys cannot be converted back into their original raw values. Released upgrade paths are unaffected.
 
 Use `docker compose logs -f worker-ai` for generation diagnostics and the report detail plus **Settings -> AI -> Activity** for persisted stage/provider history.
 
