@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -21,6 +22,7 @@ from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usa
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
+from app.services.report_execution import ReportGenerationLeaseLostError
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
     FINDINGS_COMPACTION_WARNING,
@@ -59,6 +61,7 @@ def generate_report(
     *,
     report_id: uuid.UUID,
     task_run_id: uuid.UUID | None,
+    execution_checkpoint: Callable[[], None] | None = None,
 ) -> ReportGenerationResult:
     report = db.scalar(select(Report).where(Report.id == report_id).with_for_update())
     if report is None:
@@ -139,6 +142,7 @@ def generate_report(
         db.add(report)
         _record_stage(db, task_run_id, report, "evidence_synthesis")
         db.commit()
+        _check_execution(execution_checkpoint)
 
         findings = _synthesize_evidence_batches(
             db,
@@ -149,6 +153,7 @@ def generate_report(
             budget=budget,
             task_run_id=task_run_id,
             counters=counters,
+            execution_checkpoint=execution_checkpoint,
         )
         report = db.get(Report, report_id)
         if report is None:
@@ -163,6 +168,7 @@ def generate_report(
 
         ordered_sections = _generation_order(sections)
         for section in ordered_sections:
+            _check_execution(execution_checkpoint)
             _raise_if_canceled(db, task_run_id)
             if (
                 counters.model_calls >= active.report_max_model_calls
@@ -182,6 +188,7 @@ def generate_report(
                 budget=budget,
                 task_run_id=task_run_id,
                 counters=counters,
+                execution_checkpoint=execution_checkpoint,
             )
 
         report = db.get(Report, report_id)
@@ -191,6 +198,7 @@ def generate_report(
                 code="report_deleted",
             )
         _raise_if_canceled(db, task_run_id)
+        _check_execution(execution_checkpoint)
         _finalize_ready_report(db, report=report, counters=counters)
         _record_stage(db, task_run_id, report, "ready")
         db.commit()
@@ -203,6 +211,9 @@ def generate_report(
             counters.total_tokens,
         )
     except Exception as exc:
+        if isinstance(exc, ReportGenerationLeaseLostError):
+            db.rollback()
+            raise
         if isinstance(exc, AIIntegrationError):
             counters.model_calls += exc.attempt_count
         db.rollback()
@@ -245,6 +256,11 @@ def _generation_error_code(exc: Exception, *, expected: bool) -> str:
 def _raise_if_canceled(db: Session, task_run_id: uuid.UUID | None) -> None:
     if get_ai_task_run_stop_reason(db, run_id=task_run_id) == "canceled":
         raise ReportGenerationError("Report generation was canceled.", code="canceled")
+
+
+def _check_execution(checkpoint: Callable[[], None] | None) -> None:
+    if checkpoint is not None:
+        checkpoint()
 
 
 @dataclass
@@ -393,6 +409,7 @@ def _synthesize_evidence_batches(
     budget,
     task_run_id: uuid.UUID | None,
     counters: _UsageCounters,
+    execution_checkpoint: Callable[[], None] | None,
 ) -> list[dict]:
     findings: list[dict] = []
     known_citations = {source.citation_key for source in sources}
@@ -427,6 +444,7 @@ def _synthesize_evidence_batches(
             max_retry_completion_tokens=retry_completion_tokens,
             max_provider_attempts=active.report_max_model_calls
             - counters.model_calls,
+            execution_checkpoint=execution_checkpoint,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)
@@ -458,6 +476,7 @@ def _generate_section(
     budget,
     task_run_id: uuid.UUID | None,
     counters: _UsageCounters,
+    execution_checkpoint: Callable[[], None] | None,
 ) -> None:
     section = db.get(ReportSection, section.id)
     if section is None:
@@ -518,6 +537,7 @@ def _generate_section(
             max_retry_completion_tokens=retry_completion_tokens,
             max_provider_attempts=active.report_max_model_calls
             - counters.model_calls,
+            execution_checkpoint=execution_checkpoint,
         )
         counters.add(completion)
         _raise_if_canceled(db, task_run_id)

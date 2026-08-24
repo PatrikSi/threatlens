@@ -224,6 +224,8 @@ class Settings(BaseSettings):
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
     dispatch_ai_reprocess_batch_size: int = 100
+    celery_visibility_timeout_seconds: int = 3600
+    report_generation_lease_seconds: int = 600
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
@@ -370,6 +372,8 @@ class Settings(BaseSettings):
         "database_connect_timeout_seconds",
         "database_statement_timeout_ms",
         "database_pool_timeout_seconds",
+        "celery_visibility_timeout_seconds",
+        "report_generation_lease_seconds",
     )
     @classmethod
     def _validate_positive_operational_limits(cls, value: int) -> int:

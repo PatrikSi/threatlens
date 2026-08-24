@@ -171,6 +171,13 @@ celery_app.conf.update(
     ),
     task_routes=TASK_ROUTES,
     worker_prefetch_multiplier=1,
+    broker_transport_options={
+        "visibility_timeout": settings.celery_visibility_timeout_seconds
+    },
+    result_backend_transport_options={
+        "visibility_timeout": settings.celery_visibility_timeout_seconds
+    },
+    visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
         "dispatch-due-feeds": {
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
