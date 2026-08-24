@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../api/client', async (importOriginal) => ({
@@ -17,6 +19,9 @@ import {
 afterEach(() => {
   vi.mocked(apiFetch).mockReset()
   resetPendingReportingKeys()
+  window.localStorage.clear()
+  window.sessionStorage.clear()
+  vi.restoreAllMocks()
 })
 
 describe('idempotentReportingFetch', () => {
@@ -34,7 +39,7 @@ describe('idempotentReportingFetch', () => {
 
     await expect(
       idempotentReportingFetch('/reports', 'scope-1', { method: 'POST' }, passthrough),
-    ).rejects.toThrow('Browser storage is unavailable')
+    ).rejects.toThrow('network down')
     await expect(idempotentReportingFetch('/reports', 'scope-1', { method: 'POST' }, passthrough)).resolves.toEqual({
       id: 'report-1',
     })
@@ -122,6 +127,30 @@ describe('idempotentReportingFetch', () => {
     expect(keys[2]).toBe(keys[0])
   })
 
+  it('reports storage loss that occurs after an ambiguous dispatch', async () => {
+    let storageIsDenied = false
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (storageIsDenied) throw new DOMException('Storage revoked')
+      originalSetItem.call(this, key, value)
+    })
+    vi.mocked(apiFetch).mockImplementation(() => {
+      storageIsDenied = true
+      return Promise.reject(new ApiTransportError('network down', '/reports', 'network'))
+    })
+
+    await expect(idempotentReportingFetch(
+      '/reports',
+      'storage-revoked-scope',
+      { method: 'POST' },
+      passthrough,
+    )).rejects.toThrow('could not retain the shared request key')
+  })
+
   it('does not dispatch a prepared request after authentication changes', async () => {
     const scope = 'auth-change-scope'
     const key = await beginPendingReportingRequest(scope)
@@ -136,6 +165,27 @@ describe('idempotentReportingFetch', () => {
     resetPendingReportingKeys()
 
     await expect(request).rejects.toThrow('Authentication changed')
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+
+  it('does not dispatch when a shared request key cannot be persisted', async () => {
+    const localStorage = window.localStorage
+    const originalSetItem = Storage.prototype.setItem
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+      value: string,
+    ) {
+      if (this === localStorage) throw new DOMException('Local storage denied')
+      originalSetItem.call(this, key, value)
+    })
+
+    await expect(idempotentReportingFetch(
+      '/reports',
+      'storage-denied-scope',
+      { method: 'POST' },
+      passthrough,
+    )).rejects.toThrow('no request was sent')
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
