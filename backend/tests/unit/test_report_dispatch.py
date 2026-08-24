@@ -65,8 +65,8 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     _use_test_session(monkeypatch, db_session)
     published = []
 
-    def _publish(*, args, task_id):
-        published.append((args, task_id))
+    def _publish(*, args, queue, task_id):
+        published.append((args, queue, task_id))
 
     monkeypatch.setattr(
         report_tasks.generate_intelligence_report,
@@ -81,7 +81,13 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
 
     expected_task_id = stable_report_task_id(run.id)
     assert task_id == expected_task_id
-    assert published == [([str(report.id), str(run.id)], expected_task_id)]
+    assert published == [
+        (
+            [str(report.id), str(run.id)],
+            report_tasks.QUEUE_AI_REPORTS,
+            expected_task_id,
+        )
+    ]
     db_session.expire_all()
     stored = db_session.get(AITaskRun, run.id)
     assert stored is not None
@@ -137,7 +143,7 @@ def test_published_task_is_recoverable_when_metadata_commit_fails(
     monkeypatch.setattr(
         report_tasks.generate_intelligence_report,
         "apply_async",
-        lambda *, args, task_id: published.append((args, task_id)),
+        lambda *, args, queue, task_id: published.append((args, queue, task_id)),
     )
     monkeypatch.setattr(
         report_tasks,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -895,25 +895,17 @@ def _reconcile_stale_ai_runs(
                 continue
             stale_reason = "stale_task_snapshot_unavailable"
             stale_error = "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
-        if (
-            run.task_type == AI_TASK_TYPE_REPORT
-            and run.report_id is not None
-            and guard_unfenced_report_generation(
-                db,
-                report_id=run.report_id,
-                grace_seconds=get_settings().report_legacy_worker_grace_seconds,
-                now=now,
-            )
-        ):
-            changed = True
-            continue
-        if not _finish_reconciled_stale_run(
+        reconcile_outcome = _finish_reconciled_stale_run(
             db,
             run=run,
             snapshot_available=can_reconcile_missing_live_tasks,
             stale_reason=stale_reason,
             stale_error=stale_error,
-        ):
+        )
+        if reconcile_outcome == "guarded":
+            changed = True
+            continue
+        if reconcile_outcome != "finished":
             continue
         changed = True
         reconciled_count += 1
@@ -967,12 +959,15 @@ def _reconcile_stale_ai_runs(
             queued_stale_before=fallback_stale_before,
         ):
             continue
-        if not _finish_reconciled_stale_run(
-            db,
-            run=run,
-            snapshot_available=can_reconcile_missing_live_tasks,
-            stale_reason="stale_reprocess_tracking",
-            stale_error="Reprocess task stopped updating and is no longer active in Celery",
+        if (
+            _finish_reconciled_stale_run(
+                db,
+                run=run,
+                snapshot_available=can_reconcile_missing_live_tasks,
+                stale_reason="stale_reprocess_tracking",
+                stale_error="Reprocess task stopped updating and is no longer active in Celery",
+            )
+            != "finished"
         ):
             continue
         changed = True
@@ -1080,7 +1075,7 @@ def _finish_reconciled_stale_run(
     snapshot_available: bool,
     stale_reason: str,
     stale_error: str,
-) -> bool:
+) -> Literal["unchanged", "guarded", "finished"]:
     locked_run = db.scalar(
         select(AITaskRun)
         .where(AITaskRun.id == run.id)
@@ -1092,14 +1087,20 @@ def _finish_reconciled_stale_run(
         or locked_run.finished_at is not None
         or locked_run.status in AI_TERMINAL_STATUSES
     ):
-        return False
+        return "unchanged"
     run = locked_run
     if run.task_type == AI_TASK_TYPE_REPORT and run.report_id is not None:
+        if guard_unfenced_report_generation(
+            db,
+            report_id=run.report_id,
+            grace_seconds=get_settings().report_legacy_worker_grace_seconds,
+        ):
+            return "guarded"
         if not invalidate_stale_report_generation(
             db,
             report_id=run.report_id,
         ):
-            return False
+            return "unchanged"
         report = db.get(Report, run.report_id)
         if report is not None and report.status in {"ready", "error", "skipped"}:
             status = {
@@ -1125,7 +1126,7 @@ def _finish_reconciled_stale_run(
                     "terminal_report_recovered": True,
                 },
             )
-            return True
+            return "finished"
 
     if _is_cancel_requested_run(run):
         finish_ai_task_run(
@@ -1141,7 +1142,7 @@ def _finish_reconciled_stale_run(
                 "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        return True
+        return "finished"
 
     finish_ai_task_run(
         db,
@@ -1156,7 +1157,7 @@ def _finish_reconciled_stale_run(
             "stale_snapshot_available": snapshot_available,
         },
     )
-    return True
+    return "finished"
 
 
 def _is_cancel_requested_run(run: AITaskRun) -> bool:

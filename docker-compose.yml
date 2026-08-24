@@ -288,7 +288,7 @@ services:
         "worker",
         "--loglevel=${LOG_LEVEL:-INFO}",
         "--concurrency=${AI_WORKER_CONCURRENCY:-1}",
-        "--queues=ai",
+        "--queues=ai,ai-reports-v2",
         "-n",
         "ai@%h",
       ]
