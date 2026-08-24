@@ -33,6 +33,10 @@ class FeedProbeError(RuntimeError):
     pass
 
 
+class FeedProbeCoordinationError(FeedProbeError):
+    pass
+
+
 def probe_feed_metadata(
     url: str,
     *,

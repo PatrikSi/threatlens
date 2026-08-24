@@ -108,6 +108,26 @@ def run_backfill_feed_metadata(feed_id: str, *, runtime: ModuleType):
                             ),
                             request_guard_validator=r.ensure_lease_owned,
                         )
+                    except r.LeaseOwnershipLostError as exc:
+                        return _recover_metadata_probe_coordination(
+                            db,
+                            feed,
+                            feed_id,
+                            claim,
+                            lease,
+                            exc,
+                            runtime=r,
+                        )
+                    except r.CoordinationUnavailableError as exc:
+                        return _recover_metadata_probe_coordination(
+                            db,
+                            feed,
+                            feed_id,
+                            claim,
+                            lease,
+                            exc,
+                            runtime=r,
+                        )
                     except r.FeedProbeError as exc:
                         return {
                             "status": "error",
@@ -446,17 +466,22 @@ def _read_feed_response(
         headers={"User-Agent": r.settings.fetch_user_agent},
         allow_private_network=r.settings.allow_private_network_fetch,
     ) as client:
-        response = r.safe_stream_with_redirects(
-            client,
-            "GET",
-            feed_url,
-            headers=headers,
-            allow_private_network=r.settings.allow_private_network_fetch,
-            max_redirects=r.settings.outbound_max_redirects,
-            request_context=lambda request_url: r.domain_slot(
-                urlsplit(request_url).hostname or "unknown"
-            ),
-        )
+        try:
+            response = r.safe_stream_with_redirects(
+                client,
+                "GET",
+                feed_url,
+                headers=headers,
+                allow_private_network=r.settings.allow_private_network_fetch,
+                max_redirects=r.settings.outbound_max_redirects,
+                request_context=lambda request_url: r.domain_slot(
+                    urlsplit(request_url).hostname or "unknown"
+                ),
+            )
+        except r.LeaseOwnershipLostError as exc:
+            raise DomainSlotOwnershipLostError(
+                "domain-slot ownership was lost before the feed response began"
+            ) from exc
         domain_lease = r.safe_fetch_request_guard(response)
         try:
             _ensure_fetch_leases_owned(lease, domain_lease, runtime=r)
@@ -762,6 +787,31 @@ def _stale_fetch_result(feed_id: str, exc: Exception, *, runtime: ModuleType):
     return {
         "status": "skipped",
         "reason": "fetch_ownership_lost",
+        "feed_id": feed_id,
+    }
+
+
+def _recover_metadata_probe_coordination(
+    db,
+    feed: Feed,
+    feed_id: str,
+    claim,
+    lease,
+    exc: Exception,
+    *,
+    runtime: ModuleType,
+):
+    runtime.logger.warning(
+        "feed_metadata_probe_coordination_lost feed_id=%s error_type=%s",
+        feed_id,
+        runtime._exception_type_name(exc),
+    )
+    runtime._stage_feed_after_coordination_failure(feed)
+    db.add(feed)
+    _commit_owned(db, claim, lease, runtime=runtime)
+    return {
+        "status": "error",
+        "reason": "coordination_unavailable",
         "feed_id": feed_id,
     }
 

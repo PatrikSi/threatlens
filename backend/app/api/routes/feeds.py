@@ -31,7 +31,12 @@ from app.services.feed_fetch_ownership import (
     FEED_FETCH_CONFIGURATION_FIELDS,
     apply_feed_fetch_configuration,
 )
-from app.services.feed_probe import FeedProbeError, FeedProbeResult, probe_feed_metadata
+from app.services.feed_probe import (
+    FeedProbeCoordinationError,
+    FeedProbeError,
+    FeedProbeResult,
+    probe_feed_metadata,
+)
 from app.services.feed_storage import feed_url_digest
 from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
 from app.tasks.celery_app import celery_app
@@ -62,6 +67,12 @@ def get_feed_metadata(
 ):
     try:
         metadata = _probe_feed_metadata(payload.url)
+    except FeedProbeCoordinationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": "5"},
+        ) from exc
     except FeedProbeError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
@@ -462,13 +473,12 @@ def _ordered_import_entries(
         (index, entry, normalize_feed_url(entry.url))
         for index, entry in enumerate(payload.feeds, start=1)
     ]
-    if payload.overwrite_existing:
-        entries.sort(
-            key=lambda candidate: (
-                feed_url_digest(candidate[2]) or "",
-                candidate[0],
-            )
+    entries.sort(
+        key=lambda candidate: (
+            feed_url_digest(candidate[2]) or "",
+            candidate[0],
         )
+    )
     return entries
 
 
@@ -521,7 +531,7 @@ def _probe_feed_metadata(url: str) -> FeedProbeResult:
             request_guard_validator=ensure_lease_owned,
         )
     except CoordinationUnavailableError as exc:
-        raise FeedProbeError(
+        raise FeedProbeCoordinationError(
             "Feed metadata probing is temporarily unavailable because outbound "
             "fetch coordination could not be acquired. Try again."
         ) from exc

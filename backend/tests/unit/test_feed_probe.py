@@ -5,7 +5,7 @@ import pytest
 
 from app.api.routes import feeds as feeds_routes
 from app.services import feed_probe, safe_fetch
-from app.services.feed_probe import FeedProbeError
+from app.services.feed_probe import FeedProbeCoordinationError
 from app.tasks.feed_task_coordination import CoordinationUnavailableError
 
 
@@ -62,5 +62,5 @@ def test_api_feed_probe_maps_coordination_failure_to_actionable_error(monkeypatc
 
     monkeypatch.setattr(feeds_routes, "probe_feed_metadata", unavailable_probe)
 
-    with pytest.raises(FeedProbeError, match="temporarily unavailable"):
+    with pytest.raises(FeedProbeCoordinationError, match="temporarily unavailable"):
         feeds_routes._probe_feed_metadata("https://example.com/feed.xml")
