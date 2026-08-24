@@ -18,8 +18,15 @@ const authIdentityStorageKey = 'threatlens.auth.identity'
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sessionVersion, setSessionVersion] = useState(0)
   const authChannelRef = useRef<BroadcastChannel | null>(null)
+  const handledAuthEvent = useRef(
+    readSessionStorageItem(authSyncHandledStorageKey),
+  ).current
+  const retainedAuthEvent = useRef(
+    readLocalStorageItem(authSyncStorageKey),
+  ).current
+  const retainedAuthEventId = authEventId(retainedAuthEvent)
   const seenRemoteEventsRef = useRef(new Set<string>(
-    optionalEntry(readSessionStorageItem(authSyncHandledStorageKey)),
+    optionalEntry(handledAuthEvent ?? retainedAuthEventId),
   ))
   const observedIdentityRef = useRef(readLocalStorageItem(authIdentityStorageKey))
 
@@ -59,14 +66,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     window.addEventListener('storage', onStorage)
-    applyRemoteChange(readLocalStorageItem(authSyncStorageKey))
+    const latestRetainedAuthEvent = readLocalStorageItem(authSyncStorageKey)
+    const latestRetainedAuthEventId = authEventId(latestRetainedAuthEvent)
+    if (handledAuthEvent && latestRetainedAuthEventId !== handledAuthEvent) {
+      applyRemoteChange(latestRetainedAuthEvent)
+    } else if (
+      !handledAuthEvent
+      && latestRetainedAuthEventId
+      && latestRetainedAuthEventId !== retainedAuthEventId
+    ) {
+      applyRemoteChange(latestRetainedAuthEvent)
+    } else if (!handledAuthEvent && latestRetainedAuthEventId) {
+      writeSessionStorageItem(authSyncHandledStorageKey, latestRetainedAuthEventId)
+    }
     return () => {
       window.removeEventListener('storage', onStorage)
       authChannelRef.current?.removeEventListener('message', onBroadcast)
       authChannelRef.current?.close()
       authChannelRef.current = null
     }
-  }, [])
+  }, [handledAuthEvent, retainedAuthEvent, retainedAuthEventId])
 
   const value = useMemo(
     () => ({

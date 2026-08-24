@@ -49,6 +49,69 @@ describe('AuthProvider session cleanup', () => {
     expect(nextKey).not.toBe(firstKey)
   })
 
+  it('does not replay a retained auth event when a tab mounts', async () => {
+    window.localStorage.setItem(
+      'threatlens.auth.sync',
+      JSON.stringify({ id: 'already-observed-event', at: Date.now() }),
+    )
+    const scope = reportingRequestScope(
+      'analyst-1',
+      'report:retry',
+      '11111111-1111-4111-8111-111111111111',
+    )
+    const firstKey = await beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, firstKey, 'ambiguous')
+
+    renderAuthControl()
+
+    expect(await beginPendingReportingRequest(scope)).toBe(firstKey)
+    expect(container?.querySelector('button')?.dataset.sessionVersion).toBe('0')
+  })
+
+  it('applies an auth event that arrived while an existing tab was unmounted', async () => {
+    window.sessionStorage.setItem('threatlens.auth.last-handled', 'older-event')
+    window.localStorage.setItem(
+      'threatlens.auth.sync',
+      JSON.stringify({ id: 'newer-event', at: Date.now() }),
+    )
+    const scope = reportingRequestScope(
+      'analyst-1',
+      'report:retry',
+      '11111111-1111-4111-8111-111111111111',
+    )
+    const firstKey = await beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, firstKey, 'ambiguous')
+
+    renderAuthControl()
+
+    expect(await beginPendingReportingRequest(scope)).not.toBe(firstKey)
+    expect(container?.querySelector('button')?.dataset.sessionVersion).toBe('1')
+  })
+
+  it('applies an auth event that arrives between render and listener setup', () => {
+    const originalGetItem = Storage.prototype.getItem
+    const renderedEvent = JSON.stringify({ id: 'rendered-event', at: Date.now() })
+    const latestEvent = JSON.stringify({ id: 'latest-event', at: Date.now() + 1 })
+    let syncReads = 0
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (this === window.localStorage && key === 'threatlens.auth.sync') {
+        syncReads += 1
+        return syncReads === 1 ? renderedEvent : latestEvent
+      }
+      return originalGetItem.call(this, key)
+    })
+
+    renderAuthControl()
+
+    expect(container?.querySelector('button')?.dataset.sessionVersion).toBe('1')
+    expect(window.sessionStorage.getItem('threatlens.auth.last-handled')).toBe(
+      'latest-event',
+    )
+  })
+
   it('receives auth cleanup over BroadcastChannel when storage is denied', async () => {
     vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {

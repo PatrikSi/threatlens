@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   beginPendingReportingRequest,
+  coalesceReportingRequest,
   reportMutationRequestKey,
   reportingRequestScope,
   resetPendingReportingKeys,
@@ -61,7 +62,7 @@ describe('reporting request identities', () => {
     expect(await beginPendingReportingRequest(scope)).toBe(second)
   })
 
-  it('retains a shared key when overlapping callers settle asymmetrically', async () => {
+  it('settles an overlapping key once any caller confirms the outcome', async () => {
     const scope = reportingRequestScope('analyst-1', 'report:retry', 'report-2')
     const first = await beginPendingReportingRequest(scope)
     const overlapping = await beginPendingReportingRequest(scope)
@@ -71,13 +72,38 @@ describe('reporting request identities', () => {
     const retry = await beginPendingReportingRequest(scope)
 
     expect(overlapping).toBe(first)
-    expect(retry).toBe(first)
+    expect(retry).not.toBe(first)
     settlePendingReportingRequest(scope, retry, 'confirmed')
-    expect(await beginPendingReportingRequest(scope)).not.toBe(first)
   })
 })
 
 describe('serialized reporting writes', () => {
+  it('fences active rejection paths after authentication changes', async () => {
+    let rejectCoalesced: ((error: Error) => void) | undefined
+    let rejectSerialized: ((error: Error) => void) | undefined
+    const coalesced = coalesceReportingRequest('coalesced-auth-error', () => (
+      new Promise((_resolve, reject) => { rejectCoalesced = reject })
+    ))
+    const serialized = serializeReportingWrite(
+      'serialized-auth-error',
+      'request-auth-error',
+      () => new Promise((_resolve, reject) => { rejectSerialized = reject }),
+    )
+    await vi.waitFor(() => {
+      expect(rejectCoalesced).toBeTypeOf('function')
+      expect(rejectSerialized).toBeTypeOf('function')
+    })
+    const coalescedExpectation = expect(coalesced).rejects.toThrow('Authentication changed')
+    const serializedExpectation = expect(serialized).rejects.toThrow('Authentication changed')
+
+    resetPendingReportingKeys()
+    rejectCoalesced?.(new Error('old coalesced error'))
+    rejectSerialized?.(new Error('old serialized error'))
+
+    await coalescedExpectation
+    await serializedExpectation
+  })
+
   it('coalesces exact duplicates and runs changed payloads in submission order', async () => {
     const started: string[] = []
     let releaseFirst: ((value: string) => void) | undefined

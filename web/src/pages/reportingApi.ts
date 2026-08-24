@@ -16,12 +16,6 @@ export async function idempotentReportingFetch<Result>(
   const lease = await beginPendingReportingRequestLease(scope)
   assertReportingRequestLeaseCurrent(lease)
   const { key } = lease
-  if (!lease.durable || !lease.shared) {
-    settlePendingReportingRequest(scope, key, 'blocked')
-    throw new Error(
-      'ThreatLens could not safely store a shared request key. Enable local browser storage, reload this page, and retry; no request was sent.',
-    )
-  }
   try {
     const headers = new Headers(options.headers)
     headers.set('Idempotency-Key', key)
@@ -31,6 +25,7 @@ export async function idempotentReportingFetch<Result>(
     settlePendingReportingRequest(scope, key, 'confirmed')
     return result
   } catch (error) {
+    assertReportingRequestLeaseCurrent(lease)
     const ambiguous = isAmbiguousReportingMutationError(error)
     const settlement = settlePendingReportingRequest(
       scope,
@@ -39,10 +34,10 @@ export async function idempotentReportingFetch<Result>(
     )
     if (
       ambiguous
-      && (!settlement.durable || !settlement.shared)
+      && !settlement.durable
       && error instanceof Error
     ) {
-      error.message = `${error.message} ThreatLens could not retain the shared request key after the failure. Keep this tab open and restore local browser storage before retrying.`
+      error.message = `${error.message} Browser storage is unavailable, so keep this tab open before retrying; reloading could create a duplicate request.`
     }
     throw error
   }

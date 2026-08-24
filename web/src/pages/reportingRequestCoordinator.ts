@@ -3,6 +3,7 @@ import {
   clearReportingRequestStorage,
   persistReportingRequestStorage,
   removeReportingRequestStorage,
+  settleReportingRequestStorage,
   type ReportingRequestStorageEntry,
 } from './reportingRequestStorage'
 
@@ -10,6 +11,7 @@ import {
 type PendingRequest = ReportingRequestStorageEntry & {
   inFlight: number
   retainAfterSettlement: boolean
+  definitiveOutcomeSeen: boolean
 }
 type WriteTail = {
   requestKey: string
@@ -21,17 +23,16 @@ const pendingRequests = new Map<string, PendingRequest>()
 const activeRequests = new Map<string, Promise<unknown>>()
 const writeTails = new Map<string, WriteTail>()
 let coordinationGeneration = 0
+let storageResetPending = false
 
-export type ReportingRequestOutcome = 'confirmed' | 'ambiguous' | 'blocked' | 'rejected'
+export type ReportingRequestOutcome = 'confirmed' | 'ambiguous' | 'rejected'
 export type ReportingRequestLease = {
   key: string
   generation: number
   durable: boolean
-  shared: boolean
 }
 export type ReportingRequestSettlement = {
   durable: boolean
-  shared: boolean
 }
 
 
@@ -55,9 +56,26 @@ export async function beginPendingReportingRequestLease(
   scope: string,
 ): Promise<ReportingRequestLease> {
   const startingGeneration = coordinationGeneration
+  if (storageResetPending) {
+    storageResetPending = !clearReportingRequestStorage()
+    if (storageResetPending) {
+      throw new Error(
+        'ThreatLens could not finish clearing report request state. Restore browser storage, reload, and retry.',
+      )
+    }
+  }
   let request = pendingRequests.get(scope)
+  if (request?.definitiveOutcomeSeen && request.inFlight === 0) {
+    if (!removeReportingRequestStorage(request)) {
+      throw new Error(
+        'ThreatLens could not finish settling the previous report request. Restore browser storage and retry.',
+      )
+    }
+    pendingRequests.delete(scope)
+    request = undefined
+  }
   if (!request) {
-    const stored = await acquireReportingRequestStorage(
+    const stored = acquireReportingRequestStorage(
       scope,
       createIdempotencyKey,
       () => requireCurrentCoordinationGeneration(startingGeneration),
@@ -69,18 +87,21 @@ export async function beginPendingReportingRequestLease(
         ...stored,
         inFlight: 0,
         retainAfterSettlement: false,
+        definitiveOutcomeSeen: false,
       }
       pendingRequests.set(scope, request)
     }
   }
-  if (request.inFlight === 0) request.retainAfterSettlement = false
+  if (request.inFlight === 0) {
+    request.retainAfterSettlement = false
+    request.definitiveOutcomeSeen = false
+  }
   request.inFlight += 1
   requireCurrentCoordinationGeneration(startingGeneration)
   return {
     key: request.key,
     generation: startingGeneration,
     durable: request.durable,
-    shared: request.shared,
   }
 }
 
@@ -99,21 +120,26 @@ export function settlePendingReportingRequest(
 ): ReportingRequestSettlement {
   const request = pendingRequests.get(scope)
   if (!request || request.key !== key) {
-    return { durable: false, shared: false }
+    return { durable: false }
   }
   request.inFlight = Math.max(0, request.inFlight - 1)
-  if (outcome === 'ambiguous' || outcome === 'blocked') {
+  if (outcome === 'ambiguous' && !request.definitiveOutcomeSeen) {
     request.retainAfterSettlement = true
+  } else if (outcome !== 'ambiguous') {
+    request.definitiveOutcomeSeen = true
+    request.retainAfterSettlement = false
+    request.durable = settleReportingRequestStorage(request)
   }
   if (request.inFlight === 0 && !request.retainAfterSettlement) {
-    pendingRequests.delete(scope)
-    removeReportingRequestStorage(request)
-    return { durable: true, shared: true }
+    const removed = removeReportingRequestStorage(request)
+    request.durable = removed
+    if (removed) pendingRequests.delete(scope)
+    return { durable: removed }
   }
-  const status = persistReportingRequestStorage(request)
-  request.durable = status.durable
-  request.shared = status.shared
-  return status
+  if (!request.definitiveOutcomeSeen) {
+    request.durable = persistReportingRequestStorage(request)
+  }
+  return { durable: request.durable }
 }
 
 
@@ -122,7 +148,7 @@ export function resetPendingReportingKeys(): void {
   pendingRequests.clear()
   activeRequests.clear()
   writeTails.clear()
-  clearReportingRequestStorage()
+  storageResetPending = !clearReportingRequestStorage()
 }
 
 
@@ -145,10 +171,7 @@ export function coalesceReportingRequest<Result>(
   } catch (error) {
     createdRequest = Promise.reject(error)
   }
-  const request = createdRequest.then((result) => {
-    requireCurrentCoordinationGeneration(requestGeneration)
-    return result
-  })
+  const request = fenceReportingPromise(createdRequest, requestGeneration)
   activeRequests.set(key, request)
   const clear = () => {
     if (activeRequests.get(key) === request) activeRequests.delete(key)
@@ -170,10 +193,7 @@ export function serializeReportingWrite<Result>(
   }
   const request = (predecessor?.settled ?? Promise.resolve()).then(() => {
     requireCurrentCoordinationGeneration(queuedGeneration)
-    return createRequest().then((result) => {
-      requireCurrentCoordinationGeneration(queuedGeneration)
-      return result
-    })
+    return fenceReportingPromise(createRequest(), queuedGeneration)
   })
 
   const settled = request.then(
@@ -186,6 +206,23 @@ export function serializeReportingWrite<Result>(
     if (writeTails.get(entityKey) === tail) writeTails.delete(entityKey)
   })
   return request
+}
+
+
+function fenceReportingPromise<Result>(
+  request: Promise<Result>,
+  generation: number,
+): Promise<Result> {
+  return request.then(
+    (result) => {
+      requireCurrentCoordinationGeneration(generation)
+      return result
+    },
+    (error: unknown) => {
+      requireCurrentCoordinationGeneration(generation)
+      throw error
+    },
+  )
 }
 
 
