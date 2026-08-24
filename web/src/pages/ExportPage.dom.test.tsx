@@ -157,6 +157,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   await act(async () => {
     root?.unmount()
     await Promise.resolve()
@@ -264,5 +265,45 @@ describe('ExportPage', () => {
     expect(body.filters.since).toBeTruthy()
     expect(exportPageDomMocks.anchorClick).toHaveBeenCalledTimes(1)
     expect(view.textContent).toContain('Export ready: threatlens-research.csv')
+  })
+
+  it('aborts an active export and suppresses a late download after unmount', async () => {
+    let requestSignal: AbortSignal | undefined
+    let resolveExport: ((result: {
+      blob: Blob
+      filename: string | null
+      contentType: string | null
+    }) => void) | undefined
+    exportPageDomMocks.apiDownload.mockImplementation((_path: string, options?: RequestInit) => {
+      requestSignal = options?.signal ?? undefined
+      return new Promise((resolve) => {
+        resolveExport = resolve
+      })
+    })
+    const view = renderPage()
+    await waitForPreview(view)
+    const generateButton = Array.from(view.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Generate CSV'))
+
+    act(() => generateButton?.click())
+    await act(async () => {
+      await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    })
+    await act(async () => {
+      root?.unmount()
+      root = null
+      await Promise.resolve()
+    })
+
+    expect(requestSignal?.aborted).toBe(true)
+    await act(async () => {
+      resolveExport?.({
+        blob: new Blob(['late export']),
+        filename: 'late-export.csv',
+        contentType: 'text/csv',
+      })
+      await Promise.resolve()
+    })
+    expect(exportPageDomMocks.anchorClick).not.toHaveBeenCalled()
   })
 })
