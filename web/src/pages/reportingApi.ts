@@ -1,7 +1,8 @@
 import { apiFetch, type ApiFetchOptions } from '../api/client'
 import { isAmbiguousReportingMutationError } from './reportingResilience'
 import {
-  beginPendingReportingRequest,
+  assertReportingRequestLeaseCurrent,
+  beginPendingReportingRequestLease,
   settlePendingReportingRequest,
 } from './reportingRequestCoordinator'
 
@@ -12,7 +13,9 @@ export async function idempotentReportingFetch<Result>(
   options: ApiFetchOptions,
   validate: (value: unknown) => Result,
 ): Promise<Result> {
-  const key = await beginPendingReportingRequest(scope)
+  const lease = await beginPendingReportingRequestLease(scope)
+  assertReportingRequestLeaseCurrent(lease)
+  const { key } = lease
   try {
     const headers = new Headers(options.headers)
     headers.set('Idempotency-Key', key)
@@ -21,11 +24,15 @@ export async function idempotentReportingFetch<Result>(
     settlePendingReportingRequest(scope, key, 'confirmed')
     return result
   } catch (error) {
+    const ambiguous = isAmbiguousReportingMutationError(error)
     settlePendingReportingRequest(
       scope,
       key,
-      isAmbiguousReportingMutationError(error) ? 'ambiguous' : 'rejected',
+      ambiguous ? 'ambiguous' : 'rejected',
     )
+    if (ambiguous && !lease.durable && error instanceof Error) {
+      error.message = `${error.message} Browser storage is unavailable, so keep this tab open before retrying; reloading could create a duplicate request.`
+    }
     throw error
   }
 }

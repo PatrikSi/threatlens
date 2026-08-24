@@ -2,7 +2,7 @@
 
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   beginPendingReportingRequest,
@@ -25,6 +25,9 @@ afterEach(() => {
   resetPendingReportingKeys()
   window.localStorage.clear()
   window.sessionStorage.clear()
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  FakeBroadcastChannel.channels.clear()
 })
 
 describe('AuthProvider session cleanup', () => {
@@ -45,6 +48,37 @@ describe('AuthProvider session cleanup', () => {
 
     expect(nextKey).not.toBe(firstKey)
   })
+
+  it('receives auth cleanup over BroadcastChannel when storage is denied', async () => {
+    vi.stubGlobal('BroadcastChannel', FakeBroadcastChannel)
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage denied')
+    })
+    const scope = reportingRequestScope(
+      'analyst-1',
+      'report:retry',
+      '11111111-1111-4111-8111-111111111111',
+    )
+    const firstKey = await beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, firstKey, 'ambiguous')
+    renderAuthControl()
+    const remoteTab = new FakeBroadcastChannel('threatlens.auth')
+    const authEvent = { id: 'remote-auth-event', at: Date.now() }
+
+    await act(async () => {
+      remoteTab.postMessage(authEvent)
+      window.dispatchEvent(new StorageEvent('storage', {
+        key: 'threatlens.auth.sync',
+        newValue: JSON.stringify(authEvent),
+      }))
+      await Promise.resolve()
+    })
+    const nextKey = await beginPendingReportingRequest(scope)
+
+    expect(nextKey).not.toBe(firstKey)
+    expect(container?.querySelector('button')?.dataset.sessionVersion).toBe('1')
+    remoteTab.close()
+  })
 })
 
 
@@ -63,6 +97,54 @@ function renderAuthControl(): void {
 
 
 function LogoutControl() {
-  const { markLoggedOut } = useAuth()
-  return <button type="button" onClick={markLoggedOut}>Log out</button>
+  const { markLoggedOut, sessionVersion } = useAuth()
+  return (
+    <button
+      type="button"
+      data-session-version={sessionVersion}
+      onClick={markLoggedOut}
+    >
+      Log out
+    </button>
+  )
+}
+
+
+class FakeBroadcastChannel {
+  static channels = new Set<FakeBroadcastChannel>()
+
+  readonly name: string
+  private listeners = new Set<(event: { data: unknown }) => void>()
+
+  constructor(name: string) {
+    this.name = name
+    FakeBroadcastChannel.channels.add(this)
+  }
+
+  addEventListener(
+    _type: string,
+    listener: (event: { data: unknown }) => void,
+  ): void {
+    this.listeners.add(listener)
+  }
+
+  removeEventListener(
+    _type: string,
+    listener: (event: { data: unknown }) => void,
+  ): void {
+    this.listeners.delete(listener)
+  }
+
+  postMessage(data: unknown = { id: 'remote-auth-event', at: Date.now() }): void {
+    for (const channel of FakeBroadcastChannel.channels) {
+      if (channel !== this && channel.name === this.name) {
+        for (const listener of channel.listeners) listener({ data })
+      }
+    }
+  }
+
+  close(): void {
+    this.listeners.clear()
+    FakeBroadcastChannel.channels.delete(this)
+  }
 }
