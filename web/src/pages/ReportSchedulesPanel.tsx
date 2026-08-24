@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react'
 
-import type { ArticleExportFilters, ReportSchedule, ReportTemplate } from '../types/api'
+import type {
+  ArticleExportFilters,
+  ReportSchedule,
+  ReportScheduleWrite,
+  ReportTemplate,
+} from '../types/api'
 import { formatReportDate } from './reportingPageModel'
 import type { ReportingController } from './useReportingController'
 
 const INPUT_CLASS = 'mt-1 w-full rounded border border-slate/30 bg-white px-2.5 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019]'
-
-type ReportScheduleWrite = Omit<
-  ReportSchedule,
-  'id' | 'owner_user_id' | 'next_run_at' | 'last_run_at' | 'created_at' | 'updated_at'
->
 
 export function ReportSchedulesPanel({ controller }: { controller: ReportingController }) {
   const [showCreate, setShowCreate] = useState(false)
@@ -205,6 +205,7 @@ function ScheduleEditor({
 
 function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSchedule; templates: ReportTemplate[]; controller: ReportingController }) {
   const [editing, setEditing] = useState(false)
+  const failureState = schedule.failure_state ?? 'healthy'
   return (
     <article>
       <div className="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -212,9 +213,20 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="break-words font-semibold">{schedule.name}</h3>
             <span className={`rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase ${schedule.enabled ? 'border-emerald-300 text-emerald-700 dark:border-emerald-800 dark:text-emerald-300' : 'border-slate/30 text-slate'}`}>{schedule.enabled ? 'Enabled' : 'Paused'}</span>
+            {failureState !== 'healthy' && (
+              <span className="rounded border border-amber-300 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-800 dark:border-amber-700 dark:text-amber-200">
+                {failureState}
+              </span>
+            )}
           </div>
           <p className="mt-1 text-xs capitalize text-slate dark:text-slate-400">{schedule.cadence} · {schedule.window_type.replaceAll('_', ' ')} · {String(schedule.hour).padStart(2, '0')}:{String(schedule.minute).padStart(2, '0')} {schedule.timezone}</p>
           <p className="mt-0.5 text-xs text-slate dark:text-slate-400">Next run: {formatReportDate(schedule.next_run_at)}</p>
+          {failureState !== 'healthy' && schedule.last_error && (
+            <p role="alert" className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+              {schedule.last_error}
+              {schedule.retry_at ? ` Next retry: ${formatReportDate(schedule.retry_at)}.` : ''}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => setEditing((current) => !current)}>{editing ? 'Close' : 'Edit'}</button>
