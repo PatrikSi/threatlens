@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -10,6 +11,9 @@ from sqlalchemy.orm import Session
 
 from app.models.report import Report
 from app.models.report_generation_lease import ReportGenerationLease
+
+
+logger = logging.getLogger(__name__)
 
 
 class ReportGenerationOwnershipError(RuntimeError):
@@ -160,6 +164,11 @@ def fence_report_generation(
         .execution_options(synchronize_session=False)
     )
     if lease_result.rowcount != 1:
+        logger.warning(
+            "report_generation_commit_fence_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
         return False
 
     # Keep the pre-0049 columns alive during rolling upgrades. The conditional
@@ -178,7 +187,14 @@ def fence_report_generation(
         )
         .execution_options(synchronize_session=False)
     )
-    return report_result.rowcount == 1
+    if report_result.rowcount != 1:
+        logger.warning(
+            "report_generation_commit_legacy_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
+        return False
+    return True
 
 
 def release_report_generation(
@@ -199,6 +215,11 @@ def release_report_generation(
         .execution_options(synchronize_session=False)
     )
     if lease_result.rowcount != 1:
+        logger.warning(
+            "report_generation_release_fence_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
         return False
     report_result = db.execute(
         update(Report)
@@ -209,7 +230,14 @@ def release_report_generation(
         .values(generation_lease_token=None, generation_lease_expires_at=None)
         .execution_options(synchronize_session=False)
     )
-    return report_result.rowcount == 1
+    if report_result.rowcount != 1:
+        logger.warning(
+            "report_generation_release_legacy_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
+        return False
+    return True
 
 
 def _active_foreign_lease(

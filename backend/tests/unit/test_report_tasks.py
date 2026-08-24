@@ -80,6 +80,57 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
     assert db_session.get(Report, report.id).status == "queued"
 
 
+def test_report_task_does_not_resume_expired_running_generation(
+    db_session,
+    monkeypatch,
+):
+    report = _report(lease_token="lost-worker")
+    report.status = "running"
+    report.generation_stage = "section:findings"
+    report.started_at = datetime.now(timezone.utc) - timedelta(minutes=30)
+    report.generation_lease_expires_at = datetime.now(timezone.utc) - timedelta(
+        seconds=1
+    )
+    report.model_calls = 3
+    run = _task_run(db_session, report)
+    _use_test_session(monkeypatch, db_session)
+    generation_calls = []
+    claim_results = []
+    original_claim = report_tasks.claim_report_generation
+
+    def _capture_claim(*args, **kwargs):
+        claim = original_claim(*args, **kwargs)
+        claim_results.append(claim)
+        return claim
+
+    def _unexpected_generation(*_args, **_kwargs):
+        generation_calls.append(True)
+        raise AssertionError("expired work must not repeat provider calls")
+
+    monkeypatch.setattr(
+        report_tasks,
+        "generate_report",
+        _unexpected_generation,
+    )
+    monkeypatch.setattr(report_tasks, "claim_report_generation", _capture_claim)
+
+    result = report_tasks.generate_intelligence_report.apply(
+        args=[str(report.id), str(run.id)], task_id="report-task"
+    ).get()
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    stored_run = db_session.get(AITaskRun, run.id)
+    assert generation_calls == []
+    assert claim_results[0].status == "interrupted"
+    assert result == {"status": "error", "reason": "generation_interrupted"}
+    assert stored_report.status == "error"
+    assert stored_report.error_code == "generation_interrupted"
+    assert stored_report.model_calls == 3
+    assert stored_run.status == "error"
+    assert stored_run.metadata_json["automatic_resume_skipped"] is True
+
+
 def test_report_task_records_cancellation_as_skipped(db_session, monkeypatch):
     report = _report()
     run = _task_run(db_session, report)
