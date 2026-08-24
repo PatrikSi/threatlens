@@ -24,10 +24,16 @@ from app.tasks.feed_tasks import fetch_feed
     ("field_name", "new_value"),
     [
         ("url", "https://example.net/reconfigured.xml"),
+        ("name", "Reconfigured feed"),
+        ("description", "Operator-supplied description"),
+        ("site_url", "https://example.net/feed-home"),
+        ("language", "cs"),
         ("enabled", False),
         ("fetch_mode", "schedule"),
         ("fetch_interval_seconds", 3600),
         ("schedule_cron", "0 * * * *"),
+        ("etag", '"operator-etag"'),
+        ("last_modified", "Mon, 24 Aug 2026 12:00:00 GMT"),
     ],
 )
 def test_material_feed_configuration_change_invalidates_stale_fetch(
@@ -132,9 +138,10 @@ def test_feed_configuration_rejects_unsupported_fields(db_session):
     db_session.flush()
 
     with pytest.raises(ValueError, match="unsupported feed fetch configuration"):
-        apply_feed_fetch_configuration(feed, {"name": "Unexpected update"})
+        apply_feed_fetch_configuration(feed, {"last_error": "Unexpected update"})
 
     assert feed.name == "Guarded feed"
+    assert feed.last_error is None
     assert feed.fetch_fence == 4
 
 

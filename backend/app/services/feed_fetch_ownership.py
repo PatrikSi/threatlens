@@ -12,11 +12,17 @@ from app.models.feed import Feed
 
 FEED_FETCH_CONFIGURATION_FIELDS = frozenset(
     {
+        "name",
         "url",
+        "description",
+        "site_url",
+        "language",
         "enabled",
         "fetch_mode",
         "fetch_interval_seconds",
         "schedule_cron",
+        "etag",
+        "last_modified",
     }
 )
 

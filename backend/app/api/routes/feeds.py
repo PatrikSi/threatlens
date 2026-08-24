@@ -142,8 +142,7 @@ def import_feeds(
     errors: list[str] = []
     metadata_backfill_ids: list[str] = []
 
-    for index, entry in enumerate(payload.feeds, start=1):
-        feed_url = normalize_feed_url(entry.url)
+    for index, entry, feed_url in _ordered_import_entries(payload):
         if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
@@ -448,6 +447,23 @@ def _create_feed_record(db: Session, **feed_values) -> Feed | None:
     except IntegrityError:
         return None
     return feed
+
+
+def _ordered_import_entries(
+    payload: FeedImportRequest,
+) -> list[tuple[int, FeedImportEntry, str]]:
+    entries = [
+        (index, entry, normalize_feed_url(entry.url))
+        for index, entry in enumerate(payload.feeds, start=1)
+    ]
+    if payload.overwrite_existing:
+        entries.sort(
+            key=lambda candidate: (
+                feed_url_digest(candidate[2]) or "",
+                candidate[0],
+            )
+        )
+    return entries
 
 
 def _get_feed_by_url(
