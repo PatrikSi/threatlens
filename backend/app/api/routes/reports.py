@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Annotated, NoReturn
+from typing import Annotated
 from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
@@ -14,6 +14,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.api.routes.report_request_idempotency import (
+    commit_operation_resource,
+    create_request_identity,
+    find_create_replay,
+    find_operation_resource,
+    find_retry_replay,
+    find_schedule_run_replay,
+    operation_request_identity,
+    retry_request_identity,
+    schedule_run_request_identity,
+)
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
 from app.core.token_scopes import SCOPE_READ_REPORTS, SCOPE_WRITE_REPORTS
 from app.db.session import get_db
@@ -59,17 +70,6 @@ from app.services.report_rendering import (
     render_report_html,
     render_report_markdown,
     render_report_pdf,
-)
-from app.services.report_idempotency import (
-    ReportIdempotencyConflictError,
-    ReportIdempotencyError,
-    ReportRequestIdentity,
-    build_report_create_identity,
-    build_report_retry_identity,
-    build_report_schedule_run_identity,
-    find_report_create_replay,
-    find_report_retry_replay,
-    find_report_schedule_run_replay,
 )
 from app.schemas.reports import ReportSectionSetError
 from app.services.report_sources import (
@@ -203,11 +203,35 @@ def list_report_templates(
 )
 def create_template(
     payload: ReportTemplateCreate,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
     _require_shared_template_admin(user, payload.visibility)
+    operation = "report:template:create"
+    identity = operation_request_identity(
+        idempotency_key,
+        operation=operation,
+        payload=payload,
+    )
+    replay = find_operation_resource(
+        db,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_template",
+        identity=identity,
+        model=ReportTemplate,
+        missing_detail=(
+            "The report template created by this Idempotency-Key no longer exists. "
+            "Use a new Idempotency-Key to create another template."
+        ),
+    )
+    if replay is not None:
+        return report_template_response(replay)
     template = create_report_template(db, user_id=user.id, payload=payload)
     record_audit(
         db,
@@ -217,8 +241,19 @@ def create_template(
         resource_id=str(template.id),
         metadata={"visibility": template.visibility},
     )
-    db.commit()
-    db.refresh(template)
+    template = commit_operation_resource(
+        db,
+        resource=template,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_template",
+        identity=identity,
+        model=ReportTemplate,
+        missing_detail=(
+            "The report template created by this Idempotency-Key no longer exists. "
+            "Use a new Idempotency-Key to create another template."
+        ),
+    )
     return report_template_response(template)
 
 
@@ -263,10 +298,34 @@ def update_template(
 )
 def clone_template(
     template_id: uuid.UUID,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
+    operation = f"report:template:clone:{template_id}"
+    identity = operation_request_identity(
+        idempotency_key,
+        operation=operation,
+        payload={"source_template_id": str(template_id), "version": 1},
+    )
+    replay = find_operation_resource(
+        db,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_template",
+        identity=identity,
+        model=ReportTemplate,
+        missing_detail=(
+            "The cloned report template created by this Idempotency-Key no longer "
+            "exists. Use a new Idempotency-Key to clone the template again."
+        ),
+    )
+    if replay is not None:
+        return report_template_response(replay)
     template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
     if template is None:
         raise HTTPException(
@@ -281,8 +340,19 @@ def clone_template(
         resource_id=str(clone.id),
         metadata={"source_template_id": str(template.id)},
     )
-    db.commit()
-    db.refresh(clone)
+    clone = commit_operation_resource(
+        db,
+        resource=clone,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_template",
+        identity=identity,
+        model=ReportTemplate,
+        missing_detail=(
+            "The cloned report template created by this Idempotency-Key no longer "
+            "exists. Use a new Idempotency-Key to clone the template again."
+        ),
+    )
     return report_template_response(clone)
 
 
@@ -363,8 +433,8 @@ def create_report(
         period_end=payload.period_end,
     )
     payload = payload.model_copy(update={"filters": filters})
-    identity = _create_request_identity(idempotency_key, payload=payload)
-    replay = _find_create_replay(db, user_id=user.id, identity=identity)
+    identity = create_request_identity(idempotency_key, payload=payload)
+    replay = find_create_replay(db, user_id=user.id, identity=identity)
     if replay is not None:
         return _queue_response(*replay)
 
@@ -427,7 +497,7 @@ def create_report(
         ) from exc
     except IntegrityError:
         db.rollback()
-        replay = _find_create_replay(db, user_id=user.id, identity=identity)
+        replay = find_create_replay(db, user_id=user.id, identity=identity)
         if replay is not None:
             return _queue_response(*replay)
         raise
@@ -506,7 +576,7 @@ def retry_report(
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
-    identity = _retry_request_identity(idempotency_key, report_id=report_id)
+    identity = retry_request_identity(idempotency_key, report_id=report_id)
     report = db.scalar(
         select(Report)
         .where(Report.id == report_id)
@@ -518,7 +588,7 @@ def retry_report(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report not found"
         )
     _require_report_owner_or_admin(user, report.owner_user_id)
-    replay = _find_retry_replay(
+    replay = find_retry_replay(
         db,
         user_id=user.id,
         report_id=report.id,
@@ -550,7 +620,7 @@ def retry_report(
         ) from exc
     except IntegrityError as exc:
         db.rollback()
-        replay = _find_retry_replay(
+        replay = find_retry_replay(
             db,
             user_id=user.id,
             report_id=report_id,
@@ -624,10 +694,34 @@ def list_schedules(
 )
 def create_schedule(
     payload: ReportScheduleCreate,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
+    operation = "report:schedule:create"
+    identity = operation_request_identity(
+        idempotency_key,
+        operation=operation,
+        payload=payload,
+    )
+    replay = find_operation_resource(
+        db,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_schedule",
+        identity=identity,
+        model=ReportSchedule,
+        missing_detail=(
+            "The report schedule created by this Idempotency-Key no longer exists. "
+            "Use a new Idempotency-Key to create another schedule."
+        ),
+    )
+    if replay is not None:
+        return report_schedule_response(replay)
     if db.get(ReportTemplate, payload.template_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
@@ -640,8 +734,19 @@ def create_schedule(
         resource_type="report_schedule",
         resource_id=str(schedule.id),
     )
-    db.commit()
-    db.refresh(schedule)
+    schedule = commit_operation_resource(
+        db,
+        resource=schedule,
+        user_id=user.id,
+        operation=operation,
+        resource_type="report_schedule",
+        identity=identity,
+        model=ReportSchedule,
+        missing_detail=(
+            "The report schedule created by this Idempotency-Key no longer exists. "
+            "Use a new Idempotency-Key to create another schedule."
+        ),
+    )
     return report_schedule_response(schedule)
 
 
@@ -691,12 +796,12 @@ def run_schedule(
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
-    identity = _schedule_run_request_identity(
+    identity = schedule_run_request_identity(
         idempotency_key,
         schedule_id=schedule_id,
         actor_user_id=user.id,
     )
-    replay = _find_schedule_run_replay(
+    replay = find_schedule_run_replay(
         db,
         user_id=user.id,
         schedule_id=schedule_id,
@@ -736,7 +841,7 @@ def run_schedule(
             detail="Matching articles changed while the scheduled report was being prepared. Try running the schedule again.",
         ) from exc
     if not reports:
-        replay = _find_schedule_run_replay(
+        replay = find_schedule_run_replay(
             db,
             user_id=user.id,
             schedule_id=schedule_id,
@@ -827,105 +932,6 @@ def _active_reporting_settings(db: Session):
             detail=str(exc),
         ) from exc
     return active
-
-
-def _create_request_identity(
-    key: str | None,
-    *,
-    payload: ReportCreateRequest,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_create_identity(key, payload=payload)
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _retry_request_identity(
-    key: str | None,
-    *,
-    report_id: uuid.UUID,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_retry_identity(key, report_id=report_id)
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _schedule_run_request_identity(
-    key: str | None,
-    *,
-    schedule_id: uuid.UUID,
-    actor_user_id: uuid.UUID,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_schedule_run_identity(
-            key,
-            schedule_id=schedule_id,
-            actor_user_id=actor_user_id,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _find_create_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> tuple[Report, AITaskRun] | None:
-    try:
-        return find_report_create_replay(
-            db,
-            user_id=user_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _find_retry_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    report_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> AITaskRun | None:
-    try:
-        return find_report_retry_replay(
-            db,
-            user_id=user_id,
-            report_id=report_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _find_schedule_run_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    schedule_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> tuple[Report, AITaskRun | None] | None:
-    try:
-        return find_report_schedule_run_replay(
-            db,
-            user_id=user_id,
-            schedule_id=schedule_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _raise_idempotency_http_error(exc: ReportIdempotencyError) -> NoReturn:
-    status_code = (
-        status.HTTP_409_CONFLICT
-        if isinstance(exc, ReportIdempotencyConflictError)
-        else status.HTTP_400_BAD_REQUEST
-    )
-    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
 
 
 def _queue_response(
