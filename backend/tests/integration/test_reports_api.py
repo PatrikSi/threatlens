@@ -52,6 +52,50 @@ def _template_payload(*, name: str = "Private report template") -> dict:
     }
 
 
+def _persist_schedule_for_route_test(db_session) -> ReportSchedule:
+    template = ReportTemplate(
+        name=f"Route test template {uuid.uuid4()}",
+        description="",
+        report_type="weekly",
+        visibility="shared",
+        audience="security_team",
+        objective="Test schedule route errors.",
+        tone="analytical",
+        detail_level="standard",
+        use_company_context=False,
+        focus_topics_json=[],
+        excluded_topics_json=[],
+        sections_json=[
+            {"key": "executive_summary", "title": "Executive Summary"}
+        ],
+        default_filters_json={},
+    )
+    db_session.add(template)
+    db_session.flush()
+    schedule = ReportSchedule(
+        template_id=template.id,
+        name=f"Route test schedule {uuid.uuid4()}",
+        enabled=True,
+        cadence="weekly",
+        day_of_week=0,
+        day_of_month=1,
+        hour=9,
+        minute=0,
+        timezone="UTC",
+        window_type="previous_complete_week",
+        rolling_days=7,
+        filters_json={},
+        delivery_enabled=False,
+        delivery_mode="summary",
+        skip_empty=True,
+        missed_run_policy="latest",
+        next_run_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    db_session.add(schedule)
+    db_session.commit()
+    return schedule
+
+
 def _install_report_creation_stubs(monkeypatch):
     plan_calls = {"count": 0}
     monkeypatch.setattr(
@@ -349,6 +393,7 @@ def test_template_update_rejects_a_stale_resource_version(
     assert created.status_code == 201
     template_id = created.json()["id"]
     original_version = created.json()["updated_at"]
+    assert created.json()["resource_version"]
     versioned_headers = {
         **auth_headers["analyst"],
         "If-Match": f'"{original_version}"',
@@ -364,6 +409,10 @@ def test_template_update_rejects_a_stale_resource_version(
         json=_template_payload(name="Stale overwrite"),
         headers=versioned_headers,
     )
+    stale_delete = client.delete(
+        f"/reports/templates/{template_id}",
+        headers=versioned_headers,
+    )
     legacy_client_update = client.put(
         f"/reports/templates/{template_id}",
         json=_template_payload(name="Legacy client update"),
@@ -371,8 +420,9 @@ def test_template_update_rejects_a_stale_resource_version(
     )
 
     assert updated.status_code == 200
-    assert updated.headers["etag"]
+    assert updated.headers["etag"] == f'"{updated.json()["resource_version"]}"'
     assert stale.status_code == 412
+    assert stale_delete.status_code == 412
     assert stale.json()["detail"] == (
         "The report template changed after you loaded it. Refresh the latest "
         "version, review the changes, and try again."
@@ -382,6 +432,14 @@ def test_template_update_rejects_a_stale_resource_version(
     assert db_session.get(ReportTemplate, uuid.UUID(template_id)).name == (
         "Legacy client update"
     )
+    delete_response = client.delete(
+        f"/reports/templates/{template_id}",
+        headers={
+            **auth_headers["analyst"],
+            "If-Match": f'"{legacy_client_update.json()["resource_version"]}"',
+        },
+    )
+    assert delete_response.status_code == 204
 
 
 def test_concurrent_template_creation_commits_one_resource_and_audit(
@@ -667,6 +725,7 @@ def test_admin_can_manage_report_schedule_with_default_filters(
     assert db_session.query(ReportSchedule).count() == 1
     assert create_response.json()["filters"]["sort"] == "published_at_desc"
     assert create_response.json()["timezone"] == "Europe/Prague"
+    assert create_response.json()["resource_version"]
 
     payload["name"] = "Updated weekly schedule API test"
     update_headers = {
@@ -693,15 +752,33 @@ def test_admin_can_manage_report_schedule_with_default_filters(
     )
 
     assert update_response.status_code == 200
-    assert update_response.headers["etag"]
+    assert update_response.headers["etag"] == (
+        f'"{update_response.json()["resource_version"]}"'
+    )
     assert update_response.json()["name"] == payload["name"]
     assert stale_update_response.status_code == 412
     assert legacy_update_response.status_code == 200
     assert list_response.status_code == 200
     assert any(entry["id"] == schedule_id for entry in list_response.json())
 
+    stale_run_response = client.post(
+        f"/reports/schedules/{schedule_id}/run",
+        headers=update_headers,
+    )
+    stale_delete_response = client.delete(
+        f"/reports/schedules/{schedule_id}",
+        headers=update_headers,
+    )
+
+    assert stale_run_response.status_code == 412
+    assert stale_delete_response.status_code == 412
+
     delete_response = client.delete(
-        f"/reports/schedules/{schedule_id}", headers=auth_headers["admin"]
+        f"/reports/schedules/{schedule_id}",
+        headers={
+            **auth_headers["admin"],
+            "If-Match": f'"{legacy_update_response.json()["resource_version"]}"',
+        },
     )
 
     assert delete_response.status_code == 204
@@ -710,9 +787,11 @@ def test_admin_can_manage_report_schedule_with_default_filters(
 
 def test_manual_schedule_run_maps_snapshot_race_to_conflict(
     client,
+    db_session,
     auth_headers,
     monkeypatch,
 ):
+    schedule = _persist_schedule_for_route_test(db_session)
     monkeypatch.setattr(
         reports_routes,
         "_active_reporting_settings",
@@ -727,7 +806,7 @@ def test_manual_schedule_run_maps_snapshot_race_to_conflict(
     )
 
     response = client.post(
-        f"/reports/schedules/{uuid.uuid4()}/run",
+        f"/reports/schedules/{schedule.id}/run",
         headers=auth_headers["admin"],
     )
 
@@ -736,6 +815,21 @@ def test_manual_schedule_run_maps_snapshot_race_to_conflict(
         "Matching articles changed while the scheduled report was being prepared. "
         "Try running the schedule again."
     )
+
+
+def test_schedule_delete_remains_optional_for_legacy_clients(
+    client,
+    db_session,
+    auth_headers,
+):
+    schedule = _persist_schedule_for_route_test(db_session)
+
+    response = client.delete(
+        f"/reports/schedules/{schedule.id}",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 204
 
 
 def test_manual_schedule_run_idempotency_replays_existing_report(
@@ -841,9 +935,11 @@ def test_manual_schedule_run_idempotency_replays_existing_report(
 
 def test_manual_schedule_run_maps_invalid_legacy_configuration_to_422(
     client,
+    db_session,
     auth_headers,
     monkeypatch,
 ):
+    schedule = _persist_schedule_for_route_test(db_session)
     monkeypatch.setattr(
         reports_routes,
         "_active_reporting_settings",
@@ -858,7 +954,7 @@ def test_manual_schedule_run_maps_invalid_legacy_configuration_to_422(
     )
 
     response = client.post(
-        f"/reports/schedules/{uuid.uuid4()}/run",
+        f"/reports/schedules/{schedule.id}/run",
         headers=auth_headers["admin"],
     )
 

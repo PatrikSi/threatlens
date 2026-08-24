@@ -190,6 +190,7 @@ class ReportTemplateResponse(ReportSchema):
     default_filters: ArticleExportFilters
     created_at: datetime
     updated_at: datetime
+    resource_version: str
 
 
 class ReportCreateRequest(ReportSchema):
@@ -360,6 +361,7 @@ class ReportScheduleResponse(ReportScheduleCreate):
     retry_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    resource_version: str
 
 
 class ReportQueueResponse(ReportSchema):

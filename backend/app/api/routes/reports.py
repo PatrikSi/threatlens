@@ -380,16 +380,27 @@ def clone_template(
 @router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_template(
     template_id: uuid.UUID,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
-    template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
+    template = get_visible_report_template(
+        db,
+        template_id=template_id,
+        user_id=user.id,
+        for_update=True,
+    )
     if template is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
         )
     _require_template_owner_or_admin(user, template.owner_user_id)
+    _require_current_resource_version(
+        current_updated_at=template.updated_at,
+        if_match=if_match,
+        resource_label="report template",
+    )
     try:
         delete_report_template(db, template=template)
         db.flush()
@@ -827,6 +838,7 @@ def run_schedule(
         str | None,
         Header(alias="Idempotency-Key"),
     ] = None,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -844,6 +856,22 @@ def run_schedule(
     )
     if replay is not None:
         return [_queue_response(*replay)] if replay[1] is not None else []
+    schedule = db.scalar(
+        select(ReportSchedule)
+        .where(ReportSchedule.id == schedule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if schedule is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Report schedule not found",
+        )
+    _require_current_resource_version(
+        current_updated_at=schedule.updated_at,
+        if_match=if_match,
+        resource_label="report schedule",
+    )
     _active_reporting_settings(db)
     try:
         reports = reserve_schedule_runs(
@@ -884,11 +912,6 @@ def run_schedule(
         )
         if replay is not None:
             return [_queue_response(*replay)] if replay[1] is not None else []
-    schedule = db.get(ReportSchedule, schedule_id)
-    if not reports and schedule is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
-        )
     if not reports:
         if schedule.failure_state == "quarantined":
             detail = schedule.last_error or (
@@ -938,15 +961,26 @@ def run_schedule(
 @router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_schedule(
     schedule_id: uuid.UUID,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
-    schedule = db.get(ReportSchedule, schedule_id)
+    schedule = db.scalar(
+        select(ReportSchedule)
+        .where(ReportSchedule.id == schedule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if schedule is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
         )
+    _require_current_resource_version(
+        current_updated_at=schedule.updated_at,
+        if_match=if_match,
+        resource_label="report schedule",
+    )
     db.delete(schedule)
     record_audit(
         db,

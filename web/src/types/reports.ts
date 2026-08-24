@@ -81,6 +81,7 @@ export interface ReportTemplate {
   default_filters: ArticleExportFilters
   created_at: string
   updated_at: string
+  resource_version?: string
 }
 
 export interface ReportListItem {
@@ -186,6 +187,7 @@ export interface ReportSchedule {
   retry_at?: string | null
   created_at: string
   updated_at: string
+  resource_version?: string
 }
 
 export type ReportScheduleWrite = Omit<
@@ -203,6 +205,7 @@ export type ReportScheduleWrite = Omit<
   | 'retry_at'
   | 'created_at'
   | 'updated_at'
+  | 'resource_version'
 >
 
 export interface ReportQueueResponse {

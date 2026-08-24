@@ -39,7 +39,7 @@ from app.services.report_sources import (
     filters_for_report_period,
 )
 from app.services.report_storage import ReportStorageError, create_report_from_plan
-from app.services.resource_versions import next_resource_version
+from app.services.resource_versions import next_resource_version, resource_version_value
 
 
 MAX_CATCH_UP_RUNS = 4
@@ -129,6 +129,7 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
         retry_at=schedule.retry_at,
         created_at=schedule.created_at,
         updated_at=schedule.updated_at,
+        resource_version=resource_version_value(schedule.updated_at),
     )
 
 
