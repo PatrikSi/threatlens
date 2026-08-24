@@ -227,6 +227,9 @@ class Settings(BaseSettings):
     celery_visibility_timeout_seconds: int = 3600
     report_generation_lease_seconds: int = 600
     report_legacy_worker_grace_seconds: int = 86_400
+    report_task_infrastructure_max_retries: int = 5
+    report_task_infrastructure_retry_backoff_seconds: int = 30
+    report_task_infrastructure_retry_max_backoff_seconds: int = 900
     report_schedule_max_attempts: int = 5
     report_schedule_retry_backoff_seconds: int = 60
     report_schedule_retry_max_backoff_seconds: int = 3600
@@ -385,6 +388,9 @@ class Settings(BaseSettings):
         "celery_visibility_timeout_seconds",
         "report_generation_lease_seconds",
         "report_legacy_worker_grace_seconds",
+        "report_task_infrastructure_max_retries",
+        "report_task_infrastructure_retry_backoff_seconds",
+        "report_task_infrastructure_retry_max_backoff_seconds",
         "report_schedule_max_attempts",
         "report_schedule_retry_backoff_seconds",
         "report_schedule_retry_max_backoff_seconds",
@@ -428,6 +434,18 @@ class Settings(BaseSettings):
             raise ValueError(
                 "report_legacy_worker_grace_seconds must be at least "
                 "celery_visibility_timeout_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_task_infrastructure_retry_limits(self):
+        if (
+            self.report_task_infrastructure_retry_max_backoff_seconds
+            < self.report_task_infrastructure_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_task_infrastructure_retry_max_backoff_seconds must be at "
+                "least report_task_infrastructure_retry_backoff_seconds"
             )
         return self
 

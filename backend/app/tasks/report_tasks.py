@@ -26,6 +26,7 @@ from app.services.report_execution import (
     ReportGenerationLeaseUnavailableError,
     claim_report_generation,
     fence_report_generation,
+    guard_unfenced_report_generation,
     release_report_generation,
     renew_report_generation,
 )
@@ -171,7 +172,12 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     default_retry_delay=30,
     max_retries=None,
 )
-def generate_intelligence_report(self, report_id: str, task_run_id: str):
+def generate_intelligence_report(
+    self,
+    report_id: str,
+    task_run_id: str,
+    infrastructure_retry_count: int = 0,
+):
     try:
         parsed_report_id = uuid.UUID(report_id)
         parsed_run_id = uuid.UUID(task_run_id)
@@ -180,6 +186,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
     worker_name = getattr(self.request, "hostname", None)
     celery_task_id = getattr(self.request, "id", None)
     lease_token = uuid.uuid4().hex
+    claim = None
     try:
         with db_session() as db:
             candidate_run = db.get(AITaskRun, parsed_run_id)
@@ -264,11 +271,17 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             parsed_report_id,
             parsed_run_id,
         )
-        raise self.retry(
+        return _retry_or_settle_report_infrastructure(
+            self,
+            report_id=parsed_report_id,
+            run_id=parsed_run_id,
+            worker_name=worker_name,
+            lease_token=lease_token,
+            generation_fence=(claim.generation_fence if claim is not None else None),
+            infrastructure_retry_count=infrastructure_retry_count,
+            phase="starting report generation",
             exc=exc,
-            countdown=30,
-            max_retries=None,
-        ) from exc
+        )
 
     if claim.status == "busy":
         raise self.retry(
@@ -285,6 +298,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             worker_name=worker_name,
             lease_token=lease_token,
             generation_fence=generation_fence,
+            infrastructure_retry_count=infrastructure_retry_count,
         )
 
     with db_session() as db:
@@ -340,11 +354,17 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 parsed_report_id,
                 parsed_run_id,
             )
-            raise self.retry(
+            return _retry_or_settle_report_infrastructure(
+                self,
+                report_id=parsed_report_id,
+                run_id=parsed_run_id,
+                worker_name=worker_name,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+                infrastructure_retry_count=infrastructure_retry_count,
+                phase="verifying report generation ownership",
                 exc=exc,
-                countdown=30,
-                max_retries=None,
-            ) from exc
+            )
         except Exception as exc:
             return _settle_failed_generation(
                 self,
@@ -354,6 +374,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 worker_name=worker_name,
                 lease_token=lease_token,
                 generation_fence=generation_fence,
+                infrastructure_retry_count=infrastructure_retry_count,
                 exc=exc,
             )
 
@@ -390,11 +411,17 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             db.commit()
         except Exception as exc:
             db.rollback()
-            raise self.retry(
+            return _retry_or_settle_report_infrastructure(
+                self,
+                report_id=parsed_report_id,
+                run_id=parsed_run_id,
+                worker_name=worker_name,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+                infrastructure_retry_count=infrastructure_retry_count,
+                phase="recording report completion",
                 exc=exc,
-                countdown=30,
-                max_retries=None,
-            ) from exc
+            )
     notification_enqueued = (
         enqueue_integration_event_routing([event_id]) if event_id else True
     )
@@ -497,6 +524,7 @@ def _settle_interrupted_generation_task(
     worker_name: str | None,
     lease_token: str,
     generation_fence: int,
+    infrastructure_retry_count: int,
 ) -> dict[str, str]:
     try:
         with db_session() as db:
@@ -530,11 +558,17 @@ def _settle_interrupted_generation_task(
             report_id,
             run_id,
         )
-        raise task.retry(
+        return _retry_or_settle_report_infrastructure(
+            task,
+            report_id=report_id,
+            run_id=run_id,
+            worker_name=worker_name,
+            lease_token=lease_token,
+            generation_fence=generation_fence,
+            infrastructure_retry_count=infrastructure_retry_count,
+            phase="recording interrupted report generation",
             exc=exc,
-            countdown=30,
-            max_retries=None,
-        ) from exc
+        )
 
 
 def _settle_failed_generation(
@@ -546,6 +580,7 @@ def _settle_failed_generation(
     worker_name: str | None,
     lease_token: str,
     generation_fence: int,
+    infrastructure_retry_count: int,
     exc: Exception,
 ):
     canceled = getattr(exc, "code", None) == "canceled"
@@ -589,15 +624,187 @@ def _settle_failed_generation(
         db.commit()
     except Exception as commit_error:
         db.rollback()
-        raise task.retry(
+        return _retry_or_settle_report_infrastructure(
+            task,
+            report_id=report_id,
+            run_id=run_id,
+            worker_name=worker_name,
+            lease_token=lease_token,
+            generation_fence=generation_fence,
+            infrastructure_retry_count=infrastructure_retry_count,
+            phase="recording report generation failure",
             exc=commit_error,
-            countdown=30,
-            max_retries=None,
-        ) from commit_error
+        )
     return {
         "status": "skipped" if canceled else "error",
         "reason": getattr(exc, "code", "generation_failed"),
     }
+
+
+def _retry_or_settle_report_infrastructure(
+    task,
+    *,
+    report_id: uuid.UUID,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+    lease_token: str,
+    generation_fence: int | None,
+    infrastructure_retry_count: int,
+    phase: str,
+    exc: Exception,
+):
+    retry_count = _coerce_infrastructure_retry_count(infrastructure_retry_count)
+    max_retries = settings.report_task_infrastructure_max_retries
+    if retry_count < max_retries:
+        next_retry_count = retry_count + 1
+        countdown = _infrastructure_retry_delay(retry_count)
+        retry_kwargs = dict(getattr(task.request, "kwargs", None) or {})
+        retry_kwargs["infrastructure_retry_count"] = next_retry_count
+        logger.warning(
+            "report_generation_infrastructure_retry report_id=%s task_run_id=%s "
+            "phase=%s retry=%s max_retries=%s countdown_seconds=%s error_type=%s",
+            report_id,
+            run_id,
+            phase,
+            next_retry_count,
+            max_retries,
+            countdown,
+            type(exc).__name__,
+        )
+        raise task.retry(
+            exc=exc,
+            countdown=countdown,
+            kwargs=retry_kwargs,
+            max_retries=None,
+        ) from exc
+
+    logger.error(
+        "report_generation_infrastructure_retries_exhausted report_id=%s "
+        "task_run_id=%s phase=%s retries=%s error_type=%s",
+        report_id,
+        run_id,
+        phase,
+        retry_count,
+        type(exc).__name__,
+    )
+    return _settle_exhausted_report_infrastructure(
+        report_id=report_id,
+        run_id=run_id,
+        worker_name=worker_name,
+        lease_token=lease_token,
+        generation_fence=generation_fence,
+        retry_count=retry_count,
+        phase=phase,
+    )
+
+
+def _settle_exhausted_report_infrastructure(
+    *,
+    report_id: uuid.UUID,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+    lease_token: str,
+    generation_fence: int | None,
+    retry_count: int,
+    phase: str,
+) -> dict[str, str]:
+    error_code = "worker_infrastructure_error"
+    error = (
+        f"Report generation stopped after {retry_count} infrastructure retries while "
+        f"{phase}. ThreatLens did not repeat completed AI calls. Review the AI worker "
+        "and database logs, then retry the report."
+    )
+    try:
+        with db_session() as db:
+            report = db.get(Report, report_id)
+            if (
+                report is not None
+                and report.status == "running"
+                and generation_fence is None
+            ):
+                guarded = guard_unfenced_report_generation(
+                    db,
+                    report_id=report_id,
+                    grace_seconds=settings.report_legacy_worker_grace_seconds,
+                )
+                if guarded:
+                    db.commit()
+                else:
+                    db.rollback()
+                logger.error(
+                    "report_generation_infrastructure_settlement_deferred "
+                    "report_id=%s task_run_id=%s reason=unowned_running_report",
+                    report_id,
+                    run_id,
+                )
+                return {
+                    "status": "error",
+                    "reason": "worker_infrastructure_reconciliation_pending",
+                }
+
+            event_id = None
+            if report is None or report.status in {"ready", "error", "skipped"}:
+                result, event_id = _settle_terminal_report_run(
+                    db,
+                    report=report,
+                    run_id=run_id,
+                    worker_name=worker_name,
+                )
+            else:
+                finish_ai_task_run(
+                    db,
+                    run_id=run_id,
+                    status=AI_STATUS_ERROR,
+                    reason=error_code,
+                    error=error,
+                    worker_name=worker_name,
+                    metadata_updates={
+                        "infrastructure_retry_count": retry_count,
+                        "infrastructure_failure_phase": phase,
+                    },
+                    report_id=report_id,
+                )
+                result = {"status": "error", "reason": error_code}
+
+            if generation_fence is not None and not release_report_generation(
+                db,
+                report_id=report_id,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+            ):
+                db.rollback()
+                return {"status": "skipped", "reason": "ownership_lost"}
+            db.commit()
+        if event_id is not None:
+            enqueue_integration_event_routing([event_id])
+        return result
+    except Exception:
+        logger.exception(
+            "report_generation_infrastructure_terminalization_failed "
+            "report_id=%s task_run_id=%s phase=%s",
+            report_id,
+            run_id,
+            phase,
+        )
+        return {
+            "status": "error",
+            "reason": "worker_infrastructure_reconciliation_pending",
+        }
+
+
+def _coerce_infrastructure_retry_count(value: object) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _infrastructure_retry_delay(retry_count: int) -> int:
+    exponent = min(30, max(0, retry_count))
+    return min(
+        settings.report_task_infrastructure_retry_max_backoff_seconds,
+        settings.report_task_infrastructure_retry_backoff_seconds * (2**exponent),
+    )
 
 
 def _required_generation_fence(claim) -> int:

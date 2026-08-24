@@ -55,7 +55,11 @@ def _task_run(db_session, report: Report) -> AITaskRun:
 def _use_test_session(monkeypatch, db_session) -> None:
     @contextmanager
     def _session():
-        yield db_session
+        try:
+            yield db_session
+        except Exception:
+            db_session.rollback()
+            raise
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
 
@@ -75,7 +79,11 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
     )
 
     with pytest.raises(Retry):
-        report_tasks.generate_intelligence_report.run(str(report.id), str(run.id))
+        report_tasks.generate_intelligence_report.run(
+            str(report.id),
+            str(run.id),
+            report_tasks.settings.report_task_infrastructure_max_retries,
+        )
 
     db_session.expire_all()
     assert db_session.get(Report, report.id).status == "queued"
@@ -83,6 +91,73 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
 
 def test_report_task_allows_unbounded_ownership_waits():
     assert report_tasks.generate_intelligence_report.max_retries is None
+
+
+def test_report_infrastructure_retry_uses_classified_exponential_countdown():
+    captured = {}
+
+    class RetryTask:
+        request = SimpleNamespace(kwargs={"infrastructure_retry_count": 2})
+
+        def retry(self, **kwargs):
+            captured.update(kwargs)
+            return Retry()
+
+    with pytest.raises(Retry):
+        report_tasks._retry_or_settle_report_infrastructure(
+            RetryTask(),
+            report_id=uuid.uuid4(),
+            run_id=uuid.uuid4(),
+            worker_name="worker@example",
+            lease_token="lease-token",
+            generation_fence=None,
+            infrastructure_retry_count=2,
+            phase="starting report generation",
+            exc=ConnectionError("database unavailable"),
+        )
+
+    assert captured["countdown"] == 120
+    assert captured["max_retries"] is None
+    assert captured["kwargs"] == {"infrastructure_retry_count": 3}
+
+
+def test_report_task_terminalizes_exhausted_startup_failures(
+    db_session,
+    monkeypatch,
+):
+    report = _report()
+    run = _task_run(db_session, report)
+    _use_test_session(monkeypatch, db_session)
+    monkeypatch.setattr(
+        report_tasks,
+        "start_ai_task_run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("permanent startup fault")
+        ),
+    )
+
+    result = report_tasks.generate_intelligence_report.apply(
+        args=[str(report.id), str(run.id)],
+        kwargs={
+            "infrastructure_retry_count": (
+                report_tasks.settings.report_task_infrastructure_max_retries
+            )
+        },
+        task_id="report-task",
+    ).get()
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    stored_run = db_session.get(AITaskRun, run.id)
+    assert result == {"status": "error", "reason": "worker_infrastructure_error"}
+    assert stored_report.status == "error"
+    assert stored_report.error_code == "worker_infrastructure_error"
+    assert "infrastructure retries" in stored_report.error
+    assert stored_run.status == "error"
+    assert stored_run.reason == "worker_infrastructure_error"
+    assert stored_run.metadata_json["infrastructure_failure_phase"] == (
+        "starting report generation"
+    )
 
 
 def test_report_task_persists_legacy_guard_before_retry(db_session, monkeypatch):
