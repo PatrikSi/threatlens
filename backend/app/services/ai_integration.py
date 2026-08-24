@@ -5,7 +5,7 @@ import random
 import time
 import uuid
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -47,6 +47,10 @@ from app.services.ai_provider_client import (
     AICompletionResult as AICompletionResult,
     AIIntegrationError as AIIntegrationError,
     call_ai_json as _provider_call_ai_json,
+)
+from app.services.ai_request_runtime import (
+    AITaskRunStoppedError,
+    run_ai_json_request,
 )
 from app.services.ai_reporting import (
     daily_brief_response_from_model as daily_brief_response_from_model,
@@ -95,13 +99,6 @@ FEATURE_CONNECTION_TEST = "connection_test"
 DAILY_BRIEF_PENDING_STALE_AFTER = timedelta(minutes=15)
 AI_PROVIDER_RETRY_BASE_DELAY_SECONDS = 0.5
 AI_PROVIDER_RETRY_MAX_DELAY_SECONDS = 8.0
-
-
-class AITaskRunStoppedError(RuntimeError):
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
-        self.code = "canceled" if reason == "canceled" else "task_stopped"
 
 
 @dataclass(frozen=True)
@@ -1027,142 +1024,30 @@ def _request_json_with_usage(
     execution_checkpoint: Callable[[], None] | None = None,
     execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
-    max_attempts = max(1, active.request_max_retries + 1)
-    if max_provider_attempts is not None:
-        if max_provider_attempts < 1:
-            raise AIIntegrationError(
-                "AI provider attempt budget is exhausted", retryable=False
-            )
-        max_attempts = min(max_attempts, max_provider_attempts)
-    last_error: AIIntegrationError | None = None
-    request_max_tokens = max_completion_tokens or active.max_completion_tokens
-    _commit_ai_progress(db, execution_commit)
-
-    for attempt in range(1, max_attempts + 1):
-        if execution_checkpoint is not None:
-            execution_checkpoint()
-        if attempt > 1:
-            stop_reason = _record_task_run_stop_observed(
-                db,
-                task_run_id=task_run_id,
-                stage="before_provider_retry",
-            )
-            if stop_reason is not None:
-                _commit_ai_progress(db, execution_commit)
-                raise AITaskRunStoppedError(stop_reason)
-            _commit_ai_progress(db, execution_commit)
-        try:
-            call_kwargs: dict[str, object] = {"messages": messages}
-            if request_max_tokens != active.max_completion_tokens:
-                call_kwargs["max_completion_tokens"] = request_max_tokens
-            completion = _call_ai_json(active, **call_kwargs)
-        except AIIntegrationError as exc:
-            if execution_checkpoint is not None:
-                execution_checkpoint()
-            last_error = exc
-            next_request_max_tokens = _next_retry_max_completion_tokens(
-                feature_type=feature_type,
-                current=request_max_tokens,
-                error=exc,
-                maximum=max_retry_completion_tokens,
-            )
-            report_truncation_has_headroom = not (
-                feature_type == FEATURE_REPORT
-                and exc.retry_hint == "expand_completion_budget"
-                and next_request_max_tokens <= request_max_tokens
-            )
-            should_retry = (
-                attempt < max_attempts
-                and _ai_error_is_retryable(exc)
-                and report_truncation_has_headroom
-            )
-            retry_delay_seconds = (
-                _provider_retry_delay_seconds(attempt=attempt) if should_retry else None
-            )
-            payload = {
-                **exc.debug_payload(),
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "requested_max_tokens": request_max_tokens,
-            }
-            if next_request_max_tokens != request_max_tokens:
-                payload["next_max_tokens"] = next_request_max_tokens
-            if retry_delay_seconds is not None:
-                payload["retry_delay_seconds"] = round(retry_delay_seconds, 3)
-            if task_run_id is not None:
-                record_ai_task_event(
-                    db,
-                    run_id=task_run_id,
-                    event_type="provider_exchange_retry"
-                    if should_retry
-                    else "provider_exchange_failed",
-                    message=str(exc),
-                    payload=payload,
-                )
-            _record_usage_event(
-                db,
-                feature_type=feature_type,
-                success=False,
-                provider=active.provider_type,
-                model=active.model,
-                item_id=item_id,
-                daily_brief_id=daily_brief_id,
-                report_id=report_id,
-                error=str(exc),
-            )
-            _commit_ai_progress(db, execution_commit)
-            if should_retry:
-                request_max_tokens = next_request_max_tokens
-                if retry_delay_seconds is not None and retry_delay_seconds > 0:
-                    time.sleep(retry_delay_seconds)
-                continue
-            exc.attempt_count = attempt
-            raise
-
-        if execution_checkpoint is not None:
-            execution_checkpoint()
-        if task_run_id is not None:
-            provider_exchange_payload = {
-                **_build_provider_exchange_payload(
-                    request_url=completion.request_url,
-                    request_payload=completion.request_payload,
-                    response_body=completion.response_body,
-                    response_json=completion.response_json,
-                    status_code=completion.status_code,
-                    finish_reason=completion.finish_reason,
-                ),
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "requested_max_tokens": request_max_tokens,
-            }
-            record_ai_task_event(
-                db,
-                run_id=task_run_id,
-                event_type="provider_exchange",
-                payload=provider_exchange_payload,
-            )
-
-        _record_usage_event(
-            db,
-            feature_type=feature_type,
-            success=True,
-            provider=completion.provider,
-            model=completion.model,
-            item_id=item_id,
-            daily_brief_id=daily_brief_id,
-            report_id=report_id,
-            prompt_tokens=completion.prompt_tokens,
-            completion_tokens=completion.completion_tokens,
-            total_tokens=completion.total_tokens,
-            latency_ms=completion.latency_ms,
-        )
-        _commit_ai_progress(db, execution_commit)
-        return replace(completion, attempt_count=attempt)
-
-    if last_error is None:
-        raise AIIntegrationError("AI request failed unexpectedly")
-    last_error.attempt_count = max_attempts
-    raise last_error
+    return run_ai_json_request(
+        db,
+        active,
+        feature_type=feature_type,
+        messages=messages,
+        item_id=item_id,
+        daily_brief_id=daily_brief_id,
+        report_id=report_id,
+        task_run_id=task_run_id,
+        max_completion_tokens=max_completion_tokens,
+        max_retry_completion_tokens=max_retry_completion_tokens,
+        max_provider_attempts=max_provider_attempts,
+        execution_checkpoint=execution_checkpoint,
+        execution_commit=execution_commit,
+        report_feature_type=FEATURE_REPORT,
+        call_ai_json=_call_ai_json,
+        record_task_run_stop_observed=_record_task_run_stop_observed,
+        record_usage_event=_record_usage_event,
+        build_provider_exchange_payload=_build_provider_exchange_payload,
+        provider_retry_delay_seconds=_provider_retry_delay_seconds,
+        ai_error_is_retryable=_ai_error_is_retryable,
+        next_retry_max_completion_tokens=_next_retry_max_completion_tokens,
+        sleep=time.sleep,
+    )
 
 
 def request_ai_json_with_usage(
@@ -1193,16 +1078,6 @@ def request_ai_json_with_usage(
         execution_checkpoint=execution_checkpoint,
         execution_commit=execution_commit,
     )
-
-
-def _commit_ai_progress(
-    db: Session,
-    execution_commit: Callable[[], None] | None,
-) -> None:
-    if execution_commit is not None:
-        execution_commit()
-        return
-    db.commit()
 
 
 def _provider_retry_delay_seconds(*, attempt: int) -> float:
