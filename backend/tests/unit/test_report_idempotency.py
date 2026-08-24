@@ -9,6 +9,7 @@ from app.models.user import User
 from app.services.report_idempotency import (
     build_report_create_identity,
     find_report_create_replay,
+    find_report_retry_replay,
 )
 
 
@@ -73,3 +74,15 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
     )
 
     assert replay == (report, run)
+
+
+def test_retry_replay_without_idempotency_identity_is_not_a_replay(db_session):
+    assert (
+        find_report_retry_replay(
+            db_session,
+            user_id=uuid.uuid4(),
+            report_id=uuid.uuid4(),
+            identity=None,
+        )
+        is None
+    )

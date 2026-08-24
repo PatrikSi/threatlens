@@ -67,7 +67,7 @@ def test_feed_fetch_fence_migration_round_trip(test_database_url, monkeypatch):
                     },
                 )
 
-            command.upgrade(config, "head")
+            command.upgrade(config, "0048_feed_fetch_fence")
             with schema_engine.connect() as connection:
                 revision = connection.scalar(
                     text("SELECT version_num FROM alembic_version")
@@ -86,7 +86,7 @@ def test_feed_fetch_fence_migration_round_trip(test_database_url, monkeypatch):
             }
             assert "fetch_fence" not in column_names
 
-            command.upgrade(config, "head")
+            command.upgrade(config, "0048_feed_fetch_fence")
             with schema_engine.connect() as connection:
                 restored_fence = connection.scalar(
                     text("SELECT fetch_fence FROM feeds WHERE id = :id"),
