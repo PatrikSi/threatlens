@@ -10,6 +10,7 @@ from typing import Any
 MINIMUM_TOTAL_COVERAGE = 79.0
 MINIMUM_REPORTING_COVERAGE = 63.0
 CRITICAL_MODULE_MINIMUMS = {
+    "app/services/ai_request_runtime.py": 85.0,
     "app/services/feed_fetch_ownership.py": 92.0,
     "app/services/report_dispatch.py": 85.0,
     "app/services/report_execution.py": 88.0,
@@ -36,7 +37,12 @@ def _reporting_paths(files: dict[str, Any]) -> list[str]:
         path
         for path in files
         if path.startswith("app/services/report_")
-        or path in {"app/api/routes/reports.py", "app/tasks/report_tasks.py"}
+        or path
+        in {
+            "app/api/routes/reports.py",
+            "app/services/ai_request_runtime.py",
+            "app/tasks/report_tasks.py",
+        }
     )
 
 
