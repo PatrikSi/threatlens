@@ -50,6 +50,8 @@ def create_report_from_plan(
     trigger_source: str = "manual",
     schedule_id: uuid.UUID | None = None,
     generation_key: str | None = None,
+    request_idempotency_key_hash: str | None = None,
+    request_fingerprint: str | None = None,
 ) -> Report:
     if not plan.included_sources:
         raise ReportStorageError("No matching articles fit the selected filters and AI context guardrails.")
@@ -64,6 +66,8 @@ def create_report_from_plan(
         trigger_source=trigger_source,
         generation_stage="queued",
         generation_key=generation_key,
+        request_idempotency_key_hash=request_idempotency_key_hash,
+        request_fingerprint=request_fingerprint,
         period_start=payload.period_start,
         period_end=payload.period_end,
         filters_json=payload.filters.model_dump(mode="json"),
