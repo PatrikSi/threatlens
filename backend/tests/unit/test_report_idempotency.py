@@ -1,0 +1,75 @@
+import uuid
+from datetime import datetime, timedelta, timezone
+
+from pydantic import BaseModel
+
+from app.models.ai_task_run import AITaskRun
+from app.models.report import Report
+from app.models.user import User
+from app.services.report_idempotency import (
+    build_report_create_identity,
+    find_report_create_replay,
+)
+
+
+class _CreatePayload(BaseModel):
+    title: str
+
+
+def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
+    user = User(
+        id=uuid.uuid4(),
+        email=f"report-idempotency-{uuid.uuid4().hex}@example.com",
+        password_hash="x",
+        role="analyst",
+        is_active=True,
+        is_approved=True,
+    )
+    identity = build_report_create_identity(
+        "rolling-upgrade-key",
+        payload=_CreatePayload(title="Rolling report"),
+    )
+    assert identity is not None
+    now = datetime.now(timezone.utc)
+    report = Report(
+        id=uuid.uuid4(),
+        owner_user_id=user.id,
+        title="Rolling report",
+        report_type="custom",
+        status="queued",
+        trigger_source="manual",
+        generation_stage="queued",
+        request_idempotency_key=identity.legacy_key,
+        request_idempotency_key_hash=None,
+        request_fingerprint=identity.fingerprint,
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    run = AITaskRun(
+        id=uuid.uuid4(),
+        task_type="report",
+        trigger_source="manual",
+        status="queued",
+        actor_user_id=user.id,
+        report_id=report.id,
+        metadata_json={},
+    )
+    db_session.add(user)
+    db_session.flush()
+    db_session.add(report)
+    db_session.flush()
+    db_session.add(run)
+    db_session.flush()
+
+    replay = find_report_create_replay(
+        db_session,
+        user_id=user.id,
+        identity=identity,
+    )
+
+    assert replay == (report, run)

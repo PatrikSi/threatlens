@@ -391,6 +391,7 @@ def create_report(
             plan=plan,
             template=template,
             active=active,
+            request_idempotency_key=(identity.legacy_key if identity else None),
             request_idempotency_key_hash=(identity.key_hash if identity else None),
             request_fingerprint=(identity.fingerprint if identity else None),
         )

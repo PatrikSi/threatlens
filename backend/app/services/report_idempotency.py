@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_task_run import AITaskRun
@@ -26,6 +26,7 @@ class ReportIdempotencyConflictError(ReportIdempotencyError):
 
 @dataclass(frozen=True)
 class ReportRequestIdentity:
+    legacy_key: str
     key_hash: str
     fingerprint: str
 
@@ -39,6 +40,7 @@ def build_report_create_identity(
     if normalized is None:
         return None
     return ReportRequestIdentity(
+        legacy_key=normalized,
         key_hash=_sha256(f"report:create\0{normalized}"),
         fingerprint=_payload_fingerprint(payload.model_dump(mode="json")),
     )
@@ -54,6 +56,7 @@ def build_report_retry_identity(
         return None
     scope = f"report:retry:{report_id}"
     return ReportRequestIdentity(
+        legacy_key=normalized,
         key_hash=_sha256(f"{scope}\0{normalized}"),
         fingerprint=_payload_fingerprint(
             {"operation": "retry", "report_id": str(report_id), "version": 1}
@@ -72,7 +75,10 @@ def find_report_create_replay(
     report = db.scalar(
         select(Report).where(
             Report.owner_user_id == user_id,
-            Report.request_idempotency_key_hash == identity.key_hash,
+            or_(
+                Report.request_idempotency_key_hash == identity.key_hash,
+                Report.request_idempotency_key == identity.legacy_key,
+            ),
         )
     )
     if report is None:

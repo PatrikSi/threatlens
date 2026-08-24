@@ -108,15 +108,16 @@ def test_report_dispatch_migration_hashes_keys_and_repairs_active_runs(
                     },
                 )
 
-            command.upgrade(config, "head")
+            command.upgrade(config, "0047_report_dispatch")
             with schema_engine.connect() as connection:
-                stored_hash = connection.scalar(
+                stored_values = connection.execute(
                     text(
-                        "SELECT request_idempotency_key_hash FROM reports "
+                        "SELECT request_idempotency_key, request_idempotency_key_hash "
+                        "FROM reports "
                         "WHERE id = :report_id"
                     ),
                     {"report_id": report_id},
-                )
+                ).one()
                 runs = connection.execute(
                     text(
                         "SELECT id, status, reason, finished_at FROM ai_task_runs "
@@ -125,7 +126,8 @@ def test_report_dispatch_migration_hashes_keys_and_repairs_active_runs(
                     {"report_id": report_id},
                 ).all()
 
-            assert stored_hash == expected_hash
+            assert stored_values.request_idempotency_key == raw_key
+            assert stored_values.request_idempotency_key_hash == expected_hash
             assert runs[0][0] == older_run_id
             assert runs[0][1:3] == ("error", "superseded_duplicate")
             assert runs[0][3] is not None
@@ -159,9 +161,9 @@ def test_report_dispatch_migration_hashes_keys_and_repairs_active_runs(
                     ),
                     {"report_id": report_id},
                 )
-            assert downgraded_value == expected_hash
+            assert downgraded_value == raw_key
 
-            command.upgrade(config, "head")
+            command.upgrade(config, "0047_report_dispatch")
             with schema_engine.connect() as connection:
                 revision = connection.scalar(
                     text("SELECT version_num FROM alembic_version")
@@ -173,13 +175,11 @@ def test_report_dispatch_migration_hashes_keys_and_repairs_active_runs(
                     ),
                     {"report_id": report_id},
                 )
-            assert revision == "0048_feed_fetch_fence"
+            assert revision == "0047_report_dispatch"
             assert reupgraded_hash == expected_hash
     finally:
         schema_engine.dispose()
         get_settings.cache_clear()
         with admin_engine.connect() as connection:
-            connection.execute(
-                text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE')
-            )
+            connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         admin_engine.dispose()

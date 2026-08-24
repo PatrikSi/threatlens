@@ -12,8 +12,13 @@ class Report(Base):
     __table_args__ = (
         UniqueConstraint(
             "owner_user_id",
-            "request_idempotency_key_hash",
+            "request_idempotency_key",
             name="uq_reports_owner_request_idempotency_key",
+        ),
+        UniqueConstraint(
+            "owner_user_id",
+            "request_idempotency_key_hash",
+            name="uq_reports_owner_request_idempotency_key_hash",
         ),
     )
 
@@ -33,6 +38,7 @@ class Report(Base):
     trigger_source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual", server_default="manual")
     generation_stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued")
     generation_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    request_idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     generation_lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
