@@ -83,8 +83,8 @@ for dockerfile in ("backend/Dockerfile", "web/Dockerfile"):
 write_text(
     "docker-compose.build.yml",
     re.sub(
-        r"APP_VERSION: \$\{APP_VERSION:-[^}]+}",
-        f"APP_VERSION: ${{APP_VERSION:-{version}}}",
+        r"APP_VERSION: \$\{THREATLENS_BUILD_VERSION:-[^}]+}",
+        f"APP_VERSION: ${{THREATLENS_BUILD_VERSION:-{version}}}",
         read_text("docker-compose.build.yml"),
     ),
 )

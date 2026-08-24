@@ -273,8 +273,8 @@ jobs:
           BUILD_DATE: 1970-01-01T00:00:00Z
           VCS_REF: ${{ github.sha }}
         run: |
-          APP_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
-          APP_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
 
       - name: Verify running stack
         run: |

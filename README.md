@@ -59,7 +59,7 @@ THREATLENS_IMAGE_TAG=1.0.0 docker compose up -d
 Or build the images locally from source:
 
 ```bash
-APP_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+THREATLENS_BUILD_VERSION="$(cat VERSION)" docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
 ```
 
 Open the app:

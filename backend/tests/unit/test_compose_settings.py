@@ -28,7 +28,11 @@ NON_BACKEND_ENVIRONMENT_NAMES = {
     "WEB_VITE_API_BASE_URL": "web build API base path",
     "WORKER_CONCURRENCY": "Celery general worker concurrency",
 }
-EPHEMERAL_BUILD_ENVIRONMENT_NAMES = {"APP_VERSION", "BUILD_DATE", "VCS_REF"}
+EPHEMERAL_BUILD_ENVIRONMENT_NAMES = {
+    "BUILD_DATE",
+    "THREATLENS_BUILD_VERSION",
+    "VCS_REF",
+}
 
 
 def test_compose_forwards_every_backend_setting():
@@ -67,6 +71,16 @@ def test_compose_substitutions_are_inventoried_in_env_example():
     assert compose_environment_names - environment_names == (
         EPHEMERAL_BUILD_ENVIRONMENT_NAMES
     )
+
+
+def test_source_build_version_ignores_runtime_app_version_override():
+    compose_text = (ROOT / "docker-compose.build.yml").read_text(encoding="utf-8")
+    version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    assert "${APP_VERSION" not in compose_text
+    assert compose_text.count(
+        f"APP_VERSION: ${{THREATLENS_BUILD_VERSION:-{version}}}"
+    ) == 2
 
 
 def test_configuration_reference_inventories_every_backend_setting():
