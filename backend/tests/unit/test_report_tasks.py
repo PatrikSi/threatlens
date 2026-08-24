@@ -3,6 +3,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+from celery.exceptions import Retry
+
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.services.ai_ops import queue_ai_task_run
@@ -56,7 +59,7 @@ def _use_test_session(monkeypatch, db_session) -> None:
     monkeypatch.setattr(report_tasks, "db_session", _session)
 
 
-def test_report_task_skips_redelivery_while_another_lease_is_active(
+def test_report_task_retries_redelivery_while_another_lease_is_active(
     db_session, monkeypatch
 ):
     report = _report(lease_token="active-worker")
@@ -70,11 +73,11 @@ def test_report_task_skips_redelivery_while_another_lease_is_active(
         ),
     )
 
-    result = report_tasks.generate_intelligence_report.apply(
-        args=[str(report.id), str(run.id)], task_id="report-task"
-    ).get()
+    with pytest.raises(Retry):
+        report_tasks.generate_intelligence_report.run(str(report.id), str(run.id))
 
-    assert result == {"status": "skipped", "reason": "already_running"}
+    db_session.expire_all()
+    assert db_session.get(Report, report.id).status == "queued"
 
 
 def test_report_task_records_cancellation_as_skipped(db_session, monkeypatch):

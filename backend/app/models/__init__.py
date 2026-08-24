@@ -28,6 +28,7 @@ from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.oidc import ExternalIdentity, OIDCProvider
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_schedule import ReportSchedule
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
@@ -69,6 +70,7 @@ __all__ = [
     "NotificationWebhookDelivery",
     "OIDCProvider",
     "Report",
+    "ReportGenerationLease",
     "ReportSchedule",
     "ReportSection",
     "ReportSourceItem",

@@ -18,7 +18,11 @@ from app.services.ai_context_budget import (
     AIContextBudgetError,
     build_context_budget,
 )
-from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usage
+from app.services.ai_integration import (
+    FEATURE_REPORT,
+    AITaskRunStoppedError,
+    request_ai_json_with_usage,
+)
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_availability import (
@@ -26,7 +30,7 @@ from app.services.report_availability import (
     ensure_reporting_available,
 )
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
-from app.services.report_execution import ReportGenerationLeaseLostError
+from app.services.report_execution import ReportGenerationOwnershipError
 from app.services.report_prompt_budget import (
     CONTEXT_COMPACTION_WARNING,
     FINDINGS_COMPACTION_WARNING,
@@ -66,6 +70,7 @@ def generate_report(
     report_id: uuid.UUID,
     task_run_id: uuid.UUID | None,
     execution_checkpoint: Callable[[], None] | None = None,
+    execution_commit: Callable[[], None] | None = None,
 ) -> ReportGenerationResult:
     report = db.scalar(select(Report).where(Report.id == report_id).with_for_update())
     if report is None:
@@ -79,16 +84,10 @@ def generate_report(
             report.completion_tokens or 0,
             report.total_tokens or 0,
         )
-    if (
-        report.status == "running"
-        and report.started_at
-        and report.started_at < datetime.now(timezone.utc)
-    ):
-        # The task run is the ownership record. A retry intentionally resumes by replacing section output.
-        logger.info(
-            "report_generation_resuming report_id=%s stage=%s",
-            report.id,
-            report.generation_stage,
+    if report.status == "running":
+        raise ReportGenerationError(
+            "Report generation was interrupted before it completed. Retry the report to start a fresh generation attempt.",
+            code="generation_interrupted",
         )
 
     active = load_active_ai_settings(db)
@@ -128,7 +127,7 @@ def generate_report(
         raise ReportGenerationError(
             "The report has no enabled sections.", code="no_sections"
         )
-    db.commit()
+    _commit_execution(db, execution_commit)
     counters = _UsageCounters()
     try:
         sources, evidence_plan = _prepare_runtime_evidence(
@@ -147,7 +146,7 @@ def generate_report(
         db.add(report)
         _record_stage(db, task_run_id, report, "evidence_synthesis")
         _check_execution(execution_checkpoint)
-        db.commit()
+        _commit_execution(db, execution_commit)
         _check_execution(execution_checkpoint)
 
         findings = _synthesize_evidence_batches(
@@ -160,6 +159,7 @@ def generate_report(
             task_run_id=task_run_id,
             counters=counters,
             execution_checkpoint=execution_checkpoint,
+            execution_commit=execution_commit,
         )
         report = db.get(Report, report_id)
         if report is None:
@@ -170,7 +170,7 @@ def generate_report(
         report.generation_stage = "section_generation"
         db.add(report)
         _record_stage(db, task_run_id, report, "section_generation")
-        db.commit()
+        _commit_execution(db, execution_commit)
 
         ordered_sections = _generation_order(sections)
         for section in ordered_sections:
@@ -195,6 +195,7 @@ def generate_report(
                 task_run_id=task_run_id,
                 counters=counters,
                 execution_checkpoint=execution_checkpoint,
+                execution_commit=execution_commit,
             )
 
         report = db.get(Report, report_id)
@@ -207,7 +208,7 @@ def generate_report(
         _check_execution(execution_checkpoint)
         _finalize_ready_report(db, report=report, counters=counters)
         _record_stage(db, task_run_id, report, "ready")
-        db.commit()
+        _commit_execution(db, execution_commit)
         return ReportGenerationResult(
             report.id,
             report.status,
@@ -217,7 +218,7 @@ def generate_report(
             counters.total_tokens,
         )
     except Exception as exc:
-        if isinstance(exc, ReportGenerationLeaseLostError):
+        if isinstance(exc, ReportGenerationOwnershipError):
             db.rollback()
             raise
         if isinstance(exc, AIIntegrationError):
@@ -228,6 +229,7 @@ def generate_report(
             (
                 AIContextBudgetError,
                 AIIntegrationError,
+                AITaskRunStoppedError,
                 ReportGenerationError,
                 ReportingUnavailableError,
             ),
@@ -255,7 +257,7 @@ def generate_report(
                 "canceled" if canceled else "failed",
                 message=str(exc),
             )
-            db.commit()
+            _commit_execution(db, execution_commit)
         raise
 
 
@@ -278,6 +280,16 @@ def _raise_if_canceled(db: Session, task_run_id: uuid.UUID | None) -> None:
 def _check_execution(checkpoint: Callable[[], None] | None) -> None:
     if checkpoint is not None:
         checkpoint()
+
+
+def _commit_execution(
+    db: Session,
+    execution_commit: Callable[[], None] | None,
+) -> None:
+    if execution_commit is not None:
+        execution_commit()
+        return
+    db.commit()
 
 
 @dataclass
@@ -412,6 +424,7 @@ def _synthesize_evidence_batches(
     task_run_id: uuid.UUID | None,
     counters: _UsageCounters,
     execution_checkpoint: Callable[[], None] | None,
+    execution_commit: Callable[[], None] | None,
 ) -> list[dict]:
     findings: list[dict] = []
     known_citations = {source.citation_key for source in sources}
@@ -444,9 +457,9 @@ def _synthesize_evidence_batches(
             task_run_id=task_run_id,
             max_completion_tokens=completion_tokens,
             max_retry_completion_tokens=retry_completion_tokens,
-            max_provider_attempts=active.report_max_model_calls
-            - counters.model_calls,
+            max_provider_attempts=active.report_max_model_calls - counters.model_calls,
             execution_checkpoint=execution_checkpoint,
+            execution_commit=execution_commit,
         )
         counters.add(completion)
         _check_execution(execution_checkpoint)
@@ -459,7 +472,7 @@ def _synthesize_evidence_batches(
         _record_provider_progress(
             db, task_run_id, report, counters, stage=f"evidence_batch_{index}"
         )
-        db.commit()
+        _commit_execution(db, execution_commit)
     if not findings:
         findings = [
             {"text": source.title_snapshot, "citations": [source.citation_key]}
@@ -480,6 +493,7 @@ def _generate_section(
     task_run_id: uuid.UUID | None,
     counters: _UsageCounters,
     execution_checkpoint: Callable[[], None] | None,
+    execution_commit: Callable[[], None] | None,
 ) -> None:
     section = db.get(ReportSection, section.id)
     if section is None:
@@ -491,7 +505,7 @@ def _generate_section(
     else:
         section.status = "running"
         db.add(section)
-        db.commit()
+        _commit_execution(db, execution_commit)
         known_citations = {source.citation_key for source in sources}
         section_config = next(
             (
@@ -538,9 +552,9 @@ def _generate_section(
             task_run_id=task_run_id,
             max_completion_tokens=completion_tokens,
             max_retry_completion_tokens=retry_completion_tokens,
-            max_provider_attempts=active.report_max_model_calls
-            - counters.model_calls,
+            max_provider_attempts=active.report_max_model_calls - counters.model_calls,
             execution_checkpoint=execution_checkpoint,
+            execution_commit=execution_commit,
         )
         counters.add(completion)
         _check_execution(execution_checkpoint)
@@ -577,7 +591,7 @@ def _generate_section(
         db, task_run_id, report, counters, stage=report.generation_stage
     )
     _check_execution(execution_checkpoint)
-    db.commit()
+    _commit_execution(db, execution_commit)
 
 
 def _deterministic_section(
