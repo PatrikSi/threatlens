@@ -13,6 +13,7 @@ from app.schemas.reports import (
     ReportTemplateCreate,
     ReportTemplateResponse,
     ReportTemplateUpdate,
+    validate_report_section_set,
 )
 
 
@@ -127,6 +128,7 @@ def _apply_template_payload(
     template: ReportTemplate,
     payload: ReportTemplateCreate | ReportTemplateUpdate,
 ) -> None:
+    validate_report_section_set(payload.sections)
     template.name = payload.name
     template.description = payload.description
     template.report_type = payload.report_type

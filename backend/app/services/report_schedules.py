@@ -23,6 +23,8 @@ from app.schemas.reports import (
     ReportScheduleResponse,
     ReportScheduleUpdate,
     ReportSectionConfig,
+    ReportSectionSetError,
+    validate_report_section_set,
 )
 from app.services.ai_config import load_active_ai_settings
 from app.services.ai_context_budget import AIContextBudgetError
@@ -306,6 +308,7 @@ def _create_one_scheduled_report(
         ReportSectionConfig.model_validate(entry)
         for entry in template.sections_json or []
     ]
+    validate_report_section_set(sections)
     filters = filters_for_report_period(
         ReportArticleFilters.model_validate(schedule.filters_json or {}),
         period_start=period_start,
@@ -457,7 +460,7 @@ def classify_schedule_failure(error: Exception) -> ScheduleFailure:
         return ScheduleFailure(error.code, str(error))
     if isinstance(error, AIContextBudgetError):
         return ScheduleFailure("context_budget", str(error), quarantine=True)
-    if isinstance(error, ValidationError):
+    if isinstance(error, (ValidationError, ReportSectionSetError)):
         return ScheduleFailure(
             "invalid_configuration",
             "The schedule template contains invalid report configuration. Update the template and re-enable the schedule.",

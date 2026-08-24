@@ -19,6 +19,7 @@ from app.schemas.reports import (
     ReportSectionConfig,
     ReportSectionResponse,
     ReportSourceResponse,
+    validate_report_section_set,
 )
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_prompting import build_company_context
@@ -53,6 +54,7 @@ def create_report_from_plan(
     request_idempotency_key_hash: str | None = None,
     request_fingerprint: str | None = None,
 ) -> Report:
+    validate_report_section_set(payload.sections)
     if not plan.included_sources:
         raise ReportStorageError("No matching articles fit the selected filters and AI context guardrails.")
     title = payload.title or _default_report_title(template, payload.period_start, payload.period_end)

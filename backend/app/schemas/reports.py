@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from datetime import datetime, timezone
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -45,6 +46,31 @@ class ReportSectionConfig(ReportSchema):
         return str(value).strip() or None
 
 
+class ReportSectionSetError(ValueError):
+    pass
+
+
+def validate_report_section_set(
+    sections: list[ReportSectionConfig],
+    *,
+    allow_empty: bool = False,
+) -> None:
+    if not sections:
+        if allow_empty:
+            return
+        raise ReportSectionSetError("At least one report section is required.")
+    key_counts = Counter(section.key for section in sections)
+    duplicate_keys = sorted(key for key, count in key_counts.items() if count > 1)
+    if duplicate_keys:
+        raise ReportSectionSetError(
+            "Report section keys must be unique; duplicate keys: "
+            + ", ".join(duplicate_keys)
+            + "."
+        )
+    if not any(section.enabled for section in sections):
+        raise ReportSectionSetError("At least one report section must be enabled.")
+
+
 class ReportPromptConfig(ReportSchema):
     audience: str = Field(default="security_team", min_length=1, max_length=64)
     objective: str = Field(default="Summarize material security developments.", min_length=1, max_length=2000)
@@ -75,6 +101,11 @@ class ReportPreviewRequest(ReportSchema):
     excluded_item_ids: list[uuid.UUID] = Field(default_factory=list, max_length=1000)
     prompt: ReportPromptConfig = Field(default_factory=ReportPromptConfig)
     sections: list[ReportSectionConfig] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _validate_sections(self):
+        validate_report_section_set(self.sections, allow_empty=True)
+        return self
 
 
 class ReportContextEstimate(ReportSchema):
@@ -136,6 +167,11 @@ class ReportTemplateCreate(ReportSchema):
     def _strip_text(cls, value: object) -> str:
         return str(value or "").strip()
 
+    @model_validator(mode="after")
+    def _validate_sections(self):
+        validate_report_section_set(self.sections)
+        return self
+
 
 class ReportTemplateUpdate(ReportTemplateCreate):
     pass
@@ -186,6 +222,7 @@ class ReportCreateRequest(ReportSchema):
     def _validate_period(self):
         if self.period_start >= self.period_end:
             raise ValueError("period_start must be earlier than period_end")
+        validate_report_section_set(self.sections)
         return self
 
 
