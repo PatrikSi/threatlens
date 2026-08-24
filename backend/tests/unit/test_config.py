@@ -95,6 +95,17 @@ def test_report_schedule_retry_backoff_must_be_bounded():
         )
 
 
+def test_report_task_infrastructure_retry_backoff_must_be_bounded():
+    with pytest.raises(
+        ValueError,
+        match="report_task_infrastructure_retry_max_backoff_seconds",
+    ):
+        isolated_settings(
+            report_task_infrastructure_retry_backoff_seconds=120,
+            report_task_infrastructure_retry_max_backoff_seconds=60,
+        )
+
+
 def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOWED_HOSTS", "api, threatlens.example.com")
     settings = Settings(_env_file=None)
