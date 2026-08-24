@@ -740,6 +740,7 @@ def test_report_retry_expands_only_to_exact_context_headroom(
     db_session.commit()
     active = load_active_ai_settings(db_session)
     requested: list[int] = []
+    checkpoints: list[int] = []
 
     def _truncated_then_valid(active, *, messages, max_completion_tokens):
         _ = (active, messages)
@@ -769,11 +770,13 @@ def test_report_retry_expands_only_to_exact_context_headroom(
         messages=[{"role": "user", "content": "report"}],
         max_completion_tokens=256,
         max_retry_completion_tokens=700,
+        execution_checkpoint=lambda: checkpoints.append(len(requested)),
     )
 
     assert result.payload == {"ok": True}
     assert requested == [256, 512, 700]
     assert result.attempt_count == 3
+    assert checkpoints == [0, 1, 2]
 
 
 def test_report_retry_respects_provider_attempt_budget(

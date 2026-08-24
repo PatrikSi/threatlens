@@ -4,6 +4,7 @@ import json
 import random
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 
@@ -907,6 +908,7 @@ def _request_json_with_usage(
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
+    execution_checkpoint: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     max_attempts = max(1, active.request_max_retries + 1)
     if max_provider_attempts is not None:
@@ -920,6 +922,8 @@ def _request_json_with_usage(
     db.commit()
 
     for attempt in range(1, max_attempts + 1):
+        if execution_checkpoint is not None:
+            execution_checkpoint()
         if attempt > 1:
             stop_reason = _record_task_run_stop_observed(
                 db,
@@ -1047,6 +1051,7 @@ def request_ai_json_with_usage(
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
+    execution_checkpoint: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     return _request_json_with_usage(
@@ -1059,6 +1064,7 @@ def request_ai_json_with_usage(
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,
+        execution_checkpoint=execution_checkpoint,
     )
 
 

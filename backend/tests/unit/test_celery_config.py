@@ -47,6 +47,8 @@ def test_celery_declares_expected_named_queues():
     }
     assert celery_app.conf.task_default_queue == QUEUE_DEFAULT
     assert celery_app.conf.worker_prefetch_multiplier == 1
+    assert celery_app.conf.broker_transport_options["visibility_timeout"] == 3600
+    assert celery_app.conf.result_backend_transport_options["visibility_timeout"] == 3600
 
 
 def test_daily_brief_generation_checks_due_time_on_utc_minute_boundaries():
