@@ -79,7 +79,10 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 
 ## Failure Recovery
 
-- Queue publication failures mark the report and AI task run as failed instead of leaving accepted work ambiguous.
+- Report creation and retry accept `Idempotency-Key`; an exact replay returns the original report while a conflicting payload is rejected.
+- Report and AI task state commit before queue publication. Broker failures leave durable queued work for the periodic dispatcher, which applies capped exponential backoff and settles exhausted dispatches as failed.
+- Worker redelivery cannot make a second provider call while the original renewable generation lease is still owned. A superseded worker cannot persist sections or terminal state after ownership moves.
+- Repeated schedule planning failures use capped exponential backoff and quarantine the schedule after the configured attempt limit, preventing one broken schedule from starving healthy schedules.
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
 - Lost report workers are reconciled into a terminal failure instead of leaving the report indefinitely queued or running.
 - Provider and context errors retain actionable messages; unexpected exception details stay in worker logs while the UI receives a sanitized recovery message.
@@ -87,6 +90,8 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Failed or skipped reports can be retried by their owner or an administrator from the immutable source snapshot.
 - Queued and running reports cannot be deleted.
 - Scheduled empty periods are retained as skipped report records when **Skip periods with no sources** is enabled.
+
+Operators can tune durable dispatch, schedule retry, and generation lease limits with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. The broker visibility timeout should remain longer than the maximum expected report run so an active task is not redelivered merely because it is still generating.
 
 Use `docker compose logs -f worker-ai` for generation diagnostics and the report detail plus **Settings -> AI -> Activity** for persisted stage/provider history.
 

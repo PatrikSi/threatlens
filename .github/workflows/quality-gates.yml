@@ -82,7 +82,16 @@ jobs:
 
       - name: Run backend tests
         working-directory: backend
-        run: timeout 25m python -m pytest
+        run: >-
+          timeout 25m python -m pytest
+          --cov=app
+          --cov-branch
+          --cov-report=term
+          --cov-report=json:coverage.json
+          --cov-fail-under=79
+
+      - name: Enforce reporting coverage floors
+        run: python scripts/check_coverage.py backend/coverage.json
 
       - name: Verify generated API contract
         run: |
@@ -219,7 +228,13 @@ jobs:
 
   container-smoke:
     name: Container smoke and image scan
-    if: github.event_name != 'workflow_call' || inputs.run_container_smoke
+    if: >-
+      ${{
+        (github.event_name != 'workflow_call' || inputs.run_container_smoke == true) &&
+        needs.backend.result == 'success' &&
+        needs.frontend.result == 'success' &&
+        needs.migrations.result == 'success'
+      }}
     needs:
       - backend
       - frontend

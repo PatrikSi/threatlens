@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0 --port 3000",
     "build": "tsc -b && vite build",
     "audit": "audit-ci --config .audit-ci.jsonc",
-    "lint": "eslint src --ext .ts,.tsx",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
     "preview": "vite preview --host 0.0.0.0 --port 3000"

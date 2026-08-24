@@ -81,7 +81,13 @@ return (
           {itemHref && (
             <button
               type="button"
-              className="tl-dashboard-rss-preview absolute right-2 top-2 rounded border border-transparent bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan dark:bg-transparent sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20 sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]"
+              className={[
+                'tl-dashboard-rss-preview absolute right-2 top-2 rounded border border-transparent',
+                'bg-transparent px-1.5 py-1 text-xs font-semibold text-cyan hover:text-cyan',
+                'dark:bg-transparent sm:right-0 sm:top-5 sm:whitespace-nowrap sm:border-slate/20',
+                'sm:bg-white sm:px-2 sm:font-normal sm:text-inherit sm:hover:border-cyan',
+                'dark:sm:border-cyan-900/40 dark:sm:bg-[#041612]',
+              ].join(' ')}
               onClick={() =>
                 handleOpenArticlePreview(
                   {

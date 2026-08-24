@@ -67,7 +67,12 @@ a{{color:#0f766e;overflow-wrap:anywhere}}li{{margin:5px 0}}@media print{{body{{p
 </style>
 </head>
 <body>
-<header><h1>{escape(report.title)}</h1><div class="meta">Period {report.period_start.date().isoformat()} to {report.period_end.date().isoformat()} | {report.included_source_count} of {report.source_count} matching sources | Generated {escape(generated)} | Model {escape(report.model or 'Not recorded')}</div></header>
+<header>
+<h1>{escape(report.title)}</h1>
+<div class="meta">Period {report.period_start.date().isoformat()} to {report.period_end.date().isoformat()} |
+{report.included_source_count} of {report.source_count} matching sources | Generated {escape(generated)} |
+Model {escape(report.model or 'Not recorded')}</div>
+</header>
 {warning_html}{section_html}
 </body></html>"""
 

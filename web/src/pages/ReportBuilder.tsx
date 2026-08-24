@@ -192,7 +192,15 @@ function PromptPanel({ controller }: { controller: ReportingController }) {
           </select>
         </label>
         <label className="flex items-end pb-2 text-xs font-semibold text-slate dark:text-slate-300">
-          <span className="flex min-h-9 w-full items-center gap-2 rounded border border-slate/20 px-2.5 dark:border-white/10"><input type="checkbox" className="h-4 w-4 accent-cyan" checked={controller.prompt.use_company_context} onChange={(event) => update({ use_company_context: event.target.checked })} />Use company context</span>
+          <span className="flex min-h-9 w-full items-center gap-2 rounded border border-slate/20 px-2.5 dark:border-white/10">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-cyan"
+              checked={controller.prompt.use_company_context}
+              onChange={(event) => update({ use_company_context: event.target.checked })}
+            />
+            Use company context
+          </span>
         </label>
       </div>
       <label className="mt-2 block text-xs font-semibold text-slate dark:text-slate-300">Objective
@@ -221,7 +229,17 @@ function SectionsPanel({ sections, onChange }: { sections: ReportSectionConfig[]
         {sections.map((section, index) => (
           <div key={section.key} className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded border border-slate/15 px-2 py-1.5 dark:border-white/10">
             <input type="checkbox" className="h-4 w-4 accent-cyan" checked={section.enabled} onChange={(event) => onChange((current) => current.map((entry) => entry.key === section.key ? { ...entry, enabled: event.target.checked } : entry))} aria-label={`Enable ${section.title}`} />
-            <input className="min-w-0 bg-transparent text-sm font-semibold outline-none" value={section.title} maxLength={255} onChange={(event) => onChange((current) => current.map((entry) => entry.key === section.key ? { ...entry, title: event.target.value } : entry))} aria-label={`${section.key} title`} />
+            <input
+              className="min-w-0 bg-transparent text-sm font-semibold outline-none"
+              value={section.title}
+              maxLength={255}
+              onChange={(event) => onChange((current) => current.map((entry) => (
+                entry.key === section.key
+                  ? { ...entry, title: event.target.value }
+                  : entry
+              )))}
+              aria-label={`${section.key} title`}
+            />
             <div className="flex gap-1">
               <button type="button" className="h-7 w-7 rounded border border-slate/20 text-xs disabled:opacity-30 dark:border-white/10" disabled={index === 0} onClick={() => onChange((current) => move(current, index, index - 1))} aria-label={`Move ${section.title} up`}>↑</button>
               <button type="button" className="h-7 w-7 rounded border border-slate/20 text-xs disabled:opacity-30 dark:border-white/10" disabled={index === sections.length - 1} onClick={() => onChange((current) => move(current, index, index + 1))} aria-label={`Move ${section.title} down`}>↓</button>
