@@ -233,3 +233,65 @@ def test_schedule_dispatch_defers_without_advancing_when_reporting_unavailable(
         "queued": 0,
         "failures": 0,
     }
+
+
+def test_schedule_dispatch_isolates_reservation_failures(db_session, monkeypatch):
+    successful_schedule_id = uuid.uuid4()
+    failing_schedule_id = uuid.uuid4()
+    queued_report = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_user_id=uuid.uuid4(),
+        status="queued",
+    )
+    skipped_report = SimpleNamespace(
+        id=uuid.uuid4(),
+        owner_user_id=uuid.uuid4(),
+        status="skipped",
+    )
+    task_run = SimpleNamespace(id=uuid.uuid4())
+    recorded_failures = []
+    enqueued = []
+    _use_test_session(monkeypatch, db_session)
+    monkeypatch.setattr(report_tasks, "load_active_ai_settings", lambda _db: object())
+    monkeypatch.setattr(
+        report_tasks,
+        "ensure_reporting_available",
+        lambda _settings: None,
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "list_due_schedule_ids",
+        lambda _db, *, now: [successful_schedule_id, failing_schedule_id],
+    )
+
+    def reserve(_db, *, schedule_id, now):
+        if schedule_id == failing_schedule_id:
+            raise RuntimeError("invalid schedule state")
+        return [queued_report, skipped_report]
+
+    monkeypatch.setattr(report_tasks, "reserve_schedule_runs", reserve)
+    monkeypatch.setattr(
+        report_tasks,
+        "create_report_task_run",
+        lambda *_args, **_kwargs: task_run,
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "record_schedule_failure",
+        lambda _db, **kwargs: recorded_failures.append(kwargs),
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "enqueue_report_task",
+        lambda **kwargs: enqueued.append(kwargs),
+    )
+
+    result = report_tasks.dispatch_due_report_schedules.run()
+
+    assert result == {"status": "partial", "queued": 1, "failures": 1}
+    assert enqueued == [
+        {"report_id": queued_report.id, "task_run_id": task_run.id}
+    ]
+    assert len(recorded_failures) == 1
+    assert recorded_failures[0]["schedule_id"] == failing_schedule_id
+    assert isinstance(recorded_failures[0]["error"], RuntimeError)

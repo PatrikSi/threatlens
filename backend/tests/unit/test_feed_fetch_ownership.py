@@ -121,6 +121,41 @@ def test_feed_configuration_noop_does_not_advance_fence(db_session):
     assert feed.fetch_fence == 7
 
 
+def test_feed_configuration_rejects_unsupported_fields(db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Guarded feed",
+        url="https://example.com/guarded.xml",
+        fetch_fence=4,
+    )
+    db_session.add(feed)
+    db_session.flush()
+
+    with pytest.raises(ValueError, match="unsupported feed fetch configuration"):
+        apply_feed_fetch_configuration(feed, {"name": "Unexpected update"})
+
+    assert feed.name == "Guarded feed"
+    assert feed.fetch_fence == 4
+
+
+def test_feed_fetch_fence_rejects_deleted_feed(db_session):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Deleted feed",
+        url="https://example.com/deleted.xml",
+    )
+    db_session.add(feed)
+    db_session.commit()
+    claim = claim_feed_fetch(db_session, feed=feed)
+    db_session.commit()
+
+    db_session.delete(feed)
+    db_session.commit()
+
+    with pytest.raises(FeedFetchOwnershipLostError, match="deleted"):
+        ensure_feed_fetch_owned(db_session, claim=claim)
+
+
 def test_newer_feed_fetch_fence_prevents_stale_worker_commit(database_engine):
     session_factory = sessionmaker(
         bind=database_engine,
