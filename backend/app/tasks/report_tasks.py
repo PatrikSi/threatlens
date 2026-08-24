@@ -51,6 +51,7 @@ from app.tasks.task_session import db_session
 
 
 logger = logging.getLogger(__name__)
+REPORT_GENERATION_FAILURE_MAX_RETRIES = 20
 settings = get_settings()
 
 
@@ -171,7 +172,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     acks_late=True,
     reject_on_worker_lost=True,
     default_retry_delay=30,
-    max_retries=20,
+    max_retries=None,
 )
 def generate_intelligence_report(self, report_id: str, task_run_id: str):
     try:
@@ -262,7 +263,11 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             parsed_report_id,
             parsed_run_id,
         )
-        raise self.retry(exc=exc, countdown=30) from exc
+        raise self.retry(
+            exc=exc,
+            countdown=30,
+            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+        ) from exc
 
     if claim.status == "busy":
         raise self.retry(
@@ -334,7 +339,11 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 parsed_report_id,
                 parsed_run_id,
             )
-            raise self.retry(exc=exc, countdown=30) from exc
+            raise self.retry(
+                exc=exc,
+                countdown=30,
+                max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+            ) from exc
         except Exception as exc:
             return _settle_failed_generation(
                 self,
@@ -380,7 +389,11 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             db.commit()
         except Exception as exc:
             db.rollback()
-            raise self.retry(exc=exc, countdown=30) from exc
+            raise self.retry(
+                exc=exc,
+                countdown=30,
+                max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+            ) from exc
     notification_enqueued = (
         enqueue_integration_event_routing([event_id]) if event_id else True
     )
@@ -516,7 +529,11 @@ def _settle_interrupted_generation_task(
             report_id,
             run_id,
         )
-        raise task.retry(exc=exc, countdown=30) from exc
+        raise task.retry(
+            exc=exc,
+            countdown=30,
+            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+        ) from exc
 
 
 def _settle_failed_generation(
@@ -571,7 +588,11 @@ def _settle_failed_generation(
         db.commit()
     except Exception as commit_error:
         db.rollback()
-        raise task.retry(exc=commit_error, countdown=30) from commit_error
+        raise task.retry(
+            exc=commit_error,
+            countdown=30,
+            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+        ) from commit_error
     return {
         "status": "skipped" if canceled else "error",
         "reason": getattr(exc, "code", "generation_failed"),
