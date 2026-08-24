@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
@@ -15,6 +15,7 @@ import type {
   ReportPromptConfig,
   ReportQueueResponse,
   ReportSchedule,
+  ReportScheduleWrite,
   ReportSectionConfig,
   ReportTemplate,
 } from '../types/api'
@@ -36,6 +37,12 @@ import {
 } from './reportingResilience'
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
+export type ReportingFeedback = {
+  kind: 'error' | 'success'
+  message: string
+} | null
+
+type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
 
 export function useReportingController() {
   const queryClient = useQueryClient()
@@ -53,7 +60,9 @@ export function useReportingController() {
   const [title, setTitle] = useState('')
   const [deliverWhenReady, setDeliverWhenReady] = useState(false)
   const [deliveryMode, setDeliveryMode] = useState<ReportDeliveryMode>('summary')
-  const [notice, setNotice] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<ReportingFeedback>(null)
+  const createRequestRef = useRef<{ body: string; key: string } | null>(null)
+  const retryRequestKeysRef = useRef(new Map<string, string>())
 
   const capabilitiesQuery = useQuery({
     queryKey: ['reports', 'capabilities'],
@@ -134,42 +143,80 @@ export function useReportingController() {
   const createReportMutation = useMutation({
     mutationFn: async () => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
+      const body = JSON.stringify({
+        template_id: selectedTemplateId || null,
+        title: title.trim() || null,
+        ...reportPeriodFromFilters(validation.filters),
+        filters: validation.filters,
+        excluded_item_ids: excludedItemIds,
+        prompt,
+        sections,
+        deliver_when_ready: deliverWhenReady,
+        delivery_mode: deliveryMode,
+      })
+      if (createRequestRef.current?.body !== body) {
+        createRequestRef.current = { body, key: createIdempotencyKey() }
+      }
       return apiFetch<ReportQueueResponse>('/reports', {
         method: 'POST',
-        body: JSON.stringify({
-          template_id: selectedTemplateId || null,
-          title: title.trim() || null,
-          ...reportPeriodFromFilters(validation.filters),
-          filters: validation.filters,
-          excluded_item_ids: excludedItemIds,
-          prompt,
-          sections,
-          deliver_when_ready: deliverWhenReady,
-          delivery_mode: deliveryMode,
-        }),
+        body,
+        headers: { 'Idempotency-Key': createRequestRef.current.key },
         timeoutMs: REPORT_CREATE_TIMEOUT_MS,
       })
     },
+    onMutate: () => setFeedback(null),
     onSuccess: (result) => {
-      setNotice('Report queued. Progress and provider history are now available.')
+      createRequestRef.current = null
+      setFeedback({
+        kind: 'success',
+        message: 'Report queued. Progress and provider history are now available.',
+      })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate(`/reporting/${result.report_id}`)
+    },
+    onError: (error) => {
+      if (!isAmbiguousQueueError(error)) createRequestRef.current = null
+      setFeedback({
+        kind: 'error',
+        message: resolveReportQueueError(error),
+      })
     },
   })
 
   const retryMutation = useMutation({
-    mutationFn: (reportId: string) => apiFetch<ReportQueueResponse>(`/reports/${reportId}/retry`, { method: 'POST' }),
+    mutationFn: (reportId: string) => {
+      const key = retryRequestKeysRef.current.get(reportId) ?? createIdempotencyKey()
+      retryRequestKeysRef.current.set(reportId, key)
+      return apiFetch<ReportQueueResponse>(`/reports/${reportId}/retry`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': key },
+      })
+    },
+    onMutate: () => setFeedback(null),
     onSuccess: (result) => {
+      retryRequestKeysRef.current.delete(result.report_id)
+      setFeedback({ kind: 'success', message: 'Report retry queued.' })
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
       navigate(`/reporting/${result.report_id}`)
+    },
+    onError: (error, reportId) => {
+      if (!isAmbiguousQueueError(error)) retryRequestKeysRef.current.delete(reportId)
+      setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
     },
   })
   const deleteMutation = useMutation({
     mutationFn: (reportId: string) => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+    onMutate: () => setFeedback(null),
     onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate('/reporting')
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report could not be deleted',
+    ),
   })
   const templateMutation = useMutation({
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
@@ -189,50 +236,132 @@ export function useReportingController() {
         }),
       })
     },
+    onMutate: () => setFeedback(null),
     onSuccess: (template) => {
       setSelectedTemplateId(template.id)
-      setNotice('Report template saved.')
+      setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report template could not be saved',
+    ),
   })
   const cloneTemplateMutation = useMutation({
     mutationFn: (templateId: string) => apiFetch<ReportTemplate>(`/reports/templates/${templateId}/clone`, { method: 'POST' }),
+    onMutate: () => setFeedback(null),
     onSuccess: (template) => {
       setSelectedTemplateId(template.id)
       setActiveTab('reports')
-      setNotice('Template cloned. Adjust it in the builder and save when ready.')
+      setFeedback({
+        kind: 'success',
+        message: 'Template cloned. Adjust it in the builder and save when ready.',
+      })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report template could not be cloned',
+    ),
   })
   const deleteTemplateMutation = useMutation({
     mutationFn: (templateId: string) => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] }),
+    onMutate: () => setFeedback(null),
+    onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report template deleted.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
+    },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report template could not be deleted',
+    ),
   })
   const createScheduleMutation = useMutation({
-    mutationFn: (payload: Omit<ReportSchedule, 'id' | 'owner_user_id' | 'next_run_at' | 'last_run_at' | 'created_at' | 'updated_at'>) =>
+    mutationFn: (payload: ReportScheduleWrite) =>
       apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body: JSON.stringify(payload) }),
+    onMutate: () => setFeedback(null),
     onSuccess: () => {
-      setNotice('Report schedule created.')
+      setFeedback({ kind: 'success', message: 'Report schedule created.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report schedule could not be created',
+    ),
   })
   const updateScheduleMutation = useMutation({
     mutationFn: (schedule: ReportSchedule) => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
       method: 'PUT',
       body: JSON.stringify(schedulePayload(schedule)),
     }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }),
+    onMutate: () => setFeedback(null),
+    onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report schedule updated.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+    },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report schedule could not be updated',
+    ),
   })
   const deleteScheduleMutation = useMutation({
     mutationFn: (scheduleId: string) => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }),
+    onMutate: () => setFeedback(null),
+    onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report schedule deleted.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+    },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report schedule could not be deleted',
+    ),
   })
   const runScheduleMutation = useMutation({
     mutationFn: (scheduleId: string) => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, { method: 'POST' }),
+    onMutate: () => setFeedback(null),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
-      setNotice('Scheduled report run queued.')
+      setFeedback({ kind: 'success', message: 'Scheduled report run queued.' })
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The scheduled report could not be queued',
+    ),
+  })
+  const downloadMutation = useMutation({
+    mutationFn: async ({
+      reportId,
+      format,
+    }: {
+      reportId: string
+      format: ReportDownloadFormat
+    }) => {
+      const result = await apiDownload(
+        `/reports/${reportId}/download?format=${format}`,
+        { timeoutMs: 60_000 },
+      )
+      const extension = format === 'markdown' ? 'md' : format
+      const filename = result.filename ?? `threatlens-report-${reportId}.${extension}`
+      triggerBrowserDownload(result.blob, filename)
+      return { filename }
+    },
+    onMutate: () => setFeedback(null),
+    onSuccess: ({ filename }) => setFeedback({
+      kind: 'success',
+      message: `Report downloaded: ${filename}`,
+    }),
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report download could not be prepared',
+    ),
   })
 
   const selectedTemplate = templatesQuery.data?.find((entry) => entry.id === selectedTemplateId)
@@ -255,11 +384,6 @@ export function useReportingController() {
     previewError: previewQuery.error,
     selectedSourceCount: previewQuery.data?.estimate.selected_source_count,
   })
-
-  async function downloadReport(reportId: string, format: 'markdown' | 'html' | 'pdf') {
-    const result = await apiDownload(`/reports/${reportId}/download?format=${format}`, { timeoutMs: 60_000 })
-    triggerBrowserDownload(result.blob, result.filename ?? `threatlens-report-${reportId}.${format === 'markdown' ? 'md' : format}`)
-  }
 
   function openReport(reportId: string) {
     navigate(`/reporting/${reportId}`)
@@ -302,7 +426,7 @@ export function useReportingController() {
     setDeliveryMode,
     validationErrors: validation.errors,
     createBlockedReason,
-    notice,
+    feedback,
     createReportMutation,
     retryMutation,
     deleteMutation,
@@ -313,20 +437,13 @@ export function useReportingController() {
     updateScheduleMutation,
     deleteScheduleMutation,
     runScheduleMutation,
-    downloadReport,
+    downloadMutation,
+    detailActionPending:
+      retryMutation.isPending
+      || deleteMutation.isPending
+      || downloadMutation.isPending,
     openReport,
     closeReport,
-    actionError: resolveMutationError(createReportMutation, [
-      retryMutation,
-      deleteMutation,
-      templateMutation,
-      cloneTemplateMutation,
-      deleteTemplateMutation,
-      createScheduleMutation,
-      updateScheduleMutation,
-      deleteScheduleMutation,
-      runScheduleMutation,
-    ]),
   }
 }
 
@@ -354,21 +471,42 @@ function schedulePayload(schedule: ReportSchedule) {
   }
 }
 
-function resolveMutationError(
-  createMutation: { isError: boolean; error: unknown },
-  mutations: Array<{ isError: boolean; error: unknown }>,
-): string | null {
-  if (createMutation.isError) {
-    const ambiguous = createMutation.error instanceof ApiTransportError
-      || (createMutation.error instanceof ApiError && createMutation.error.status >= 500)
-    return resolveApiErrorMessage(
-      createMutation.error,
-      'The report could not be queued',
-      ambiguous
-        ? { retryGuidance: 'Check the report library before submitting again because the server may have accepted the request.' }
-        : {},
-    )
+function createIdempotencyKey(): string {
+  if (typeof globalThis.crypto?.randomUUID === 'function') {
+    return globalThis.crypto.randomUUID()
   }
-  const failed = mutations.find((mutation) => mutation.isError)
-  return failed ? resolveApiErrorMessage(failed.error, 'The reporting action could not be completed') : null
+  if (typeof globalThis.crypto?.getRandomValues === 'function') {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
+    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function isAmbiguousQueueError(error: unknown): boolean {
+  return error instanceof ApiTransportError
+    || (error instanceof ApiError && error.status >= 500)
+}
+
+function resolveReportQueueError(error: unknown): string {
+  return resolveApiErrorMessage(
+    error,
+    'The report could not be queued',
+    isAmbiguousQueueError(error)
+      ? {
+          retryGuidance:
+            'Retry safely with the same request, or check the report library because the server may already have accepted it.',
+        }
+      : {},
+  )
+}
+
+function setActionError(
+  setter: (feedback: ReportingFeedback) => void,
+  error: unknown,
+  fallback: string,
+) {
+  setter({
+    kind: 'error',
+    message: resolveApiErrorMessage(error, fallback),
+  })
 }

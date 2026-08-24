@@ -177,9 +177,33 @@ export interface ReportSchedule {
   missed_run_policy: 'latest' | 'skip' | 'all'
   next_run_at: string | null
   last_run_at: string | null
+  failure_state?: 'healthy' | 'retrying' | 'exhausted' | 'quarantined'
+  failure_count?: number
+  consecutive_failure_count?: number
+  last_error_code?: string | null
+  last_error?: string | null
+  last_error_at?: string | null
+  retry_at?: string | null
   created_at: string
   updated_at: string
 }
+
+export type ReportScheduleWrite = Omit<
+  ReportSchedule,
+  | 'id'
+  | 'owner_user_id'
+  | 'next_run_at'
+  | 'last_run_at'
+  | 'failure_state'
+  | 'failure_count'
+  | 'consecutive_failure_count'
+  | 'last_error_code'
+  | 'last_error'
+  | 'last_error_at'
+  | 'retry_at'
+  | 'created_at'
+  | 'updated_at'
+>
 
 export interface ReportQueueResponse {
   report_id: string
