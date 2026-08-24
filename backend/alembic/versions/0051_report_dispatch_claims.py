@@ -44,12 +44,8 @@ def upgrade() -> None:
         """
         UPDATE ai_task_runs
         SET dispatch_published_at = COALESCE(updated_at, queued_at, now()),
-            dispatch_next_attempt_at = COALESCE(
-                dispatch_next_attempt_at,
-                updated_at,
-                queued_at,
-                now()
-            )
+            dispatch_attempt_count = 0,
+            dispatch_next_attempt_at = now() + interval '5 minutes'
         WHERE task_type = 'report'
           AND status = 'queued'
           AND finished_at IS NULL

@@ -113,7 +113,7 @@
 | `REPORT_SCHEDULE_RETRY_BACKOFF_SECONDS` (`report_schedule_retry_backoff_seconds`) | `60` | Initial exponential delay after a report schedule planning failure. |
 | `REPORT_SCHEDULE_RETRY_MAX_BACKOFF_SECONDS` (`report_schedule_retry_max_backoff_seconds`) | `3600` | Maximum report schedule planning retry delay. |
 | `REPORT_DISPATCH_BATCH_SIZE` (`report_dispatch_batch_size`) | `100` | Maximum durable queued report tasks recovered in one dispatch sweep. |
-| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Queue publication attempts allowed before a report dispatch is settled as failed and requires an explicit report retry after the queue recovers. |
+| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Consecutive initial queue publication failures allowed before an unaccepted report dispatch is settled as failed. Work previously accepted by the broker remains recoverable and is never terminalized by republish failures alone. |
 | `REPORT_DISPATCH_CLAIM_SECONDS` (`report_dispatch_claim_seconds`) | `60` | Time allowed for one dispatcher to publish and record a report task before another dispatcher may reclaim the attempt. |
 | `REPORT_DISPATCH_STALE_AFTER_SECONDS` (`report_dispatch_stale_after_seconds`) | `300` | Time a published report task may remain queued without a worker start before it is republished with the same stable task ID. |
 | `REPORT_DISPATCH_RETRY_BACKOFF_SECONDS` (`report_dispatch_retry_backoff_seconds`) | `15` | Initial exponential delay after report queue publication fails. |

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from alembic import command
@@ -105,6 +106,7 @@ def test_report_dispatch_claim_migration_backfills_published_work(
                 ).one()
             assert published_at is not None
             assert next_attempt_at is not None
+            assert next_attempt_at >= published_at + timedelta(minutes=4)
 
             command.downgrade(config, "0050_report_idempotency_compat")
             columns = {
