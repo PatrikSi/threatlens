@@ -1,5 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 
+import { resetPendingReportingKeys } from '../pages/reportingRequestCoordinator'
+
 interface AuthContextValue {
   sessionVersion: number
   markAuthenticated: () => void
@@ -21,6 +23,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (event.key !== authSyncStorageKey || !event.newValue) {
         return
       }
+      resetPendingReportingKeys()
       setSessionVersion((current) => current + 1)
     }
 
@@ -49,6 +52,7 @@ export function useAuth() {
 }
 
 function publishAuthStateChange(setSessionVersion: React.Dispatch<React.SetStateAction<number>>) {
+  resetPendingReportingKeys()
   setSessionVersion((current) => current + 1)
 
   if (typeof window === 'undefined') {
