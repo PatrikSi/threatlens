@@ -581,6 +581,34 @@ def test_stale_reconciliation_fences_expired_report_worker(db_session):
     assert report.generation_lease_token is None
 
 
+def test_stale_reconciliation_guards_late_legacy_report_worker(db_session):
+    report, run, lease = _stale_running_report(db_session)
+    report.generation_lease_token = None
+    report.generation_lease_expires_at = None
+    lease.lease_token = None
+    lease.lease_expires_at = None
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    db_session.refresh(lease)
+    expected_token = f"legacy-unfenced:{report.id.hex}"
+    assert reconciled_count == 0
+    assert run.status == "running"
+    assert report.status == "running"
+    assert report.generation_lease_token == expected_token
+    assert lease.lease_token == expected_token
+
+
 def test_stale_reconciliation_recovers_ready_report_task_history(db_session):
     report, run, lease = _stale_running_report(db_session)
     expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)

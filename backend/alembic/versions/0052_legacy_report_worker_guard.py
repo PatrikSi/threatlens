@@ -7,7 +7,10 @@ Create Date: 2026-08-24
 
 from __future__ import annotations
 
+import sqlalchemy as sa
 from alembic import op
+
+from app.core.config import get_settings
 
 
 revision = "0052_legacy_worker_guard"
@@ -18,14 +21,17 @@ depends_on = None
 
 def upgrade() -> None:
     # Workers released before report fencing existed can be generating a report
-    # without either lease column. Protect that work for one day so a new worker
-    # cannot repeat provider calls during a rolling deployment.
+    # without either lease column. Protect that work for the configured rolling
+    # upgrade grace so a new worker cannot repeat provider calls.
+    grace_seconds = get_settings().report_legacy_worker_grace_seconds
     op.execute(
-        """
+        sa.text(
+            """
         UPDATE reports AS report
         SET generation_lease_token =
                 'legacy-unfenced:' || replace(report.id::text, '-', ''),
-            generation_lease_expires_at = now() + interval '24 hours'
+            generation_lease_expires_at =
+                now() + (:grace_seconds * interval '1 second')
         WHERE report.status = 'running'
           AND report.generation_lease_token IS NULL
           AND NOT EXISTS (
@@ -35,6 +41,7 @@ def upgrade() -> None:
                 AND lease.lease_token IS NOT NULL
           )
         """
+        ).bindparams(grace_seconds=grace_seconds)
     )
     op.execute(
         """
