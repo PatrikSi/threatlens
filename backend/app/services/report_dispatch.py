@@ -4,14 +4,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
-from app.models.report_generation_lease import ReportGenerationLease
-from app.services.ai_ops import AI_STATUS_ERROR, finish_ai_task_run
 from app.services.ai_ops_common import AI_STATUS_QUEUED, AI_TASK_TYPE_REPORT
 
 
@@ -20,7 +18,6 @@ class ReportDispatchClaim:
     claimed: bool
     dispatch_token: str | None = None
     celery_task_id: str | None = None
-    terminalized: bool = False
 
 
 def initialize_report_dispatch(run: AITaskRun, *, now: datetime | None = None) -> None:
@@ -65,22 +62,6 @@ def claim_report_dispatch(
         return ReportDispatchClaim(False, celery_task_id=run.celery_task_id)
 
     attempt_count = int(run.dispatch_attempt_count or 0)
-    if (
-        attempt_count >= settings.report_dispatch_max_attempts
-        and run.dispatch_published_at is None
-    ):
-        _settle_report_dispatch_exhausted(
-            db,
-            run=run,
-            report_id=report_id,
-            observed_at=observed_at,
-        )
-        return ReportDispatchClaim(
-            False,
-            celery_task_id=run.celery_task_id,
-            terminalized=True,
-        )
-
     dispatch_token = uuid.uuid4().hex
     run.dispatch_attempt_count = min(
         attempt_count + 1,
@@ -116,14 +97,11 @@ def record_report_dispatch_success(
     )
     if run is None:
         return False
-    settings = get_settings()
     observed_at = _as_utc(now)
     run.celery_task_id = celery_task_id
     run.dispatch_attempt_count = 0
     run.dispatch_published_at = observed_at
-    run.dispatch_next_attempt_at = observed_at + timedelta(
-        seconds=settings.report_dispatch_stale_after_seconds
-    )
+    run.dispatch_next_attempt_at = None
     run.dispatch_error = None
     run.dispatch_claim_token = None
     run.dispatch_claim_expires_at = None
@@ -148,29 +126,17 @@ def record_report_dispatch_failure(
     if run is None:
         return False
 
-    settings = get_settings()
     observed_at = _as_utc(now)
     run.dispatch_claim_token = None
     run.dispatch_claim_expires_at = None
-    if (
-        run.dispatch_attempt_count >= settings.report_dispatch_max_attempts
-        and run.dispatch_published_at is None
-    ):
-        _settle_report_dispatch_exhausted(
-            db,
-            run=run,
-            report_id=report_id,
-            observed_at=observed_at,
-        )
-    else:
-        run.dispatch_error = (
-            "The report worker queue did not accept this dispatch attempt. "
-            "ThreatLens will retry automatically."
-        )
-        run.dispatch_next_attempt_at = observed_at + timedelta(
-            seconds=_retry_delay_seconds(run.dispatch_attempt_count)
-        )
-        db.add(run)
+    run.dispatch_error = (
+        "The report worker queue did not confirm this publication attempt. "
+        "Its outcome is unknown, so ThreatLens will retry safely with the same task identity."
+    )
+    run.dispatch_next_attempt_at = observed_at + timedelta(
+        seconds=_retry_delay_seconds(run.dispatch_attempt_count)
+    )
+    db.add(run)
     return True
 
 
@@ -189,15 +155,14 @@ def list_due_report_dispatches(
             AITaskRun.task_type == AI_TASK_TYPE_REPORT,
             AITaskRun.status == AI_STATUS_QUEUED,
             AITaskRun.finished_at.is_(None),
+            AITaskRun.dispatch_published_at.is_(None),
             or_(
                 AITaskRun.dispatch_claim_token.is_(None),
                 AITaskRun.dispatch_claim_expires_at.is_(None),
                 AITaskRun.dispatch_claim_expires_at <= observed_at,
             ),
-            or_(
-                AITaskRun.dispatch_next_attempt_at.is_(None),
-                AITaskRun.dispatch_next_attempt_at <= observed_at,
-            ),
+            AITaskRun.dispatch_next_attempt_at.is_not(None),
+            AITaskRun.dispatch_next_attempt_at <= observed_at,
             Report.status.in_(["queued", "running"]),
         )
         .order_by(AITaskRun.dispatch_next_attempt_at.asc(), AITaskRun.created_at.asc())
@@ -228,59 +193,6 @@ def _load_claimed_dispatch(
     if run.dispatch_claim_token != dispatch_token:
         return None
     return run
-
-
-def _settle_report_dispatch_exhausted(
-    db: Session,
-    *,
-    run: AITaskRun,
-    report_id: uuid.UUID,
-    observed_at: datetime,
-) -> None:
-    run.dispatch_error = (
-        "The report worker queue did not confirm delivery after repeated attempts. "
-        "No further automatic dispatch attempts will be made; retry the report after the worker queue recovers."
-    )
-    run.dispatch_next_attempt_at = None
-    run.dispatch_claim_token = None
-    run.dispatch_claim_expires_at = None
-    report = db.scalar(select(Report).where(Report.id == report_id).with_for_update())
-    if report is not None and report.status in {"queued", "running"}:
-        report.status = "error"
-        report.generation_stage = "failed"
-        report.error_code = "enqueue_failed"
-        report.error = (
-            "The report could not be delivered to a report worker after repeated attempts. "
-            "Retry it after the worker queue recovers."
-        )
-        report.generation_lease_token = None
-        report.generation_lease_expires_at = None
-        db.add(report)
-    db.execute(
-        update(ReportGenerationLease)
-        .where(ReportGenerationLease.report_id == report_id)
-        .values(
-            generation_fence=ReportGenerationLease.generation_fence + 1,
-            lease_token=None,
-            lease_expires_at=None,
-        )
-        .execution_options(synchronize_session=False)
-    )
-    db.add(run)
-    db.flush()
-    finish_ai_task_run(
-        db,
-        run_id=run.id,
-        status=AI_STATUS_ERROR,
-        reason="enqueue_failed",
-        error=run.dispatch_error,
-        worker_name="dispatcher",
-        report_id=report_id,
-        metadata_updates={
-            "dispatch_attempt_count": run.dispatch_attempt_count,
-            "dispatch_exhausted_at": observed_at.isoformat(),
-        },
-    )
 
 
 def _is_dispatchable(run: AITaskRun | None, *, report_id: uuid.UUID) -> bool:

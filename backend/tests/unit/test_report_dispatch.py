@@ -88,8 +88,7 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     assert stored.celery_task_id == expected_task_id
     assert stored.dispatch_published_at is not None
     assert stored.dispatch_attempt_count == 0
-    assert stored.dispatch_next_attempt_at is not None
-    assert stored.dispatch_next_attempt_at > stored.dispatch_published_at
+    assert stored.dispatch_next_attempt_at is None
     assert stored.dispatch_claim_token is None
     assert stored.dispatch_error is None
 
@@ -125,7 +124,7 @@ def test_enqueue_failure_keeps_durable_work_due_for_retry(
     assert stored_run.dispatch_attempt_count == 1
     assert stored_run.dispatch_next_attempt_at is not None
     assert stored_run.dispatch_next_attempt_at >= before + timedelta(seconds=14)
-    assert "retry automatically" in (stored_run.dispatch_error or "")
+    assert "outcome is unknown" in (stored_run.dispatch_error or "")
 
 
 def test_published_task_is_recoverable_when_metadata_commit_fails(
@@ -166,7 +165,7 @@ def test_published_task_is_recoverable_when_metadata_commit_fails(
     ) == [(report.id, run.id)]
 
 
-def test_dispatch_exhaustion_settles_report_and_task_run(
+def test_dispatch_failures_remain_durable_after_attempt_counter_reaches_cap(
     db_session,
     monkeypatch,
 ):
@@ -219,18 +218,22 @@ def test_dispatch_exhaustion_settles_report_and_task_run(
 
     stored_report = db_session.get(Report, report.id)
     stored_run = db_session.get(AITaskRun, run.id)
-    assert stored_report is not None
-    assert stored_report.status == "error"
-    assert stored_report.error_code == "enqueue_failed"
-    assert stored_run is not None
-    assert stored_run.status == "error"
-    assert stored_run.reason == "enqueue_failed"
+    assert stored_report is not None and stored_report.status == "queued"
+    assert stored_run is not None and stored_run.status == "queued"
     assert stored_run.dispatch_attempt_count == 2
-    assert stored_run.dispatch_next_attempt_at is None
-    assert "No further automatic dispatch attempts" in (stored_run.dispatch_error or "")
+    assert stored_run.dispatch_next_attempt_at == second_at + timedelta(seconds=20)
+    assert "outcome is unknown" in (stored_run.dispatch_error or "")
+
+    third = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=stored_run.dispatch_next_attempt_at,
+    )
+    assert third.claimed is True
 
 
-def test_due_dispatches_recover_stale_published_runs(db_session):
+def test_confirmed_dispatch_is_not_republished_while_waiting_for_worker(db_session):
     report, run = _queued_run(db_session)
     now = datetime.now(timezone.utc)
     run.dispatch_next_attempt_at = now - timedelta(seconds=1)
@@ -258,18 +261,8 @@ def test_due_dispatches_recover_stale_published_runs(db_session):
     db_session.commit()
     assert list_due_report_dispatches(db_session, now=now) == []
 
-    stale_at = now + timedelta(
-        seconds=get_settings().report_dispatch_stale_after_seconds + 1
-    )
-    assert list_due_report_dispatches(db_session, now=stale_at) == [(report.id, run.id)]
-    recovery = claim_report_dispatch(
-        db_session,
-        report_id=report.id,
-        task_run_id=run.id,
-        now=stale_at,
-    )
-    assert recovery.claimed is True
-    assert recovery.celery_task_id == stable_report_task_id(run.id)
+    stale_at = now + timedelta(days=1)
+    assert list_due_report_dispatches(db_session, now=stale_at) == []
 
 
 def test_accepted_dispatch_is_not_terminalized_by_redrive_failures(
@@ -292,7 +285,6 @@ def test_accepted_dispatch_is_not_terminalized_by_redrive_failures(
         now=now,
     )
     assert claim.claimed is True
-    assert claim.terminalized is False
     db_session.commit()
     assert record_report_dispatch_failure(
         db_session,
@@ -310,7 +302,7 @@ def test_accepted_dispatch_is_not_terminalized_by_redrive_failures(
     assert run.dispatch_attempt_count == 2
     assert run.dispatch_next_attempt_at is not None
     assert run.dispatch_next_attempt_at > now
-    assert "retry automatically" in (run.dispatch_error or "")
+    assert "outcome is unknown" in (run.dispatch_error or "")
 
 
 def test_stale_dispatch_claim_cannot_record_publication(db_session, monkeypatch):

@@ -104,8 +104,6 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
         )
         return None
     if not claim.claimed:
-        if claim.terminalized:
-            return None
         return claim.celery_task_id
 
     task_id = stable_report_task_id(task_run_id)

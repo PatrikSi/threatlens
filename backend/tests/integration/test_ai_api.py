@@ -581,6 +581,43 @@ def test_stale_reconciliation_fences_expired_report_worker(db_session):
     assert report.generation_lease_token is None
 
 
+def test_stale_reconciliation_recovers_ready_report_task_history(db_session):
+    report, run, lease = _stale_running_report(db_session)
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    report.status = "ready"
+    report.generation_stage = "ready"
+    report.generated_at = datetime.now(timezone.utc)
+    report.prompt_tokens = 120
+    report.completion_tokens = 40
+    report.total_tokens = 160
+    report.generation_lease_expires_at = expired_at
+    lease.lease_expires_at = expired_at
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    db_session.refresh(lease)
+    assert reconciled_count == 1
+    assert run.status == "ready"
+    assert run.reason is None
+    assert run.prompt_tokens == 120
+    assert run.completion_tokens == 40
+    assert run.total_tokens == 160
+    assert run.metadata_json["terminal_report_recovered"] is True
+    assert report.status == "ready"
+    assert lease.generation_fence == 2
+    assert lease.lease_token is None
+
+
 def _stale_running_report(
     db_session,
 ) -> tuple[Report, AITaskRun, ReportGenerationLease]:
