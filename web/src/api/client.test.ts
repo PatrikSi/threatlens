@@ -296,4 +296,53 @@ describe('apiDownload', () => {
       requestId: 'export-request',
     })
   })
+
+  it('keeps the timeout active while a download body is streaming', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, options: RequestInit) => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            options.signal?.addEventListener('abort', () => {
+              controller.error(new DOMException('Aborted', 'AbortError'))
+            })
+          },
+        })
+        return Promise.resolve(new Response(stream, { status: 200 }))
+      }),
+    )
+
+    const request = apiDownload('/exports', { timeoutMs: 25 })
+    const rejection = expect(request).rejects.toMatchObject({
+      name: 'ApiTransportError',
+      kind: 'timeout',
+    } satisfies Partial<ApiTransportError>)
+    await vi.advanceTimersByTimeAsync(25)
+
+    await rejection
+  })
+
+  it('honors a caller abort after download headers arrive', async () => {
+    const requestController = new AbortController()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, options: RequestInit) => {
+        const stream = new ReadableStream<Uint8Array>({
+          start(controller) {
+            options.signal?.addEventListener('abort', () => {
+              controller.error(new DOMException('Aborted', 'AbortError'))
+            })
+          },
+        })
+        return Promise.resolve(new Response(stream, { status: 200 }))
+      }),
+    )
+
+    const request = apiDownload('/exports', { signal: requestController.signal })
+    await Promise.resolve()
+    requestController.abort()
+
+    await expect(request).rejects.toMatchObject({ name: 'AbortError' })
+  })
 })
