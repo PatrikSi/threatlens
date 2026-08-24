@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.models.report_template import ReportTemplate
@@ -128,6 +129,16 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     report.citation_count = 0
     report.generation_lease_token = None
     report.generation_lease_expires_at = None
+    db.execute(
+        update(ReportGenerationLease)
+        .where(ReportGenerationLease.report_id == report.id)
+        .values(
+            generation_fence=ReportGenerationLease.generation_fence + 1,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
     sources = list(
         db.scalars(
             select(ReportSourceItem).where(ReportSourceItem.report_id == report.id)

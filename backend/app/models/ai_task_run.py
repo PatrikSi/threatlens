@@ -84,6 +84,11 @@ class AITaskRun(Base):
     dispatch_attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     dispatch_next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     dispatch_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_claim_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dispatch_claim_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    dispatch_published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)

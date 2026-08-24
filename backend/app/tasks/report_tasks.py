@@ -103,9 +103,19 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
         )
         return None
     if not claim.claimed:
+        if claim.terminalized:
+            return None
         return claim.celery_task_id
 
     task_id = stable_report_task_id(task_run_id)
+    dispatch_token = claim.dispatch_token
+    if dispatch_token is None:
+        logger.error(
+            "report_dispatch_claim_missing_token report_id=%s task_run_id=%s",
+            report_id,
+            task_run_id,
+        )
+        return None
     try:
         generate_intelligence_report.apply_async(
             args=[str(report_id), str(task_run_id)],
@@ -123,6 +133,7 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
                     db,
                     report_id=report_id,
                     task_run_id=task_run_id,
+                    dispatch_token=dispatch_token,
                     now=datetime.now(timezone.utc),
                 )
                 db.commit()
@@ -140,7 +151,9 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
                 db,
                 report_id=report_id,
                 task_run_id=task_run_id,
+                dispatch_token=dispatch_token,
                 celery_task_id=task_id,
+                now=datetime.now(timezone.utc),
             )
             db.commit()
     except Exception:
@@ -188,6 +201,8 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             if started is not None:
                 started.dispatch_next_attempt_at = None
                 started.dispatch_error = None
+                started.dispatch_claim_token = None
+                started.dispatch_claim_expires_at = None
                 db.add(started)
             claimed_by_task = (
                 started is not None

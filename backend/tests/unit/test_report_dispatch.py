@@ -10,6 +10,7 @@ from app.services.report_dispatch import (
     initialize_report_dispatch,
     list_due_report_dispatches,
     record_report_dispatch_failure,
+    record_report_dispatch_success,
     stable_report_task_id,
 )
 from app.tasks import report_tasks
@@ -85,7 +86,10 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     stored = db_session.get(AITaskRun, run.id)
     assert stored is not None
     assert stored.celery_task_id == expected_task_id
-    assert stored.dispatch_next_attempt_at is None
+    assert stored.dispatch_published_at is not None
+    assert stored.dispatch_next_attempt_at is not None
+    assert stored.dispatch_next_attempt_at > stored.dispatch_published_at
+    assert stored.dispatch_claim_token is None
     assert stored.dispatch_error is None
 
 
@@ -123,6 +127,44 @@ def test_enqueue_failure_keeps_durable_work_due_for_retry(
     assert "retry automatically" in (stored_run.dispatch_error or "")
 
 
+def test_published_task_is_recoverable_when_metadata_commit_fails(
+    db_session,
+    monkeypatch,
+):
+    report, run = _queued_run(db_session)
+    _use_test_session(monkeypatch, db_session)
+    published = []
+    monkeypatch.setattr(
+        report_tasks.generate_intelligence_report,
+        "apply_async",
+        lambda *, args, task_id: published.append((args, task_id)),
+    )
+    monkeypatch.setattr(
+        report_tasks,
+        "record_report_dispatch_success",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ConnectionError("database unavailable after publish")
+        ),
+    )
+
+    task_id = report_tasks.enqueue_report_task(
+        report_id=report.id,
+        task_run_id=run.id,
+    )
+
+    assert task_id == stable_report_task_id(run.id)
+    assert len(published) == 1
+    db_session.expire_all()
+    stored = db_session.get(AITaskRun, run.id)
+    assert stored.celery_task_id is None
+    assert stored.dispatch_claim_token is not None
+    assert stored.dispatch_claim_expires_at is not None
+    assert list_due_report_dispatches(
+        db_session,
+        now=stored.dispatch_claim_expires_at + timedelta(seconds=1),
+    ) == [(report.id, run.id)]
+
+
 def test_dispatch_exhaustion_settles_report_and_task_run(
     db_session,
     monkeypatch,
@@ -141,10 +183,12 @@ def test_dispatch_exhaustion_settles_report_and_task_run(
         now=started,
     )
     assert first.claimed is True
+    db_session.commit()
     record_report_dispatch_failure(
         db_session,
         report_id=report.id,
         task_run_id=run.id,
+        dispatch_token=first.dispatch_token,
         now=started,
     )
     db_session.commit()
@@ -161,10 +205,12 @@ def test_dispatch_exhaustion_settles_report_and_task_run(
         now=second_at,
     )
     assert second.claimed is True
+    db_session.commit()
     record_report_dispatch_failure(
         db_session,
         report_id=report.id,
         task_run_id=run.id,
+        dispatch_token=second.dispatch_token,
         now=second_at,
     )
     db_session.commit()
@@ -180,9 +226,10 @@ def test_dispatch_exhaustion_settles_report_and_task_run(
     assert stored_run.reason == "enqueue_failed"
     assert stored_run.dispatch_attempt_count == 2
     assert stored_run.dispatch_next_attempt_at is None
+    assert "No further automatic dispatch attempts" in (stored_run.dispatch_error or "")
 
 
-def test_due_dispatches_exclude_claimed_and_published_runs(db_session):
+def test_due_dispatches_recover_stale_published_runs(db_session):
     report, run = _queued_run(db_session)
     now = datetime.now(timezone.utc)
     run.dispatch_next_attempt_at = now - timedelta(seconds=1)
@@ -191,14 +238,77 @@ def test_due_dispatches_exclude_claimed_and_published_runs(db_session):
 
     assert list_due_report_dispatches(db_session, now=now) == [(report.id, run.id)]
 
-    claim_report_dispatch(
+    claim = claim_report_dispatch(
         db_session,
         report_id=report.id,
         task_run_id=run.id,
         now=now,
     )
+    assert claim.dispatch_token is not None
+    db_session.commit()
+    assert record_report_dispatch_success(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=claim.dispatch_token,
+        celery_task_id=stable_report_task_id(run.id),
+        now=now,
+    )
     db_session.commit()
     assert list_due_report_dispatches(db_session, now=now) == []
+
+    stale_at = now + timedelta(
+        seconds=get_settings().report_dispatch_stale_after_seconds + 1
+    )
+    assert list_due_report_dispatches(db_session, now=stale_at) == [(report.id, run.id)]
+    recovery = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=stale_at,
+    )
+    assert recovery.claimed is True
+    assert recovery.celery_task_id == stable_report_task_id(run.id)
+
+
+def test_stale_dispatch_claim_cannot_record_publication(db_session, monkeypatch):
+    monkeypatch.setenv("REPORT_DISPATCH_CLAIM_SECONDS", "10")
+    get_settings.cache_clear()
+    report, run = _queued_run(db_session)
+    started = datetime.now(timezone.utc)
+    first = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=started,
+    )
+    db_session.commit()
+
+    second = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=started + timedelta(seconds=11),
+    )
+    assert second.claimed is True
+    assert second.dispatch_token != first.dispatch_token
+    db_session.commit()
+    assert not record_report_dispatch_success(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=first.dispatch_token,
+        celery_task_id=stable_report_task_id(run.id),
+        now=started + timedelta(seconds=11),
+    )
+    assert record_report_dispatch_success(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=second.dispatch_token,
+        celery_task_id=stable_report_task_id(run.id),
+        now=started + timedelta(seconds=11),
+    )
 
 
 def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
