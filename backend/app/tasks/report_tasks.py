@@ -85,6 +85,9 @@ def create_report_task_run(
     run.request_idempotency_key_hash = request_idempotency_key_hash
     run.request_fingerprint = request_fingerprint
     initialize_report_dispatch(run)
+    if report.initial_task_run_id is None:
+        report.initial_task_run_id = run.id
+        db.add(report)
     return run
 
 

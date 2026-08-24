@@ -96,6 +96,8 @@ Operators can tune durable dispatch, schedule retry, generation leases, and roll
 
 Do not roll the AI worker back while `ai-reports-v2` contains work. Stop report-producing API and maintenance processes, let the current worker drain that queue, and only then replace the worker binary. The documented local worker command consumes both `ai` and `ai-reports-v2`.
 
+Report task-lineage migrations are additive, but enabling supersession has one strict rolling-upgrade boundary: migrate first, stop and drain every old API process that may still be inside report publication, then start the new API and maintenance processes. An already-running old binary cannot observe lineage logic introduced by a newer release. Draining those publishers prevents a late legacy enqueue failure from overwriting the replacement report state without adding permanent database triggers for one deployment transition.
+
 Migration `0050_report_idempotency_compat` keeps both idempotency columns during a normal rolling downgrade to `0049`. A deployment that accepted report requests on the unreleased rename-based draft must not roll back below `0047`: hash-only keys cannot be converted back into their original raw values. Released upgrade paths are unaffected.
 
 Migration `0053_report_operation_receipts` is additive and preserves its receipt data on downgrade, so the previous backend can run while the table remains present and a later re-upgrade retains accepted keys. In a rolling deployment, migrate first, replace all API replicas, and then publish the matching web bundle: older API replicas do not understand idempotency headers for template, clone, or schedule creation and therefore cannot provide retry deduplication for those new UI requests.

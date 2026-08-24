@@ -41,6 +41,17 @@ class Report(Base):
     request_idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    initial_task_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "ai_task_runs.id",
+            name="fk_reports_initial_task_run_id_ai_task_runs",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        nullable=True,
+        index=True,
+    )
     generation_lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
     generation_lease_expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, index=True

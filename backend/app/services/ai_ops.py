@@ -36,6 +36,7 @@ from app.services.ai_ops_common import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPORT,
+    AI_TASK_TYPE_REPORT_SUPERSEDED,
     AI_TASK_TYPE_REPROCESS,
     AI_TERMINAL_STATUSES,
     AI_TRIGGER_AUTO as AI_TRIGGER_AUTO,
@@ -89,6 +90,7 @@ from app.services.report_execution import (
     guard_unfenced_report_generation,
     invalidate_stale_report_generation,
 )
+from app.services.report_task_lineage import resolve_report_task_run
 from app.tasks.celery_app import celery_app
 
 
@@ -444,6 +446,8 @@ def cancel_ai_task_run(
     run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
     if run is None:
         return None
+    if run.task_type in {AI_TASK_TYPE_REPORT, AI_TASK_TYPE_REPORT_SUPERSEDED}:
+        run = resolve_report_task_run(db, run)
 
     unfinished_states = {AI_STATUS_QUEUED, AI_STATUS_RUNNING}
     if run.finished_at is not None or run.status not in unfinished_states:
@@ -522,7 +526,7 @@ def cancel_ai_task_run(
             )
 
     db.commit()
-    return db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    return db.get(AITaskRun, run.id)
 
 
 def get_ai_live_status(db: Session) -> AILiveStatusResponse:

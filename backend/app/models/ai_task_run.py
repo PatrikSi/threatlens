@@ -71,6 +71,16 @@ class AITaskRun(Base):
         nullable=True,
         index=True,
     )
+    superseded_by_task_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "ai_task_runs.id",
+            name="fk_ai_task_runs_superseded_by_task_run_id",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
     model: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     completion_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)

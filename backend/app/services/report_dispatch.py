@@ -11,7 +11,11 @@ from app.core.config import get_settings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
-from app.services.ai_ops_common import AI_STATUS_QUEUED, AI_TASK_TYPE_REPORT
+from app.services.ai_ops_common import (
+    AI_STATUS_QUEUED,
+    AI_TASK_TYPE_REPORT,
+    AI_TASK_TYPE_REPORT_SUPERSEDED,
+)
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,10 @@ def supersede_legacy_report_dispatch(
     replacement_id = uuid.uuid4()
     request_key_hash = run.request_idempotency_key_hash
     request_fingerprint = run.request_fingerprint
+    if report.initial_task_run_id is None:
+        report.initial_task_run_id = run.id
+        db.add(report)
+    run.task_type = AI_TASK_TYPE_REPORT_SUPERSEDED
     run.status = "skipped"
     run.reason = "superseded_for_fenced_dispatch"
     run.finished_at = observed_at
@@ -95,7 +103,7 @@ def supersede_legacy_report_dispatch(
     replacement_metadata.pop("superseded_by_task_run_id", None)
     replacement = AITaskRun(
         id=replacement_id,
-        task_type=run.task_type,
+        task_type=AI_TASK_TYPE_REPORT,
         trigger_source=run.trigger_source,
         status=AI_STATUS_QUEUED,
         actor_user_id=run.actor_user_id,
@@ -114,6 +122,8 @@ def supersede_legacy_report_dispatch(
     initialize_report_dispatch(replacement, now=observed_at)
     db.add(replacement)
     db.flush()
+    run.superseded_by_task_run_id = replacement.id
+    db.add(run)
     db.add(
         AITaskEvent(
             task_run_id=replacement.id,

@@ -8,6 +8,7 @@ from typing import Any
 AI_TASK_TYPE_ITEM_ENRICHMENT = "item_enrichment"
 AI_TASK_TYPE_DAILY_BRIEF = "daily_brief"
 AI_TASK_TYPE_REPORT = "report"
+AI_TASK_TYPE_REPORT_SUPERSEDED = "report_superseded"
 AI_TASK_TYPE_CONNECTION_TEST = "connection_test"
 AI_TASK_TYPE_REPROCESS = "reprocess"
 

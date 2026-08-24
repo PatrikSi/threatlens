@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.services.ai_ops_common import AI_TASK_TYPE_REPORT_SUPERSEDED
 from app.services.report_dispatch import (
     claim_report_dispatch,
     initialize_report_dispatch,
@@ -110,6 +111,7 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
     run.celery_task_id = "legacy-celery-task"
     run.request_idempotency_key_hash = "a" * 64
     run.request_fingerprint = "b" * 64
+    report.initial_task_run_id = None
     db_session.commit()
     _use_test_session(monkeypatch, db_session)
     published = []
@@ -131,8 +133,11 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
         AITaskRun.id != run.id,
     ).one()
     assert stored_legacy.status == "skipped"
+    assert stored_legacy.task_type == AI_TASK_TYPE_REPORT_SUPERSEDED
     assert stored_legacy.reason == "superseded_for_fenced_dispatch"
+    assert stored_legacy.superseded_by_task_run_id == replacement.id
     assert stored_legacy.request_idempotency_key_hash is None
+    assert db_session.get(Report, report.id).initial_task_run_id == run.id
     assert replacement.status == "queued"
     assert replacement.dispatch_protocol_version == 2
     assert replacement.request_idempotency_key_hash == "a" * 64
