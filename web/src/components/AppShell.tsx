@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
+import packageMetadata from '../../package.json'
 
 import { ApiError, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
@@ -17,7 +18,7 @@ const NAV_LINKS = [
   { to: '/reporting', label: 'Reporting' },
   { to: '/settings', label: 'Settings' },
 ]
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '1.0.0'
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || packageMetadata.version
 
 export function AppShell() {
   const { markLoggedOut } = useAuth()

@@ -5,6 +5,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import packageMetadata from '../../package.json'
 
 import { ThemeProvider } from './ThemeContext'
 
@@ -158,7 +159,7 @@ describe('AppShell logout', () => {
   it('shows a subtle app version in the footer', () => {
     const view = renderShell()
 
-    expect(view.textContent).toContain('v1.0.0')
+    expect(view.textContent).toContain(`v${packageMetadata.version}`)
   })
 
   it('does not mark the browser logged out when the logout request fails over the network', async () => {

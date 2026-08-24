@@ -13,7 +13,9 @@ from app.schemas.reports import (
     ReportTemplateCreate,
     ReportTemplateResponse,
     ReportTemplateUpdate,
+    validate_report_section_set,
 )
+from app.services.resource_versions import resource_version_value
 
 
 class ReportTemplateError(ValueError):
@@ -30,13 +32,20 @@ def list_visible_report_templates(db: Session, *, user_id: uuid.UUID) -> list[Re
     )
 
 
-def get_visible_report_template(db: Session, *, template_id: uuid.UUID, user_id: uuid.UUID) -> ReportTemplate | None:
-    return db.scalar(
-        select(ReportTemplate).where(
-            ReportTemplate.id == template_id,
-            or_(ReportTemplate.visibility == "shared", ReportTemplate.owner_user_id == user_id),
-        )
+def get_visible_report_template(
+    db: Session,
+    *,
+    template_id: uuid.UUID,
+    user_id: uuid.UUID,
+    for_update: bool = False,
+) -> ReportTemplate | None:
+    query = select(ReportTemplate).where(
+        ReportTemplate.id == template_id,
+        or_(ReportTemplate.visibility == "shared", ReportTemplate.owner_user_id == user_id),
     )
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return db.scalar(query)
 
 
 def create_report_template(
@@ -120,6 +129,7 @@ def report_template_response(template: ReportTemplate) -> ReportTemplateResponse
         default_filters=ArticleExportFilters.model_validate(template.default_filters_json or {}),
         created_at=template.created_at,
         updated_at=template.updated_at,
+        resource_version=resource_version_value(template.updated_at),
     )
 
 
@@ -127,6 +137,7 @@ def _apply_template_payload(
     template: ReportTemplate,
     payload: ReportTemplateCreate | ReportTemplateUpdate,
 ) -> None:
+    validate_report_section_set(payload.sections)
     template.name = payload.name
     template.description = payload.description
     template.report_type = payload.report_type

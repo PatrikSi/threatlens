@@ -3,10 +3,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.models.report_section import ReportSection
 from app.models.report_source_item import ReportSourceItem
 from app.models.report_template import ReportTemplate
@@ -19,6 +20,7 @@ from app.schemas.reports import (
     ReportSectionConfig,
     ReportSectionResponse,
     ReportSourceResponse,
+    validate_report_section_set,
 )
 from app.services.ai_config import ActiveAISettings
 from app.services.ai_prompting import build_company_context
@@ -50,7 +52,11 @@ def create_report_from_plan(
     trigger_source: str = "manual",
     schedule_id: uuid.UUID | None = None,
     generation_key: str | None = None,
+    request_idempotency_key: str | None = None,
+    request_idempotency_key_hash: str | None = None,
+    request_fingerprint: str | None = None,
 ) -> Report:
+    validate_report_section_set(payload.sections)
     if not plan.included_sources:
         raise ReportStorageError("No matching articles fit the selected filters and AI context guardrails.")
     title = payload.title or _default_report_title(template, payload.period_start, payload.period_end)
@@ -64,6 +70,9 @@ def create_report_from_plan(
         trigger_source=trigger_source,
         generation_stage="queued",
         generation_key=generation_key,
+        request_idempotency_key=request_idempotency_key,
+        request_idempotency_key_hash=request_idempotency_key_hash,
+        request_fingerprint=request_fingerprint,
         period_start=payload.period_start,
         period_end=payload.period_end,
         filters_json=payload.filters.model_dump(mode="json"),
@@ -73,22 +82,7 @@ def create_report_from_plan(
             "global_instructions": active.global_instructions,
         },
         sections_config_json=[section.model_dump(mode="json") for section in payload.sections],
-        metrics_json=plan.metrics,
-        coverage_json={
-            "total_matches": plan.total_matches,
-            "included_sources": len(plan.included_sources),
-            "omitted_sources": plan.omitted_source_count,
-            "coverage_percent": round(100 * len(plan.included_sources) / plan.total_matches, 1)
-            if plan.total_matches
-            else 100.0,
-            "warnings": list(plan.warnings),
-        },
-        source_count=plan.total_matches,
-        included_source_count=len(plan.included_sources),
-        excluded_source_count=plan.omitted_source_count,
-        estimated_input_tokens=plan.estimated_source_tokens,
-        context_window_tokens=plan.budget.context_window_tokens,
-        generation_batches=plan.batch_count,
+        **report_plan_record_fields(plan),
         provider=active.provider_type,
         model=active.model,
         delivery_requested=payload.deliver_when_ready,
@@ -99,6 +93,30 @@ def create_report_from_plan(
     _replace_report_sources(db, report=report, plan=plan)
     _replace_report_sections(db, report=report, sections=payload.sections)
     return report
+
+
+def report_plan_record_fields(plan: ReportSourcePlan) -> dict[str, object]:
+    included_count = len(plan.included_sources)
+    return {
+        "metrics_json": plan.metrics,
+        "coverage_json": {
+            "total_matches": plan.total_matches,
+            "included_sources": included_count,
+            "omitted_sources": plan.omitted_source_count,
+            "coverage_percent": (
+                round(100 * included_count / plan.total_matches, 1)
+                if plan.total_matches
+                else 100.0
+            ),
+            "warnings": list(plan.warnings),
+        },
+        "source_count": plan.total_matches,
+        "included_source_count": included_count,
+        "excluded_source_count": plan.omitted_source_count,
+        "estimated_input_tokens": plan.estimated_source_tokens,
+        "context_window_tokens": plan.budget.context_window_tokens,
+        "generation_batches": plan.batch_count,
+    }
 
 
 def reset_report_for_retry(db: Session, *, report: Report) -> None:
@@ -118,6 +136,18 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     report.model_calls = 0
     report.summary_text = None
     report.citation_count = 0
+    report.generation_lease_token = None
+    report.generation_lease_expires_at = None
+    db.execute(
+        update(ReportGenerationLease)
+        .where(ReportGenerationLease.report_id == report.id)
+        .values(
+            generation_fence=ReportGenerationLease.generation_fence + 1,
+            lease_token=None,
+            lease_expires_at=None,
+        )
+        .execution_options(synchronize_session=False)
+    )
     sources = list(
         db.scalars(
             select(ReportSourceItem).where(ReportSourceItem.report_id == report.id)

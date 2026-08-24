@@ -105,6 +105,7 @@ QUEUE_INGEST = "ingest"
 QUEUE_PROCESSING = "processing"
 QUEUE_NOTIFICATIONS = "notifications"
 QUEUE_AI = "ai"
+QUEUE_AI_REPORTS = "ai-reports-v2"
 QUEUE_MAINTENANCE = "maintenance"
 
 TASK_ROUTES = {
@@ -140,8 +141,9 @@ TASK_ROUTES = {
     "app.tasks.feed_tasks.dispatch_daily_ai_brief_generation": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.backfill_daily_ai_briefs": {"queue": QUEUE_AI},
     "app.tasks.feed_tasks.reprocess_recent_ai_items": {"queue": QUEUE_AI},
-    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI},
+    "app.tasks.feed_tasks.generate_intelligence_report": {"queue": QUEUE_AI_REPORTS},
     "app.tasks.feed_tasks.dispatch_due_report_schedules": {"queue": QUEUE_MAINTENANCE},
+    "app.tasks.feed_tasks.dispatch_pending_report_tasks": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.reconcile_ai_task_runs": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.feed_tasks.record_beat_heartbeat": {"queue": QUEUE_MAINTENANCE},
     "app.tasks.history_maintenance_tasks.maintain_application_history": {"queue": QUEUE_MAINTENANCE},
@@ -167,10 +169,18 @@ celery_app.conf.update(
         Queue(QUEUE_PROCESSING),
         Queue(QUEUE_NOTIFICATIONS),
         Queue(QUEUE_AI),
+        Queue(QUEUE_AI_REPORTS),
         Queue(QUEUE_MAINTENANCE),
     ),
     task_routes=TASK_ROUTES,
     worker_prefetch_multiplier=1,
+    broker_transport_options={
+        "visibility_timeout": settings.celery_visibility_timeout_seconds
+    },
+    result_backend_transport_options={
+        "visibility_timeout": settings.celery_visibility_timeout_seconds
+    },
+    visibility_timeout=settings.celery_visibility_timeout_seconds,
     beat_schedule={
         "dispatch-due-feeds": {
             "task": "app.tasks.feed_tasks.dispatch_due_feeds",
@@ -227,6 +237,10 @@ celery_app.conf.update(
         "dispatch-due-report-schedules": {
             "task": "app.tasks.feed_tasks.dispatch_due_report_schedules",
             "schedule": 60.0,
+        },
+        "dispatch-pending-report-tasks": {
+            "task": "app.tasks.feed_tasks.dispatch_pending_report_tasks",
+            "schedule": 30.0,
         },
         "reconcile-ai-task-runs": {
             "task": "app.tasks.feed_tasks.reconcile_ai_task_runs",

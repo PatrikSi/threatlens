@@ -224,6 +224,21 @@ class Settings(BaseSettings):
     dispatch_feed_metadata_scan_limit: int = 250
     dispatch_feed_metadata_queue_limit: int = 50
     dispatch_ai_reprocess_batch_size: int = 100
+    celery_visibility_timeout_seconds: int = 3600
+    report_generation_lease_seconds: int = 600
+    report_legacy_worker_grace_seconds: int = 86_400
+    report_task_infrastructure_max_retries: int = 5
+    report_task_infrastructure_retry_backoff_seconds: int = 30
+    report_task_infrastructure_retry_max_backoff_seconds: int = 900
+    report_schedule_max_attempts: int = 5
+    report_schedule_retry_backoff_seconds: int = 60
+    report_schedule_retry_max_backoff_seconds: int = 3600
+    report_dispatch_batch_size: int = 100
+    report_dispatch_max_attempts: int = 10
+    report_dispatch_claim_seconds: int = 60
+    report_dispatch_start_grace_seconds: int = 3600
+    report_dispatch_retry_backoff_seconds: int = 15
+    report_dispatch_retry_max_backoff_seconds: int = 900
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
@@ -370,12 +385,93 @@ class Settings(BaseSettings):
         "database_connect_timeout_seconds",
         "database_statement_timeout_ms",
         "database_pool_timeout_seconds",
+        "celery_visibility_timeout_seconds",
+        "report_generation_lease_seconds",
+        "report_legacy_worker_grace_seconds",
+        "report_task_infrastructure_max_retries",
+        "report_task_infrastructure_retry_backoff_seconds",
+        "report_task_infrastructure_retry_max_backoff_seconds",
+        "report_schedule_max_attempts",
+        "report_schedule_retry_backoff_seconds",
+        "report_schedule_retry_max_backoff_seconds",
+        "report_dispatch_batch_size",
+        "report_dispatch_max_attempts",
+        "report_dispatch_claim_seconds",
+        "report_dispatch_start_grace_seconds",
+        "report_dispatch_retry_backoff_seconds",
+        "report_dispatch_retry_max_backoff_seconds",
     )
     @classmethod
     def _validate_positive_operational_limits(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("Authentication and database limits must be greater than zero")
         return value
+
+    @field_validator("report_generation_lease_seconds")
+    @classmethod
+    def _validate_report_generation_lease(cls, value: int) -> int:
+        if value < 360:
+            raise ValueError(
+                "report_generation_lease_seconds must cover the maximum AI provider request timeout"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _validate_report_visibility_timeout(self):
+        if (
+            self.celery_visibility_timeout_seconds
+            <= self.report_generation_lease_seconds
+        ):
+            raise ValueError(
+                "celery_visibility_timeout_seconds must be greater than "
+                "report_generation_lease_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_legacy_worker_grace(self):
+        if self.report_legacy_worker_grace_seconds < self.celery_visibility_timeout_seconds:
+            raise ValueError(
+                "report_legacy_worker_grace_seconds must be at least "
+                "celery_visibility_timeout_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_task_infrastructure_retry_limits(self):
+        if (
+            self.report_task_infrastructure_retry_max_backoff_seconds
+            < self.report_task_infrastructure_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_task_infrastructure_retry_max_backoff_seconds must be at "
+                "least report_task_infrastructure_retry_backoff_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_schedule_retry_limits(self):
+        if (
+            self.report_schedule_retry_max_backoff_seconds
+            < self.report_schedule_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_schedule_retry_max_backoff_seconds must be at least "
+                "report_schedule_retry_backoff_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_dispatch_retry_limits(self):
+        if (
+            self.report_dispatch_retry_max_backoff_seconds
+            < self.report_dispatch_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_dispatch_retry_max_backoff_seconds must be at least "
+                "report_dispatch_retry_backoff_seconds"
+            )
+        return self
 
     @field_validator(
         "export_max_items",

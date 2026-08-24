@@ -67,7 +67,7 @@ def process_reserved_notification_deliveries(
     for delivery_id in delivery_ids:
         try:
             with notification_delivery_lease_heartbeat(
-                lambda lease_seconds: _renew_webhook_delivery_lease(
+                lambda lease_seconds, delivery_id=delivery_id: _renew_webhook_delivery_lease(
                     db,
                     delivery_id=delivery_id,
                     lease_seconds=lease_seconds,

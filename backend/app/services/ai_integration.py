@@ -4,7 +4,8 @@ import json
 import random
 import time
 import uuid
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
@@ -47,6 +48,10 @@ from app.services.ai_provider_client import (
     AIIntegrationError as AIIntegrationError,
     call_ai_json as _provider_call_ai_json,
 )
+from app.services.ai_request_runtime import (
+    AITaskRunStoppedError,
+    run_ai_json_request,
+)
 from app.services.ai_reporting import (
     daily_brief_response_from_model as daily_brief_response_from_model,
     get_ai_usage_summary as get_ai_usage_summary,
@@ -70,7 +75,9 @@ _coerce_optional_int = _ai_normalization.coerce_optional_int
 _normalize_optional_text = _ai_normalization.normalize_optional_text
 _normalize_string_list = _ai_normalization.normalize_string_list
 _normalize_list_entry_text = _ai_normalization.normalize_list_entry_text
-_extract_text_from_structured_list_entry = _ai_normalization.extract_text_from_structured_list_entry
+_extract_text_from_structured_list_entry = (
+    _ai_normalization.extract_text_from_structured_list_entry
+)
 _truncate_text = _ai_normalization.truncate_text
 
 _build_chat_completion_url = _ai_provider_client.build_chat_completion_url
@@ -92,12 +99,6 @@ FEATURE_CONNECTION_TEST = "connection_test"
 DAILY_BRIEF_PENDING_STALE_AFTER = timedelta(minutes=15)
 AI_PROVIDER_RETRY_BASE_DELAY_SECONDS = 0.5
 AI_PROVIDER_RETRY_MAX_DELAY_SECONDS = 8.0
-
-
-class AITaskRunStoppedError(RuntimeError):
-    def __init__(self, reason: str):
-        super().__init__(reason)
-        self.reason = reason
 
 
 @dataclass(frozen=True)
@@ -134,12 +135,16 @@ def is_stale_daily_brief_pending(brief: AIDailyBrief, *, now: datetime) -> bool:
     return now - reference >= DAILY_BRIEF_PENDING_STALE_AFTER
 
 
-def test_ai_connection(db: Session, *, task_run_id: uuid.UUID | None = None) -> AITestConnectionResponse:
+def test_ai_connection(
+    db: Session, *, task_run_id: uuid.UUID | None = None
+) -> AITestConnectionResponse:
     active = load_active_ai_settings(db)
     if not active.ai_enabled:
         raise AIIntegrationError("AI features are disabled")
     if not active.ai_configured:
-        raise AIIntegrationError("Configure the AI base URL and model before testing the connection")
+        raise AIIntegrationError(
+            "Configure the AI base URL and model before testing the connection"
+        )
 
     try:
         completion = _request_json_with_usage(
@@ -157,7 +162,7 @@ def test_ai_connection(db: Session, *, task_run_id: uuid.UUID | None = None) -> 
                     "content": json.dumps(
                         {
                             "task": "connection_test",
-                            "instructions": "Return {\"ok\": true, \"message\": \"ready\"}.",
+                            "instructions": 'Return {"ok": true, "message": "ready"}.',
                         }
                     ),
                 },
@@ -177,11 +182,15 @@ def test_ai_connection(db: Session, *, task_run_id: uuid.UUID | None = None) -> 
         latency_ms=completion.latency_ms,
         provider="openai_compatible",
         model=completion.model,
-        error=None if completion.payload.get("ok") is True else "Unexpected response from AI endpoint",
+        error=None
+        if completion.payload.get("ok") is True
+        else "Unexpected response from AI endpoint",
     )
 
 
-def generate_item_ai_enrichment(db: Session, *, item_id: uuid.UUID, force: bool = False) -> ItemAIEnrichment | None:
+def generate_item_ai_enrichment(
+    db: Session, *, item_id: uuid.UUID, force: bool = False
+) -> ItemAIEnrichment | None:
     return run_item_ai_enrichment(db, item_id=item_id, force=force).enrichment
 
 
@@ -194,13 +203,28 @@ def run_item_ai_enrichment(
 ) -> AIItemEnrichmentResult:
     active = load_active_ai_settings(db)
     if not active.ai_enabled or not active.ai_configured:
-        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="ai_not_configured" if active.ai_enabled else "ai_disabled", input_text_chars=0)
+        return AIItemEnrichmentResult(
+            enrichment=None,
+            status="skipped",
+            reason="ai_not_configured" if active.ai_enabled else "ai_disabled",
+            input_text_chars=0,
+        )
     if not active.summary_enabled and not active.relevance_enabled:
-        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="feature_disabled", input_text_chars=0)
+        return AIItemEnrichmentResult(
+            enrichment=None,
+            status="skipped",
+            reason="feature_disabled",
+            input_text_chars=0,
+        )
 
     item = db.scalar(select(Item).where(Item.id == item_id))
     if item is None:
-        return AIItemEnrichmentResult(enrichment=None, status="skipped", reason="item_not_found", input_text_chars=0)
+        return AIItemEnrichmentResult(
+            enrichment=None,
+            status="skipped",
+            reason="item_not_found",
+            input_text_chars=0,
+        )
 
     article = db.scalar(select(Article).where(Article.item_id == item_id))
     if article is None or not (article.text or "").strip():
@@ -212,8 +236,12 @@ def run_item_ai_enrichment(
         )
 
     feed = db.scalar(select(Feed).where(Feed.id == item.feed_id))
-    classification = db.scalar(select(ItemClassification).where(ItemClassification.item_id == item_id))
-    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
+    classification = db.scalar(
+        select(ItemClassification).where(ItemClassification.item_id == item_id)
+    )
+    enrichment = db.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id)
+    )
     tag_names = _load_item_tag_names(db, item_id=item_id)
     source_hash = _compute_item_source_hash(
         active,
@@ -368,10 +396,26 @@ def run_item_ai_enrichment(
             response_char_count=completion.response_char_count,
         )
 
-    summary_text = _normalize_optional_text(completion.payload.get("summary_text")) if active.summary_enabled else None
-    relevance_score = _coerce_score(completion.payload.get("relevance_score")) if active.relevance_enabled else None
-    relevance_label = _score_to_label(relevance_score, active) if relevance_score is not None else None
-    relevance_reasons = _normalize_string_list(completion.payload.get("relevance_reasons")) if active.relevance_enabled else []
+    summary_text = (
+        _normalize_optional_text(completion.payload.get("summary_text"))
+        if active.summary_enabled
+        else None
+    )
+    relevance_score = (
+        _coerce_score(completion.payload.get("relevance_score"))
+        if active.relevance_enabled
+        else None
+    )
+    relevance_label = (
+        _score_to_label(relevance_score, active)
+        if relevance_score is not None
+        else None
+    )
+    relevance_reasons = (
+        _normalize_string_list(completion.payload.get("relevance_reasons"))
+        if active.relevance_enabled
+        else []
+    )
 
     generated_at = claim_updated_at
     finalized = db.execute(
@@ -424,7 +468,9 @@ def run_item_ai_enrichment(
     )
 
 
-def _ensure_item_ai_enrichment_row(db: Session, *, item_id: uuid.UUID) -> ItemAIEnrichment:
+def _ensure_item_ai_enrichment_row(
+    db: Session, *, item_id: uuid.UUID
+) -> ItemAIEnrichment:
     db.execute(
         pg_insert(ItemAIEnrichment)
         .values(
@@ -435,7 +481,9 @@ def _ensure_item_ai_enrichment_row(db: Session, *, item_id: uuid.UUID) -> ItemAI
         )
         .on_conflict_do_nothing(index_elements=[ItemAIEnrichment.item_id])
     )
-    enrichment = db.scalar(select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id))
+    enrichment = db.scalar(
+        select(ItemAIEnrichment).where(ItemAIEnrichment.item_id == item_id)
+    )
     if enrichment is None:
         raise AIIntegrationError("Failed to initialize AI enrichment state")
     return enrichment
@@ -447,7 +495,9 @@ def generate_daily_brief(
     force: bool = False,
     reference_time: datetime | None = None,
 ) -> AIDailyBrief | None:
-    return run_daily_brief_generation(db, force=force, reference_time=reference_time).brief
+    return run_daily_brief_generation(
+        db, force=force, reference_time=reference_time
+    ).brief
 
 
 def run_daily_brief_generation(
@@ -459,13 +509,37 @@ def run_daily_brief_generation(
     emit_notification: bool = True,
 ) -> AIDailyBriefGenerationResult:
     active = load_active_ai_settings(db)
-    if not active.ai_enabled or not active.ai_configured or not active.daily_brief_enabled:
+    if (
+        not active.ai_enabled
+        or not active.ai_configured
+        or not active.daily_brief_enabled
+    ):
         if not active.ai_enabled:
-            return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="ai_disabled", items_considered=0, items_selected=0)
+            return AIDailyBriefGenerationResult(
+                brief=None,
+                status="skipped",
+                reason="ai_disabled",
+                items_considered=0,
+                items_selected=0,
+            )
         if not active.ai_configured:
-            return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="ai_not_configured", items_considered=0, items_selected=0)
-        return AIDailyBriefGenerationResult(brief=None, status="skipped", reason="feature_disabled", items_considered=0, items_selected=0)
-    stop_reason = _record_task_run_stop_observed(db, task_run_id=task_run_id, stage="before_brief_selection")
+            return AIDailyBriefGenerationResult(
+                brief=None,
+                status="skipped",
+                reason="ai_not_configured",
+                items_considered=0,
+                items_selected=0,
+            )
+        return AIDailyBriefGenerationResult(
+            brief=None,
+            status="skipped",
+            reason="feature_disabled",
+            items_considered=0,
+            items_selected=0,
+        )
+    stop_reason = _record_task_run_stop_observed(
+        db, task_run_id=task_run_id, stage="before_brief_selection"
+    )
     if stop_reason is not None:
         return AIDailyBriefGenerationResult(
             brief=None,
@@ -480,19 +554,32 @@ def run_daily_brief_generation(
         now = now.replace(tzinfo=timezone.utc)
     brief_date = now.date()
 
-    existing = db.scalar(select(AIDailyBrief).where(AIDailyBrief.brief_date == brief_date))
+    existing = db.scalar(
+        select(AIDailyBrief).where(AIDailyBrief.brief_date == brief_date)
+    )
     if existing is not None and existing.status == "ready" and not force:
         prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
-        notification_event = emit_daily_brief_ready_event(db, brief=existing) if emit_notification else None
+        notification_event = (
+            emit_daily_brief_ready_event(db, brief=existing)
+            if emit_notification
+            else None
+        )
         return AIDailyBriefGenerationResult(
             brief=existing,
             status="skipped",
             reason="already_generated",
             items_considered=int(existing.item_count or 0),
             items_selected=len(existing.top_item_ids_json or []),
-            integration_event_id=notification_event.id if notification_event is not None else None,
+            integration_event_id=notification_event.id
+            if notification_event is not None
+            else None,
         )
-    if existing is not None and existing.status == "pending" and not force and not is_stale_daily_brief_pending(existing, now=now):
+    if (
+        existing is not None
+        and existing.status == "pending"
+        and not force
+        and not is_stale_daily_brief_pending(existing, now=now)
+    ):
         return AIDailyBriefGenerationResult(
             brief=existing,
             status="skipped",
@@ -504,19 +591,29 @@ def run_daily_brief_generation(
     window_end = now
     window_start = now - timedelta(hours=active.daily_brief_window_hours)
     item_window_at = func.coalesce(Item.published_at, Item.first_seen_at)
-    total_items = db.scalar(
-        select(func.count(Item.id)).where(item_window_at >= window_start, item_window_at <= window_end)
-    ) or 0
+    total_items = (
+        db.scalar(
+            select(func.count(Item.id)).where(
+                item_window_at >= window_start, item_window_at <= window_end
+            )
+        )
+        or 0
+    )
     if total_items <= 0:
         return AIDailyBriefGenerationResult(
-            brief=existing if existing is not None and existing.status == "ready" else None,
+            brief=existing
+            if existing is not None and existing.status == "ready"
+            else None,
             status="skipped",
             reason="no_items",
             items_considered=0,
             items_selected=0,
         )
 
-    source_audit_limit = max(active.daily_brief_max_items, int(get_settings().ai_daily_brief_source_audit_limit or 0))
+    source_audit_limit = max(
+        active.daily_brief_max_items,
+        int(get_settings().ai_daily_brief_source_audit_limit or 0),
+    )
     source_audit_limit = max(1, min(int(total_items), source_audit_limit))
     item_rows_all = db.execute(
         select(
@@ -536,13 +633,17 @@ def run_daily_brief_generation(
         .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
         .outerjoin(ItemAIEnrichment, ItemAIEnrichment.item_id == Item.id)
         .where(item_window_at >= window_start, item_window_at <= window_end)
-        .order_by(ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc())
+        .order_by(
+            ItemAIEnrichment.relevance_score.desc().nullslast(), item_window_at.desc()
+        )
         .limit(source_audit_limit)
     ).all()
     item_rows = item_rows_all[: active.daily_brief_max_items]
     if not item_rows:
         return AIDailyBriefGenerationResult(
-            brief=existing if existing is not None and existing.status == "ready" else None,
+            brief=existing
+            if existing is not None and existing.status == "ready"
+            else None,
             status="skipped",
             reason="no_items",
             items_considered=int(total_items),
@@ -714,10 +815,15 @@ def run_daily_brief_generation(
         )
         .values(
             status="ready",
-            title=_normalize_optional_text(completion.payload.get("title")) or "Daily Brief",
+            title=_normalize_optional_text(completion.payload.get("title"))
+            or "Daily Brief",
             brief_text=_normalize_optional_text(completion.payload.get("brief_text")),
-            key_points_json=_normalize_string_list(completion.payload.get("key_points"))[:6],
-            recommended_actions_json=_normalize_string_list(completion.payload.get("recommended_actions"))[:6],
+            key_points_json=_normalize_string_list(
+                completion.payload.get("key_points")
+            )[:6],
+            recommended_actions_json=_normalize_string_list(
+                completion.payload.get("recommended_actions")
+            )[:6],
             top_item_ids_json=[str(row.id) for row in item_rows],
             provider=completion.provider,
             model=completion.model,
@@ -754,7 +860,9 @@ def run_daily_brief_generation(
         selected_item_ids=selected_item_ids,
     )
     prune_daily_brief_history(db, keep_limit=active.daily_brief_history_limit)
-    notification_event = emit_daily_brief_ready_event(db, brief=brief) if emit_notification else None
+    notification_event = (
+        emit_daily_brief_ready_event(db, brief=brief) if emit_notification else None
+    )
     return AIDailyBriefGenerationResult(
         brief=brief,
         status="ready",
@@ -763,7 +871,9 @@ def run_daily_brief_generation(
         items_selected=len(item_rows),
         prompt_char_count=completion.prompt_char_count,
         response_char_count=completion.response_char_count,
-        integration_event_id=notification_event.id if notification_event is not None else None,
+        integration_event_id=notification_event.id
+        if notification_event is not None
+        else None,
     )
 
 
@@ -783,7 +893,9 @@ def _record_task_run_stop_observed(
     stop_reason = ai_task_run_stop_reason(run)
     if stop_reason is None:
         return None
-    _record_task_run_stop_event(db, run=run, task_run_id=task_run_id, stage=stage, stop_reason=stop_reason)
+    _record_task_run_stop_event(
+        db, run=run, task_run_id=task_run_id, stage=stage, stop_reason=stop_reason
+    )
     return stop_reason
 
 
@@ -878,7 +990,9 @@ def _record_provider_result_discarded(
     )
 
 
-def _load_item_enrichment(db: Session, *, item_id: uuid.UUID) -> ItemAIEnrichment | None:
+def _load_item_enrichment(
+    db: Session, *, item_id: uuid.UUID
+) -> ItemAIEnrichment | None:
     return db.scalar(
         select(ItemAIEnrichment)
         .where(ItemAIEnrichment.item_id == item_id)
@@ -907,133 +1021,33 @@ def _request_json_with_usage(
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
+    execution_checkpoint: Callable[[], None] | None = None,
+    execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
-    max_attempts = max(1, active.request_max_retries + 1)
-    if max_provider_attempts is not None:
-        if max_provider_attempts < 1:
-            raise AIIntegrationError(
-                "AI provider attempt budget is exhausted", retryable=False
-            )
-        max_attempts = min(max_attempts, max_provider_attempts)
-    last_error: AIIntegrationError | None = None
-    request_max_tokens = max_completion_tokens or active.max_completion_tokens
-    db.commit()
-
-    for attempt in range(1, max_attempts + 1):
-        if attempt > 1:
-            stop_reason = _record_task_run_stop_observed(
-                db,
-                task_run_id=task_run_id,
-                stage="before_provider_retry",
-            )
-            if stop_reason is not None:
-                db.commit()
-                raise AITaskRunStoppedError(stop_reason)
-            db.commit()
-        try:
-            call_kwargs: dict[str, object] = {"messages": messages}
-            if request_max_tokens != active.max_completion_tokens:
-                call_kwargs["max_completion_tokens"] = request_max_tokens
-            completion = _call_ai_json(active, **call_kwargs)
-        except AIIntegrationError as exc:
-            last_error = exc
-            next_request_max_tokens = _next_retry_max_completion_tokens(
-                feature_type=feature_type,
-                current=request_max_tokens,
-                error=exc,
-                maximum=max_retry_completion_tokens,
-            )
-            report_truncation_has_headroom = not (
-                feature_type == FEATURE_REPORT
-                and exc.retry_hint == "expand_completion_budget"
-                and next_request_max_tokens <= request_max_tokens
-            )
-            should_retry = (
-                attempt < max_attempts
-                and _ai_error_is_retryable(exc)
-                and report_truncation_has_headroom
-            )
-            retry_delay_seconds = _provider_retry_delay_seconds(attempt=attempt) if should_retry else None
-            payload = {
-                **exc.debug_payload(),
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "requested_max_tokens": request_max_tokens,
-            }
-            if next_request_max_tokens != request_max_tokens:
-                payload["next_max_tokens"] = next_request_max_tokens
-            if retry_delay_seconds is not None:
-                payload["retry_delay_seconds"] = round(retry_delay_seconds, 3)
-            if task_run_id is not None:
-                record_ai_task_event(
-                    db,
-                    run_id=task_run_id,
-                    event_type="provider_exchange_retry" if should_retry else "provider_exchange_failed",
-                    message=str(exc),
-                    payload=payload,
-                )
-            _record_usage_event(
-                db,
-                feature_type=feature_type,
-                success=False,
-                provider=active.provider_type,
-                model=active.model,
-                item_id=item_id,
-                daily_brief_id=daily_brief_id,
-                report_id=report_id,
-                error=str(exc),
-            )
-            db.commit()
-            if should_retry:
-                request_max_tokens = next_request_max_tokens
-                if retry_delay_seconds is not None and retry_delay_seconds > 0:
-                    time.sleep(retry_delay_seconds)
-                continue
-            exc.attempt_count = attempt
-            raise
-
-        if task_run_id is not None:
-            provider_exchange_payload = {
-                **_build_provider_exchange_payload(
-                    request_url=completion.request_url,
-                    request_payload=completion.request_payload,
-                    response_body=completion.response_body,
-                    response_json=completion.response_json,
-                    status_code=completion.status_code,
-                    finish_reason=completion.finish_reason,
-                ),
-                "attempt": attempt,
-                "max_attempts": max_attempts,
-                "requested_max_tokens": request_max_tokens,
-            }
-            record_ai_task_event(
-                db,
-                run_id=task_run_id,
-                event_type="provider_exchange",
-                payload=provider_exchange_payload,
-            )
-
-        _record_usage_event(
-            db,
-            feature_type=feature_type,
-            success=True,
-            provider=completion.provider,
-            model=completion.model,
-            item_id=item_id,
-            daily_brief_id=daily_brief_id,
-            report_id=report_id,
-            prompt_tokens=completion.prompt_tokens,
-            completion_tokens=completion.completion_tokens,
-            total_tokens=completion.total_tokens,
-            latency_ms=completion.latency_ms,
-        )
-        db.commit()
-        return replace(completion, attempt_count=attempt)
-
-    if last_error is None:
-        raise AIIntegrationError("AI request failed unexpectedly")
-    last_error.attempt_count = max_attempts
-    raise last_error
+    return run_ai_json_request(
+        db,
+        active,
+        feature_type=feature_type,
+        messages=messages,
+        item_id=item_id,
+        daily_brief_id=daily_brief_id,
+        report_id=report_id,
+        task_run_id=task_run_id,
+        max_completion_tokens=max_completion_tokens,
+        max_retry_completion_tokens=max_retry_completion_tokens,
+        max_provider_attempts=max_provider_attempts,
+        execution_checkpoint=execution_checkpoint,
+        execution_commit=execution_commit,
+        report_feature_type=FEATURE_REPORT,
+        call_ai_json=_call_ai_json,
+        record_task_run_stop_observed=_record_task_run_stop_observed,
+        record_usage_event=_record_usage_event,
+        build_provider_exchange_payload=_build_provider_exchange_payload,
+        provider_retry_delay_seconds=_provider_retry_delay_seconds,
+        ai_error_is_retryable=_ai_error_is_retryable,
+        next_retry_max_completion_tokens=_next_retry_max_completion_tokens,
+        sleep=time.sleep,
+    )
 
 
 def request_ai_json_with_usage(
@@ -1047,6 +1061,8 @@ def request_ai_json_with_usage(
     max_completion_tokens: int | None = None,
     max_retry_completion_tokens: int | None = None,
     max_provider_attempts: int | None = None,
+    execution_checkpoint: Callable[[], None] | None = None,
+    execution_commit: Callable[[], None] | None = None,
 ) -> AICompletionResult:
     """Run a provider exchange with the standard retry, history, and cancellation behavior."""
     return _request_json_with_usage(
@@ -1059,6 +1075,8 @@ def request_ai_json_with_usage(
         max_completion_tokens=max_completion_tokens,
         max_retry_completion_tokens=max_retry_completion_tokens,
         max_provider_attempts=max_provider_attempts,
+        execution_checkpoint=execution_checkpoint,
+        execution_commit=execution_commit,
     )
 
 
@@ -1077,7 +1095,9 @@ def _ai_error_is_retryable(error: AIIntegrationError) -> bool:
     if error.retryable:
         return True
     if error.status_code is not None:
-        return error.status_code in {408, 409, 425, 429} or 500 <= error.status_code <= 599
+        return (
+            error.status_code in {408, 409, 425, 429} or 500 <= error.status_code <= 599
+        )
     return False
 
 

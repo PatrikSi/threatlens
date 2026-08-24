@@ -215,7 +215,11 @@ def _feed_failing_smtp_scope_key(now: datetime) -> str:
     return f"{current.date().isoformat()}:{current.hour // 12}"
 
 
-def mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: str) -> bool:
+def stage_feed_failure_notifications(
+    db: Session,
+    feed: Feed,
+    error: str,
+) -> list[uuid.UUID]:
     mark_feed_failure(db, feed, error)
     integration_event_ids: list[uuid.UUID] = []
     if int(feed.error_count or 0) >= FEED_FAILING_NOTIFICATION_THRESHOLD:
@@ -233,8 +237,23 @@ def mark_feed_failure_and_enqueue_notifications(db: Session, feed: Feed, error: 
             },
         )
         integration_event_ids.append(event.id)
-    db.commit()
+    return integration_event_ids
+
+
+def enqueue_feed_failure_notifications(
+    integration_event_ids: list[uuid.UUID],
+) -> bool:
     return enqueue_integration_event_routing(integration_event_ids)
+
+
+def mark_feed_failure_and_enqueue_notifications(
+    db: Session,
+    feed: Feed,
+    error: str,
+) -> bool:
+    integration_event_ids = stage_feed_failure_notifications(db, feed, error)
+    db.commit()
+    return enqueue_feed_failure_notifications(integration_event_ids)
 
 
 def _coerce_utc(value: datetime) -> datetime:

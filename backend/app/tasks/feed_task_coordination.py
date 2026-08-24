@@ -5,6 +5,7 @@ import secrets
 import threading
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 
 import redis
 
@@ -20,10 +21,86 @@ DOMAIN_SLOT_TTL_SECONDS = 30
 DOMAIN_SLOT_WAIT_INTERVAL_SECONDS = 0.2
 TAGGING_REAPPLY_LOCK_KEY = "threatlens:tagging:reapply:lock"
 LEASE_HEARTBEAT_SUFFIX = ":heartbeat"
+LEASE_OBSERVATION_SUFFIX = ":observation"
+
+_RENEW_LEASE_SCRIPT = (
+    "if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end "
+    "redis.call('pexpire', KEYS[1], ARGV[3]) "
+    "redis.call('set', KEYS[2], ARGV[2], 'PX', ARGV[3]) "
+    "return 1"
+)
+_RELEASE_LEASE_SCRIPT = (
+    "if redis.call('get', KEYS[1]) ~= ARGV[1] then return 0 end "
+    "redis.call('del', KEYS[1]) "
+    "redis.call('del', KEYS[2]) "
+    "return 1"
+)
 
 
 class CoordinationUnavailableError(RuntimeError):
     pass
+
+
+class LeaseOwnershipLostError(CoordinationUnavailableError):
+    pass
+
+
+class DomainSlotUnavailableError(CoordinationUnavailableError):
+    pass
+
+
+@dataclass
+class RedisLeaseGuard:
+    key: str
+    token: str
+    ttl_seconds: int
+    _last_successful_renewal: float = field(default_factory=time.monotonic)
+    _ownership_lost: threading.Event = field(default_factory=threading.Event)
+
+    def __bool__(self) -> bool:
+        return not self._ownership_lost.is_set()
+
+    def ensure_owned(self) -> None:
+        if self._ownership_lost.is_set():
+            raise LeaseOwnershipLostError("coordination lease ownership was lost")
+        try:
+            renewed = redis_client.eval(
+                _RENEW_LEASE_SCRIPT,
+                2,
+                self.key,
+                _lease_heartbeat_key(self.key),
+                self.token,
+                _lease_heartbeat_value(self.token),
+                max(1, int(self.ttl_seconds)) * 1000,
+            )
+        except redis.RedisError as exc:
+            elapsed = time.monotonic() - self._last_successful_renewal
+            fail_closed_after = max(0.5, self.ttl_seconds * 0.8)
+            if elapsed >= fail_closed_after:
+                logger.warning(
+                    "coordination_lease_verification_failed key=%s elapsed_seconds=%.3f error_type=%s",
+                    self.key,
+                    elapsed,
+                    type(exc).__name__,
+                )
+                raise CoordinationUnavailableError(
+                    "coordination lease could not be verified before expiry"
+                ) from exc
+            logger.debug(
+                "coordination_lease_verification_deferred key=%s elapsed_seconds=%.3f error_type=%s",
+                self.key,
+                elapsed,
+                type(exc).__name__,
+            )
+            return
+        if not renewed:
+            self._ownership_lost.set()
+            logger.warning("coordination_lease_ownership_lost key=%s", self.key)
+            raise LeaseOwnershipLostError("coordination lease ownership was lost")
+        self._last_successful_renewal = time.monotonic()
+
+    def mark_lost(self) -> None:
+        self._ownership_lost.set()
 
 
 def _lease_renewal_interval_seconds(ttl_seconds: int) -> float:
@@ -33,6 +110,10 @@ def _lease_renewal_interval_seconds(ttl_seconds: int) -> float:
 
 def _lease_heartbeat_key(key: str) -> str:
     return f"{key}{LEASE_HEARTBEAT_SUFFIX}"
+
+
+def _lease_observation_key(key: str) -> str:
+    return f"{key}{LEASE_OBSERVATION_SUFFIX}"
 
 
 def _lease_heartbeat_value(token: str, *, at: float | None = None) -> str:
@@ -89,6 +170,7 @@ def _write_lease_heartbeat(key: str, ttl_seconds: int, token: str, *, at: float 
 
 def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_message: str) -> bool:
     heartbeat_key = _lease_heartbeat_key(key)
+    observation_key = _lease_observation_key(key)
 
     try:
         observed_token = redis_client.get(key)
@@ -115,7 +197,21 @@ def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_messa
             return False
 
         observed_heartbeat = redis_client.get(heartbeat_key)
-        if not _lease_heartbeat_is_stale(observed_heartbeat, ttl_seconds=ttl_seconds):
+        parsed_heartbeat = _parse_lease_heartbeat(observed_heartbeat)
+        heartbeat_is_trusted = (
+            parsed_heartbeat is not None and parsed_heartbeat[0] == observed_token
+        )
+        if heartbeat_is_trusted:
+            if not _lease_heartbeat_is_stale(
+                observed_heartbeat,
+                ttl_seconds=ttl_seconds,
+            ):
+                return False
+        elif not _legacy_lease_observation_is_stale(
+            observation_key,
+            observed_token,
+            ttl_seconds=ttl_seconds,
+        ):
             return False
 
         new_heartbeat = _lease_heartbeat_value(token)
@@ -132,41 +228,68 @@ def _try_take_stale_lease(key: str, ttl_seconds: int, token: str, *, error_messa
                 "end "
                 "redis.call('set', KEYS[1], ARGV[3], 'EX', ARGV[5]) "
                 "redis.call('set', KEYS[2], ARGV[4], 'EX', ARGV[5]) "
+                "redis.call('del', KEYS[3]) "
                 "return 1"
             ),
-            2,
+            3,
             key,
             heartbeat_key,
+            observation_key,
             observed_token,
             observed_heartbeat if observed_heartbeat is not None else "__missing__",
             token,
             new_heartbeat,
             ttl_seconds,
         )
+        if replaced:
+            logger.info("coordination_stale_lease_replaced key=%s", key)
         return bool(replaced)
     except redis.RedisError as exc:
+        logger.warning(
+            "coordination_lease_operation_failed key=%s error_type=%s",
+            key,
+            type(exc).__name__,
+        )
         raise CoordinationUnavailableError(error_message) from exc
+
+
+def _legacy_lease_observation_is_stale(
+    observation_key: str,
+    observed_token: str,
+    *,
+    ttl_seconds: int,
+) -> bool:
+    observed_at = time.time()
+    raw_observation = redis_client.get(observation_key)
+    parsed_observation = _parse_lease_heartbeat(raw_observation)
+    if parsed_observation is not None and parsed_observation[0] == observed_token:
+        return (
+            observed_at - parsed_observation[1]
+            >= _lease_takeover_stale_after_seconds(ttl_seconds)
+        )
+    redis_client.set(
+        observation_key,
+        _lease_heartbeat_value(observed_token, at=observed_at),
+        ex=max(2, int(ttl_seconds) * 2),
+    )
+    return False
 
 
 @contextmanager
 def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None):
+    if token is None:
+        raise ValueError("lease heartbeat requires an ownership token")
     stop_event = threading.Event()
     renew_interval_seconds = _lease_renewal_interval_seconds(ttl_seconds)
+    guard = RedisLeaseGuard(key=key, token=token, ttl_seconds=ttl_seconds)
 
     def _renew() -> None:
         while not stop_event.wait(renew_interval_seconds):
             try:
-                if token is not None:
-                    current_token = None
-                    get_redis_value = getattr(redis_client, "get", None)
-                    if callable(get_redis_value):
-                        current_token = get_redis_value(key)
-                    if current_token != token:
-                        return
-                redis_client.expire(key, ttl_seconds)
-                if token is not None:
-                    _write_lease_heartbeat(key, ttl_seconds, token)
-            except redis.RedisError:
+                guard.ensure_owned()
+            except LeaseOwnershipLostError:
+                return
+            except CoordinationUnavailableError:
                 continue
 
     _renewal_thread = threading.Thread(
@@ -176,12 +299,8 @@ def _redis_lease_heartbeat(key: str, ttl_seconds: int, token: str | None = None)
     )
     _renewal_thread.start()
     try:
-        if token is not None:
-            try:
-                _write_lease_heartbeat(key, ttl_seconds, token)
-            except redis.RedisError:
-                pass
-        yield
+        guard.ensure_owned()
+        yield guard
     finally:
         stop_event.set()
         _renewal_thread.join(timeout=0.1)
@@ -194,14 +313,23 @@ def _domain_slot_key(domain: str, slot_number: int) -> str:
 def _best_effort_release_lease(key: str, token: str) -> None:
     try:
         redis_client.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            1,
+            _RELEASE_LEASE_SCRIPT,
+            2,
             key,
+            _lease_heartbeat_key(key),
             token,
         )
-        redis_client.delete(_lease_heartbeat_key(key))
-    except redis.RedisError:
-        pass
+    except redis.RedisError as exc:
+        logger.warning(
+            "coordination_lease_release_failed key=%s error_type=%s",
+            key,
+            type(exc).__name__,
+        )
+
+
+def ensure_lease_owned(lease: object) -> None:
+    if isinstance(lease, RedisLeaseGuard):
+        lease.ensure_owned()
 
 
 @contextmanager
@@ -228,6 +356,11 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
                         error_message="domain slot unavailable",
                     )
             except redis.RedisError as exc:
+                logger.warning(
+                    "coordination_domain_slot_failed domain=%s error_type=%s",
+                    domain,
+                    type(exc).__name__,
+                )
                 raise CoordinationUnavailableError("domain slot unavailable") from exc
 
             if acquired:
@@ -238,11 +371,16 @@ def domain_slot(domain: str, max_wait_seconds: int = 30):
             time.sleep(DOMAIN_SLOT_WAIT_INTERVAL_SECONDS)
 
     if acquired_key is None:
-        raise TimeoutError(f"domain slot timeout for {domain}")
+        logger.warning("coordination_domain_slot_timeout domain=%s", domain)
+        raise DomainSlotUnavailableError(f"domain slot timeout for {domain}")
 
     try:
-        with _redis_lease_heartbeat(acquired_key, DOMAIN_SLOT_TTL_SECONDS, token):
-            yield
+        with _redis_lease_heartbeat(
+            acquired_key,
+            DOMAIN_SLOT_TTL_SECONDS,
+            token,
+        ) as guard:
+            yield guard
     finally:
         _best_effort_release_lease(acquired_key, token)
 
@@ -258,6 +396,11 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
         if not acquired:
             acquired = _try_take_stale_lease(key, ttl_seconds, token, error_message="feed lock unavailable")
     except redis.RedisError as exc:
+        logger.warning(
+            "coordination_feed_lock_failed feed_id=%s error_type=%s",
+            feed_id,
+            type(exc).__name__,
+        )
         raise CoordinationUnavailableError("feed lock unavailable") from exc
 
     if not acquired:
@@ -265,19 +408,10 @@ def feed_lock(feed_id: str, ttl_seconds: int = 900):
         return
 
     try:
-        with _redis_lease_heartbeat(key, ttl_seconds, token):
-            yield True
+        with _redis_lease_heartbeat(key, ttl_seconds, token) as guard:
+            yield guard
     finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
+        _best_effort_release_lease(key, token)
 
 
 @contextmanager
@@ -306,16 +440,7 @@ def daily_ai_brief_lock(ttl_seconds: int = 900):
         with _redis_lease_heartbeat(key, ttl_seconds, token):
             yield True
     finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
+        _best_effort_release_lease(key, token)
 
 
 def claim_tagging_reapply_dispatch(ttl_seconds: int = 900) -> str | None:
@@ -337,16 +462,7 @@ def claim_tagging_reapply_dispatch(ttl_seconds: int = 900) -> str | None:
 
 
 def release_tagging_reapply_dispatch(token: str) -> None:
-    try:
-        redis_client.eval(
-            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-            1,
-            TAGGING_REAPPLY_LOCK_KEY,
-            token,
-        )
-        redis_client.delete(_lease_heartbeat_key(TAGGING_REAPPLY_LOCK_KEY))
-    except redis.RedisError:
-        return
+    _best_effort_release_lease(TAGGING_REAPPLY_LOCK_KEY, token)
 
 
 @contextmanager
@@ -378,13 +494,4 @@ def tagging_reapply_lock(ttl_seconds: int = 900, token: str | None = None):
         with _redis_lease_heartbeat(key, ttl_seconds, resolved_token):
             yield True
     finally:
-        try:
-            redis_client.eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                key,
-                resolved_token,
-            )
-            redis_client.delete(_lease_heartbeat_key(key))
-        except redis.RedisError:
-            pass
+        _best_effort_release_lease(key, resolved_token)

@@ -9,8 +9,8 @@
       "identifier": "Apache-2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
-    "version": "1.6.0",
-    "x-threatlens-contract-sha256": "11ee76857e2f32c2b70b183de1cf94c869ede874fc08eb3e79b7b0235e4ecb14"
+    "version": "1.7.0",
+    "x-threatlens-contract-sha256": "d042989b348a811fe13edc77beb38d4f855ef85bda488f07837b1fec8bc5f1c2"
   },
   "servers": [
     {
@@ -785,22 +785,6 @@
         ],
         "summary": "List Report Templates",
         "operationId": "list_report_templates_v1_reports_templates_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReportTemplateResponse"
-                  },
-                  "type": "array",
-                  "title": "Response List Report Templates V1 Reports Templates Get"
-                }
-              }
-            }
-          }
-        },
         "security": [
           {
             "ApiTokenBearer": []
@@ -809,6 +793,22 @@
             "SessionCookieAuth": []
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportTemplateResponse"
+                  },
+                  "title": "Response List Report Templates V1 Reports Templates Get"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "read:reports"
         ]
@@ -819,15 +819,41 @@
         ],
         "summary": "Create Template",
         "operationId": "create_template_v1_reports_templates_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReportTemplateCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -851,14 +877,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "write:reports"
         ]
@@ -889,6 +907,25 @@
               "format": "uuid",
               "title": "Template Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -911,6 +948,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -951,11 +994,36 @@
               "format": "uuid",
               "title": "Template Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -997,6 +1065,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Template Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -1125,6 +1209,24 @@
           },
           {
             "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "requestBody": {
@@ -1342,6 +1444,22 @@
               "format": "uuid",
               "title": "Report Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
           }
         ],
         "responses": {
@@ -1375,22 +1493,6 @@
         ],
         "summary": "List Schedules",
         "operationId": "list_schedules_v1_reports_schedules_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReportScheduleResponse"
-                  },
-                  "type": "array",
-                  "title": "Response List Schedules V1 Reports Schedules Get"
-                }
-              }
-            }
-          }
-        },
         "security": [
           {
             "ApiTokenBearer": []
@@ -1399,6 +1501,22 @@
             "SessionCookieAuth": []
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportScheduleResponse"
+                  },
+                  "title": "Response List Schedules V1 Reports Schedules Get"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "read:reports"
         ]
@@ -1409,15 +1527,41 @@
         ],
         "summary": "Create Schedule",
         "operationId": "create_schedule_v1_reports_schedules_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReportScheduleCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -1441,14 +1585,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "write:reports"
         ]
@@ -1479,6 +1615,25 @@
               "format": "uuid",
               "title": "Schedule Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -1501,6 +1656,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -1541,11 +1702,36 @@
               "format": "uuid",
               "title": "Schedule Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -1588,6 +1774,41 @@
               "format": "uuid",
               "title": "Schedule Id"
             }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -1604,6 +1825,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -16633,6 +16860,18 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "schedule_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Id"
           }
         },
         "additionalProperties": false,
@@ -16943,6 +17182,70 @@
             ],
             "title": "Last Run At"
           },
+          "failure_state": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "retrying",
+              "exhausted",
+              "quarantined"
+            ],
+            "title": "Failure State"
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count"
+          },
+          "consecutive_failure_count": {
+            "type": "integer",
+            "title": "Consecutive Failure Count"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -16952,6 +17255,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "resource_version": {
+            "type": "string",
+            "title": "Resource Version"
           }
         },
         "additionalProperties": false,
@@ -16963,8 +17270,16 @@
           "owner_user_id",
           "next_run_at",
           "last_run_at",
+          "failure_state",
+          "failure_count",
+          "consecutive_failure_count",
+          "last_error_code",
+          "last_error",
+          "last_error_at",
+          "retry_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "resource_version"
         ],
         "title": "ReportScheduleResponse"
       },
@@ -17470,6 +17785,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "resource_version": {
+            "type": "string",
+            "title": "Resource Version"
           }
         },
         "additionalProperties": false,
@@ -17486,7 +17805,8 @@
           "sections",
           "default_filters",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "resource_version"
         ],
         "title": "ReportTemplateResponse"
       },

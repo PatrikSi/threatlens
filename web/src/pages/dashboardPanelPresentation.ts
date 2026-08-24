@@ -3,7 +3,11 @@ import type { DashboardWindowSnap, DashboardWindowType } from './dashboardSavedV
 export const MOBILE_DASHBOARD_PAGE_SIZE = 10
 export const DASHBOARD_TIME_INHERIT_VALUE = '__dashboard_time__'
 export const ROLLING_WINDOW_FIELD_CLASS =
-  'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 dark:focus-within:ring-offset-[var(--tl-input-bg)]'
+  'flex w-full items-center rounded border border-slate/20 bg-white px-2 py-1.5 text-sm ' +
+  'focus-within:border-cyan/60 focus-within:ring-2 focus-within:ring-cyan/60 ' +
+  'focus-within:ring-offset-1 dark:border-cyan-900/40 dark:bg-[#072019] ' +
+  'dark:focus-within:border-cyan-400/60 dark:focus-within:ring-cyan-300/60 ' +
+  'dark:focus-within:ring-offset-[var(--tl-input-bg)]'
 export const FILTER_SCROLLER_CLASS =
   'tl-dashboard-filter-scroller flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1'
 export const FILTER_CHIP_CLASS =

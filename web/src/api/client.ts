@@ -10,7 +10,7 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_cs
 const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-type ApiFetchOptions = RequestInit & {
+export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number
 }
 
@@ -88,26 +88,27 @@ export function buildApiUrl(path: string): string {
 }
 
 export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, auth = true): Promise<T> {
-  const response = await requestApiResponse(path, options, auth, 'application/json')
+  return requestApiResponse(path, options, auth, 'application/json', async (response) => {
+    if (response.status === 204) {
+      return undefined as T
+    }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
+    const raw = await response.text()
+    if (!raw.trim()) {
+      return undefined as T
+    }
 
-  const raw = await response.text()
-  if (!raw.trim()) {
-    return undefined as T
-  }
-
-  const parsed = tryParseJsonResult(raw)
-  if (!parsed.ok) {
-    throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
-      responseBody: raw,
-      code: 'invalid_response',
-      requestId: response.headers.get('x-request-id'),
-    })
-  }
-  return parsed.value as T
+    const parsed = tryParseJsonResult(raw)
+    if (!parsed.ok) {
+      throw new ApiError('The API returned an unreadable response instead of JSON.', response.status, path, raw, {
+        responseBody: raw,
+        code: 'invalid_response',
+        requestId: response.headers.get('x-request-id'),
+        retryable: true,
+      })
+    }
+    return parsed.value as T
+  })
 }
 
 export async function apiDownload(
@@ -115,20 +116,20 @@ export async function apiDownload(
   options: ApiFetchOptions = {},
   auth = true,
 ): Promise<ApiDownloadResult> {
-  const response = await requestApiResponse(path, options, auth, 'application/octet-stream')
-  return {
+  return requestApiResponse(path, options, auth, 'application/octet-stream', async (response) => ({
     blob: await response.blob(),
     filename: parseDownloadFilename(response.headers.get('content-disposition')),
     contentType: response.headers.get('content-type'),
-  }
+  }))
 }
 
-async function requestApiResponse(
+async function requestApiResponse<T>(
   path: string,
   options: ApiFetchOptions,
   auth: boolean,
   defaultAccept: string,
-): Promise<Response> {
+  consumeResponse: (response: Response) => Promise<T>,
+): Promise<T> {
   const { timeoutMs, ...requestOptions } = options
   const headers = new Headers(requestOptions.headers)
   const hasBody = requestOptions.body !== undefined && requestOptions.body !== null
@@ -163,25 +164,43 @@ async function requestApiResponse(
   const requestTimeoutMs = normalizeTimeoutMs(timeoutMs, REQUEST_TIMEOUT_MS)
   const timeout = setTimeout(() => timeoutController.abort(), requestTimeoutMs)
 
-  let response: Response
   try {
-    response = await fetch(buildApiUrl(path), {
+    const response = await fetch(buildApiUrl(path), {
       ...requestOptions,
       headers,
       credentials: 'include',
       signal,
     })
+    if (!response.ok) {
+      const raw = await response.text()
+      const parsed = tryParseJson(raw)
+      const problem = extractProblemDetails(parsed)
+      const message =
+        problem.message ??
+        extractErrorMessage(parsed, raw, response.status, response.statusText, response.headers.get('content-type'))
+      throw new ApiError(message, response.status, path, extractResponseDetail(parsed, raw), {
+        responseBody: parsed ?? raw,
+        code: problem.code,
+        requestId: problem.requestId ?? response.headers.get('x-request-id'),
+        retryable: problem.retryable ?? isRetryableStatus(response.status),
+        retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('retry-after')),
+      })
+    }
+    return await consumeResponse(response)
   } catch (error) {
-    if (isAbortError(error) && !requestOptions.signal?.aborted) {
+    if (error instanceof ApiError || error instanceof ApiRequestError) {
+      throw error
+    }
+    if (requestOptions.signal?.aborted) {
+      throw error
+    }
+    if (timeoutController.signal.aborted || isAbortError(error)) {
       throw new ApiTransportError(
         `The ThreatLens API did not respond within ${formatTimeoutSeconds(requestTimeoutMs)}.`,
         path,
         'timeout',
         error,
       )
-    }
-    if (requestOptions.signal?.aborted) {
-      throw error
     }
     throw new ApiTransportError(
       'ThreatLens could not reach the API. Check the network connection and API container health.',
@@ -193,24 +212,6 @@ async function requestApiResponse(
     clearTimeout(timeout)
     cleanup()
   }
-
-  if (!response.ok) {
-    const raw = await response.text()
-    const parsed = tryParseJson(raw)
-    const problem = extractProblemDetails(parsed)
-    const message =
-      problem.message ??
-      extractErrorMessage(parsed, raw, response.status, response.statusText, response.headers.get('content-type'))
-    throw new ApiError(message, response.status, path, extractResponseDetail(parsed, raw), {
-      responseBody: parsed ?? raw,
-      code: problem.code,
-      requestId: problem.requestId ?? response.headers.get('x-request-id'),
-      retryable: problem.retryable ?? isRetryableStatus(response.status),
-      retryAfterSeconds: parseRetryAfterSeconds(response.headers.get('retry-after')),
-    })
-  }
-
-  return response
 }
 
 function parseDownloadFilename(contentDisposition: string | null): string | null {

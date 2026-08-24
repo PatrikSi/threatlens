@@ -37,7 +37,16 @@ class ReportSchedule(Base):
     missed_run_policy: Mapped[str] = mapped_column(String(16), nullable=False, default="latest", server_default="latest")
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_state: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="healthy", server_default="healthy", index=True
+    )
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    consecutive_failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    last_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_error_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )
