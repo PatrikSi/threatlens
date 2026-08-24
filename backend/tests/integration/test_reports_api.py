@@ -336,6 +336,54 @@ def test_template_creation_idempotency_replays_and_rejects_changed_payload(
     assert len(receipt.fingerprint) == 64
 
 
+def test_template_update_rejects_a_stale_resource_version(
+    client,
+    db_session,
+    auth_headers,
+):
+    created = client.post(
+        "/reports/templates",
+        json=_template_payload(name="Versioned template"),
+        headers=auth_headers["analyst"],
+    )
+    assert created.status_code == 201
+    template_id = created.json()["id"]
+    original_version = created.json()["updated_at"]
+    versioned_headers = {
+        **auth_headers["analyst"],
+        "If-Match": f'"{original_version}"',
+    }
+
+    updated = client.put(
+        f"/reports/templates/{template_id}",
+        json=_template_payload(name="Current template"),
+        headers=versioned_headers,
+    )
+    stale = client.put(
+        f"/reports/templates/{template_id}",
+        json=_template_payload(name="Stale overwrite"),
+        headers=versioned_headers,
+    )
+    legacy_client_update = client.put(
+        f"/reports/templates/{template_id}",
+        json=_template_payload(name="Legacy client update"),
+        headers=auth_headers["analyst"],
+    )
+
+    assert updated.status_code == 200
+    assert updated.headers["etag"]
+    assert stale.status_code == 412
+    assert stale.json()["detail"] == (
+        "The report template changed after you loaded it. Refresh the latest "
+        "version, review the changes, and try again."
+    )
+    assert legacy_client_update.status_code == 200
+    db_session.expire_all()
+    assert db_session.get(ReportTemplate, uuid.UUID(template_id)).name == (
+        "Legacy client update"
+    )
+
+
 def test_concurrent_template_creation_commits_one_resource_and_audit(
     database_engine,
     monkeypatch,
@@ -621,7 +669,21 @@ def test_admin_can_manage_report_schedule_with_default_filters(
     assert create_response.json()["timezone"] == "Europe/Prague"
 
     payload["name"] = "Updated weekly schedule API test"
+    update_headers = {
+        **auth_headers["admin"],
+        "If-Match": f'"{create_response.json()["updated_at"]}"',
+    }
     update_response = client.put(
+        f"/reports/schedules/{schedule_id}",
+        json=payload,
+        headers=update_headers,
+    )
+    stale_update_response = client.put(
+        f"/reports/schedules/{schedule_id}",
+        json={**payload, "name": "Stale schedule overwrite"},
+        headers=update_headers,
+    )
+    legacy_update_response = client.put(
         f"/reports/schedules/{schedule_id}",
         json=payload,
         headers=auth_headers["admin"],
@@ -631,7 +693,10 @@ def test_admin_can_manage_report_schedule_with_default_filters(
     )
 
     assert update_response.status_code == 200
+    assert update_response.headers["etag"]
     assert update_response.json()["name"] == payload["name"]
+    assert stale_update_response.status_code == 412
+    assert legacy_update_response.status_code == 200
     assert list_response.status_code == 200
     assert any(entry["id"] == schedule_id for entry in list_response.json())
 
@@ -769,6 +834,8 @@ def test_manual_schedule_run_idempotency_replays_existing_report(
     assert second.status_code == 202
     assert second.json()[0]["report_id"] == first.json()[0]["report_id"]
     assert second.json()[0]["task_run_id"] == first.json()[0]["task_run_id"]
+    assert first.json()[0]["schedule_id"] == str(schedule.id)
+    assert second.json()[0]["schedule_id"] == str(schedule.id)
     assert calls["count"] == 1
 
 

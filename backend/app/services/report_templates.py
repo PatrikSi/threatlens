@@ -31,13 +31,20 @@ def list_visible_report_templates(db: Session, *, user_id: uuid.UUID) -> list[Re
     )
 
 
-def get_visible_report_template(db: Session, *, template_id: uuid.UUID, user_id: uuid.UUID) -> ReportTemplate | None:
-    return db.scalar(
-        select(ReportTemplate).where(
-            ReportTemplate.id == template_id,
-            or_(ReportTemplate.visibility == "shared", ReportTemplate.owner_user_id == user_id),
-        )
+def get_visible_report_template(
+    db: Session,
+    *,
+    template_id: uuid.UUID,
+    user_id: uuid.UUID,
+    for_update: bool = False,
+) -> ReportTemplate | None:
+    query = select(ReportTemplate).where(
+        ReportTemplate.id == template_id,
+        or_(ReportTemplate.visibility == "shared", ReportTemplate.owner_user_id == user_id),
     )
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    return db.scalar(query)
 
 
 def create_report_template(
