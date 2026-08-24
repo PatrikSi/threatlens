@@ -2,6 +2,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import ModuleType
+from urllib.parse import urlsplit
 
 import httpx
 from sqlalchemy import select
@@ -113,6 +114,8 @@ def run_backfill_feed_metadata(feed_id: str, *, runtime: ModuleType):
                 except r.FeedFetchOwnershipLostError as exc:
                     db.rollback()
                     return _stale_fetch_result(feed_id, exc, runtime=r)
+    except r.LeaseOwnershipLostError as exc:
+        return _coordination_lease_lost_result(feed_id, exc, runtime=r)
     except r.CoordinationUnavailableError as exc:
         r.logger.warning(
             "backfill_feed_metadata_coordination_unavailable feed_id=%s error_type=%s",
@@ -137,6 +140,8 @@ def run_fetch_feed(task, feed_id: str, force: bool = False, *, runtime: ModuleTy
                     "feed_id": feed_id,
                 }
             return _fetch_locked_feed(task, feed_id, force, lease, runtime=r)
+    except r.LeaseOwnershipLostError as exc:
+        return _coordination_lease_lost_result(feed_id, exc, runtime=r)
     except r.CoordinationUnavailableError as exc:
         return _recover_coordination_failure(task, feed_id, exc, runtime=r)
 
@@ -320,6 +325,9 @@ def _request_feed(
     headers = _conditional_request_headers(feed)
     try:
         response = _read_feed_response(feed_url, headers, lease, runtime=r)
+    except r.LeaseOwnershipLostError as exc:
+        db.rollback()
+        return _coordination_lease_lost_result(feed_id, exc, runtime=r)
     except r.CoordinationUnavailableError as exc:
         return _retry_feed_exception(
             task,
@@ -418,9 +426,13 @@ def _read_feed_response(
             headers=headers,
             allow_private_network=r.settings.allow_private_network_fetch,
             max_redirects=r.settings.outbound_max_redirects,
+            request_context=lambda request_url: r.domain_slot(
+                urlsplit(request_url).hostname or "unknown"
+            ),
         )
+        domain_lease = r.safe_fetch_request_guard(response)
         try:
-            r.ensure_lease_owned(lease)
+            _ensure_fetch_leases_owned(lease, domain_lease, runtime=r)
             if response.status_code == 304:
                 return "not_modified"
             if response.status_code != 200:
@@ -430,6 +442,7 @@ def _read_feed_response(
                 r.settings.feed_max_bytes,
                 r.FeedResponseTooLargeError,
                 lease=lease,
+                additional_lease=domain_lease,
                 runtime=r,
             )
             r.ensure_lease_owned(lease)
@@ -449,18 +462,33 @@ def _read_capped_body(
     too_large_error: type[Exception],
     *,
     lease=None,
+    additional_lease=None,
     runtime: ModuleType | None = None,
 ) -> bytes:
     body_chunks: list[bytes] = []
     body_size = 0
     for chunk in response.iter_bytes():
         if runtime is not None:
-            runtime.ensure_lease_owned(lease)
+            _ensure_fetch_leases_owned(
+                lease,
+                additional_lease,
+                runtime=runtime,
+            )
         body_size += len(chunk)
         if body_size > max_bytes:
             raise too_large_error("feed response exceeds configured cap")
         body_chunks.append(chunk)
     return b"".join(body_chunks)
+
+
+def _ensure_fetch_leases_owned(
+    feed_lease,
+    domain_lease,
+    *,
+    runtime: ModuleType,
+) -> None:
+    runtime.ensure_lease_owned(feed_lease)
+    runtime.ensure_lease_owned(domain_lease)
 
 
 def _conditional_request_headers(feed: Feed) -> dict[str, str]:
@@ -487,6 +515,9 @@ def _retry_feed_exception(
     runtime: ModuleType,
 ):
     r = runtime
+    if isinstance(exc, r.LeaseOwnershipLostError):
+        db.rollback()
+        return _coordination_lease_lost_result(feed_id, exc, runtime=r)
     if _feed_url_changed(db, parsed_feed_id, feed_url_digest, runtime=r):
         db.rollback()
         return {"status": "skipped", "reason": "feed_url_changed", "feed_id": feed_id}
@@ -513,20 +544,13 @@ def _retry_feed_exception(
                 feed_id,
                 r._exception_type_name(exc),
             )
-            r._stage_feed_after_coordination_failure(feed)
-            db.add(feed)
-            _commit_owned(
+            db.rollback()
+            return _reschedule_after_coordination_exhaustion(
                 db,
-                claim,
-                lease,
-                require_lease=False,
+                feed_id,
+                parsed_feed_id,
                 runtime=r,
             )
-            return {
-                "status": "error",
-                "feed_id": feed_id,
-                "reason": "coordination_unavailable",
-            }
         r.logger.error(
             "feed_fetch_failed feed_id=%s error_code=%s error_type=%s",
             feed_id,
@@ -689,11 +713,9 @@ def _commit_owned(
     claim,
     lease,
     *,
-    require_lease: bool = True,
     runtime: ModuleType,
 ) -> None:
-    if require_lease:
-        runtime.ensure_lease_owned(lease)
+    runtime.ensure_lease_owned(lease)
     runtime.ensure_feed_fetch_owned(db, claim=claim)
     db.commit()
 
@@ -708,6 +730,56 @@ def _stale_fetch_result(feed_id: str, exc: Exception, *, runtime: ModuleType):
         "status": "skipped",
         "reason": "fetch_ownership_lost",
         "feed_id": feed_id,
+    }
+
+
+def _coordination_lease_lost_result(
+    feed_id: str,
+    exc: Exception,
+    *,
+    runtime: ModuleType,
+):
+    runtime.logger.info(
+        "feed_fetch_coordination_ownership_lost feed_id=%s error_type=%s",
+        feed_id,
+        runtime._exception_type_name(exc),
+    )
+    return {
+        "status": "skipped",
+        "reason": "fetch_ownership_lost",
+        "feed_id": feed_id,
+    }
+
+
+def _reschedule_after_coordination_exhaustion(
+    db,
+    feed_id: str,
+    parsed_feed_id: uuid.UUID,
+    *,
+    runtime: ModuleType,
+):
+    feed = db.scalar(
+        select(Feed).where(Feed.id == parsed_feed_id).with_for_update()
+    )
+    if feed is None or not feed.enabled:
+        db.rollback()
+        return {
+            "status": "skipped",
+            "reason": "not_found_or_disabled",
+            "feed_id": feed_id,
+        }
+
+    fresh_claim = runtime.claim_feed_fetch(db, feed=feed)
+    runtime.logger.info(
+        "feed_fetch_coordination_recovery_claimed feed_id=%s fetch_fence=%s",
+        feed_id,
+        fresh_claim.fence,
+    )
+    runtime._reschedule_feed_after_coordination_failure(db, feed)
+    return {
+        "status": "error",
+        "feed_id": feed_id,
+        "reason": "coordination_unavailable",
     }
 
 
@@ -729,14 +801,9 @@ def _recover_coordination_failure(
             parsed_feed_id = _parse_uuid(feed_id)
             if parsed_feed_id is None:
                 return {"status": "error", "feed_id": feed_id}
-            feed = db.scalar(
-                select(Feed).where(Feed.id == parsed_feed_id).with_for_update()
+            return _reschedule_after_coordination_exhaustion(
+                db,
+                feed_id,
+                parsed_feed_id,
+                runtime=r,
             )
-            if feed is not None:
-                r.claim_feed_fetch(db, feed=feed)
-                r._reschedule_feed_after_coordination_failure(db, feed)
-        return {
-            "status": "error",
-            "feed_id": feed_id,
-            "reason": "coordination_unavailable",
-        }

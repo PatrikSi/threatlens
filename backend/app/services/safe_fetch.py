@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, ExitStack
+from typing import Any
 from urllib.parse import urljoin
 
 import httpcore
@@ -9,6 +12,7 @@ from httpx._config import DEFAULT_LIMITS, Limits, create_ssl_context
 from app.services.url_utils import ensure_runtime_fetchable_url, resolve_runtime_allowed_ips
 
 REDIRECT_STATUS_CODES = {301, 302, 303, 307, 308}
+SAFE_FETCH_REQUEST_GUARD_EXTENSION = "threatlens_request_guard"
 
 
 class SafeFetchError(RuntimeError):
@@ -21,6 +25,25 @@ class UnsafeTargetError(SafeFetchError):
 
 class RedirectError(SafeFetchError):
     pass
+
+
+class _GuardedSyncByteStream(httpx.SyncByteStream):
+    def __init__(self, stream: httpx.SyncByteStream, guard_stack: ExitStack) -> None:
+        self._stream = stream
+        self._guard_stack = guard_stack
+        self._closed = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        yield from self._stream
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._stream.close()
+        finally:
+            self._guard_stack.close()
 
 
 class _PinnedSyncBackend(httpcore.NetworkBackend):
@@ -145,6 +168,7 @@ def safe_stream_with_redirects(
     headers: dict[str, str] | None = None,
     allow_private_network: bool = False,
     max_redirects: int = 5,
+    request_context: Callable[[str], AbstractContextManager[Any]] | None = None,
 ) -> httpx.Response:
     current_url = url
     redirects = 0
@@ -152,13 +176,39 @@ def safe_stream_with_redirects(
 
     while True:
         _ensure_target(current_url, allow_private_network)
-        request = client.build_request(current_method, current_url, headers=headers)
-        response = client.send(request, stream=True, follow_redirects=False)
+        guard_stack = ExitStack()
+        request_guard = None
+        if request_context is not None:
+            request_guard = guard_stack.enter_context(request_context(current_url))
+        try:
+            request = client.build_request(current_method, current_url, headers=headers)
+            response = client.send(request, stream=True, follow_redirects=False)
+        except BaseException:
+            guard_stack.close()
+            raise
         if response.status_code not in REDIRECT_STATUS_CODES:
+            if request_context is None:
+                return response
+            if response.is_closed:
+                guard_stack.close()
+                response.extensions[SAFE_FETCH_REQUEST_GUARD_EXTENSION] = None
+                return response
+            try:
+                response.stream = _GuardedSyncByteStream(response.stream, guard_stack)
+                response.extensions[SAFE_FETCH_REQUEST_GUARD_EXTENSION] = request_guard
+            except BaseException:
+                try:
+                    response.close()
+                finally:
+                    guard_stack.close()
+                raise
             return response
 
-        location = response.headers.get("location")
-        response.close()
+        try:
+            location = response.headers.get("location")
+            response.close()
+        finally:
+            guard_stack.close()
         if not location:
             raise RedirectError("Redirect missing location header")
 
@@ -169,6 +219,13 @@ def safe_stream_with_redirects(
         current_url = urljoin(current_url, location)
         if response.status_code == 303 and current_method != "HEAD":
             current_method = "GET"
+
+
+def safe_fetch_request_guard(response: httpx.Response) -> object | None:
+    extensions = getattr(response, "extensions", None)
+    if not isinstance(extensions, dict):
+        return None
+    return extensions.get(SAFE_FETCH_REQUEST_GUARD_EXTENSION)
 
 
 def _ensure_target(url: str, allow_private_network: bool) -> None:

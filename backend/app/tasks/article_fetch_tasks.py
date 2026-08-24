@@ -210,42 +210,42 @@ def _fetch_candidates(
 
 def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchResult:
     r = runtime
-    domain = urlsplit(target_url).hostname or "unknown"
-    with r.domain_slot(domain) as lease:
-        r.ensure_lease_owned(lease)
-        timeout = httpx.Timeout(
-            connect=r.settings.article_connect_timeout_seconds,
-            read=r.settings.article_read_timeout_seconds,
-            write=r.settings.article_read_timeout_seconds,
-            pool=r.settings.article_connect_timeout_seconds,
-        )
-        with r.build_safe_http_client(
-            timeout=timeout,
-            headers={"User-Agent": r.settings.fetch_user_agent},
+    timeout = httpx.Timeout(
+        connect=r.settings.article_connect_timeout_seconds,
+        read=r.settings.article_read_timeout_seconds,
+        write=r.settings.article_read_timeout_seconds,
+        pool=r.settings.article_connect_timeout_seconds,
+    )
+    with r.build_safe_http_client(
+        timeout=timeout,
+        headers={"User-Agent": r.settings.fetch_user_agent},
+        allow_private_network=r.settings.allow_private_network_fetch,
+    ) as client:
+        response = r.safe_stream_with_redirects(
+            client,
+            "GET",
+            target_url,
             allow_private_network=r.settings.allow_private_network_fetch,
-        ) as client:
-            response = r.safe_stream_with_redirects(
-                client,
-                "GET",
-                target_url,
-                allow_private_network=r.settings.allow_private_network_fetch,
-                max_redirects=r.settings.outbound_max_redirects,
+            max_redirects=r.settings.outbound_max_redirects,
+            request_context=lambda request_url: r.domain_slot(
+                urlsplit(request_url).hostname or "unknown"
+            ),
+        )
+        lease = r.safe_fetch_request_guard(response)
+        try:
+            r.ensure_lease_owned(lease)
+            status_code = response.status_code
+            content_type = response.headers.get("content-type")
+            final_url = r.normalize_url(str(response.url)) or ""
+            body = _read_capped_body(
+                response,
+                r.settings.article_max_bytes,
+                r.ResponseTooLargeError,
+                lease=lease,
+                runtime=r,
             )
-            try:
-                r.ensure_lease_owned(lease)
-                status_code = response.status_code
-                content_type = response.headers.get("content-type")
-                final_url = r.normalize_url(str(response.url)) or ""
-                body = _read_capped_body(
-                    response,
-                    r.settings.article_max_bytes,
-                    r.ResponseTooLargeError,
-                    lease=lease,
-                    runtime=r,
-                )
-                r.ensure_lease_owned(lease)
-            finally:
-                response.close()
+        finally:
+            response.close()
     error = _response_error(status_code, content_type)
     return ArticleFetchResult(
         final_url, status_code, content_type, body=body, error=error

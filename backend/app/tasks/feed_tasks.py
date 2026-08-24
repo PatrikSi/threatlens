@@ -62,6 +62,7 @@ from app.services.safe_fetch import (
     RedirectError,
     SafeFetchError,
     build_safe_http_client,
+    safe_fetch_request_guard,
     safe_stream_with_redirects,
 )
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
@@ -103,6 +104,7 @@ from app.tasks.feed_task_coordination import (
     CoordinationUnavailableError,
     DOMAIN_SLOT_TTL_SECONDS,
     DOMAIN_SLOT_WAIT_INTERVAL_SECONDS,
+    LeaseOwnershipLostError,
     TAGGING_REAPPLY_LOCK_KEY,
     _best_effort_release_lease,
     _domain_slot_key,
@@ -763,6 +765,7 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     FeedResponseTooLargeError,
     IOC_EXTRACTION_STATE_COMPLETED,
     IOC_EXTRACTION_STATE_COMPLETED_EMPTY,
+    LeaseOwnershipLostError,
     MaxRetriesExceededError,
     RSSConnector,
     RSSFeedParseError,
@@ -811,6 +814,7 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     probe_feed_metadata,
     record_ai_task_event,
     run_item_ai_enrichment,
+    safe_fetch_request_guard,
     safe_stream_with_redirects,
     start_ai_task_run,
     sync_item_algorithm_tags,

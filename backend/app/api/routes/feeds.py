@@ -26,6 +26,10 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
+from app.services.feed_fetch_ownership import (
+    FEED_FETCH_CONFIGURATION_FIELDS,
+    apply_feed_fetch_configuration,
+)
 from app.services.feed_probe import FeedProbeError, probe_feed_metadata
 from app.services.feed_storage import feed_url_digest
 from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
@@ -144,7 +148,11 @@ def import_feeds(
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
 
-        existing = _get_feed_by_url(db, feed_url)
+        existing = _get_feed_by_url(
+            db,
+            feed_url,
+            for_update=payload.overwrite_existing,
+        )
         if existing is not None and not payload.overwrite_existing:
             skipped += 1
             continue
@@ -158,7 +166,11 @@ def import_feeds(
                 created += 1
                 continue
 
-            existing = _get_feed_by_url(db, feed_url)
+            existing = _get_feed_by_url(
+                db,
+                feed_url,
+                for_update=payload.overwrite_existing,
+            )
             if existing is None:
                 errors.append(f"entry {index}: feed URL already exists")
                 continue
@@ -278,7 +290,7 @@ def update_feed(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id))
+    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
     if feed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
 
@@ -298,18 +310,7 @@ def update_feed(
         existing = _get_feed_by_url(db, feed_url)
         if existing is not None and existing.id != feed.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
-
-        if feed_url_digest(feed_url) != feed.url_digest:
-            feed.url = feed_url
-            feed.etag = None
-            feed.last_modified = None
-            feed.last_fetch_at = None
-            feed.last_success_at = None
-            feed.next_fetch_at = None
-            feed.dispatch_claimed_at = None
-            feed.dispatch_backoff_until = None
-            feed.error_count = 0
-            feed.last_error = None
+        updates["url"] = feed_url
         audit_updates["url"] = redact_feed_url(feed_url)
 
     target_mode = updates.get("fetch_mode", feed.fetch_mode)
@@ -322,6 +323,26 @@ def update_feed(
         if not schedule_cron:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="schedule_cron is required for schedule mode")
         updates["schedule_cron"] = schedule_cron
+
+    fetch_configuration_updates = {
+        key: updates.pop(key)
+        for key in tuple(updates)
+        if key in FEED_FETCH_CONFIGURATION_FIELDS
+    }
+    changed_fetch_fields = apply_feed_fetch_configuration(
+        feed,
+        fetch_configuration_updates,
+    )
+    if "url" in changed_fetch_fields:
+        feed.etag = None
+        feed.last_modified = None
+        feed.last_fetch_at = None
+        feed.last_success_at = None
+        feed.next_fetch_at = None
+        feed.dispatch_claimed_at = None
+        feed.dispatch_backoff_until = None
+        feed.error_count = 0
+        feed.last_error = None
 
     for key, value in updates.items():
         setattr(feed, key, value)
@@ -429,11 +450,19 @@ def _create_feed_record(db: Session, **feed_values) -> Feed | None:
     return feed
 
 
-def _get_feed_by_url(db: Session, feed_url: str) -> Feed | None:
+def _get_feed_by_url(
+    db: Session,
+    feed_url: str,
+    *,
+    for_update: bool = False,
+) -> Feed | None:
     digest = feed_url_digest(feed_url)
     if digest is None:
         return None
-    return db.scalar(select(Feed).where(Feed.url_digest == digest))
+    statement = select(Feed).where(Feed.url_digest == digest)
+    if for_update:
+        statement = statement.with_for_update()
+    return db.scalar(statement)
 
 
 def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None) -> int:
@@ -536,7 +565,15 @@ def _resolve_import_feed_values(
 
 
 def _apply_feed_values(feed: Feed, values: dict[str, str | bool | int | None]) -> None:
+    fetch_configuration_values = {
+        key: value
+        for key, value in values.items()
+        if key in FEED_FETCH_CONFIGURATION_FIELDS
+    }
+    apply_feed_fetch_configuration(feed, fetch_configuration_values)
     for key, value in values.items():
+        if key in FEED_FETCH_CONFIGURATION_FIELDS:
+            continue
         setattr(feed, key, value)
 
 
