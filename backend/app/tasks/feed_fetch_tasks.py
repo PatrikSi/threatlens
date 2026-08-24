@@ -11,6 +11,9 @@ from app.models.feed import Feed
 from app.models.item import Item
 
 
+FETCH_TASK_MAX_RETRIES = 3
+
+
 @dataclass(frozen=True)
 class FeedFetchResponse:
     body: bytes
@@ -526,18 +529,7 @@ def _retry_feed_exception(
         if coordination
         else r._safe_feed_fetch_error_code(exc)
     )
-    r.logger.warning(
-        "feed_fetch_retrying feed_id=%s retries=%s error_code=%s error_type=%s",
-        feed_id,
-        task.request.retries,
-        error_code,
-        r._exception_type_name(exc),
-    )
-    try:
-        raise task.retry(
-            exc=exc, countdown=min(2**task.request.retries, 300), max_retries=3
-        )
-    except r.MaxRetriesExceededError:
+    if _retry_budget_exhausted(task):
         if coordination:
             r.logger.error(
                 "feed_fetch_coordination_retries_exhausted feed_id=%s error_type=%s",
@@ -566,6 +558,18 @@ def _retry_feed_exception(
             runtime=r,
         )
         return {"status": "error", "feed_id": feed_id}
+    r.logger.warning(
+        "feed_fetch_retrying feed_id=%s retries=%s error_code=%s error_type=%s",
+        feed_id,
+        task.request.retries,
+        error_code,
+        r._exception_type_name(exc),
+    )
+    raise task.retry(
+        exc=exc,
+        countdown=min(2 ** int(task.request.retries or 0), 300),
+        max_retries=FETCH_TASK_MAX_RETRIES,
+    )
 
 
 def _store_feed_response(
@@ -792,11 +796,7 @@ def _recover_coordination_failure(
         feed_id,
         r._exception_type_name(exc),
     )
-    try:
-        raise task.retry(
-            exc=exc, countdown=min(2**task.request.retries, 300), max_retries=3
-        )
-    except r.MaxRetriesExceededError:
+    if _retry_budget_exhausted(task):
         with r.db_session() as db:
             parsed_feed_id = _parse_uuid(feed_id)
             if parsed_feed_id is None:
@@ -807,3 +807,12 @@ def _recover_coordination_failure(
                 parsed_feed_id,
                 runtime=r,
             )
+    raise task.retry(
+        exc=exc,
+        countdown=min(2 ** int(task.request.retries or 0), 300),
+        max_retries=FETCH_TASK_MAX_RETRIES,
+    )
+
+
+def _retry_budget_exhausted(task) -> bool:
+    return int(getattr(task.request, "retries", 0) or 0) >= FETCH_TASK_MAX_RETRIES

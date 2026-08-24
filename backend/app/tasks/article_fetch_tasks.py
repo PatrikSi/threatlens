@@ -12,6 +12,9 @@ from app.models.article import Article
 from app.models.item import Item
 
 
+ARTICLE_FETCH_MAX_RETRIES = 3
+
+
 @dataclass(frozen=True)
 class ArticleFetchResult:
     final_url: str
@@ -298,18 +301,7 @@ def _retryable_failure(
             item_id, target_url, candidate_urls[index + 1], error_code, exc, runtime=r
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
-    try:
-        r.logger.warning(
-            "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
-            item_id,
-            task.request.retries,
-            error_code,
-            r._exception_type_name(exc),
-        )
-        raise task.retry(
-            exc=exc, countdown=min(2**task.request.retries, 300), max_retries=3
-        )
-    except r.MaxRetriesExceededError:
+    if int(getattr(task.request, "retries", 0) or 0) >= ARTICLE_FETCH_MAX_RETRIES:
         r.logger.error(
             "article_fetch_failed item_id=%s error_code=%s error_type=%s",
             item_id,
@@ -317,6 +309,18 @@ def _retryable_failure(
             r._exception_type_name(exc),
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
+    r.logger.warning(
+        "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
+        item_id,
+        task.request.retries,
+        error_code,
+        r._exception_type_name(exc),
+    )
+    raise task.retry(
+        exc=exc,
+        countdown=min(2 ** int(task.request.retries or 0), 300),
+        max_retries=ARTICLE_FETCH_MAX_RETRIES,
+    )
 
 
 def _log_fallback(
