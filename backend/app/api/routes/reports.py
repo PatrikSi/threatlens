@@ -751,10 +751,13 @@ def run_schedule(
         )
     if not reports:
         if schedule.failure_state == "quarantined":
+            detail = schedule.last_error or (
+                "The report schedule is quarantined until its configuration is corrected."
+            )
+            db.commit()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=schedule.last_error
-                or "The report schedule is quarantined until its configuration is corrected.",
+                detail=detail,
             )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
