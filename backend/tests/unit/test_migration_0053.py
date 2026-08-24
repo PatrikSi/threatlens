@@ -32,6 +32,9 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
     schema_database_url = _database_url_for_schema(test_database_url, schema_name)
     admin_engine = create_engine(test_database_url, isolation_level="AUTOCOMMIT")
     schema_engine = create_engine(schema_database_url)
+    user_id = uuid.uuid4()
+    receipt_id = uuid.uuid4()
+    resource_id = uuid.uuid4()
 
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
@@ -87,13 +90,61 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
                 "resource_type",
                 "resource_id",
             )
+            with schema_engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO users (id, email, password_hash, is_approved) "
+                        "VALUES (:id, :email, 'not-a-login-secret', true)"
+                    ),
+                    {
+                        "id": user_id,
+                        "email": f"migration-0053-{user_id}@example.com",
+                    },
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO report_operation_receipts (
+                            id, actor_user_id, operation, key_hash, fingerprint,
+                            resource_type, resource_id
+                        ) VALUES (
+                            :id, :user_id, 'report:template:create',
+                            :key_hash, :fingerprint, 'report_template', :resource_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": receipt_id,
+                        "user_id": user_id,
+                        "key_hash": "a" * 64,
+                        "fingerprint": "b" * 64,
+                        "resource_id": resource_id,
+                    },
+                )
 
             command.downgrade(config, "0052_legacy_worker_guard")
             with schema_engine.connect() as connection:
-                assert not inspect(connection).has_table(
+                assert inspect(connection).has_table(
                     "report_operation_receipts",
                     schema=schema_name,
                 )
+                assert connection.scalar(
+                    text(
+                        "SELECT resource_id FROM report_operation_receipts "
+                        "WHERE id = :id"
+                    ),
+                    {"id": receipt_id},
+                ) == resource_id
+
+            command.upgrade(config, "0053_report_operation_receipts")
+            with schema_engine.connect() as connection:
+                assert connection.scalar(
+                    text(
+                        "SELECT resource_id FROM report_operation_receipts "
+                        "WHERE id = :id"
+                    ),
+                    {"id": receipt_id},
+                ) == resource_id
     finally:
         schema_engine.dispose()
         get_settings.cache_clear()

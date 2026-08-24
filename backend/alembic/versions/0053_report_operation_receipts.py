@@ -18,6 +18,8 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if sa.inspect(op.get_bind()).has_table("report_operation_receipts"):
+        return
     op.create_table(
         "report_operation_receipts",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -60,12 +62,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_report_operation_receipts_resource",
-        table_name="report_operation_receipts",
-    )
-    op.drop_index(
-        op.f("ix_report_operation_receipts_actor_user_id"),
-        table_name="report_operation_receipts",
-    )
-    op.drop_table("report_operation_receipts")
+    # The previous application ignores this additive table. Preserve receipts so
+    # a rollback/re-upgrade cannot make accepted keys replay as new operations.
+    pass
