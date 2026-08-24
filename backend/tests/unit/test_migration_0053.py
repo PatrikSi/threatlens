@@ -35,6 +35,7 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
     user_id = uuid.uuid4()
     receipt_id = uuid.uuid4()
     resource_id = uuid.uuid4()
+    public_receipt_table_created = False
 
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
@@ -44,6 +45,17 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
                 "(version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
             )
         )
+        if not inspect(connection).has_table(
+            "report_operation_receipts",
+            schema="public",
+        ):
+            connection.execute(
+                text(
+                    "CREATE TABLE public.report_operation_receipts "
+                    "(migration_visibility_sentinel INTEGER)"
+                )
+            )
+            public_receipt_table_created = True
 
     try:
         with monkeypatch.context() as migration_env:
@@ -60,17 +72,24 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
                 inspector = inspect(connection)
                 columns = {
                     column["name"]
-                    for column in inspector.get_columns("report_operation_receipts")
+                    for column in inspector.get_columns(
+                        "report_operation_receipts",
+                        schema=schema_name,
+                    )
                 }
                 unique_constraints = {
                     constraint["name"]: tuple(constraint["column_names"])
                     for constraint in inspector.get_unique_constraints(
-                        "report_operation_receipts"
+                        "report_operation_receipts",
+                        schema=schema_name,
                     )
                 }
                 indexes = {
                     index["name"]: tuple(index["column_names"])
-                    for index in inspector.get_indexes("report_operation_receipts")
+                    for index in inspector.get_indexes(
+                        "report_operation_receipts",
+                        schema=schema_name,
+                    )
                 }
 
             assert columns == {
@@ -150,4 +169,8 @@ def test_report_operation_receipts_migrate_and_downgrade(test_database_url, monk
         get_settings.cache_clear()
         with admin_engine.connect() as connection:
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+            if public_receipt_table_created:
+                connection.execute(
+                    text("DROP TABLE public.report_operation_receipts")
+                )
         admin_engine.dispose()

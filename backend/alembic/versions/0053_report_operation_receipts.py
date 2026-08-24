@@ -18,7 +18,12 @@ depends_on = None
 
 
 def upgrade() -> None:
-    if sa.inspect(op.get_bind()).has_table("report_operation_receipts"):
+    connection = op.get_bind()
+    current_schema = connection.scalar(sa.text("SELECT current_schema()"))
+    if sa.inspect(connection).has_table(
+        "report_operation_receipts",
+        schema=current_schema,
+    ):
         return
     op.create_table(
         "report_operation_receipts",
