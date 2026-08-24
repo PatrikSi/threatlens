@@ -3,6 +3,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfoNotFoundError
 
+import pytest
+
 from app.core.config import get_settings
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
@@ -11,6 +13,7 @@ from app.schemas.reports import ReportArticleFilters, ReportSectionSetError
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.export_query import ExportSnapshotChangedError
 from app.services.report_schedules import (
+    _create_one_scheduled_report,
     apply_schedule_payload,
     list_due_schedule_ids,
     next_schedule_run,
@@ -162,6 +165,82 @@ def test_due_schedule_query_excludes_backed_off_failures(db_session):
 
     assert ready.id in due_ids
     assert backed_off.id not in due_ids
+
+
+@pytest.mark.parametrize(
+    ("total_matches", "omitted_sources", "error_code", "coverage_percent"),
+    [
+        (0, 0, "no_sources", 100.0),
+        (3, 3, "context_budget", 0.0),
+    ],
+)
+def test_skipped_scheduled_report_persists_complete_coverage(
+    db_session,
+    monkeypatch,
+    total_matches,
+    omitted_sources,
+    error_code,
+    coverage_percent,
+):
+    due_at = datetime.now(timezone.utc)
+    schedule = _persist_schedule(db_session, next_run_at=due_at)
+    schedule.delivery_enabled = True
+    template = db_session.get(ReportTemplate, schedule.template_id)
+    assert template is not None
+    template.use_company_context = False
+    plan = SimpleNamespace(
+        included_sources=[],
+        total_matches=total_matches,
+        omitted_source_count=omitted_sources,
+        metrics={"matched": total_matches},
+        warnings=["No sources selected."],
+        estimated_source_tokens=0,
+        budget=SimpleNamespace(context_window_tokens=4096),
+        batch_count=0,
+    )
+    active = SimpleNamespace(
+        ai_enabled=True,
+        ai_configured=True,
+        reporting_enabled=True,
+        provider_type="openai_compatible",
+        model="test-model",
+        global_instructions=None,
+    )
+    monkeypatch.setattr(
+        "app.services.report_schedules.load_active_ai_settings",
+        lambda _db: active,
+    )
+    monkeypatch.setattr(
+        "app.services.report_schedules.build_report_source_plan",
+        lambda *_args, **_kwargs: plan,
+    )
+
+    report = _create_one_scheduled_report(
+        db_session,
+        schedule=schedule,
+        template=template,
+        due_at=due_at,
+    )
+    assert report is not None
+    db_session.commit()
+    db_session.refresh(report)
+
+    assert report.status == "skipped"
+    assert report.error_code == error_code
+    assert report.source_count == total_matches
+    assert report.included_source_count == 0
+    assert report.excluded_source_count == omitted_sources
+    assert report.metrics_json == {"matched": total_matches}
+    assert report.coverage_json == {
+        "total_matches": total_matches,
+        "included_sources": 0,
+        "omitted_sources": omitted_sources,
+        "coverage_percent": coverage_percent,
+        "warnings": ["No sources selected."],
+    }
+    assert report.context_window_tokens == 4096
+    assert report.generation_batches == 0
+    assert report.delivery_requested is False
 
 
 def test_transient_schedule_failure_backs_off_then_advances_occurrence(

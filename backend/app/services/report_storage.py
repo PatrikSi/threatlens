@@ -82,22 +82,7 @@ def create_report_from_plan(
             "global_instructions": active.global_instructions,
         },
         sections_config_json=[section.model_dump(mode="json") for section in payload.sections],
-        metrics_json=plan.metrics,
-        coverage_json={
-            "total_matches": plan.total_matches,
-            "included_sources": len(plan.included_sources),
-            "omitted_sources": plan.omitted_source_count,
-            "coverage_percent": round(100 * len(plan.included_sources) / plan.total_matches, 1)
-            if plan.total_matches
-            else 100.0,
-            "warnings": list(plan.warnings),
-        },
-        source_count=plan.total_matches,
-        included_source_count=len(plan.included_sources),
-        excluded_source_count=plan.omitted_source_count,
-        estimated_input_tokens=plan.estimated_source_tokens,
-        context_window_tokens=plan.budget.context_window_tokens,
-        generation_batches=plan.batch_count,
+        **report_plan_record_fields(plan),
         provider=active.provider_type,
         model=active.model,
         delivery_requested=payload.deliver_when_ready,
@@ -108,6 +93,30 @@ def create_report_from_plan(
     _replace_report_sources(db, report=report, plan=plan)
     _replace_report_sections(db, report=report, sections=payload.sections)
     return report
+
+
+def report_plan_record_fields(plan: ReportSourcePlan) -> dict[str, object]:
+    included_count = len(plan.included_sources)
+    return {
+        "metrics_json": plan.metrics,
+        "coverage_json": {
+            "total_matches": plan.total_matches,
+            "included_sources": included_count,
+            "omitted_sources": plan.omitted_source_count,
+            "coverage_percent": (
+                round(100 * included_count / plan.total_matches, 1)
+                if plan.total_matches
+                else 100.0
+            ),
+            "warnings": list(plan.warnings),
+        },
+        "source_count": plan.total_matches,
+        "included_source_count": included_count,
+        "excluded_source_count": plan.omitted_source_count,
+        "estimated_input_tokens": plan.estimated_source_tokens,
+        "context_window_tokens": plan.budget.context_window_tokens,
+        "generation_batches": plan.batch_count,
+    }
 
 
 def reset_report_for_retry(db: Session, *, report: Report) -> None:

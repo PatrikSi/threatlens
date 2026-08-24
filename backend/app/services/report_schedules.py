@@ -38,7 +38,11 @@ from app.services.report_sources import (
     build_report_source_plan,
     filters_for_report_period,
 )
-from app.services.report_storage import ReportStorageError, create_report_from_plan
+from app.services.report_storage import (
+    ReportStorageError,
+    create_report_from_plan,
+    report_plan_record_fields,
+)
 from app.services.resource_versions import next_resource_version, resource_version_value
 
 
@@ -377,6 +381,12 @@ def _create_one_scheduled_report(
     except ReportStorageError:
         if not schedule.skip_empty:
             raise
+        error_code = "no_sources" if plan.total_matches == 0 else "context_budget"
+        error = (
+            "No matching source articles were available for the scheduled period."
+            if plan.total_matches == 0
+            else "Matching source articles did not fit the configured AI context budget."
+        )
         report = Report(
             template_id=template.id,
             schedule_id=schedule.id,
@@ -402,14 +412,11 @@ def _create_one_scheduled_report(
             sections_config_json=[
                 section.model_dump(mode="json") for section in sections
             ],
-            metrics_json=plan.metrics,
-            coverage_json={"warnings": list(plan.warnings)},
-            source_count=plan.total_matches,
-            context_window_tokens=active.report_context_window_tokens,
+            **report_plan_record_fields(plan),
             provider=active.provider_type,
             model=active.model,
-            error_code="no_sources",
-            error="No matching source articles were available for the scheduled period.",
+            error_code=error_code,
+            error=error,
             delivery_mode=schedule.delivery_mode,
         )
         try:
