@@ -210,4 +210,5 @@ export interface ReportQueueResponse {
   task_run_id: string
   celery_task_id: string | null
   status: string
+  schedule_id?: string | null
 }

@@ -499,7 +499,7 @@ describe('ReportingPage detail actions', () => {
           }
           return Promise.resolve({
             report_id: 'report-1',
-            task_run_id: 'run-1',
+            task_run_id: '33333333-3333-4333-8333-333333333333',
             celery_task_id: null,
             status: 'running',
           })
@@ -542,7 +542,7 @@ describe('ReportingPage detail actions', () => {
             ? Promise.resolve(undefined)
             : Promise.resolve({
                 report_id: 'report-1',
-                task_run_id: 'run-1',
+                task_run_id: '33333333-3333-4333-8333-333333333333',
                 celery_task_id: null,
                 status: 'running',
               })
@@ -664,8 +664,8 @@ describe('ReportingPage schedule resilience', () => {
           return Promise.reject(new ApiTransportError('The API could not be reached.', path, 'network'))
         }
         return Promise.resolve([{
-          report_id: 'report-2',
-          task_run_id: 'run-2',
+          report_id: '22222222-2222-4222-8222-222222222222',
+          task_run_id: '33333333-3333-4333-8333-333333333333',
           celery_task_id: null,
           status: 'queued',
         }])
@@ -730,8 +730,8 @@ describe('ReportingPage schedule resilience', () => {
 
     await act(async () => {
       resolveRun?.([{
-        report_id: 'report-2',
-        task_run_id: 'run-2',
+        report_id: '22222222-2222-4222-8222-222222222222',
+        task_run_id: '33333333-3333-4333-8333-333333333333',
         celery_task_id: null,
         status: 'queued',
       }])
@@ -779,7 +779,11 @@ describe('ReportingPage template pending state', () => {
     expect(rowButton(secondRow, 'Clone').disabled).toBe(false)
 
     await act(async () => {
-      resolveClone?.({ ...REPORT_TEMPLATE, id: 'template-clone', name: 'Threat landscape copy' })
+      resolveClone?.({
+        ...REPORT_TEMPLATE,
+        id: '77777777-7777-4777-8777-777777777777',
+        name: 'Threat landscape copy',
+      })
       await vi.waitFor(() => expect(view.textContent).toContain('Template cloned'))
     })
   })

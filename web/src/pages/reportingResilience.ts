@@ -23,7 +23,7 @@ export function requireReportQueueResponse(
   path: string,
   expectedReportId?: string,
 ): ReportQueueResponse {
-  if (!isReportQueueResponse(value)) {
+  if (!isReportQueueResponse(value, expectedReportId)) {
     throw invalidReportingResponse(
       path,
       value,
@@ -45,12 +45,27 @@ export function requireReportQueueResponse(
 export function requireReportQueueResponseList(
   value: unknown,
   path: string,
+  expectedScheduleId?: string,
 ): ReportQueueResponse[] {
-  if (!Array.isArray(value) || !value.every(isReportQueueResponse)) {
+  if (!Array.isArray(value) || !value.every((entry) => isReportQueueResponse(entry))) {
     throw invalidReportingResponse(
       path,
       value,
       'The API accepted the schedule run but returned an incomplete queue confirmation.',
+      202,
+    )
+  }
+  if (
+    expectedScheduleId
+    && value.some(
+      (entry) => entry.schedule_id !== undefined
+        && entry.schedule_id !== expectedScheduleId,
+    )
+  ) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      'The API returned a queue confirmation for a different report schedule.',
       202,
     )
   }
@@ -64,7 +79,10 @@ export function requireReportingResource<T extends { id: string }>(
   responseStatus: 200 | 201,
   expectedResourceId?: string,
 ): T {
-  if (!isRecord(value) || !isNonEmptyString(value.id)) {
+  if (
+    !isRecord(value)
+    || !isResourceIdentifier(value.id, expectedResourceId)
+  ) {
     throw invalidReportingResponse(
       path,
       value,
@@ -81,6 +99,33 @@ export function requireReportingResource<T extends { id: string }>(
     )
   }
   return value as T
+}
+
+export function requireClonedReportingResource<T extends { id: string }>(
+  value: unknown,
+  path: string,
+  resourceLabel: string,
+  sourceResourceId: string,
+): T {
+  const resource = requireReportingResource<T>(
+    value,
+    path,
+    resourceLabel,
+    201,
+  )
+  if (resource.id === sourceResourceId) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      `The API returned the source resource instead of the new ${resourceLabel}.`,
+      201,
+    )
+  }
+  return resource
+}
+
+export function reportResourceVersionHeader(updatedAt: string): string {
+  return `"${updatedAt}"`
 }
 
 export function shouldRetryReportPreview(failureCount: number, error: unknown): boolean {
@@ -173,12 +218,20 @@ export function resolveReportCreateBlockedReason({
   return null
 }
 
-function isReportQueueResponse(value: unknown): value is ReportQueueResponse {
+function isReportQueueResponse(
+  value: unknown,
+  expectedReportId?: string,
+): value is ReportQueueResponse {
   return isRecord(value)
-    && isNonEmptyString(value.report_id)
-    && isNonEmptyString(value.task_run_id)
+    && isResourceIdentifier(value.report_id, expectedReportId)
+    && isUuid(value.task_run_id)
     && isNonEmptyString(value.status)
     && (value.celery_task_id === null || typeof value.celery_task_id === 'string')
+    && (
+      value.schedule_id === undefined
+      || value.schedule_id === null
+      || isUuid(value.schedule_id)
+    )
 }
 
 function invalidReportingResponse(
@@ -200,4 +253,20 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && Boolean(value.trim())
+}
+
+function isResourceIdentifier(
+  value: unknown,
+  expectedResourceId?: string,
+): value is string {
+  return isUuid(value) || (
+    isNonEmptyString(value)
+    && expectedResourceId !== undefined
+    && value === expectedResourceId
+  )
+}
+
+function isUuid(value: unknown): value is string {
+  return typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
