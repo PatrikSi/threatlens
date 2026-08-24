@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,10 @@ from app.services.report_task_lineage import (
     find_report_request_task_run,
     resolve_report_task_run,
 )
+from app.tasks.celery_app import QUEUE_AI_REPORTS, celery_app
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -340,6 +345,29 @@ def has_queued_report_dispatches(db: Session) -> bool:
     )
 
 
+def report_queue_subscription_available() -> bool | None:
+    settings = get_settings()
+    try:
+        inspector = celery_app.control.inspect(
+            timeout=settings.health_worker_ping_timeout_seconds
+        )
+        raw_queues = inspector.active_queues()
+    except Exception as exc:
+        logger.warning(
+            "report_dispatch_queue_inspection_failed error_type=%s",
+            type(exc).__name__,
+        )
+        return None
+    if not isinstance(raw_queues, dict):
+        return False
+    return any(
+        isinstance(queue, dict) and queue.get("name") == QUEUE_AI_REPORTS
+        for queues in raw_queues.values()
+        if isinstance(queues, list)
+        for queue in queues
+    )
+
+
 def set_report_dispatch_waiting_state(
     db: Session,
     *,
@@ -450,6 +478,7 @@ __all__ = [
     "list_due_report_dispatches",
     "record_report_dispatch_failure",
     "record_report_dispatch_success",
+    "report_queue_subscription_available",
     "set_report_dispatch_waiting_state",
     "stable_report_task_id",
     "supersede_legacy_report_dispatch",
