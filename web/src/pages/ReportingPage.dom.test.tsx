@@ -46,6 +46,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
 
 import { ApiTransportError } from '../api/client'
 import { ReportingPage } from './ReportingPage'
+import { resetPendingReportingKeys } from './reportingRequestCoordinator'
 
 
 const CAPABILITIES = {
@@ -285,6 +286,7 @@ function button(view: HTMLDivElement, label: string): HTMLButtonElement {
 }
 
 beforeEach(() => {
+  resetPendingReportingKeys()
   reportingPageMocks.routeReportId = 'report-1'
   reportingPageMocks.userRole = 'analyst'
   reportingPageMocks.apiFetch.mockImplementation((path: string) => {
@@ -328,6 +330,7 @@ afterEach(async () => {
   reportingPageMocks.revokeObjectURL.mockClear()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
+  resetPendingReportingKeys()
 })
 
 describe('ReportingPage detail actions', () => {
@@ -522,6 +525,59 @@ describe('ReportingPage detail actions', () => {
     expect(requestHeaders[1]).toBe(requestHeaders[0])
     expect(view.textContent).toContain('already accepted and generation is in progress')
   })
+
+  it('keeps the retry identity through a remount after an incomplete success response', async () => {
+    const requestHeaders: string[] = []
+    let retryCalls = 0
+    reportingPageMocks.apiFetch.mockImplementation(
+      (path: string, options?: RequestInit) => {
+        if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+        if (path === '/reports/templates') return Promise.resolve([])
+        if (path === '/reports?limit=100') return Promise.resolve([])
+        if (path === '/reports/report-1') return Promise.resolve(reportDetail('error'))
+        if (path === '/reports/report-1/retry') {
+          retryCalls += 1
+          requestHeaders.push(new Headers(options?.headers).get('Idempotency-Key') ?? '')
+          return retryCalls === 1
+            ? Promise.resolve(undefined)
+            : Promise.resolve({
+                report_id: 'report-1',
+                task_run_id: 'run-1',
+                celery_task_id: null,
+                status: 'running',
+              })
+        }
+        return Promise.reject(new Error(`Unexpected API path: ${path}`))
+      },
+    )
+    const firstView = renderPage()
+    await waitForReport(firstView)
+
+    await act(async () => {
+      button(firstView, 'Retry').click()
+      await vi.waitFor(() => expect(firstView.textContent).toContain('incomplete queue confirmation'))
+    })
+    await act(async () => {
+      root?.unmount()
+      await Promise.resolve()
+    })
+    queryClient?.clear()
+    queryClient = null
+    root = null
+    container?.remove()
+    container = null
+
+    const secondView = renderPage()
+    await waitForReport(secondView)
+    await act(async () => {
+      button(secondView, 'Retry').click()
+      await vi.waitFor(() => expect(retryCalls).toBe(2))
+    })
+
+    expect(requestHeaders[0]).not.toBe('')
+    expect(requestHeaders[1]).toBe(requestHeaders[0])
+    expect(secondView.textContent).toContain('already accepted and generation is in progress')
+  })
 })
 
 describe('ReportingPage schedule resilience', () => {
@@ -690,12 +746,14 @@ describe('ReportingPage template pending state', () => {
     const secondTemplate = { ...REPORT_TEMPLATE, id: 'template-2', name: 'Executive landscape' }
     let resolveClone: ((value: ReportTemplate) => void) | undefined
     let cloneRequests = 0
+    const cloneHeaders: string[] = []
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE, secondTemplate])
       if (path === '/reports?limit=100') return Promise.resolve([])
       if (path === '/reports/templates/template-1/clone' && options?.method === 'POST') {
         cloneRequests += 1
+        cloneHeaders.push(new Headers(options.headers).get('Idempotency-Key') ?? '')
         return new Promise((resolve) => { resolveClone = resolve })
       }
       return Promise.reject(new Error(`Unexpected API path: ${path}`))
@@ -717,6 +775,7 @@ describe('ReportingPage template pending state', () => {
       await vi.waitFor(() => expect(rowButton(firstRow, 'Cloning...').disabled).toBe(true))
     })
     expect(cloneRequests).toBe(1)
+    expect(cloneHeaders[0]).not.toBe('')
     expect(rowButton(secondRow, 'Clone').disabled).toBe(false)
 
     await act(async () => {

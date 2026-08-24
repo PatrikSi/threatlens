@@ -1,4 +1,5 @@
 import { ApiError, ApiTransportError } from '../api/client'
+import type { ReportQueueResponse } from '../types/api'
 
 export const REPORT_PREVIEW_TIMEOUT_MS = 60_000
 export const REPORT_CREATE_TIMEOUT_MS = 120_000
@@ -11,6 +12,57 @@ export type ReportQueueFeedback = {
 
 const RETRYABLE_CLIENT_STATUSES = new Set([408, 409, 425, 429])
 const NON_BLOCKING_CLIENT_STATUSES = new Set([408, 425, 429])
+
+export function isAmbiguousReportingMutationError(error: unknown): boolean {
+  return error instanceof ApiTransportError
+    || (error instanceof ApiError && (error.status >= 500 || error.code === 'invalid_response'))
+}
+
+export function requireReportQueueResponse(
+  value: unknown,
+  path: string,
+): ReportQueueResponse {
+  if (!isReportQueueResponse(value)) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      'The API accepted the report request but returned an incomplete queue confirmation.',
+      202,
+    )
+  }
+  return value
+}
+
+export function requireReportQueueResponseList(
+  value: unknown,
+  path: string,
+): ReportQueueResponse[] {
+  if (!Array.isArray(value) || !value.every(isReportQueueResponse)) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      'The API accepted the schedule run but returned an incomplete queue confirmation.',
+      202,
+    )
+  }
+  return value
+}
+
+export function requireReportingResource<T extends { id: string }>(
+  value: unknown,
+  path: string,
+  resourceLabel: string,
+): T {
+  if (!isRecord(value) || !isNonEmptyString(value.id)) {
+    throw invalidReportingResponse(
+      path,
+      value,
+      `The API accepted the ${resourceLabel} request but did not identify the saved resource.`,
+      201,
+    )
+  }
+  return value as T
+}
 
 export function shouldRetryReportPreview(failureCount: number, error: unknown): boolean {
   if (failureCount >= 1) return false
@@ -100,4 +152,33 @@ export function resolveReportCreateBlockedReason({
     return 'No matching articles fit the current source and context guardrails.'
   }
   return null
+}
+
+function isReportQueueResponse(value: unknown): value is ReportQueueResponse {
+  return isRecord(value)
+    && isNonEmptyString(value.report_id)
+    && isNonEmptyString(value.task_run_id)
+    && isNonEmptyString(value.status)
+    && (value.celery_task_id === null || typeof value.celery_task_id === 'string')
+}
+
+function invalidReportingResponse(
+  path: string,
+  value: unknown,
+  message: string,
+  status: number,
+): ApiError {
+  return new ApiError(message, status, path, value, {
+    responseBody: value,
+    code: 'invalid_response',
+    retryable: true,
+  })
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && Boolean(value.trim())
 }
