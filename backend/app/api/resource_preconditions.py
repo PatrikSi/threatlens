@@ -98,9 +98,9 @@ def _canonical_timestamp_tag(value: str) -> str | None:
         return None
     try:
         parsed = datetime.fromisoformat(opaque_value.replace("Z", "+00:00"))
-    except ValueError:
+        return resource_version_tag(as_utc(parsed))
+    except (OverflowError, ValueError):
         return None
-    return resource_version_tag(as_utc(parsed))
 
 
 __all__ = [
