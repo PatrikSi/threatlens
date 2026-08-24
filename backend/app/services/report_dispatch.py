@@ -14,7 +14,10 @@ from app.models.report import Report
 from app.services.ai_ops_common import (
     AI_STATUS_QUEUED,
     AI_TASK_TYPE_REPORT,
-    AI_TASK_TYPE_REPORT_SUPERSEDED,
+)
+from app.services.report_task_lineage import (
+    find_report_request_task_run,
+    resolve_report_task_run,
 )
 
 
@@ -50,6 +53,14 @@ def supersede_legacy_report_dispatch(
         .execution_options(populate_existing=True)
     )
     if (
+        run is not None
+        and run.task_type == AI_TASK_TYPE_REPORT
+        and run.report_id == report_id
+    ):
+        canonical = resolve_report_task_run(db, run)
+        if canonical.id != run.id:
+            return canonical.id
+    if (
         not _is_dispatchable(run, report_id=report_id)
         or int(run.dispatch_protocol_version or 1) >= 2
     ):
@@ -63,14 +74,11 @@ def supersede_legacy_report_dispatch(
     if report is None or report.status not in {"queued", "running"}:
         return task_run_id
 
+    request_run = find_report_request_task_run(db, report=report)
     observed_at = _as_utc(now)
     replacement_id = uuid.uuid4()
     request_key_hash = run.request_idempotency_key_hash
     request_fingerprint = run.request_fingerprint
-    if report.initial_task_run_id is None:
-        report.initial_task_run_id = run.id
-        db.add(report)
-    run.task_type = AI_TASK_TYPE_REPORT_SUPERSEDED
     run.status = "skipped"
     run.reason = "superseded_for_fenced_dispatch"
     run.finished_at = observed_at
@@ -124,6 +132,11 @@ def supersede_legacy_report_dispatch(
     db.flush()
     run.superseded_by_task_run_id = replacement.id
     db.add(run)
+    if request_run is not None:
+        report.request_task_run_id = (
+            replacement.id if request_run.id == run.id else request_run.id
+        )
+        db.add(report)
     db.add(
         AITaskEvent(
             task_run_id=replacement.id,

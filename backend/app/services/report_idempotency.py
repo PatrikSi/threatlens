@@ -12,12 +12,9 @@ from sqlalchemy.orm import Session
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.models.report_operation_receipt import ReportOperationReceipt
-from app.services.ai_ops_common import (
-    AI_TASK_TYPE_REPORT,
-    AI_TASK_TYPE_REPORT_SUPERSEDED,
-)
 from app.services.report_task_lineage import (
     ReportTaskLineageError,
+    find_report_request_task_run,
     resolve_report_task_run,
 )
 
@@ -192,7 +189,7 @@ def find_report_create_replay(
     if report is None:
         return None
     _ensure_matching_fingerprint(report.request_fingerprint, identity.fingerprint)
-    run = _initial_report_task_run(db, report=report)
+    run = _request_report_task_run(db, report=report)
     if run is None:
         raise ReportIdempotencyConflictError(
             "The original report request exists, but its task record is unavailable. "
@@ -244,7 +241,7 @@ def find_report_schedule_run_replay(
     if report is None:
         return None
     _ensure_matching_fingerprint(report.request_fingerprint, identity.fingerprint)
-    run = _initial_report_task_run(db, report=report)
+    run = _request_report_task_run(db, report=report)
     if run is None and report.status == "skipped":
         return report, None
     if run is None:
@@ -257,27 +254,14 @@ def find_report_schedule_run_replay(
     return report, run
 
 
-def _initial_report_task_run(db: Session, *, report: Report) -> AITaskRun | None:
-    run = (
-        db.get(AITaskRun, report.initial_task_run_id)
-        if report.initial_task_run_id is not None
-        else None
-    )
-    if run is None and report.initial_task_run_id is None:
-        run = db.scalar(
-            select(AITaskRun)
-            .where(
-                AITaskRun.report_id == report.id,
-                AITaskRun.task_type.in_(
-                    [AI_TASK_TYPE_REPORT, AI_TASK_TYPE_REPORT_SUPERSEDED]
-                ),
-            )
-            .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
-            .limit(1)
-        )
-    if run is None:
-        return None
-    return _canonical_report_task_run(db, run=run)
+def _request_report_task_run(db: Session, *, report: Report) -> AITaskRun | None:
+    try:
+        return find_report_request_task_run(db, report=report)
+    except ReportTaskLineageError as exc:
+        raise ReportIdempotencyConflictError(
+            "The original report task has invalid supersession history. "
+            "Contact an administrator before retrying this request."
+        ) from exc
 
 
 def _canonical_report_task_run(db: Session, *, run: AITaskRun) -> AITaskRun:

@@ -43,6 +43,7 @@ from app.services.report_dispatch import (
 )
 from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
 from app.services.report_schedules import record_schedule_failure
+from app.services.report_task_lineage import find_report_request_task_run
 from app.services.report_availability import (
     ReportingUnavailableError,
     ensure_reporting_available,
@@ -64,9 +65,17 @@ def create_report_task_run(
     report: Report,
     actor_user_id: uuid.UUID | None,
     trigger_source: str,
+    originating_request: bool,
     request_idempotency_key_hash: str | None = None,
     request_fingerprint: str | None = None,
 ):
+    if originating_request and report.request_task_run_id is not None:
+        raise RuntimeError("The report already has a request task run.")
+    if not originating_request and report.request_task_run_id is not None:
+        existing_request_run = find_report_request_task_run(db, report=report)
+        if existing_request_run is not None:
+            report.request_task_run_id = existing_request_run.id
+            db.add(report)
     run = queue_ai_task_run(
         db,
         task_type=AI_TASK_TYPE_REPORT,
@@ -76,6 +85,7 @@ def create_report_task_run(
         model=report.model,
         metadata={
             "report_id": str(report.id),
+            "report_request_origin": originating_request,
             "source_count": report.included_source_count,
             "estimated_input_tokens": report.estimated_input_tokens,
             "estimated_batches": report.generation_batches,
@@ -85,8 +95,8 @@ def create_report_task_run(
     run.request_idempotency_key_hash = request_idempotency_key_hash
     run.request_fingerprint = request_fingerprint
     initialize_report_dispatch(run)
-    if report.initial_task_run_id is None:
-        report.initial_task_run_id = run.id
+    if originating_request:
+        report.request_task_run_id = run.id
         db.add(report)
     return run
 
@@ -1024,6 +1034,7 @@ def dispatch_due_report_schedules():
                         report=report,
                         actor_user_id=report.owner_user_id,
                         trigger_source="scheduled",
+                        originating_request=True,
                     )
                     queue_entries.append((report.id, run.id))
                 db.commit()

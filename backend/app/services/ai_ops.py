@@ -36,7 +36,6 @@ from app.services.ai_ops_common import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPORT,
-    AI_TASK_TYPE_REPORT_SUPERSEDED,
     AI_TASK_TYPE_REPROCESS,
     AI_TERMINAL_STATUSES,
     AI_TRIGGER_AUTO as AI_TRIGGER_AUTO,
@@ -443,11 +442,16 @@ def cancel_ai_task_run(
         reserved_tasks=reserved_tasks,
         scheduled_tasks=scheduled_tasks,
     )
-    run = db.scalar(select(AITaskRun).where(AITaskRun.id == run_id))
+    run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if run is None:
         return None
-    if run.task_type in {AI_TASK_TYPE_REPORT, AI_TASK_TYPE_REPORT_SUPERSEDED}:
-        run = resolve_report_task_run(db, run)
+    if run.task_type == AI_TASK_TYPE_REPORT:
+        run = resolve_report_task_run(db, run, lock=True)
 
     unfinished_states = {AI_STATUS_QUEUED, AI_STATUS_RUNNING}
     if run.finished_at is not None or run.status not in unfinished_states:

@@ -68,10 +68,22 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             f"""
+            UPDATE {qualified_schema}.ai_task_runs
+            SET task_type = 'report'
+            WHERE task_type = 'report_superseded'
+            """
+        )
+    )
+    op.execute(
+        sa.text(
+            f"""
             UPDATE {qualified_schema}.ai_task_runs AS legacy
             SET superseded_by_task_run_id = replacement.id
             FROM {qualified_schema}.ai_task_runs AS replacement
             WHERE legacy.superseded_by_task_run_id IS NULL
+              AND legacy.task_type = 'report'
+              AND replacement.task_type = 'report'
+              AND replacement.report_id = legacy.report_id
               AND legacy.metadata_json ->> 'superseded_by_task_run_id' = replacement.id::text
             """
         )
@@ -79,33 +91,47 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             f"""
-            WITH initial_runs AS (
-                SELECT DISTINCT ON (report_id) report_id, id
-                FROM {qualified_schema}.ai_task_runs
-                WHERE report_id IS NOT NULL
-                  AND task_type IN ('report', 'report_superseded')
-                ORDER BY report_id,
-                    (reason = 'superseded_for_fenced_dispatch'
-                        AND metadata_json ->> 'superseded_by_task_run_id'
-                            IS NOT NULL) DESC,
-                    created_at ASC, id ASC
+            WITH first_queued_runs AS (
+                SELECT DISTINCT ON (run.report_id)
+                    run.report_id,
+                    run.id AS task_run_id
+                FROM {qualified_schema}.ai_task_runs AS run
+                JOIN {qualified_schema}.ai_task_events AS event
+                  ON event.task_run_id = run.id
+                 AND event.event_type = 'queued'
+                JOIN {qualified_schema}.reports AS origin_report
+                  ON origin_report.id = run.report_id
+                WHERE run.report_id IS NOT NULL
+                  AND run.task_type = 'report'
+                  AND (
+                      run.metadata_json ->> 'report_request_origin' = 'true'
+                      OR (
+                          run.metadata_json ->> 'report_request_origin' IS NULL
+                          AND event.created_at = origin_report.created_at
+                      )
+                  )
+                ORDER BY run.report_id,
+                    COALESCE(
+                        run.metadata_json ->> 'report_request_origin' = 'true',
+                        false
+                    ) DESC,
+                    event.created_at ASC, event.id ASC, run.id ASC
+            ), request_runs AS (
+                SELECT first.report_id,
+                    COALESCE(replacement.id, first.task_run_id) AS task_run_id
+                FROM first_queued_runs AS first
+                JOIN {qualified_schema}.ai_task_runs AS original
+                  ON original.id = first.task_run_id
+                LEFT JOIN {qualified_schema}.ai_task_runs AS replacement
+                  ON replacement.id = original.superseded_by_task_run_id
+                 AND replacement.report_id = first.report_id
+                 AND replacement.task_type = 'report'
             )
             UPDATE {qualified_schema}.reports AS report
-            SET initial_task_run_id = initial_runs.id
-            FROM initial_runs
-            WHERE report.id = initial_runs.report_id
+            SET initial_task_run_id = request_runs.task_run_id
+            FROM request_runs
+            WHERE report.id = request_runs.report_id
               AND report.initial_task_run_id IS NULL
-            """
-        )
-    )
-    op.execute(
-        sa.text(
-            f"""
-            UPDATE {qualified_schema}.ai_task_runs
-            SET task_type = 'report_superseded'
-            WHERE superseded_by_task_run_id IS NOT NULL
-              AND task_type = 'report'
-              AND reason = 'superseded_for_fenced_dispatch'
             """
         )
     )
@@ -113,6 +139,16 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     schema = _relation_schema("reports")
+    qualified_schema = _quote_identifier(schema)
+    op.execute(
+        sa.text(
+            f"""
+            UPDATE {qualified_schema}.ai_task_runs
+            SET task_type = 'report'
+            WHERE task_type = 'report_superseded'
+            """
+        )
+    )
     op.drop_index(
         op.f("ix_reports_initial_task_run_id"),
         table_name="reports",
@@ -137,8 +173,6 @@ def downgrade() -> None:
         schema=schema,
     )
     op.drop_column("ai_task_runs", "superseded_by_task_run_id", schema=schema)
-    # Keep the terminal task_type marker. Older binaries ignore that historical
-    # row and continue resolving the still-linked replacement after rollback.
 
 
 def _relation_schema(relation_name: str) -> str:

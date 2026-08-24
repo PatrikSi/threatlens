@@ -5,7 +5,6 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
-from app.services.ai_ops_common import AI_TASK_TYPE_REPORT_SUPERSEDED
 from app.services.report_dispatch import (
     claim_report_dispatch,
     initialize_report_dispatch,
@@ -46,6 +45,7 @@ def _queued_run(db_session) -> tuple[Report, AITaskRun]:
         report=report,
         actor_user_id=None,
         trigger_source="manual",
+        originating_request=True,
     )
     db_session.commit()
     return report, run
@@ -111,7 +111,6 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
     run.celery_task_id = "legacy-celery-task"
     run.request_idempotency_key_hash = "a" * 64
     run.request_fingerprint = "b" * 64
-    report.initial_task_run_id = None
     db_session.commit()
     _use_test_session(monkeypatch, db_session)
     published = []
@@ -133,11 +132,11 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
         AITaskRun.id != run.id,
     ).one()
     assert stored_legacy.status == "skipped"
-    assert stored_legacy.task_type == AI_TASK_TYPE_REPORT_SUPERSEDED
+    assert stored_legacy.task_type == "report"
     assert stored_legacy.reason == "superseded_for_fenced_dispatch"
     assert stored_legacy.superseded_by_task_run_id == replacement.id
     assert stored_legacy.request_idempotency_key_hash is None
-    assert db_session.get(Report, report.id).initial_task_run_id == run.id
+    assert db_session.get(Report, report.id).request_task_run_id == replacement.id
     assert replacement.status == "queued"
     assert replacement.dispatch_protocol_version == 2
     assert replacement.request_idempotency_key_hash == "a" * 64
@@ -150,6 +149,15 @@ def test_legacy_dispatch_is_superseded_before_v2_publication(
             task_id,
         )
     ]
+    assert supersede_legacy_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=datetime.now(timezone.utc),
+    ) == replacement.id
+    assert db_session.query(AITaskRun).filter(
+        AITaskRun.report_id == report.id,
+    ).count() == 2
 
 
 def test_running_legacy_dispatch_is_not_superseded(db_session):
@@ -170,6 +178,23 @@ def test_running_legacy_dispatch_is_not_superseded(db_session):
     assert db_session.query(AITaskRun).filter(
         AITaskRun.report_id == report.id,
     ).count() == 1
+
+
+def test_retry_does_not_claim_a_missing_request_pointer(db_session):
+    report = _report()
+    db_session.add(report)
+    db_session.flush()
+
+    retry = create_report_task_run(
+        db_session,
+        report=report,
+        actor_user_id=None,
+        trigger_source="manual",
+        originating_request=False,
+    )
+
+    assert retry.report_id == report.id
+    assert report.request_task_run_id is None
 
 
 def test_enqueue_failure_keeps_durable_work_due_for_retry(

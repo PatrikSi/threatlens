@@ -68,7 +68,7 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
     db_session.flush()
     db_session.add(run)
     db_session.flush()
-    report.initial_task_run_id = run.id
+    report.request_task_run_id = run.id
     db_session.flush()
 
     replay = find_report_create_replay(
@@ -79,7 +79,6 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
 
     assert replay == (report, run)
 
-    run.task_type = "report_superseded"
     run.status = "skipped"
     run.reason = "superseded_for_fenced_dispatch"
     run.finished_at = now
@@ -119,6 +118,7 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
     ) == (report, replacement)
 
     replacement.report_id = None
+    db_session.flush()
     with pytest.raises(ReportIdempotencyConflictError, match="invalid supersession"):
         find_report_create_replay(
             db_session,

@@ -102,6 +102,7 @@ from app.services.report_templates import (
     report_template_response,
     update_report_template,
 )
+from app.services.report_task_lineage import ReportTaskLineageError
 from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 
@@ -517,7 +518,11 @@ def create_report(
             request_fingerprint=(identity.fingerprint if identity else None),
         )
         run = create_report_task_run(
-            db, report=report, actor_user_id=user.id, trigger_source="manual"
+            db,
+            report=report,
+            actor_user_id=user.id,
+            trigger_source="manual",
+            originating_request=True,
         )
         record_audit(
             db,
@@ -649,6 +654,7 @@ def retry_report(
             report=report,
             actor_user_id=user.id,
             trigger_source="manual",
+            originating_request=False,
             request_idempotency_key_hash=(identity.key_hash if identity else None),
             request_fingerprint=(identity.fingerprint if identity else None),
         )
@@ -663,6 +669,14 @@ def retry_report(
     except ReportStorageError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except ReportTaskLineageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The report's originating task history is invalid. "
+                "Contact an administrator before retrying it."
+            ),
         ) from exc
     except IntegrityError as exc:
         db.rollback()
@@ -958,7 +972,11 @@ def run_schedule(
         if report.status != "queued":
             continue
         run = create_report_task_run(
-            db, report=report, actor_user_id=user.id, trigger_source="manual"
+            db,
+            report=report,
+            actor_user_id=user.id,
+            trigger_source="manual",
+            originating_request=True,
         )
         entries.append((report.id, run.id))
     record_audit(
