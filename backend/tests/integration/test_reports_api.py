@@ -8,6 +8,7 @@ from sqlalchemy import select
 from app.api.routes import reports as reports_routes
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.models.report_operation_receipt import ReportOperationReceipt
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
 from app.models.user import User
@@ -30,6 +31,19 @@ def _report_payload(*, title: str | None = None) -> dict:
         "period_start": (now - timedelta(days=7)).isoformat(),
         "period_end": now.isoformat(),
         "sections": [{"key": "executive_summary", "title": "Executive Summary"}],
+    }
+
+
+def _template_payload(*, name: str = "Private report template") -> dict:
+    return {
+        "name": name,
+        "sections": [
+            {
+                "key": "executive_summary",
+                "title": "Executive Summary",
+                "enabled": True,
+            }
+        ],
     }
 
 
@@ -277,6 +291,85 @@ def test_report_creation_remains_accepted_when_broker_is_unavailable(
     assert run is not None and run.status == "queued"
 
 
+def test_template_creation_idempotency_replays_and_rejects_changed_payload(
+    client,
+    db_session,
+    auth_headers,
+):
+    raw_key = "template-create-test-key"
+    headers = {**auth_headers["analyst"], "Idempotency-Key": raw_key}
+    payload = _template_payload()
+
+    first = client.post("/reports/templates", json=payload, headers=headers)
+    second = client.post("/reports/templates", json=payload, headers=headers)
+    changed = client.post(
+        "/reports/templates",
+        json=_template_payload(name="Changed template"),
+        headers=headers,
+    )
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+    assert changed.status_code == 409
+    assert "different data" in changed.json()["detail"]
+    template_id = uuid.UUID(first.json()["id"])
+    assert (
+        db_session.query(ReportTemplate)
+        .filter(ReportTemplate.id == template_id)
+        .count()
+        == 1
+    )
+    receipt = db_session.scalar(
+        select(ReportOperationReceipt).where(
+            ReportOperationReceipt.resource_id == template_id
+        )
+    )
+    assert receipt is not None
+    assert receipt.key_hash != raw_key
+    assert len(receipt.key_hash) == 64
+    assert len(receipt.fingerprint) == 64
+
+
+def test_template_clone_idempotency_survives_source_changes_and_reports_deletion(
+    client,
+    db_session,
+    auth_headers,
+):
+    source_response = client.post(
+        "/reports/templates",
+        json=_template_payload(name="Clone source"),
+        headers=auth_headers["analyst"],
+    )
+    assert source_response.status_code == 201
+    source_id = source_response.json()["id"]
+    headers = {
+        **auth_headers["analyst"],
+        "Idempotency-Key": "template-clone-test-key",
+    }
+
+    first = client.post(f"/reports/templates/{source_id}/clone", headers=headers)
+    second = client.post(f"/reports/templates/{source_id}/clone", headers=headers)
+
+    assert first.status_code == 201
+    assert second.status_code == 201
+    assert second.json()["id"] == first.json()["id"]
+    assert db_session.query(ReportTemplate).count() >= 2
+
+    clone_id = first.json()["id"]
+    deleted = client.delete(
+        f"/reports/templates/{clone_id}", headers=auth_headers["analyst"]
+    )
+    replay_after_delete = client.post(
+        f"/reports/templates/{source_id}/clone", headers=headers
+    )
+
+    assert deleted.status_code == 204
+    assert replay_after_delete.status_code == 409
+    assert "no longer exists" in replay_after_delete.json()["detail"]
+    assert "new Idempotency-Key" in replay_after_delete.json()["detail"]
+
+
 def test_report_retry_idempotency_replays_the_same_attempt(
     client,
     db_session,
@@ -402,12 +495,29 @@ def test_admin_can_manage_report_schedule_with_default_filters(
         "window_type": "previous_complete_week",
     }
 
+    create_headers = {
+        **auth_headers["admin"],
+        "Idempotency-Key": "schedule-create-test-key",
+    }
     create_response = client.post(
-        "/reports/schedules", json=payload, headers=auth_headers["admin"]
+        "/reports/schedules", json=payload, headers=create_headers
+    )
+    replay_response = client.post(
+        "/reports/schedules", json=payload, headers=create_headers
+    )
+    changed_response = client.post(
+        "/reports/schedules",
+        json={**payload, "name": "Changed schedule"},
+        headers=create_headers,
     )
 
     assert create_response.status_code == 201
     schedule_id = create_response.json()["id"]
+    assert replay_response.status_code == 201
+    assert replay_response.json()["id"] == schedule_id
+    assert changed_response.status_code == 409
+    assert "different data" in changed_response.json()["detail"]
+    assert db_session.query(ReportSchedule).count() == 1
     assert create_response.json()["filters"]["sort"] == "published_at_desc"
     assert create_response.json()["timezone"] == "Europe/Prague"
 

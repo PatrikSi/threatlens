@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.models.report_operation_receipt import ReportOperationReceipt
 
 
 MAX_IDEMPOTENCY_KEY_LENGTH = 255
@@ -85,6 +86,81 @@ def build_report_schedule_run_identity(
                 "version": 1,
             }
         ),
+    )
+
+
+def build_report_operation_identity(
+    key: str | None,
+    *,
+    operation: str,
+    payload: BaseModel | object,
+) -> ReportRequestIdentity | None:
+    normalized = _normalize_key(key)
+    if normalized is None:
+        return None
+    payload_value = (
+        payload.model_dump(mode="json") if isinstance(payload, BaseModel) else payload
+    )
+    return ReportRequestIdentity(
+        legacy_key=normalized,
+        key_hash=_sha256(f"{operation}\0{normalized}"),
+        fingerprint=_payload_fingerprint(payload_value),
+    )
+
+
+def find_report_operation_replay(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    operation: str,
+    resource_type: str,
+    identity: ReportRequestIdentity | None,
+) -> ReportOperationReceipt | None:
+    if identity is None:
+        return None
+    receipt = db.scalar(
+        select(ReportOperationReceipt).where(
+            ReportOperationReceipt.actor_user_id == user_id,
+            ReportOperationReceipt.key_hash == identity.key_hash,
+        )
+    )
+    if receipt is None:
+        return None
+    if receipt.operation != operation or receipt.resource_type != resource_type:
+        raise ReportIdempotencyConflictError(
+            "The Idempotency-Key is already associated with another reporting operation."
+        )
+    _ensure_matching_fingerprint(
+        receipt.fingerprint,
+        identity.fingerprint,
+        conflict_message=(
+            "The Idempotency-Key was already used with different data for this "
+            "reporting operation."
+        ),
+    )
+    return receipt
+
+
+def record_report_operation_receipt(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    operation: str,
+    resource_type: str,
+    resource_id: uuid.UUID,
+    identity: ReportRequestIdentity | None,
+) -> None:
+    if identity is None:
+        return
+    db.add(
+        ReportOperationReceipt(
+            actor_user_id=user_id,
+            operation=operation,
+            key_hash=identity.key_hash,
+            fingerprint=identity.fingerprint,
+            resource_type=resource_type,
+            resource_id=resource_id,
+        )
     )
 
 
@@ -202,11 +278,16 @@ def _normalize_key(key: str | None) -> str | None:
     return normalized
 
 
-def _ensure_matching_fingerprint(stored: str | None, requested: str) -> None:
+def _ensure_matching_fingerprint(
+    stored: str | None,
+    requested: str,
+    *,
+    conflict_message: str = (
+        "The Idempotency-Key was already used with a different report request."
+    ),
+) -> None:
     if stored != requested:
-        raise ReportIdempotencyConflictError(
-            "The Idempotency-Key was already used with a different report request."
-        )
+        raise ReportIdempotencyConflictError(conflict_message)
 
 
 def _payload_fingerprint(payload: object) -> str:
@@ -228,9 +309,12 @@ __all__ = [
     "ReportIdempotencyError",
     "ReportRequestIdentity",
     "build_report_create_identity",
+    "build_report_operation_identity",
     "build_report_retry_identity",
     "build_report_schedule_run_identity",
     "find_report_create_replay",
+    "find_report_operation_replay",
     "find_report_retry_replay",
     "find_report_schedule_run_replay",
+    "record_report_operation_receipt",
 ]
