@@ -940,6 +940,8 @@ def _request_json_with_usage(
                 call_kwargs["max_completion_tokens"] = request_max_tokens
             completion = _call_ai_json(active, **call_kwargs)
         except AIIntegrationError as exc:
+            if execution_checkpoint is not None:
+                execution_checkpoint()
             last_error = exc
             next_request_max_tokens = _next_retry_max_completion_tokens(
                 feature_type=feature_type,
@@ -996,6 +998,8 @@ def _request_json_with_usage(
             exc.attempt_count = attempt
             raise
 
+        if execution_checkpoint is not None:
+            execution_checkpoint()
         if task_run_id is not None:
             provider_exchange_payload = {
                 **_build_provider_exchange_payload(

@@ -47,6 +47,10 @@ from app.services.report_schedules import (
     report_schedule_response,
     reserve_schedule_runs,
 )
+from app.services.report_availability import (
+    ReportingUnavailableError,
+    ensure_reporting_available,
+)
 from app.services.report_rendering import (
     render_report_html,
     render_report_markdown,
@@ -625,6 +629,11 @@ def run_schedule(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+    except ExportSnapshotChangedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Matching articles changed while the scheduled report was being prepared. Try running the schedule again.",
+        ) from exc
     if not reports and db.get(ReportSchedule, schedule_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
@@ -703,21 +712,13 @@ def remove_schedule(
 
 def _active_reporting_settings(db: Session):
     active = load_active_ai_settings(db)
-    if not active.ai_enabled:
+    try:
+        ensure_reporting_available(active)
+    except ReportingUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="AI features are disabled by the server administrator.",
-        )
-    if not active.ai_configured:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Configure and test an AI provider before generating reports.",
-        )
-    if not active.reporting_enabled:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="AI reporting is disabled in AI settings.",
-        )
+            detail=str(exc),
+        ) from exc
     return active
 
 

@@ -52,6 +52,21 @@ def test_ip_login_threshold_cannot_be_lower_than_account_threshold():
         isolated_settings(auth_login_max_attempts=10, auth_login_ip_max_attempts=9)
 
 
+def test_report_generation_lease_covers_provider_timeout():
+    with pytest.raises(ValueError, match="report_generation_lease_seconds"):
+        isolated_settings(report_generation_lease_seconds=300)
+
+
+def test_report_schedule_retry_backoff_must_be_bounded():
+    with pytest.raises(
+        ValueError, match="report_schedule_retry_max_backoff_seconds"
+    ):
+        isolated_settings(
+            report_schedule_retry_backoff_seconds=120,
+            report_schedule_retry_max_backoff_seconds=60,
+        )
+
+
 def test_allowed_hosts_parses_csv_from_env(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ALLOWED_HOSTS", "api, threatlens.example.com")
     settings = Settings(_env_file=None)

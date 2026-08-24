@@ -2,16 +2,19 @@ from __future__ import annotations
 
 import calendar
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from pydantic import ValidationError
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
+from app.core.config import get_settings
 from app.schemas.reports import (
     ReportArticleFilters,
     ReportCreateRequest,
@@ -22,7 +25,13 @@ from app.schemas.reports import (
     ReportSectionConfig,
 )
 from app.services.ai_config import load_active_ai_settings
+from app.services.ai_context_budget import AIContextBudgetError
 from app.services.ai_prompting import build_company_context
+from app.services.export_query import ExportSnapshotChangedError
+from app.services.report_availability import (
+    ReportingUnavailableError,
+    ensure_reporting_available,
+)
 from app.services.report_sources import (
     build_report_source_plan,
     filters_for_report_period,
@@ -31,6 +40,14 @@ from app.services.report_storage import ReportStorageError, create_report_from_p
 
 
 MAX_CATCH_UP_RUNS = 4
+PERMANENT_SCHEDULE_FAILURE_ATTEMPTS = 3
+
+
+@dataclass(frozen=True)
+class ScheduleFailure:
+    code: str
+    message: str
+    quarantine: bool = False
 
 
 def create_report_schedule(
@@ -72,6 +89,9 @@ def apply_schedule_payload(
         if payload.enabled
         else None
     )
+    schedule.failure_state = "healthy"
+    schedule.consecutive_failure_count = 0
+    schedule.retry_at = None
 
 
 def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse:
@@ -97,6 +117,13 @@ def report_schedule_response(schedule: ReportSchedule) -> ReportScheduleResponse
         missed_run_policy=schedule.missed_run_policy,
         next_run_at=schedule.next_run_at,
         last_run_at=schedule.last_run_at,
+        failure_state=schedule.failure_state,
+        failure_count=schedule.failure_count,
+        consecutive_failure_count=schedule.consecutive_failure_count,
+        last_error_code=schedule.last_error_code,
+        last_error=schedule.last_error,
+        last_error_at=schedule.last_error_at,
+        retry_at=schedule.retry_at,
         created_at=schedule.created_at,
         updated_at=schedule.updated_at,
     )
@@ -169,8 +196,16 @@ def list_due_schedule_ids(
                 ReportSchedule.enabled.is_(True),
                 ReportSchedule.next_run_at.is_not(None),
                 ReportSchedule.next_run_at <= _as_utc(now),
+                or_(
+                    ReportSchedule.retry_at.is_(None),
+                    ReportSchedule.retry_at <= _as_utc(now),
+                ),
             )
-            .order_by(ReportSchedule.next_run_at.asc())
+            .order_by(
+                func.coalesce(
+                    ReportSchedule.retry_at, ReportSchedule.next_run_at
+                ).asc()
+            )
             .limit(limit)
         ).all()
     )
@@ -195,15 +230,21 @@ def reserve_schedule_runs(
     ):
         return []
     if schedule.owner_user_id is None:
-        schedule.enabled = False
-        schedule.next_run_at = None
-        db.add(schedule)
+        _quarantine_schedule(
+            schedule,
+            now=now,
+            code="owner_missing",
+            message="The schedule owner no longer exists.",
+        )
         return []
     template = db.get(ReportTemplate, schedule.template_id)
     if template is None:
-        schedule.enabled = False
-        schedule.next_run_at = None
-        db.add(schedule)
+        _quarantine_schedule(
+            schedule,
+            now=now,
+            code="template_missing",
+            message="The report template no longer exists.",
+        )
         return []
 
     due_times = [_as_utc(now) if force else _as_utc(schedule.next_run_at)]
@@ -228,6 +269,9 @@ def reserve_schedule_runs(
     schedule.next_run_at = (
         next_schedule_run(schedule, after=_as_utc(now)) if schedule.enabled else None
     )
+    schedule.failure_state = "healthy"
+    schedule.consecutive_failure_count = 0
+    schedule.retry_at = None
     db.add(schedule)
     return reports
 
@@ -268,6 +312,7 @@ def _create_one_scheduled_report(
         period_end=period_end,
     )
     active = load_active_ai_settings(db)
+    ensure_reporting_available(active)
     plan = build_report_source_plan(
         db,
         user_id=schedule.owner_user_id,
@@ -347,6 +392,107 @@ def _create_one_scheduled_report(
 def _join_instructions(*values: str | None) -> str | None:
     result = "\n".join(value.strip() for value in values if value and value.strip())
     return result or None
+
+
+def record_schedule_failure(
+    db: Session,
+    *,
+    schedule_id: uuid.UUID,
+    now: datetime,
+    error: Exception,
+) -> ReportSchedule | None:
+    schedule = db.scalar(
+        select(ReportSchedule)
+        .where(ReportSchedule.id == schedule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if schedule is None:
+        return None
+
+    failure = classify_schedule_failure(error)
+    settings = get_settings()
+    observed_at = _as_utc(now)
+    schedule.failure_count = int(schedule.failure_count or 0) + 1
+    schedule.consecutive_failure_count = (
+        int(schedule.consecutive_failure_count or 0) + 1
+    )
+    schedule.last_error_code = failure.code[:64]
+    schedule.last_error = failure.message[:4000]
+    schedule.last_error_at = observed_at
+
+    max_attempts = (
+        min(settings.report_schedule_max_attempts, PERMANENT_SCHEDULE_FAILURE_ATTEMPTS)
+        if failure.quarantine
+        else settings.report_schedule_max_attempts
+    )
+    if schedule.consecutive_failure_count >= max_attempts:
+        schedule.retry_at = None
+        if failure.quarantine:
+            schedule.enabled = False
+            schedule.next_run_at = None
+            schedule.failure_state = "quarantined"
+        else:
+            schedule.failure_state = "exhausted"
+            schedule.consecutive_failure_count = 0
+            schedule.next_run_at = (
+                next_schedule_run(schedule, after=observed_at)
+                if schedule.enabled
+                else None
+            )
+    else:
+        exponent = max(0, schedule.consecutive_failure_count - 1)
+        delay_seconds = min(
+            settings.report_schedule_retry_max_backoff_seconds,
+            settings.report_schedule_retry_backoff_seconds * (2**exponent),
+        )
+        schedule.failure_state = "retrying"
+        schedule.retry_at = observed_at + timedelta(seconds=delay_seconds)
+    db.add(schedule)
+    return schedule
+
+
+def classify_schedule_failure(error: Exception) -> ScheduleFailure:
+    if isinstance(error, ReportingUnavailableError):
+        return ScheduleFailure(error.code, str(error))
+    if isinstance(error, AIContextBudgetError):
+        return ScheduleFailure("context_budget", str(error), quarantine=True)
+    if isinstance(error, ValidationError):
+        return ScheduleFailure(
+            "invalid_configuration",
+            "The schedule template contains invalid report configuration. Update the template and re-enable the schedule.",
+            quarantine=True,
+        )
+    if isinstance(error, ExportSnapshotChangedError):
+        return ScheduleFailure(
+            "source_snapshot_changed",
+            "Matching articles changed while the scheduled report was being prepared.",
+        )
+    if isinstance(error, ReportStorageError):
+        return ScheduleFailure("source_selection", str(error))
+    return ScheduleFailure(
+        "reservation_failed",
+        "Scheduled report preparation failed unexpectedly. Review the maintenance worker logs before retrying.",
+    )
+
+
+def _quarantine_schedule(
+    schedule: ReportSchedule,
+    *,
+    now: datetime,
+    code: str,
+    message: str,
+) -> None:
+    schedule.enabled = False
+    schedule.next_run_at = None
+    schedule.retry_at = None
+    schedule.failure_state = "quarantined"
+    schedule.failure_count = int(schedule.failure_count or 0) + 1
+    schedule.consecutive_failure_count = int(schedule.consecutive_failure_count or 0) + 1
+    schedule.last_error_code = code
+    schedule.last_error = message
+    schedule.last_error_at = _as_utc(now)
+    schedule.updated_at = _as_utc(now)
 
 
 def _as_utc(value: datetime) -> datetime:

@@ -118,6 +118,8 @@ def reset_report_for_retry(db: Session, *, report: Report) -> None:
     report.model_calls = 0
     report.summary_text = None
     report.citation_count = 0
+    report.generation_lease_token = None
+    report.generation_lease_expires_at = None
     sources = list(
         db.scalars(
             select(ReportSourceItem).where(ReportSourceItem.report_id == report.id)
