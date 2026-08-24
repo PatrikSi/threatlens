@@ -5,8 +5,10 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated, NoReturn
+from zoneinfo import ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from pydantic import ValidationError
 from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -64,9 +66,12 @@ from app.services.report_idempotency import (
     ReportRequestIdentity,
     build_report_create_identity,
     build_report_retry_identity,
+    build_report_schedule_run_identity,
     find_report_create_replay,
     find_report_retry_replay,
+    find_report_schedule_run_replay,
 )
+from app.schemas.reports import ReportSectionSetError
 from app.services.report_sources import (
     build_report_source_plan,
     filters_for_report_period,
@@ -678,16 +683,50 @@ def update_schedule(
 )
 def run_schedule(
     schedule_id: uuid.UUID,
+    idempotency_key: Annotated[
+        str | None,
+        Header(alias="Idempotency-Key"),
+    ] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
+    identity = _schedule_run_request_identity(
+        idempotency_key,
+        schedule_id=schedule_id,
+        actor_user_id=user.id,
+    )
+    replay = _find_schedule_run_replay(
+        db,
+        user_id=user.id,
+        schedule_id=schedule_id,
+        identity=identity,
+    )
+    if replay is not None:
+        return [_queue_response(*replay)] if replay[1] is not None else []
     _active_reporting_settings(db)
     try:
         reports = reserve_schedule_runs(
-            db, schedule_id=schedule_id, now=datetime.now(timezone.utc), force=True
+            db,
+            schedule_id=schedule_id,
+            now=datetime.now(timezone.utc),
+            force=True,
+            generation_key_override=(
+                f"schedule-manual:{schedule_id}:{identity.key_hash}"
+                if identity
+                else None
+            ),
+            request_idempotency_key_hash=(identity.key_hash if identity else None),
+            request_fingerprint=(identity.fingerprint if identity else None),
         )
-    except (AIContextBudgetError, ReportStorageError) as exc:
+    except (
+        AIContextBudgetError,
+        ReportStorageError,
+        ReportSectionSetError,
+        ValidationError,
+        ZoneInfoNotFoundError,
+        ValueError,
+    ) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
@@ -696,11 +735,27 @@ def run_schedule(
             status_code=status.HTTP_409_CONFLICT,
             detail="Matching articles changed while the scheduled report was being prepared. Try running the schedule again.",
         ) from exc
-    if not reports and db.get(ReportSchedule, schedule_id) is None:
+    if not reports:
+        replay = _find_schedule_run_replay(
+            db,
+            user_id=user.id,
+            schedule_id=schedule_id,
+            identity=identity,
+        )
+        if replay is not None:
+            return [_queue_response(*replay)] if replay[1] is not None else []
+    schedule = db.get(ReportSchedule, schedule_id)
+    if not reports and schedule is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
         )
     if not reports:
+        if schedule.failure_state == "quarantined":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=schedule.last_error
+                or "The report schedule is quarantined until its configuration is corrected.",
+            )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="A report already exists for this schedule period. Open the existing report and retry it if needed.",
@@ -793,6 +848,22 @@ def _retry_request_identity(
         _raise_idempotency_http_error(exc)
 
 
+def _schedule_run_request_identity(
+    key: str | None,
+    *,
+    schedule_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+) -> ReportRequestIdentity | None:
+    try:
+        return build_report_schedule_run_identity(
+            key,
+            schedule_id=schedule_id,
+            actor_user_id=actor_user_id,
+        )
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
 def _find_create_replay(
     db: Session,
     *,
@@ -821,6 +892,24 @@ def _find_retry_replay(
             db,
             user_id=user_id,
             report_id=report_id,
+            identity=identity,
+        )
+    except ReportIdempotencyError as exc:
+        _raise_idempotency_http_error(exc)
+
+
+def _find_schedule_run_replay(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    identity: ReportRequestIdentity | None,
+) -> tuple[Report, AITaskRun | None] | None:
+    try:
+        return find_report_schedule_run_replay(
+            db,
+            user_id=user_id,
+            schedule_id=schedule_id,
             identity=identity,
         )
     except ReportIdempotencyError as exc:

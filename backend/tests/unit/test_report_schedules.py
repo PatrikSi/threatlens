@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfoNotFoundError
 
 from app.core.config import get_settings
 from app.models.report_schedule import ReportSchedule
@@ -244,6 +245,63 @@ def test_invalid_section_set_quarantines_schedule_with_configuration_error(
     assert schedule.enabled is False
     assert schedule.last_error_code == "invalid_configuration"
     assert "Update the template" in (schedule.last_error or "")
+
+
+def test_invalid_legacy_timezone_is_quarantined_without_retry_loop(
+    db_session,
+):
+    now = datetime.now(timezone.utc)
+    schedule = _persist_schedule(
+        db_session,
+        next_run_at=now - timedelta(minutes=1),
+    )
+    schedule.timezone = "Missing/Legacy-Zone"
+    db_session.commit()
+
+    for attempt in range(3):
+        record_schedule_failure(
+            db_session,
+            schedule_id=schedule.id,
+            now=now + timedelta(minutes=attempt),
+            error=ZoneInfoNotFoundError("Missing/Legacy-Zone"),
+        )
+        db_session.commit()
+
+    db_session.refresh(schedule)
+    assert schedule.failure_state == "quarantined"
+    assert schedule.enabled is False
+    assert schedule.next_run_at is None
+    assert schedule.retry_at is None
+    assert schedule.last_error_code == "invalid_configuration"
+
+
+def test_transient_exhaustion_quarantines_corrupt_schedule_timing(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("REPORT_SCHEDULE_MAX_ATTEMPTS", "1")
+    get_settings.cache_clear()
+    now = datetime.now(timezone.utc)
+    schedule = _persist_schedule(
+        db_session,
+        next_run_at=now - timedelta(minutes=1),
+    )
+    schedule.timezone = "Missing/Legacy-Zone"
+    db_session.commit()
+
+    record_schedule_failure(
+        db_session,
+        schedule_id=schedule.id,
+        now=now,
+        error=ExportSnapshotChangedError("snapshot changed"),
+    )
+    db_session.commit()
+
+    db_session.refresh(schedule)
+    assert schedule.failure_state == "quarantined"
+    assert schedule.enabled is False
+    assert schedule.next_run_at is None
+    assert schedule.last_error_code == "invalid_configuration"
 
 
 def test_schedule_update_clears_retry_state(db_session):
