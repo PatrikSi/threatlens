@@ -21,6 +21,7 @@ vi.mock('../api/client', () => ({
 }))
 
 import { ExportPage } from './ExportPage'
+import { triggerBrowserDownload } from './exportPageModel'
 
 const CAPABILITIES = {
   formats: [
@@ -176,6 +177,21 @@ afterEach(async () => {
 })
 
 describe('ExportPage', () => {
+  it('cleans up the temporary download anchor and URL when the browser click fails', () => {
+    vi.useFakeTimers()
+    exportPageDomMocks.anchorClick.mockImplementationOnce(() => {
+      throw new Error('Browser download blocked')
+    })
+
+    expect(() => triggerBrowserDownload(new Blob(['export']), 'export.csv')).toThrow('Browser download blocked')
+    expect(document.querySelector('a[download]')).toBeNull()
+    expect(exportPageDomMocks.revokeObjectURL).not.toHaveBeenCalled()
+
+    vi.runOnlyPendingTimers()
+    expect(exportPageDomMocks.revokeObjectURL).toHaveBeenCalledWith('blob:threatlens-export')
+    vi.useRealTimers()
+  })
+
   it('renders configurable filters and responsive article previews', async () => {
     const view = renderPage()
     await waitForPreview(view)

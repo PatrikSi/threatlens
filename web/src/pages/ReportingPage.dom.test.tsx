@@ -5,7 +5,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ReportDetail } from '../types/api'
+import type { ReportDetail, ReportSchedule, ReportTemplate } from '../types/api'
 
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -15,6 +15,7 @@ const reportingPageMocks = vi.hoisted(() => ({
   apiDownload: vi.fn(),
   navigate: vi.fn(),
   routeReportId: 'report-1' as string | undefined,
+  userRole: 'analyst' as 'admin' | 'analyst',
   anchorClick: vi.fn(),
   createObjectURL: vi.fn(() => 'blob:threatlens-report'),
   revokeObjectURL: vi.fn(),
@@ -31,7 +32,7 @@ vi.mock('../hooks/useCurrentUser', () => ({
     data: {
       id: 'analyst-1',
       email: 'analyst@example.com',
-      role: 'analyst',
+      role: reportingPageMocks.userRole,
       is_active: true,
     },
   }),
@@ -80,9 +81,9 @@ const EMPTY_FILTERS = {
   sort: 'published_at_desc' as const,
 }
 
-function reportDetail(status: ReportDetail['status'] = 'ready'): ReportDetail {
+function reportDetail(status: ReportDetail['status'] = 'ready', id = 'report-1'): ReportDetail {
   return {
-    id: 'report-1',
+    id,
     template_id: null,
     schedule_id: null,
     owner_user_id: 'analyst-1',
@@ -162,6 +163,58 @@ function reportDetail(status: ReportDetail['status'] = 'ready'): ReportDetail {
   }
 }
 
+const REPORT_TEMPLATE: ReportTemplate = {
+  id: 'template-1',
+  owner_user_id: 'analyst-1',
+  builtin_key: null,
+  name: 'Threat landscape',
+  description: 'Threat landscape reporting template.',
+  report_type: 'custom',
+  visibility: 'private',
+  prompt: {
+    audience: 'security_team',
+    objective: 'Summarize material security developments.',
+    tone: 'analytical',
+    detail_level: 'standard',
+    use_company_context: true,
+    custom_instructions: null,
+    focus_topics: [],
+    excluded_topics: [],
+  },
+  sections: [{ key: 'summary', title: 'Executive summary', enabled: true }],
+  default_filters: EMPTY_FILTERS,
+  created_at: '2026-08-17T08:00:00Z',
+  updated_at: '2026-08-17T08:00:00Z',
+}
+
+function reportSchedule(id: string, name: string): ReportSchedule {
+  return {
+    id,
+    owner_user_id: 'analyst-1',
+    template_id: REPORT_TEMPLATE.id,
+    name,
+    enabled: true,
+    cadence: 'weekly',
+    day_of_week: 0,
+    day_of_month: 1,
+    hour: 9,
+    minute: 0,
+    timezone: 'UTC',
+    window_type: 'previous_complete_week',
+    rolling_days: 7,
+    filters: EMPTY_FILTERS,
+    custom_instructions: null,
+    delivery_enabled: false,
+    delivery_mode: 'summary',
+    skip_empty: true,
+    missed_run_policy: 'latest',
+    next_run_at: '2026-08-24T09:00:00Z',
+    last_run_at: null,
+    created_at: '2026-08-17T08:00:00Z',
+    updated_at: '2026-08-17T08:00:00Z',
+  }
+}
+
 let queryClient: QueryClient | null = null
 let root: Root | null = null
 let container: HTMLDivElement | null = null
@@ -186,12 +239,41 @@ function renderPage() {
   return container
 }
 
+function rerenderPage() {
+  act(() => {
+    root?.render(
+      <QueryClientProvider client={queryClient!}>
+        <ReportingPage />
+      </QueryClientProvider>,
+    )
+  })
+}
+
 async function waitForReport(view: HTMLDivElement) {
   await act(async () => {
     await vi.waitFor(() => {
       expect(view.textContent).toContain('Weekly threat landscape')
     })
   })
+}
+
+async function openReportingTab(view: HTMLDivElement, tab: 'Schedules' | 'Templates') {
+  await act(async () => {
+    await vi.waitFor(() => expect(view.textContent).toContain('Intelligence reporting'))
+  })
+  act(() => button(view, tab).click())
+}
+
+function rowByName(view: HTMLDivElement, name: string): HTMLElement {
+  const row = Array.from(view.querySelectorAll('article')).find((entry) => entry.textContent?.includes(name))
+  if (!row) throw new Error(`Row not found: ${name}`)
+  return row
+}
+
+function rowButton(row: HTMLElement, label: string): HTMLButtonElement {
+  const match = Array.from(row.querySelectorAll('button')).find((entry) => entry.textContent?.trim() === label)
+  if (!match) throw new Error(`Row button not found: ${label}`)
+  return match
 }
 
 function button(view: HTMLDivElement, label: string): HTMLButtonElement {
@@ -204,6 +286,7 @@ function button(view: HTMLDivElement, label: string): HTMLButtonElement {
 
 beforeEach(() => {
   reportingPageMocks.routeReportId = 'report-1'
+  reportingPageMocks.userRole = 'analyst'
   reportingPageMocks.apiFetch.mockImplementation((path: string) => {
     if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
     if (path === '/reports/templates') return Promise.resolve([])
@@ -292,8 +375,70 @@ describe('ReportingPage detail actions', () => {
     expect(view.textContent).toContain('Report downloaded: weekly-landscape.pdf')
     expect(reportingPageMocks.apiDownload).toHaveBeenCalledWith(
       '/reports/report-1/download?format=pdf',
-      { timeoutMs: 60_000 },
+      expect.objectContaining({ timeoutMs: 60_000, signal: expect.any(AbortSignal) }),
     )
+  })
+
+  it('aborts a download silently when a different report is selected', async () => {
+    let requestSignal: AbortSignal | undefined
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/report-1') return Promise.resolve(reportDetail())
+      if (path === '/reports/report-2') return Promise.resolve(reportDetail('ready', 'report-2'))
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    reportingPageMocks.apiDownload.mockImplementation((_path: string, options?: RequestInit) => {
+      requestSignal = options?.signal ?? undefined
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      })
+    })
+    const view = renderPage()
+    await waitForReport(view)
+
+    act(() => button(view, 'PDF').click())
+    await act(async () => {
+      await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    })
+    reportingPageMocks.routeReportId = 'report-2'
+    rerenderPage()
+
+    await act(async () => {
+      await vi.waitFor(() => expect(requestSignal?.aborted).toBe(true))
+    })
+    expect(reportingPageMocks.anchorClick).not.toHaveBeenCalled()
+    expect(view.textContent).not.toContain('The report download could not be prepared')
+  })
+
+  it('aborts an active download when the report page unmounts', async () => {
+    let requestSignal: AbortSignal | undefined
+    reportingPageMocks.apiDownload.mockImplementation((_path: string, options?: RequestInit) => {
+      requestSignal = options?.signal ?? undefined
+      return new Promise((_resolve, reject) => {
+        requestSignal?.addEventListener('abort', () => {
+          reject(new DOMException('The operation was aborted.', 'AbortError'))
+        }, { once: true })
+      })
+    })
+    const view = renderPage()
+    await waitForReport(view)
+
+    act(() => button(view, 'PDF').click())
+    await act(async () => {
+      await vi.waitFor(() => expect(requestSignal).toBeDefined())
+    })
+    await act(async () => {
+      root?.unmount()
+      root = null
+      await Promise.resolve()
+    })
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect(reportingPageMocks.anchorClick).not.toHaveBeenCalled()
   })
 
   it('retains the loaded report when a status refresh fails', async () => {
@@ -353,7 +498,7 @@ describe('ReportingPage detail actions', () => {
             report_id: 'report-1',
             task_run_id: 'run-1',
             celery_task_id: null,
-            status: 'queued',
+            status: 'running',
           })
         }
         return Promise.reject(new Error(`Unexpected API path: ${path}`))
@@ -375,6 +520,163 @@ describe('ReportingPage detail actions', () => {
 
     expect(requestHeaders[0]).not.toBe('')
     expect(requestHeaders[1]).toBe(requestHeaders[0])
-    expect(view.textContent).toContain('Report retry queued')
+    expect(view.textContent).toContain('already accepted and generation is in progress')
+  })
+})
+
+describe('ReportingPage schedule resilience', () => {
+  it('renders an actionable schedule query error and retries without a false empty state', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    let scheduleRequests = 0
+    reportingPageMocks.apiFetch.mockImplementation((path: string) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') {
+        scheduleRequests += 1
+        return scheduleRequests === 1
+          ? Promise.reject(new Error('Schedule service unavailable'))
+          : Promise.resolve([])
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Schedule service unavailable'))
+    })
+    expect(view.textContent).not.toContain('No report schedules are configured')
+
+    await act(async () => {
+      button(view, 'Retry schedules').click()
+      await vi.waitFor(() => expect(view.textContent).toContain('No report schedules are configured'))
+    })
+    expect(scheduleRequests).toBe(2)
+  })
+
+  it('reports an empty run-now response honestly and refetches schedules and reports', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const schedule = reportSchedule('schedule-1', 'Monday landscape')
+    let scheduleRequests = 0
+    let libraryRequests = 0
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') {
+        libraryRequests += 1
+        return Promise.resolve([])
+      }
+      if (path === '/reports/schedules') {
+        scheduleRequests += 1
+        return Promise.resolve([schedule])
+      }
+      if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') return Promise.resolve([])
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Monday landscape'))
+    })
+
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Run now').click()
+      await vi.waitFor(() => expect(view.textContent).toContain('No new report was queued'))
+      await vi.waitFor(() => expect(scheduleRequests).toBeGreaterThanOrEqual(2))
+      await vi.waitFor(() => expect(libraryRequests).toBeGreaterThanOrEqual(2))
+    })
+  })
+
+  it('blocks duplicate schedule actions only for the affected row', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const first = reportSchedule('schedule-1', 'Monday landscape')
+    const second = reportSchedule('schedule-2', 'Friday landscape')
+    let resolveRun: ((value: unknown[]) => void) | undefined
+    let runRequests = 0
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') return Promise.resolve([first, second])
+      if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
+        runRequests += 1
+        return new Promise((resolve) => { resolveRun = resolve })
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Friday landscape'))
+    })
+    const firstRow = rowByName(view, 'Monday landscape')
+    const secondRow = rowByName(view, 'Friday landscape')
+    const firstRun = rowButton(firstRow, 'Run now')
+
+    act(() => {
+      firstRun.click()
+      firstRun.click()
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(rowButton(firstRow, 'Queueing...').disabled).toBe(true))
+    })
+    expect(runRequests).toBe(1)
+    expect(rowButton(secondRow, 'Run now').disabled).toBe(false)
+
+    await act(async () => {
+      resolveRun?.([{
+        report_id: 'report-2',
+        task_run_id: 'run-2',
+        celery_task_id: null,
+        status: 'queued',
+      }])
+      await vi.waitFor(() => expect(view.textContent).toContain('Scheduled report run queued'))
+    })
+  })
+})
+
+describe('ReportingPage template pending state', () => {
+  it('blocks duplicate clones only for the affected template', async () => {
+    reportingPageMocks.routeReportId = undefined
+    const secondTemplate = { ...REPORT_TEMPLATE, id: 'template-2', name: 'Executive landscape' }
+    let resolveClone: ((value: ReportTemplate) => void) | undefined
+    let cloneRequests = 0
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE, secondTemplate])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/templates/template-1/clone' && options?.method === 'POST') {
+        cloneRequests += 1
+        return new Promise((resolve) => { resolveClone = resolve })
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Templates')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Executive landscape'))
+    })
+    const firstRow = rowByName(view, 'Threat landscape')
+    const secondRow = rowByName(view, 'Executive landscape')
+    const firstClone = rowButton(firstRow, 'Clone')
+
+    act(() => {
+      firstClone.click()
+      firstClone.click()
+    })
+    await act(async () => {
+      await vi.waitFor(() => expect(rowButton(firstRow, 'Cloning...').disabled).toBe(true))
+    })
+    expect(cloneRequests).toBe(1)
+    expect(rowButton(secondRow, 'Clone').disabled).toBe(false)
+
+    await act(async () => {
+      resolveClone?.({ ...REPORT_TEMPLATE, id: 'template-clone', name: 'Threat landscape copy' })
+      await vi.waitFor(() => expect(view.textContent).toContain('Template cloned'))
+    })
   })
 })

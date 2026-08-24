@@ -3,6 +3,12 @@ import { ApiError, ApiTransportError } from '../api/client'
 export const REPORT_PREVIEW_TIMEOUT_MS = 60_000
 export const REPORT_CREATE_TIMEOUT_MS = 120_000
 
+export type ReportQueueAction = 'create' | 'retry'
+export type ReportQueueFeedback = {
+  kind: 'error' | 'info' | 'success'
+  message: string
+}
+
 const RETRYABLE_CLIENT_STATUSES = new Set([408, 409, 425, 429])
 const NON_BLOCKING_CLIENT_STATUSES = new Set([408, 425, 429])
 
@@ -16,6 +22,51 @@ export function shouldRetryReportPreview(failureCount: number, error: unknown): 
 export function reportPreviewErrorBlocksCreation(error: unknown): boolean {
   if (!(error instanceof ApiError)) return false
   return error.status >= 400 && error.status < 500 && !NON_BLOCKING_CLIENT_STATUSES.has(error.status)
+}
+
+export function reportQueueFeedback(
+  action: ReportQueueAction,
+  status: string,
+): ReportQueueFeedback {
+  const normalizedStatus = status.trim().toLowerCase()
+  if (normalizedStatus === 'queued') {
+    return {
+      kind: 'success',
+      message: action === 'retry'
+        ? 'Report retry queued.'
+        : 'Report queued. Progress and provider history are now available.',
+    }
+  }
+  if (normalizedStatus === 'running') {
+    return {
+      kind: 'info',
+      message: 'This report request was already accepted and generation is in progress. Opening its current status.',
+    }
+  }
+  if (normalizedStatus === 'success' || normalizedStatus === 'ready') {
+    return {
+      kind: 'success',
+      message: 'This report request has already completed. Opening the generated report.',
+    }
+  }
+  if (normalizedStatus === 'error') {
+    return {
+      kind: 'error',
+      message: 'This report request was already accepted, but generation failed. Opening the report for troubleshooting.',
+    }
+  }
+  if (normalizedStatus === 'skipped' || normalizedStatus === 'canceled') {
+    return {
+      kind: 'info',
+      message: `This report request was already ${normalizedStatus}. Opening the report details.`,
+    }
+  }
+  return {
+    kind: 'info',
+    message: normalizedStatus
+      ? `The server returned report task status "${normalizedStatus}". Opening the report details.`
+      : 'The server accepted the report request. Opening the report details.',
+  }
 }
 
 export function resolveReportCreateBlockedReason({

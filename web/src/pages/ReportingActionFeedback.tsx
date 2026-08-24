@@ -21,6 +21,19 @@ export function ReportingActionFeedback({
     )
   }
 
+  if (feedback.kind === 'info') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="rounded-lg border border-cyan-300/60 bg-cyan-50 px-3 py-2 text-sm text-cyan-900 dark:border-cyan-800/50 dark:bg-cyan-950/20 dark:text-cyan-100"
+      >
+        {feedback.message}
+      </div>
+    )
+  }
+
   return (
     <div
       role="status"

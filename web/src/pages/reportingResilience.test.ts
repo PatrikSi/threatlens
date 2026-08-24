@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { ApiError, ApiTransportError } from '../api/client'
 import {
   reportPreviewErrorBlocksCreation,
+  reportQueueFeedback,
   resolveReportCreateBlockedReason,
   shouldRetryReportPreview,
 } from './reportingResilience'
@@ -75,5 +76,29 @@ describe('report preview resilience', () => {
       previewError: error,
       selectedSourceCount: undefined,
     })).toBe('Resolve the context estimate error before generating.')
+  })
+})
+
+describe('report queue feedback', () => {
+  it('reports queued create and retry operations precisely', () => {
+    expect(reportQueueFeedback('create', 'queued')).toEqual({
+      kind: 'success',
+      message: 'Report queued. Progress and provider history are now available.',
+    })
+    expect(reportQueueFeedback('retry', 'queued')).toEqual({
+      kind: 'success',
+      message: 'Report retry queued.',
+    })
+  })
+
+  it('does not describe idempotent running or failed responses as newly queued', () => {
+    expect(reportQueueFeedback('create', 'running')).toMatchObject({
+      kind: 'info',
+      message: expect.stringContaining('already accepted'),
+    })
+    expect(reportQueueFeedback('retry', 'error')).toMatchObject({
+      kind: 'error',
+      message: expect.stringContaining('generation failed'),
+    })
   })
 })

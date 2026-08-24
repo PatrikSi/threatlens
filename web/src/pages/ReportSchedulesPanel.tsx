@@ -1,5 +1,7 @@
+import { useIsMutating } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 
+import { resolveApiErrorMessage } from '../api/errors'
 import type {
   ArticleExportFilters,
   ReportSchedule,
@@ -22,8 +24,13 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
           <h2 className="font-display text-lg">Report schedules</h2>
           <p className="mt-0.5 text-xs text-slate dark:text-slate-400">Run weekly or monthly reports in an IANA time zone with bounded catch-up.</p>
         </div>
-        <button type="button" className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white dark:bg-cyan dark:text-[#053c2e]" onClick={() => setShowCreate((current) => !current)}>
-          {showCreate ? 'Close' : 'New schedule'}
+        <button
+          type="button"
+          className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+          disabled={controller.createScheduleMutation.isPending}
+          onClick={() => setShowCreate((current) => !current)}
+        >
+          {controller.createScheduleMutation.isPending ? 'Creating...' : showCreate ? 'Close' : 'New schedule'}
         </button>
       </header>
 
@@ -31,6 +38,8 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
         <ScheduleEditor
           templates={templates}
           submitLabel="Create schedule"
+          submittingLabel="Creating..."
+          isSubmitting={controller.createScheduleMutation.isPending}
           onCancel={() => setShowCreate(false)}
           onSubmit={(payload) => controller.createScheduleMutation.mutate(payload, {
             onSuccess: () => setShowCreate(false),
@@ -41,7 +50,20 @@ export function ReportSchedulesPanel({ controller }: { controller: ReportingCont
         <p role="alert" className="border-b border-slate/15 p-4 text-sm text-red-700 dark:border-white/10 dark:text-red-300">Create or restore a report template before adding a schedule.</p>
       )}
       {controller.schedulesQuery.isLoading && <p role="status" className="p-4 text-sm">Loading report schedules...</p>}
-      {!controller.schedulesQuery.isLoading && !controller.schedulesQuery.data?.length && <p className="p-4 text-sm text-slate dark:text-slate-300">No report schedules are configured.</p>}
+      {controller.schedulesQuery.isError && (
+        <div role="alert" className="border-b border-red-300/60 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800/50 dark:bg-red-950/20 dark:text-red-200">
+          <p>{resolveApiErrorMessage(controller.schedulesQuery.error, 'Report schedules could not be loaded')}</p>
+          <button
+            type="button"
+            className="mt-3 rounded border border-red-400 px-3 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-700"
+            disabled={controller.schedulesQuery.isFetching}
+            onClick={() => void controller.schedulesQuery.refetch()}
+          >
+            {controller.schedulesQuery.isFetching ? 'Retrying...' : 'Retry schedules'}
+          </button>
+        </div>
+      )}
+      {controller.schedulesQuery.isSuccess && !controller.schedulesQuery.data.length && <p className="p-4 text-sm text-slate dark:text-slate-300">No report schedules are configured.</p>}
       <div className="divide-y divide-slate/15 dark:divide-white/10">
         {controller.schedulesQuery.data?.map((schedule) => (
           <ScheduleRow key={schedule.id} schedule={schedule} templates={templates} controller={controller} />
@@ -55,12 +77,16 @@ function ScheduleEditor({
   templates,
   initial,
   submitLabel,
+  submittingLabel,
+  isSubmitting,
   onSubmit,
   onCancel,
 }: {
   templates: ReportTemplate[]
   initial?: ReportSchedule
   submitLabel: string
+  submittingLabel: string
+  isSubmitting: boolean
   onSubmit: (payload: ReportScheduleWrite) => void
   onCancel: () => void
 }) {
@@ -111,7 +137,7 @@ function ScheduleEditor({
   }
 
   return (
-    <form className="grid gap-3 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4" onSubmit={(event) => { event.preventDefault(); onSubmit(payload) }}>
+    <form className="grid gap-3 border-b border-slate/15 p-3 dark:border-white/10 sm:grid-cols-2 lg:grid-cols-4" aria-busy={isSubmitting} onSubmit={(event) => { event.preventDefault(); if (!isSubmitting) onSubmit(payload) }}>
       <label className="text-xs font-semibold">
         Name
         <input required maxLength={255} className={INPUT_CLASS} value={name} onChange={(event) => setName(event.target.value)} />
@@ -196,8 +222,8 @@ function ScheduleEditor({
         </label>
       </div>
       <div className="flex gap-1.5 sm:col-span-2 lg:col-span-4 lg:justify-end">
-        <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold dark:border-white/10" onClick={onCancel}>Cancel</button>
-        <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white dark:bg-cyan dark:text-[#053c2e]">{submitLabel}</button>
+        <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={isSubmitting} onClick={onCancel}>Cancel</button>
+        <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={isSubmitting}>{isSubmitting ? submittingLabel : submitLabel}</button>
       </div>
     </form>
   )
@@ -206,6 +232,19 @@ function ScheduleEditor({
 function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSchedule; templates: ReportTemplate[]; controller: ReportingController }) {
   const [editing, setEditing] = useState(false)
   const failureState = schedule.failure_state ?? 'healthy'
+  const updatePending = useIsMutating({
+    mutationKey: ['reports', 'schedules', 'update'],
+    predicate: (mutation) => (mutation.state.variables as ReportSchedule | undefined)?.id === schedule.id,
+  }) > 0
+  const runPending = useIsMutating({
+    mutationKey: ['reports', 'schedules', 'run'],
+    predicate: (mutation) => mutation.state.variables === schedule.id,
+  }) > 0
+  const deletePending = useIsMutating({
+    mutationKey: ['reports', 'schedules', 'delete'],
+    predicate: (mutation) => mutation.state.variables === schedule.id,
+  }) > 0
+  const actionPending = updatePending || runPending || deletePending
   return (
     <article>
       <div className="grid gap-2 px-3 py-3 sm:px-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
@@ -229,10 +268,51 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           )}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => setEditing((current) => !current)}>{editing ? 'Close' : 'Edit'}</button>
-          <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => controller.updateScheduleMutation.mutate({ ...schedule, enabled: !schedule.enabled })}>{schedule.enabled ? 'Pause' : 'Enable'}</button>
-          <button type="button" className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10" onClick={() => controller.runScheduleMutation.mutate(schedule.id)}>Run now</button>
-          <button type="button" className="rounded border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-700 dark:border-red-800 dark:text-red-300" onClick={() => { if (window.confirm(`Delete ${schedule.name}?`)) controller.deleteScheduleMutation.mutate(schedule.id) }}>Delete</button>
+          <button
+            type="button"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+            disabled={actionPending}
+            onClick={() => setEditing((current) => !current)}
+          >
+            {editing ? 'Close' : 'Edit'}
+          </button>
+          <button
+            type="button"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+            disabled={actionPending}
+            onClick={() => {
+              if (!actionPending) {
+                controller.updateScheduleMutation.mutate({
+                  ...schedule,
+                  enabled: !schedule.enabled,
+                })
+              }
+            }}
+          >
+            {updatePending ? 'Saving...' : schedule.enabled ? 'Pause' : 'Enable'}
+          </button>
+          <button
+            type="button"
+            className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+            disabled={actionPending}
+            onClick={() => {
+              if (!actionPending) controller.runScheduleMutation.mutate(schedule.id)
+            }}
+          >
+            {runPending ? 'Queueing...' : 'Run now'}
+          </button>
+          <button
+            type="button"
+            className="rounded border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+            disabled={actionPending}
+            onClick={() => {
+              if (!actionPending && window.confirm(`Delete ${schedule.name}?`)) {
+                controller.deleteScheduleMutation.mutate(schedule.id)
+              }
+            }}
+          >
+            {deletePending ? 'Deleting...' : 'Delete'}
+          </button>
         </div>
       </div>
       {editing && (
@@ -240,6 +320,8 @@ function ScheduleRow({ schedule, templates, controller }: { schedule: ReportSche
           templates={templates}
           initial={schedule}
           submitLabel="Save schedule"
+          submittingLabel="Saving..."
+          isSubmitting={updatePending}
           onCancel={() => setEditing(false)}
           onSubmit={(payload) => controller.updateScheduleMutation.mutate(
             { ...schedule, ...payload },
