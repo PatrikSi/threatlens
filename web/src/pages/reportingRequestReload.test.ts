@@ -51,7 +51,6 @@ describe('reporting request reload persistence', () => {
   it('clears persisted request records created by previous module instances', async () => {
     const firstModule = await import('./reportingRequestCoordinator')
     await firstModule.beginPendingReportingRequest('report:create:before-reload')
-    window.localStorage.setItem(`${requestPrefix}obsolete-draft`, '{}')
 
     vi.resetModules()
     const reloadedModule = await import('./reportingRequestCoordinator')
@@ -142,6 +141,19 @@ describe('reporting request reload persistence', () => {
     await expect(module.beginPendingReportingRequest('after-storage-reset')).resolves.toMatch(
       /^[A-Za-z0-9._~:-]+$/,
     )
+  })
+
+  it('does not make obsolete local storage a reporting dependency', async () => {
+    const module = await import('./reportingRequestCoordinator')
+    const storageGetter = vi.spyOn(window, 'localStorage', 'get').mockImplementation(() => {
+      throw new DOMException('Local storage getter denied')
+    })
+
+    expect(() => module.resetPendingReportingKeys()).not.toThrow()
+    await expect(module.beginPendingReportingRequest('without-local-storage')).resolves.toMatch(
+      /^[A-Za-z0-9._~:-]+$/,
+    )
+    storageGetter.mockRestore()
   })
 
   it('keeps a volatile key usable when browser storage is unavailable', async () => {
