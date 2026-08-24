@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from alembic import command
@@ -52,6 +53,8 @@ def test_legacy_worker_guard_migration_fences_unleased_running_reports(
                 "DATABASE_URL",
                 schema_database_url.replace("%", "%%"),
             )
+            migration_env.setenv("CELERY_VISIBILITY_TIMEOUT_SECONDS", "3600")
+            migration_env.setenv("REPORT_LEGACY_WORKER_GRACE_SECONDS", "7200")
             get_settings.cache_clear()
             config = _alembic_config()
             command.upgrade(config, "0051_report_dispatch_claims")
@@ -76,7 +79,9 @@ def test_legacy_worker_guard_migration_fences_unleased_running_reports(
                     {"id": report_id},
                 )
 
+            before_upgrade = datetime.now(timezone.utc)
             command.upgrade(config, "0052_legacy_worker_guard")
+            after_upgrade = datetime.now(timezone.utc)
             with schema_engine.connect() as connection:
                 report_token, report_expiry = connection.execute(
                     text(
@@ -94,7 +99,8 @@ def test_legacy_worker_guard_migration_fences_unleased_running_reports(
                 ).one()
 
             assert report_token == f"legacy-unfenced:{report_id.hex}"
-            assert report_expiry is not None
+            assert before_upgrade + timedelta(seconds=7195) <= report_expiry
+            assert report_expiry <= after_upgrade + timedelta(seconds=7205)
             assert lease_fence == 1
             assert lease_token == report_token
             assert lease_expiry == report_expiry

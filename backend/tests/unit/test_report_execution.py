@@ -9,6 +9,7 @@ from app.models.report_generation_lease import ReportGenerationLease
 from app.services.report_execution import (
     claim_report_generation,
     fence_report_generation,
+    guard_unfenced_report_generation,
     invalidate_stale_report_generation,
     release_report_generation,
     renew_report_generation,
@@ -211,6 +212,31 @@ def test_stale_generation_invalidation_skips_active_and_fences_expired_lease(
     assert lease.lease_expires_at is None
     assert report.generation_lease_token is None
     assert report.generation_lease_expires_at is None
+
+
+def test_stale_reconciliation_guard_protects_late_unfenced_worker(db_session):
+    report = _queued_report()
+    report.status = "running"
+    db_session.add(report)
+    db_session.commit()
+
+    assert guard_unfenced_report_generation(
+        db_session,
+        report_id=report.id,
+        grace_seconds=3600,
+    )
+    db_session.commit()
+
+    db_session.refresh(report)
+    lease = db_session.get(ReportGenerationLease, report.id)
+    expected_token = f"legacy-unfenced:{report.id.hex}"
+    assert report.generation_lease_token == expected_token
+    assert lease is not None and lease.lease_token == expected_token
+    assert not guard_unfenced_report_generation(
+        db_session,
+        report_id=report.id,
+        grace_seconds=3600,
+    )
 
 
 def test_report_heartbeat_does_not_wait_on_dirty_report_row(database_engine):

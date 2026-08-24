@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
@@ -84,7 +85,10 @@ from app.services.ai_task_runtime import (
     get_ai_db_live_status as get_ai_db_live_status,
 )
 from app.services.ai_task_settlement import settle_pending_ai_resource
-from app.services.report_execution import invalidate_stale_report_generation
+from app.services.report_execution import (
+    guard_unfenced_report_generation,
+    invalidate_stale_report_generation,
+)
 from app.tasks.celery_app import celery_app
 
 
@@ -891,6 +895,18 @@ def _reconcile_stale_ai_runs(
                 continue
             stale_reason = "stale_task_snapshot_unavailable"
             stale_error = "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
+        if (
+            run.task_type == AI_TASK_TYPE_REPORT
+            and run.report_id is not None
+            and guard_unfenced_report_generation(
+                db,
+                report_id=run.report_id,
+                grace_seconds=get_settings().report_legacy_worker_grace_seconds,
+                now=now,
+            )
+        ):
+            changed = True
+            continue
         if not _finish_reconciled_stale_run(
             db,
             run=run,

@@ -235,7 +235,10 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 legacy_worker_grace_seconds=settings.report_legacy_worker_grace_seconds,
             )
             if claim.status == "busy":
-                db.rollback()
+                if claim.compatibility_guard_created:
+                    db.commit()
+                else:
+                    db.rollback()
             elif claim.status == "unavailable":
                 db.rollback()
                 return {"status": "skipped", "reason": "run_not_available"}

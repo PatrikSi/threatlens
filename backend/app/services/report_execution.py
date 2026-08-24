@@ -33,6 +33,7 @@ class ReportGenerationClaim:
     status: Literal["claimed", "busy", "interrupted", "unavailable"]
     generation_fence: int | None = None
     lease_expires_at: datetime | None = None
+    compatibility_guard_created: bool = False
 
     @property
     def owns_lease(self) -> bool:
@@ -75,19 +76,18 @@ def claim_report_generation(
         and lease.lease_token is None
         and report.generation_lease_token is None
     ):
-        compatibility_token = f"legacy-unfenced:{report_id.hex}"
-        compatibility_expiry = now + timedelta(seconds=legacy_worker_grace_seconds)
-        lease.generation_fence = int(lease.generation_fence or 0) + 1
-        lease.lease_token = compatibility_token
-        lease.lease_expires_at = compatibility_expiry
-        report.generation_lease_token = compatibility_token
-        report.generation_lease_expires_at = compatibility_expiry
-        db.add(lease)
-        db.add(report)
+        compatibility_expiry = _install_legacy_worker_guard(
+            db,
+            report=report,
+            lease=lease,
+            now=now,
+            grace_seconds=legacy_worker_grace_seconds,
+        )
         return ReportGenerationClaim(
             "busy",
             generation_fence=lease.generation_fence,
             lease_expires_at=compatibility_expiry,
+            compatibility_guard_created=True,
         )
     lease_is_active = _active_foreign_lease(
         token=lease.lease_token,
@@ -305,6 +305,69 @@ def invalidate_stale_report_generation(
     return True
 
 
+def guard_unfenced_report_generation(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    grace_seconds: int,
+    now: datetime | None = None,
+) -> bool:
+    """Protect a running report that may belong to a pre-fencing worker."""
+
+    report = db.scalar(
+        select(Report)
+        .where(Report.id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        report is None
+        or report.status != "running"
+        or report.generation_lease_token is not None
+    ):
+        return False
+    lease = db.scalar(
+        select(ReportGenerationLease)
+        .where(ReportGenerationLease.report_id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if lease is None:
+        lease = ReportGenerationLease(report_id=report_id)
+        db.add(lease)
+        db.flush()
+    if lease.lease_token is not None:
+        return False
+    _install_legacy_worker_guard(
+        db,
+        report=report,
+        lease=lease,
+        now=_as_utc(now or datetime.now(timezone.utc)),
+        grace_seconds=grace_seconds,
+    )
+    return True
+
+
+def _install_legacy_worker_guard(
+    db: Session,
+    *,
+    report: Report,
+    lease: ReportGenerationLease,
+    now: datetime,
+    grace_seconds: int,
+) -> datetime:
+    compatibility_token = f"legacy-unfenced:{report.id.hex}"
+    compatibility_expiry = now + timedelta(seconds=grace_seconds)
+    lease.generation_fence = int(lease.generation_fence or 0) + 1
+    lease.lease_token = compatibility_token
+    lease.lease_expires_at = compatibility_expiry
+    report.generation_lease_token = compatibility_token
+    report.generation_lease_expires_at = compatibility_expiry
+    db.add(lease)
+    db.add(report)
+    return compatibility_expiry
+
+
 def _active_foreign_lease(
     *,
     token: str | None,
@@ -347,6 +410,7 @@ __all__ = [
     "ReportGenerationOwnershipError",
     "claim_report_generation",
     "fence_report_generation",
+    "guard_unfenced_report_generation",
     "invalidate_stale_report_generation",
     "release_report_generation",
     "renew_report_generation",

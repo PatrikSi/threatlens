@@ -8,6 +8,7 @@ from celery.exceptions import Retry
 
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.services.ai_ops import queue_ai_task_run
 from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services.report_generation import ReportGenerationError
@@ -82,6 +83,36 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
 
 def test_report_task_allows_unbounded_ownership_waits():
     assert report_tasks.generate_intelligence_report.max_retries is None
+
+
+def test_report_task_persists_legacy_guard_before_retry(db_session, monkeypatch):
+    report = _report()
+    report.status = "running"
+    report.started_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    run = _task_run(db_session, report)
+    _use_test_session(monkeypatch, db_session)
+
+    with pytest.raises(Retry):
+        report_tasks.generate_intelligence_report.run(str(report.id), str(run.id))
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    lease = db_session.get(ReportGenerationLease, report.id)
+    expected_token = f"legacy-unfenced:{report.id.hex}"
+    assert stored_report.generation_lease_token == expected_token
+    assert lease is not None and lease.lease_token == expected_token
+
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    stored_report.generation_lease_expires_at = expired_at
+    lease.lease_expires_at = expired_at
+    db_session.commit()
+
+    result = report_tasks.generate_intelligence_report.apply(
+        args=[str(report.id), str(run.id)], task_id="report-task"
+    ).get()
+    db_session.expire_all()
+    assert result == {"status": "error", "reason": "generation_interrupted"}
+    assert db_session.get(Report, report.id).status == "error"
 
 
 def test_report_task_does_not_resume_expired_running_generation(
