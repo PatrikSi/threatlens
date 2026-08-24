@@ -71,6 +71,7 @@ export function useReportingController() {
   const scheduleUpdateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
   const scheduleDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
   const scheduleRunRequestsRef = useRef(new Map<string, Promise<ReportQueueResponse[]>>())
+  const scheduleRunRequestKeysRef = useRef(new Map<string, string>())
   const selectedReportIdRef = useRef(routeReportId)
   const mountedRef = useRef(true)
   const activeDownloadRef = useRef<{
@@ -253,19 +254,21 @@ export function useReportingController() {
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const selected = templatesQuery.data?.find((template) => template.id === selectedTemplateId)
       const path = payload.mode === 'update' && selected ? `/reports/templates/${selected.id}` : '/reports/templates'
-      const requestKey = payload.mode === 'update' && selected ? selected.id : 'create'
+      const entityKey = payload.mode === 'update' && selected ? selected.id : 'create'
+      const body = JSON.stringify({
+        name: payload.name,
+        description: selected?.description ?? 'Custom intelligence report template.',
+        report_type: selected?.report_type ?? 'custom',
+        visibility: payload.visibility,
+        prompt,
+        sections,
+        default_filters: validation.filters,
+      })
+      const requestKey = reportMutationRequestKey(entityKey, body)
       return coalesceRequest(templateSaveRequestsRef.current, requestKey, () => (
         apiFetch<ReportTemplate>(path, {
           method: payload.mode === 'update' ? 'PUT' : 'POST',
-          body: JSON.stringify({
-            name: payload.name,
-            description: selected?.description ?? 'Custom intelligence report template.',
-            report_type: selected?.report_type ?? 'custom',
-            visibility: payload.visibility,
-            prompt,
-            sections,
-            default_filters: validation.filters,
-          }),
+          body,
         })
       ))
     },
@@ -324,11 +327,14 @@ export function useReportingController() {
   })
   const createScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'create'],
-    mutationFn: (payload: ReportScheduleWrite) => coalesceRequest(
-      scheduleCreateRequestsRef.current,
-      'create',
-      () => apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body: JSON.stringify(payload) }),
-    ),
+    mutationFn: (payload: ReportScheduleWrite) => {
+      const body = JSON.stringify(payload)
+      return coalesceRequest(
+        scheduleCreateRequestsRef.current,
+        reportMutationRequestKey('create', body),
+        () => apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body }),
+      )
+    },
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule created.' })
@@ -342,14 +348,17 @@ export function useReportingController() {
   })
   const updateScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'update'],
-    mutationFn: (schedule: ReportSchedule) => coalesceRequest(
-      scheduleUpdateRequestsRef.current,
-      schedule.id,
-      () => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(schedulePayload(schedule)),
-      }),
-    ),
+    mutationFn: (schedule: ReportSchedule) => {
+      const body = JSON.stringify(schedulePayload(schedule))
+      return coalesceRequest(
+        scheduleUpdateRequestsRef.current,
+        reportMutationRequestKey(schedule.id, body),
+        () => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
+          method: 'PUT',
+          body,
+        }),
+      )
+    },
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule updated.' })
@@ -381,13 +390,21 @@ export function useReportingController() {
   })
   const runScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'run'],
-    mutationFn: (scheduleId: string) => coalesceRequest(
-      scheduleRunRequestsRef.current,
-      scheduleId,
-      () => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, { method: 'POST' }),
-    ),
+    mutationFn: (scheduleId: string) => {
+      const key = scheduleRunRequestKeysRef.current.get(scheduleId) ?? createIdempotencyKey()
+      scheduleRunRequestKeysRef.current.set(scheduleId, key)
+      return coalesceRequest(
+        scheduleRunRequestsRef.current,
+        scheduleId,
+        () => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, {
+          method: 'POST',
+          headers: { 'Idempotency-Key': key },
+        }),
+      )
+    },
     onMutate: () => setFeedback(null),
-    onSuccess: (results) => {
+    onSuccess: (results, scheduleId) => {
+      scheduleRunRequestKeysRef.current.delete(scheduleId)
       void Promise.all([
         queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
         queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
@@ -404,11 +421,10 @@ export function useReportingController() {
             message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
           })
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The scheduled report could not be queued',
-    ),
+    onError: (error, scheduleId) => {
+      if (!isAmbiguousQueueError(error)) scheduleRunRequestKeysRef.current.delete(scheduleId)
+      setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
+    },
   })
   const downloadMutation = useMutation({
     mutationFn: async ({
@@ -600,6 +616,11 @@ function createIdempotencyKey(): string {
     return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+
+export function reportMutationRequestKey(entityKey: string, body: string): string {
+  return `${entityKey}\0${body}`
 }
 
 function isAmbiguousQueueError(error: unknown): boolean {

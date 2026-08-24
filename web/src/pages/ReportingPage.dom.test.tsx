@@ -590,6 +590,51 @@ describe('ReportingPage schedule resilience', () => {
     })
   })
 
+  it('reuses the schedule-run idempotency key after an ambiguous failure', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const schedule = reportSchedule('schedule-1', 'Monday landscape')
+    const requestHeaders: string[] = []
+    let runRequests = 0
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') return Promise.resolve([schedule])
+      if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
+        runRequests += 1
+        requestHeaders.push(new Headers(options.headers).get('Idempotency-Key') ?? '')
+        if (runRequests === 1) {
+          return Promise.reject(new ApiTransportError('The API could not be reached.', path, 'network'))
+        }
+        return Promise.resolve([{
+          report_id: 'report-2',
+          task_run_id: 'run-2',
+          celery_task_id: null,
+          status: 'queued',
+        }])
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Monday landscape'))
+    })
+
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Run now').click()
+      await vi.waitFor(() => expect(view.textContent).toContain('Retry safely with the same request'))
+    })
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Run now').click()
+      await vi.waitFor(() => expect(runRequests).toBe(2))
+    })
+
+    expect(requestHeaders[0]).not.toBe('')
+    expect(requestHeaders[1]).toBe(requestHeaders[0])
+  })
+
   it('blocks duplicate schedule actions only for the affected row', async () => {
     reportingPageMocks.routeReportId = undefined
     reportingPageMocks.userRole = 'admin'
