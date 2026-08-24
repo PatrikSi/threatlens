@@ -1,12 +1,16 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from zoneinfo import ZoneInfoNotFoundError
+
+from sqlalchemy import select
 
 from app.api.routes import reports as reports_routes
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
+from app.models.user import User
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.export_query import ExportSnapshotChangedError
 
@@ -458,3 +462,129 @@ def test_manual_schedule_run_maps_snapshot_race_to_conflict(
         "Matching articles changed while the scheduled report was being prepared. "
         "Try running the schedule again."
     )
+
+
+def test_manual_schedule_run_idempotency_replays_existing_report(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    admin = db_session.scalar(select(User).where(User.role == "admin"))
+    template = ReportTemplate(
+        name=f"Manual run template {uuid.uuid4()}",
+        description="",
+        report_type="weekly",
+        visibility="shared",
+        audience="security_team",
+        objective="Summarize material security developments.",
+        tone="analytical",
+        detail_level="standard",
+        use_company_context=True,
+        focus_topics_json=[],
+        excluded_topics_json=[],
+        sections_json=[
+            {"key": "executive_summary", "title": "Executive Summary"}
+        ],
+        default_filters_json={},
+    )
+    db_session.add(template)
+    db_session.flush()
+    schedule = ReportSchedule(
+        template_id=template.id,
+        owner_user_id=admin.id,
+        name=f"Manual run schedule {uuid.uuid4()}",
+        enabled=True,
+        cadence="weekly",
+        day_of_week=0,
+        day_of_month=1,
+        hour=9,
+        minute=0,
+        timezone="UTC",
+        window_type="previous_complete_week",
+        rolling_days=7,
+        filters_json={},
+        delivery_enabled=False,
+        delivery_mode="summary",
+        skip_empty=True,
+        missed_run_policy="latest",
+        next_run_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    db_session.add(schedule)
+    db_session.commit()
+    calls = {"count": 0}
+
+    def _reserve(db, **kwargs):
+        calls["count"] += 1
+        now = datetime.now(timezone.utc)
+        report = Report(
+            schedule_id=schedule.id,
+            owner_user_id=admin.id,
+            title="Manual schedule report",
+            report_type="weekly",
+            status="queued",
+            trigger_source="scheduled",
+            generation_stage="queued",
+            generation_key=kwargs["generation_key_override"],
+            request_idempotency_key_hash=kwargs["request_idempotency_key_hash"],
+            request_fingerprint=kwargs["request_fingerprint"],
+            period_start=now - timedelta(days=7),
+            period_end=now,
+            filters_json={},
+            prompt_config_json={},
+            sections_config_json=[],
+            metrics_json={},
+            coverage_json={},
+        )
+        db.add(report)
+        db.flush()
+        return [report]
+
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+    monkeypatch.setattr(reports_routes, "reserve_schedule_runs", _reserve)
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        lambda *, task_run_id, **_kwargs: f"report-{task_run_id}",
+    )
+    headers = {**auth_headers["admin"], "Idempotency-Key": "manual-week-32"}
+
+    first = client.post(f"/reports/schedules/{schedule.id}/run", headers=headers)
+    second = client.post(f"/reports/schedules/{schedule.id}/run", headers=headers)
+
+    assert first.status_code == 202
+    assert second.status_code == 202
+    assert second.json()[0]["report_id"] == first.json()[0]["report_id"]
+    assert second.json()[0]["task_run_id"] == first.json()[0]["task_run_id"]
+    assert calls["count"] == 1
+
+
+def test_manual_schedule_run_maps_invalid_legacy_configuration_to_422(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+    monkeypatch.setattr(
+        reports_routes,
+        "reserve_schedule_runs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ZoneInfoNotFoundError("Missing/Legacy-Zone")
+        ),
+    )
+
+    response = client.post(
+        f"/reports/schedules/{uuid.uuid4()}/run",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 422
+    assert "Missing/Legacy-Zone" in response.json()["detail"]

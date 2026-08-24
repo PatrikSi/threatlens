@@ -4,7 +4,7 @@ import calendar
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import ValidationError
 from sqlalchemy import func, or_, select
@@ -219,7 +219,12 @@ def reserve_schedule_runs(
     schedule_id: uuid.UUID,
     now: datetime,
     force: bool = False,
+    generation_key_override: str | None = None,
+    request_idempotency_key_hash: str | None = None,
+    request_fingerprint: str | None = None,
 ) -> list[Report]:
+    if generation_key_override is not None and not force:
+        raise ValueError("A schedule generation-key override requires a forced run.")
     schedule = db.scalar(
         select(ReportSchedule).where(ReportSchedule.id == schedule_id).with_for_update()
     )
@@ -263,7 +268,13 @@ def reserve_schedule_runs(
     reports: list[Report] = []
     for due_at in due_times:
         report = _create_one_scheduled_report(
-            db, schedule=schedule, template=template, due_at=due_at
+            db,
+            schedule=schedule,
+            template=template,
+            due_at=due_at,
+            generation_key_override=generation_key_override,
+            request_idempotency_key_hash=request_idempotency_key_hash,
+            request_fingerprint=request_fingerprint,
         )
         if report is not None:
             reports.append(report)
@@ -284,9 +295,12 @@ def _create_one_scheduled_report(
     schedule: ReportSchedule,
     template: ReportTemplate,
     due_at: datetime,
+    generation_key_override: str | None = None,
+    request_idempotency_key_hash: str | None = None,
+    request_fingerprint: str | None = None,
 ) -> Report | None:
     period_start, period_end = schedule_report_period(schedule, due_at=due_at)
-    generation_key = (
+    generation_key = generation_key_override or (
         f"schedule:{schedule.id}:{period_start.isoformat()}:{period_end.isoformat()}"
     )
     existing = db.scalar(select(Report).where(Report.generation_key == generation_key))
@@ -336,17 +350,27 @@ def _create_one_scheduled_report(
         delivery_mode=schedule.delivery_mode,
     )
     try:
-        return create_report_from_plan(
-            db,
-            user_id=schedule.owner_user_id,
-            payload=payload,
-            plan=plan,
-            template=template,
-            active=active,
-            trigger_source="scheduled",
-            schedule_id=schedule.id,
-            generation_key=generation_key,
-        )
+        with db.begin_nested():
+            return create_report_from_plan(
+                db,
+                user_id=schedule.owner_user_id,
+                payload=payload,
+                plan=plan,
+                template=template,
+                active=active,
+                trigger_source="scheduled",
+                schedule_id=schedule.id,
+                generation_key=generation_key,
+                request_idempotency_key_hash=request_idempotency_key_hash,
+                request_fingerprint=request_fingerprint,
+            )
+    except IntegrityError as exc:
+        if _integrity_constraint_name(exc) in {
+            "reports_generation_key_key",
+            "uq_reports_owner_request_idempotency_key_hash",
+        }:
+            return None
+        raise
     except ReportStorageError:
         if not schedule.skip_empty:
             raise
@@ -360,6 +384,8 @@ def _create_one_scheduled_report(
             trigger_source="scheduled",
             generation_stage="skipped",
             generation_key=generation_key,
+            request_idempotency_key_hash=request_idempotency_key_hash,
+            request_fingerprint=request_fingerprint,
             period_start=period_start,
             period_end=period_end,
             filters_json=filters.model_dump(mode="json"),
@@ -438,11 +464,22 @@ def record_schedule_failure(
         else:
             schedule.failure_state = "exhausted"
             schedule.consecutive_failure_count = 0
-            schedule.next_run_at = (
-                next_schedule_run(schedule, after=observed_at)
-                if schedule.enabled
-                else None
-            )
+            try:
+                schedule.next_run_at = (
+                    next_schedule_run(schedule, after=observed_at)
+                    if schedule.enabled
+                    else None
+                )
+            except (ZoneInfoNotFoundError, AttributeError, TypeError, ValueError):
+                schedule.enabled = False
+                schedule.next_run_at = None
+                schedule.retry_at = None
+                schedule.failure_state = "quarantined"
+                schedule.last_error_code = "invalid_configuration"
+                schedule.last_error = (
+                    "The schedule contains invalid timing configuration. "
+                    "Update it before re-enabling the schedule."
+                )
     else:
         exponent = max(0, schedule.consecutive_failure_count - 1)
         delay_seconds = min(
@@ -473,6 +510,15 @@ def classify_schedule_failure(error: Exception) -> ScheduleFailure:
         )
     if isinstance(error, ReportStorageError):
         return ScheduleFailure("source_selection", str(error))
+    if isinstance(
+        error,
+        (ZoneInfoNotFoundError, AttributeError, TypeError, ValueError),
+    ):
+        return ScheduleFailure(
+            "invalid_configuration",
+            "The schedule contains invalid timing or report configuration. Update it and re-enable the schedule.",
+            quarantine=True,
+        )
     return ScheduleFailure(
         "reservation_failed",
         "Scheduled report preparation failed unexpectedly. Review the maintenance worker logs before retrying.",
@@ -502,3 +548,8 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _integrity_constraint_name(exc: IntegrityError) -> str | None:
+    diagnostic = getattr(exc.orig, "diag", None)
+    return getattr(diagnostic, "constraint_name", None)

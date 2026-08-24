@@ -64,6 +64,30 @@ def build_report_retry_identity(
     )
 
 
+def build_report_schedule_run_identity(
+    key: str | None,
+    *,
+    schedule_id: uuid.UUID,
+    actor_user_id: uuid.UUID,
+) -> ReportRequestIdentity | None:
+    normalized = _normalize_key(key)
+    if normalized is None:
+        return None
+    scope = f"report:schedule-run:{schedule_id}:{actor_user_id}"
+    return ReportRequestIdentity(
+        legacy_key=normalized,
+        key_hash=_sha256(f"{scope}\0{normalized}"),
+        fingerprint=_payload_fingerprint(
+            {
+                "operation": "schedule_run",
+                "schedule_id": str(schedule_id),
+                "actor_user_id": str(actor_user_id),
+                "version": 1,
+            }
+        ),
+    )
+
+
 def find_report_create_replay(
     db: Session,
     *,
@@ -126,6 +150,45 @@ def find_report_retry_replay(
     return run
 
 
+def find_report_schedule_run_replay(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    identity: ReportRequestIdentity | None,
+) -> tuple[Report, AITaskRun | None] | None:
+    if identity is None:
+        return None
+    report = db.scalar(
+        select(Report).where(
+            Report.schedule_id == schedule_id,
+            Report.request_idempotency_key_hash == identity.key_hash,
+        )
+    )
+    if report is None:
+        return None
+    _ensure_matching_fingerprint(report.request_fingerprint, identity.fingerprint)
+    run = db.scalar(
+        select(AITaskRun)
+        .where(
+            AITaskRun.report_id == report.id,
+            AITaskRun.task_type == "report",
+        )
+        .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        .limit(1)
+    )
+    if run is None and report.status == "skipped":
+        return report, None
+    if run is None:
+        raise ReportIdempotencyConflictError(
+            "The original schedule run exists, but its task record is unavailable. "
+            "Use a new Idempotency-Key to run the schedule again."
+        )
+    if run.actor_user_id != user_id:
+        return None
+    return report, run
+
+
 def _normalize_key(key: str | None) -> str | None:
     if key is None:
         return None
@@ -166,6 +229,8 @@ __all__ = [
     "ReportRequestIdentity",
     "build_report_create_identity",
     "build_report_retry_identity",
+    "build_report_schedule_run_identity",
     "find_report_create_replay",
     "find_report_retry_replay",
+    "find_report_schedule_run_replay",
 ]
