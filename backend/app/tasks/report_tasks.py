@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -22,7 +23,9 @@ from app.services.ai_ops_common import AI_TASK_TYPE_REPORT
 from app.services.report_generation import generate_report
 from app.services.report_execution import (
     ReportGenerationLeaseLostError,
+    ReportGenerationLeaseUnavailableError,
     claim_report_generation,
+    fence_report_generation,
     release_report_generation,
     renew_report_generation,
 )
@@ -154,6 +157,8 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     name="app.tasks.feed_tasks.generate_intelligence_report",
     acks_late=True,
     reject_on_worker_lost=True,
+    default_retry_delay=30,
+    max_retries=20,
 )
 def generate_intelligence_report(self, report_id: str, task_run_id: str):
     try:
@@ -164,74 +169,128 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
     worker_name = getattr(self.request, "hostname", None)
     celery_task_id = getattr(self.request, "id", None)
     lease_token = uuid.uuid4().hex
-    with db_session() as db:
-        candidate_run = db.get(AITaskRun, parsed_run_id)
-        if (
-            candidate_run is None
-            or candidate_run.task_type != AI_TASK_TYPE_REPORT
-            or candidate_run.report_id != parsed_report_id
-        ):
-            return {"status": "skipped", "reason": "run_not_available"}
-        started = start_ai_task_run(
-            db,
-            run_id=parsed_run_id,
-            worker_name=worker_name,
-            celery_task_id=celery_task_id,
-            metadata_updates={"report_id": str(parsed_report_id)},
-        )
-        if started is not None:
-            started.dispatch_next_attempt_at = None
-            started.dispatch_error = None
-            db.add(started)
-        claimed_by_task = (
-            started is not None
-            and started.status in {"queued", "running"}
-            and started.task_type == AI_TASK_TYPE_REPORT
-            and started.report_id == parsed_report_id
-            and (celery_task_id is None or started.celery_task_id == celery_task_id)
-        )
-        report = db.get(Report, parsed_report_id) if claimed_by_task else None
-        if claimed_by_task and (report is None or report.status in {"ready", "error", "skipped"}):
-            result = _settle_terminal_report_run(
+    try:
+        with db_session() as db:
+            candidate_run = db.get(AITaskRun, parsed_run_id)
+            if (
+                candidate_run is None
+                or candidate_run.task_type != AI_TASK_TYPE_REPORT
+                or candidate_run.report_id != parsed_report_id
+            ):
+                return {"status": "skipped", "reason": "run_not_available"}
+            started = start_ai_task_run(
                 db,
-                report=report,
                 run_id=parsed_run_id,
                 worker_name=worker_name,
+                celery_task_id=celery_task_id,
+                metadata_updates={"report_id": str(parsed_report_id)},
             )
-            db.commit()
-            if result[1] is not None:
-                enqueue_integration_event_routing([result[1]])
-            return result[0]
-        claimed_report = claimed_by_task and claim_report_generation(
-            db,
-            report_id=parsed_report_id,
-            lease_token=lease_token,
-            lease_seconds=settings.report_generation_lease_seconds,
+            if started is not None:
+                started.dispatch_next_attempt_at = None
+                started.dispatch_error = None
+                db.add(started)
+            claimed_by_task = (
+                started is not None
+                and started.status in {"queued", "running"}
+                and started.task_type == AI_TASK_TYPE_REPORT
+                and started.report_id == parsed_report_id
+                and (celery_task_id is None or started.celery_task_id == celery_task_id)
+            )
+            report = db.get(Report, parsed_report_id) if claimed_by_task else None
+            if claimed_by_task and (
+                report is None or report.status in {"ready", "error", "skipped"}
+            ):
+                terminal_result, event_id = _settle_terminal_report_run(
+                    db,
+                    report=report,
+                    run_id=parsed_run_id,
+                    worker_name=worker_name,
+                )
+                db.commit()
+                if event_id is not None:
+                    enqueue_integration_event_routing([event_id])
+                return terminal_result
+            if not claimed_by_task:
+                db.rollback()
+                return {"status": "skipped", "reason": "run_not_available"}
+
+            claim = claim_report_generation(
+                db,
+                report_id=parsed_report_id,
+                lease_token=lease_token,
+                lease_seconds=settings.report_generation_lease_seconds,
+            )
+            if claim.status == "busy":
+                db.rollback()
+            elif claim.status == "unavailable":
+                db.rollback()
+                return {"status": "skipped", "reason": "run_not_available"}
+            elif claim.status == "interrupted":
+                interrupted_result = _settle_interrupted_report_run(
+                    db,
+                    report_id=parsed_report_id,
+                    run_id=parsed_run_id,
+                    worker_name=worker_name,
+                    lease_token=lease_token,
+                    generation_fence=_required_generation_fence(claim),
+                )
+                db.commit()
+                return interrupted_result
+            else:
+                db.commit()
+    except ReportGenerationLeaseLostError:
+        logger.warning(
+            "report_generation_claim_lost report_id=%s task_run_id=%s",
+            parsed_report_id,
+            parsed_run_id,
         )
-        db.commit()
-        if not claimed_by_task:
-            return {"status": "skipped", "reason": "run_not_available"}
-        if not claimed_report:
-            return {"status": "skipped", "reason": "already_running"}
+        return {"status": "skipped", "reason": "ownership_lost"}
+    except Exception as exc:
+        logger.exception(
+            "report_generation_start_failed report_id=%s task_run_id=%s",
+            parsed_report_id,
+            parsed_run_id,
+        )
+        raise self.retry(exc=exc, countdown=30) from exc
+
+    if claim.status == "busy":
+        raise self.retry(
+            countdown=_busy_report_retry_delay(claim.lease_expires_at),
+            max_retries=None,
+        )
+
+    generation_fence = _required_generation_fence(claim)
+    with db_session() as db:
 
         def execution_checkpoint() -> None:
+            _heartbeat_report_generation(
+                report_id=parsed_report_id,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+            )
+
+        def execution_commit() -> None:
             try:
-                with db_session() as lease_db:
-                    owned = renew_report_generation(
-                        lease_db,
-                        report_id=parsed_report_id,
-                        lease_token=lease_token,
-                        lease_seconds=settings.report_generation_lease_seconds,
-                    )
-                    lease_db.commit()
-            except Exception as exc:
-                raise ReportGenerationLeaseLostError(
-                    "Report execution ownership could not be verified."
-                ) from exc
-            if not owned:
-                raise ReportGenerationLeaseLostError(
-                    "Report execution ownership moved to another worker."
+                owned = fence_report_generation(
+                    db,
+                    report_id=parsed_report_id,
+                    lease_token=lease_token,
+                    generation_fence=generation_fence,
+                    lease_seconds=settings.report_generation_lease_seconds,
                 )
+                if not owned:
+                    db.rollback()
+                    raise ReportGenerationLeaseLostError(
+                        "Report execution ownership moved to another worker."
+                    )
+                db.commit()
+            except ReportGenerationLeaseLostError:
+                raise
+            except Exception as exc:
+                db.rollback()
+                raise ReportGenerationLeaseUnavailableError(
+                    "Report execution ownership could not be committed safely."
+                ) from exc
 
         try:
             result = generate_report(
@@ -239,6 +298,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 report_id=parsed_report_id,
                 task_run_id=parsed_run_id,
                 execution_checkpoint=execution_checkpoint,
+                execution_commit=execution_commit,
             )
         except ReportGenerationLeaseLostError:
             logger.warning(
@@ -247,49 +307,24 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 parsed_run_id,
             )
             return {"status": "skipped", "reason": "ownership_lost"}
+        except ReportGenerationLeaseUnavailableError as exc:
+            logger.warning(
+                "report_generation_ownership_unverified report_id=%s task_run_id=%s",
+                parsed_report_id,
+                parsed_run_id,
+            )
+            raise self.retry(exc=exc, countdown=30) from exc
         except Exception as exc:
-            canceled = getattr(exc, "code", None) == "canceled"
-            if canceled:
-                logger.info("report_generation_canceled report_id=%s", parsed_report_id)
-            else:
-                logger.exception("report_generation_failed report_id=%s", parsed_report_id)
-            report = db.get(Report, parsed_report_id)
-            if report is not None and report.status not in {
-                "ready",
-                "error",
-                "skipped",
-            }:
-                report.status = "skipped" if canceled else "error"
-                report.generation_stage = "canceled" if canceled else "failed"
-                report.error_code = str(
-                    getattr(exc, "code", None) or "generation_failed"
-                )[:64]
-                report.error = _report_error_for_display(exc)
-                db.add(report)
-            display_error = (
-                report.error
-                if report is not None
-                else _report_error_for_display(exc)
-            )
-            finish_ai_task_run(
-                db,
-                run_id=parsed_run_id,
-                status=AI_STATUS_SKIPPED if canceled else AI_STATUS_ERROR,
-                reason=report.error_code
-                if report is not None
-                else getattr(exc, "code", "generation_failed"),
-                error=None if canceled else display_error,
-                worker_name=worker_name,
+            return _settle_failed_generation(
+                self,
+                db=db,
                 report_id=parsed_report_id,
+                run_id=parsed_run_id,
+                worker_name=worker_name,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+                exc=exc,
             )
-            release_report_generation(
-                db, report_id=parsed_report_id, lease_token=lease_token
-            )
-            db.commit()
-            return {
-                "status": "skipped" if canceled else "error",
-                "reason": getattr(exc, "code", "generation_failed"),
-            }
 
         finish_ai_task_run(
             db,
@@ -312,10 +347,19 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 IntegrationEvent.source_id == str(parsed_report_id),
             )
         )
-        release_report_generation(
-            db, report_id=parsed_report_id, lease_token=lease_token
-        )
-        db.commit()
+        if not release_report_generation(
+            db,
+            report_id=parsed_report_id,
+            lease_token=lease_token,
+            generation_fence=generation_fence,
+        ):
+            db.rollback()
+            return {"status": "skipped", "reason": "ownership_lost"}
+        try:
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            raise self.retry(exc=exc, countdown=30) from exc
     notification_enqueued = (
         enqueue_integration_event_routing([event_id]) if event_id else True
     )
@@ -327,6 +371,166 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
     }
 
 
+def _heartbeat_report_generation(
+    *,
+    report_id: uuid.UUID,
+    lease_token: str,
+    generation_fence: int,
+) -> None:
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            with db_session() as lease_db:
+                owned = renew_report_generation(
+                    lease_db,
+                    report_id=report_id,
+                    lease_token=lease_token,
+                    generation_fence=generation_fence,
+                    lease_seconds=settings.report_generation_lease_seconds,
+                )
+                lease_db.commit()
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                time.sleep(0.25 * (attempt + 1))
+            continue
+        if not owned:
+            raise ReportGenerationLeaseLostError(
+                "Report execution ownership moved to another worker."
+            )
+        return
+    raise ReportGenerationLeaseUnavailableError(
+        "Report execution ownership could not be verified."
+    ) from last_error
+
+
+def _settle_interrupted_report_run(
+    db,
+    *,
+    report_id: uuid.UUID,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+    lease_token: str,
+    generation_fence: int,
+) -> dict[str, str]:
+    report = db.get(Report, report_id)
+    if report is None:
+        raise ReportGenerationLeaseLostError("The interrupted report no longer exists.")
+    report.status = "error"
+    report.generation_stage = "failed"
+    report.error_code = "generation_interrupted"
+    report.error = (
+        "The report worker stopped before generation completed. ThreatLens did not "
+        "automatically repeat completed AI calls; retry the report to start a fresh attempt."
+    )
+    db.add(report)
+    finish_ai_task_run(
+        db,
+        run_id=run_id,
+        status=AI_STATUS_ERROR,
+        reason=report.error_code,
+        error=report.error,
+        worker_name=worker_name,
+        model=report.model,
+        prompt_tokens=report.prompt_tokens,
+        completion_tokens=report.completion_tokens,
+        total_tokens=report.total_tokens,
+        metadata_updates={
+            "automatic_resume_skipped": True,
+            "model_calls": report.model_calls,
+        },
+        report_id=report_id,
+    )
+    if not release_report_generation(
+        db,
+        report_id=report_id,
+        lease_token=lease_token,
+        generation_fence=generation_fence,
+    ):
+        db.rollback()
+        raise ReportGenerationLeaseLostError(
+            "Report execution ownership moved while interruption was being recorded."
+        )
+    return {"status": "error", "reason": "generation_interrupted"}
+
+
+def _settle_failed_generation(
+    task,
+    *,
+    db,
+    report_id: uuid.UUID,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+    lease_token: str,
+    generation_fence: int,
+    exc: Exception,
+):
+    canceled = getattr(exc, "code", None) == "canceled"
+    if canceled:
+        logger.info("report_generation_canceled report_id=%s", report_id)
+    else:
+        logger.exception("report_generation_failed report_id=%s", report_id)
+    report = db.get(Report, report_id)
+    if report is not None and report.status not in {"ready", "error", "skipped"}:
+        report.status = "skipped" if canceled else "error"
+        report.generation_stage = "canceled" if canceled else "failed"
+        report.error_code = str(getattr(exc, "code", None) or "generation_failed")[:64]
+        report.error = _report_error_for_display(exc)
+        db.add(report)
+    display_error = (
+        report.error if report is not None else _report_error_for_display(exc)
+    )
+    reason = (
+        report.error_code
+        if report is not None
+        else getattr(exc, "code", "generation_failed")
+    )
+    finish_ai_task_run(
+        db,
+        run_id=run_id,
+        status=AI_STATUS_SKIPPED if canceled else AI_STATUS_ERROR,
+        reason=reason,
+        error=None if canceled else display_error,
+        worker_name=worker_name,
+        report_id=report_id,
+    )
+    if not release_report_generation(
+        db,
+        report_id=report_id,
+        lease_token=lease_token,
+        generation_fence=generation_fence,
+    ):
+        db.rollback()
+        return {"status": "skipped", "reason": "ownership_lost"}
+    try:
+        db.commit()
+    except Exception as commit_error:
+        db.rollback()
+        raise task.retry(exc=commit_error, countdown=30) from commit_error
+    return {
+        "status": "skipped" if canceled else "error",
+        "reason": getattr(exc, "code", "generation_failed"),
+    }
+
+
+def _required_generation_fence(claim) -> int:
+    if claim.generation_fence is None:
+        raise ReportGenerationLeaseLostError(
+            "Report execution ownership did not include a fencing token."
+        )
+    return claim.generation_fence
+
+
+def _busy_report_retry_delay(lease_expires_at: datetime | None) -> int:
+    if lease_expires_at is None:
+        return 15
+    expiry = lease_expires_at
+    if expiry.tzinfo is None:
+        expiry = expiry.replace(tzinfo=timezone.utc)
+    remaining = max(1, int((expiry - datetime.now(timezone.utc)).total_seconds()))
+    return max(5, min(60, remaining // 2 or 1))
+
+
 @celery_app.task(name="app.tasks.feed_tasks.dispatch_due_report_schedules")
 def dispatch_due_report_schedules():
     now = datetime.now(timezone.utc)
@@ -336,10 +540,13 @@ def dispatch_due_report_schedules():
         try:
             ensure_reporting_available(load_active_ai_settings(db))
         except ReportingUnavailableError as exc:
-            logger.info(
-                "scheduled_report_dispatch_deferred reason=%s", exc.code
-            )
-            return {"status": "deferred", "reason": exc.code, "queued": 0, "failures": 0}
+            logger.info("scheduled_report_dispatch_deferred reason=%s", exc.code)
+            return {
+                "status": "deferred",
+                "reason": exc.code,
+                "queued": 0,
+                "failures": 0,
+            }
         schedule_ids = list_due_schedule_ids(db, now=now)
     for schedule_id in schedule_ids:
         try:
