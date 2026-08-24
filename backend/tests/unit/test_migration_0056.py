@@ -242,43 +242,6 @@ def test_report_task_lineage_survives_upgrade_and_rollback(
                     == 0
                 )
 
-            with schema_engine.begin() as connection:
-                connection.execute(
-                    text(
-                        "UPDATE reports SET initial_task_run_id = :wrong_id "
-                        "WHERE id = :report_id"
-                    ),
-                    {"wrong_id": replacement_id, "report_id": report_id},
-                )
-                connection.execute(
-                    text(
-                        "UPDATE ai_task_runs SET task_type = 'report_superseded' "
-                        "WHERE id = :id"
-                    ),
-                    {"id": superseded_retry_id},
-                )
-
-            command.upgrade(config, "0057_report_task_lineage_compat")
-            with schema_engine.connect() as connection:
-                assert (
-                    connection.scalar(
-                        text("SELECT initial_task_run_id FROM reports WHERE id = :id"),
-                        {"id": report_id},
-                    )
-                    == initial_id
-                )
-                assert (
-                    connection.scalar(
-                        text("SELECT task_type FROM ai_task_runs WHERE id = :id"),
-                        {"id": superseded_retry_id},
-                    )
-                    == "report"
-                )
-                assert connection.scalar(
-                    text("SELECT initial_task_run_id FROM reports WHERE id = :id"),
-                    {"id": origin_missing_report_id},
-                ) is None
-
             command.downgrade(config, "0055_schedule_version_guard")
             columns = {
                 column["name"]
@@ -297,7 +260,7 @@ def test_report_task_lineage_survives_upgrade_and_rollback(
                     == "report"
                 )
 
-            command.upgrade(config, "0057_report_task_lineage_compat")
+            command.upgrade(config, "0056_report_task_lineage")
             with schema_engine.connect() as connection:
                 assert (
                     connection.scalar(

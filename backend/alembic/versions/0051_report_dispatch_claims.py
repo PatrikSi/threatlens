@@ -1,7 +1,7 @@
 """add durable report dispatch publication claims
 
 Revision ID: 0051_report_dispatch_claims
-Revises: 0050_report_idempotency_compat
+Revises: 0049_report_generation_fence
 Create Date: 2026-08-24
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 
 
 revision = "0051_report_dispatch_claims"
-down_revision = "0050_report_idempotency_compat"
+down_revision = "0049_report_generation_fence"
 branch_labels = None
 depends_on = None
 

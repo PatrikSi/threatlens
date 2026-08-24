@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 
 const requestPrefix = 'threatlens.reporting-request.'
-const saltKey = 'threatlens.reporting-scope-salt'
 
 beforeEach(() => {
   window.sessionStorage.clear()
@@ -35,11 +34,7 @@ describe('reporting request reload persistence', () => {
     expect(storageKey).toMatch(/^threatlens\.reporting-request\.v4-[0-9a-f]{64}$/)
     expect(storageKey).not.toContain('confidential')
     expect(window.sessionStorage.getItem(storageKey ?? '')).not.toContain('confidential')
-    const compatibilityRecord = JSON.parse(window.sessionStorage.getItem(
-      `${requestPrefix}${legacyScopeDigest(scope)}`,
-    ) ?? '{}') as Record<string, unknown>
-    expect(compatibilityRecord.key).toBe(firstKey)
-    expect(compatibilityRecord.createdAt).toEqual(expect.any(Number))
+    expect(window.sessionStorage.length).toBe(1)
     expect(window.localStorage.length).toBe(0)
 
     vi.resetModules()
@@ -53,10 +48,10 @@ describe('reporting request reload persistence', () => {
     expect(await settledModule.beginPendingReportingRequest(scope)).not.toBe(firstKey)
   })
 
-  it('clears keys created by a previous module instance', async () => {
+  it('clears persisted request records created by previous module instances', async () => {
     const firstModule = await import('./reportingRequestCoordinator')
     await firstModule.beginPendingReportingRequest('report:create:before-reload')
-    expect(window.sessionStorage.length).toBe(2)
+    window.localStorage.setItem(`${requestPrefix}obsolete-draft`, '{}')
 
     vi.resetModules()
     const reloadedModule = await import('./reportingRequestCoordinator')
@@ -79,10 +74,6 @@ describe('reporting request reload persistence', () => {
       storageKey ?? '',
       JSON.stringify({ key: 'invalid\nheader', createdAt: Date.now() }),
     )
-    window.sessionStorage.setItem(
-      `${requestPrefix}${legacyScopeDigest(scope)}`,
-      JSON.stringify({ key: 'invalid\nheader' }),
-    )
 
     vi.resetModules()
     const reloadedModule = await import('./reportingRequestCoordinator')
@@ -92,125 +83,45 @@ describe('reporting request reload persistence', () => {
     expect(replacementKey).toMatch(/^[A-Za-z0-9._~:-]+$/)
   })
 
-  it('adopts a v1 key and retains its alias until definitive settlement', async () => {
+  it('replaces malformed persisted JSON values', async () => {
+    const scope = 'malformed-json-value'
+    const storageKey = `${requestPrefix}v4-${shaDigest(scope)}`
+    window.sessionStorage.setItem(storageKey, 'null')
     const module = await import('./reportingRequestCoordinator')
-    const scope = module.reportingRequestScope('analyst-1', 'report:retry', 'report-1')
-    const predecessorKey = `${requestPrefix}${legacyScopeDigest(scope)}`
-    const requestKey = '22222222-2222-4222-8222-222222222222'
-    window.sessionStorage.setItem(
-      predecessorKey,
-      JSON.stringify({ key: requestKey, createdAt: Date.now() }),
-    )
 
-    expect(await module.beginPendingReportingRequest(scope)).toBe(requestKey)
-    expect(window.sessionStorage.getItem(predecessorKey)).not.toBeNull()
-    expect(currentRequestStorageKey()).toBeDefined()
-
-    module.settlePendingReportingRequest(scope, requestKey, 'confirmed')
-    expect(window.sessionStorage.getItem(predecessorKey)).toBeNull()
-    expect(currentRequestStorageKey()).toBeUndefined()
-  })
-
-  it('writes the previous v3 key even when its migration marker exists', async () => {
-    const module = await import('./reportingRequestCoordinator')
-    const salt = '10'.repeat(32)
-    const scope = module.reportingRequestScope('analyst-1', 'report:create', 'rollback')
-    const digest = shaDigest(`${salt}\0${scope}`)
-    const v3Key = `${requestPrefix}v3-${digest}`
-    window.localStorage.setItem(saltKey, salt)
-    window.localStorage.setItem(`${requestPrefix}migration-${digest}`, '1')
-
-    const requestKey = await module.beginPendingReportingRequest(scope)
-    const rollbackRecord = JSON.parse(
-      window.sessionStorage.getItem(v3Key) ?? '{}',
-    ) as Record<string, unknown>
-
-    expect(rollbackRecord.key).toBe(requestKey)
-    expect(rollbackRecord.createdAt).toEqual(expect.any(Number))
-    expect(rollbackRecord.supersedes).toEqual(expect.arrayContaining([
-      `${requestPrefix}v4-${shaDigest(scope)}`,
-      `${requestPrefix}${legacyScopeDigest(scope)}`,
-    ]))
-
-    window.sessionStorage.removeItem(v3Key)
-    for (const supersededKey of rollbackRecord.supersedes as string[]) {
-      window.sessionStorage.removeItem(supersededKey)
-      window.localStorage.removeItem(supersededKey)
-    }
-    vi.resetModules()
-    const reupgradedModule = await import('./reportingRequestCoordinator')
-    expect(await reupgradedModule.beginPendingReportingRequest(scope)).not.toBe(
-      requestKey,
+    await expect(module.beginPendingReportingRequest(scope)).resolves.toMatch(
+      /^[A-Za-z0-9._~:-]+$/,
     )
   })
 
-  it('adopts both released v2 digest formats without changing the request key', async () => {
+  it('fails closed when malformed request state cannot be removed', async () => {
+    const scope = 'malformed-unremovable'
+    const storageKey = `${requestPrefix}v4-${shaDigest(scope)}`
+    window.sessionStorage.setItem(storageKey, '{not-json')
+    const originalRemoveItem = Storage.prototype.removeItem
+    vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (this === window.sessionStorage && key === storageKey) {
+        throw new DOMException('Storage removal denied')
+      }
+      originalRemoveItem.call(this, key)
+    })
     const module = await import('./reportingRequestCoordinator')
-    const salt = '11'.repeat(32)
-    window.sessionStorage.setItem(saltKey, salt)
-
-    for (const [identity, digest] of [
-      ['sha-v2', (bytes: Uint8Array) => bytesToHex(sha256(bytes))],
-      ['fallback-v2', legacyFallbackScopeDigest],
-    ] as const) {
-      const scope = module.reportingRequestScope('analyst-1', 'report:create', identity)
-      const bytes = new TextEncoder().encode(`${salt}\0${scope}`)
-      const predecessorKey = `${requestPrefix}v2-${digest(bytes)}`
-      const requestKey = `${identity}-request-key`
-      window.sessionStorage.setItem(
-        predecessorKey,
-        JSON.stringify({ key: requestKey, createdAt: Date.now() }),
-      )
-
-      expect(await module.beginPendingReportingRequest(scope)).toBe(requestKey)
-    }
-  })
-
-  it('fails closed when predecessor formats contain conflicting unresolved keys', async () => {
-    const module = await import('./reportingRequestCoordinator')
-    const scope = module.reportingRequestScope('analyst-1', 'report:create', 'conflict')
-    const salt = '22'.repeat(32)
-    const v2Key = `${requestPrefix}v2-${shaDigest(`${salt}\0${scope}`)}`
-    const v1Key = `${requestPrefix}${legacyScopeDigest(scope)}`
-    window.sessionStorage.setItem(saltKey, salt)
-    window.sessionStorage.setItem(
-      v2Key,
-      JSON.stringify({ key: 'first-request-key', createdAt: Date.now() }),
-    )
-    window.localStorage.setItem(
-      v1Key,
-      JSON.stringify({ key: 'second-request-key', createdAt: Date.now() }),
-    )
 
     await expect(module.beginPendingReportingRequest(scope)).rejects.toThrow(
-      'conflicting unresolved report request keys',
+      'invalid report request state',
     )
   })
 
-  it('does not let a settled v4 key suppress a different unresolved alias', async () => {
-    const module = await import('./reportingRequestCoordinator')
-    const scope = module.reportingRequestScope('analyst-1', 'report:create', 'settled-conflict')
-    window.sessionStorage.setItem(
-      `${requestPrefix}v4-${shaDigest(scope)}`,
-      JSON.stringify({ key: 'settled-request-key', createdAt: Date.now(), settled: true }),
-    )
-    window.localStorage.setItem(
-      `${requestPrefix}${legacyScopeDigest(scope)}`,
-      JSON.stringify({ key: 'different-unresolved-key', createdAt: Date.now() }),
-    )
-
-    await expect(module.beginPendingReportingRequest(scope)).rejects.toThrow(
-      'conflicting unresolved report request keys',
-    )
-  })
-
-  it('fails before dispatch preparation when legacy storage cannot be inspected', async () => {
+  it('fails before dispatch preparation when session storage cannot be inspected', async () => {
     const originalGetItem = Storage.prototype.getItem
     vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (
       this: Storage,
       key: string,
     ) {
-      if (this === window.localStorage) throw new DOMException('Storage unreadable')
+      if (this === window.sessionStorage) throw new DOMException('Storage unreadable')
       return originalGetItem.call(this, key)
     })
     const module = await import('./reportingRequestCoordinator')
@@ -220,22 +131,16 @@ describe('reporting request reload persistence', () => {
     )
   })
 
-  it('fails when storage becomes unreadable after the initial compatibility read', async () => {
-    const originalGetItem = Storage.prototype.getItem
-    let localReads = 0
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (
-      this: Storage,
-      key: string,
-    ) {
-      if (this === window.localStorage && localReads++ > 0) {
-        throw new DOMException('Storage became unreadable')
-      }
-      return originalGetItem.call(this, key)
-    })
+  it('does not throw from authentication cleanup when a storage getter is denied', async () => {
     const module = await import('./reportingRequestCoordinator')
+    const storageGetter = vi.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
+      throw new DOMException('Storage getter denied')
+    })
 
-    await expect(module.beginPendingReportingRequest('read-race')).rejects.toThrow(
-      'no request was sent',
+    expect(() => module.resetPendingReportingKeys()).not.toThrow()
+    storageGetter.mockRestore()
+    await expect(module.beginPendingReportingRequest('after-storage-reset')).resolves.toMatch(
+      /^[A-Za-z0-9._~:-]+$/,
     )
   })
 
@@ -254,56 +159,6 @@ describe('reporting request reload persistence', () => {
       'ambiguous',
     ).durable).toBe(false)
     expect(await module.beginPendingReportingRequest(scope)).toBe(firstLease.key)
-  })
-
-  it('attempts every rollback alias and reports partial persistence as unsafe', async () => {
-    const salt = '33'.repeat(32)
-    const scope = 'partial-rollback-write'
-    const blockedKey = `${requestPrefix}v3-${shaDigest(`${salt}\0${scope}`)}`
-    window.sessionStorage.setItem(saltKey, salt)
-    const originalSetItem = Storage.prototype.setItem
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
-      this: Storage,
-      key: string,
-      value: string,
-    ) {
-      if (this === window.sessionStorage && key === blockedKey) {
-        throw new DOMException('v3 write failed')
-      }
-      originalSetItem.call(this, key, value)
-    })
-    const module = await import('./reportingRequestCoordinator')
-
-    const lease = await module.beginPendingReportingRequestLease(scope)
-    const settlement = module.settlePendingReportingRequest(
-      scope,
-      lease.key,
-      'ambiguous',
-    )
-
-    expect(lease.durable).toBe(false)
-    expect(settlement.durable).toBe(false)
-    const v1Key = `${requestPrefix}${legacyScopeDigest(scope)}`
-    const v1Record = JSON.parse(
-      window.sessionStorage.getItem(v1Key) ?? '{}',
-    ) as Record<string, unknown>
-    expect(v1Record.supersedes).not.toContain(blockedKey)
-
-    vi.restoreAllMocks()
-    const migratedSupersedes = [
-      ...(v1Record.supersedes as string[]),
-      v1Key,
-    ]
-    window.sessionStorage.setItem(blockedKey, JSON.stringify({
-      ...v1Record,
-      supersedes: migratedSupersedes,
-    }))
-    window.sessionStorage.removeItem(v1Key)
-    for (const supersededKey of migratedSupersedes) {
-      window.sessionStorage.removeItem(supersededKey)
-      window.localStorage.removeItem(supersededKey)
-    }
-    expect(window.sessionStorage.getItem(blockedKey)).not.toBeNull()
   })
 
   it('writes a settlement tombstone when deletion is interrupted', async () => {
@@ -382,37 +237,6 @@ describe('reporting request reload persistence', () => {
     removeItem.mockRestore()
     expect(await module.beginPendingReportingRequest(scope)).not.toBe(firstKey)
   })
-
-  it('does not discard the terminal fence while a rollback alias remains', async () => {
-    const module = await import('./reportingRequestCoordinator')
-    const scope = module.reportingRequestScope('analyst-1', 'report:create', 'alias-fence')
-    const firstKey = await module.beginPendingReportingRequest(scope)
-    const blockedAlias = `${requestPrefix}${legacyScopeDigest(scope)}`
-    const originalRemoveItem = Storage.prototype.removeItem
-    const removeItem = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(function (
-      this: Storage,
-      key: string,
-    ) {
-      if (this === window.sessionStorage && key === blockedAlias) {
-        throw new DOMException('Alias removal failed')
-      }
-      originalRemoveItem.call(this, key)
-    })
-
-    expect(module.settlePendingReportingRequest(
-      scope,
-      firstKey,
-      'confirmed',
-    ).durable).toBe(false)
-    expect(window.sessionStorage.getItem(blockedAlias)).not.toBeNull()
-    await expect(module.beginPendingReportingRequest(scope)).rejects.toThrow(
-      'could not finish settling',
-    )
-
-    removeItem.mockRestore()
-    expect(await module.beginPendingReportingRequest(scope)).not.toBe(firstKey)
-  })
-
 })
 
 
@@ -422,41 +246,10 @@ function currentRequestStorageKey(): string | undefined {
 
 
 function shaDigest(value: string): string {
-  return bytesToHex(sha256(new TextEncoder().encode(value)))
-}
-
-
-function legacyScopeDigest(scope: string): string {
-  let hash = 0xcbf29ce484222325n
-  for (let index = 0; index < scope.length; index += 1) {
-    hash ^= BigInt(scope.charCodeAt(index))
-    hash = BigInt.asUintN(64, hash * 0x100000001b3n)
-  }
-  return `${scope.length.toString(16)}-${hash.toString(16).padStart(16, '0')}`
-}
-
-
-function legacyFallbackScopeDigest(bytes: Uint8Array): string {
-  const seeds = [
-    0xcbf29ce484222325n,
-    0x84222325cbf29cen,
-    0x9e3779b97f4a7c15n,
-    0x6a09e667f3bcc909n,
-  ]
-  return seeds.map((seed, lane) => {
-    let hash = seed
-    for (let index = 0; index < bytes.length; index += 1) {
-      hash ^= BigInt(bytes[index] ^ ((index + lane * 67) & 0xff))
-      hash = BigInt.asUintN(64, hash * 0x100000001b3n)
-      hash ^= hash >> 32n
-    }
-    return BigInt.asUintN(64, hash).toString(16).padStart(16, '0')
-  }).join('')
-}
-
-
-function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
+  return Array.from(
+    sha256(new TextEncoder().encode(value)),
+    (byte) => byte.toString(16).padStart(2, '0'),
+  ).join('')
 }
 
 
