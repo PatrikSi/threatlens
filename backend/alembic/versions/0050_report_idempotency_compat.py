@@ -101,7 +101,8 @@ def _repair_unique_constraints(connection) -> None:
 
 
 def downgrade() -> None:
-    # This migration repairs both the original rename-based draft and the
-    # expand/backfill schema. Keeping both nullable columns is necessary for
-    # old and new workers to remain compatible during a downgrade rollout.
+    # Keep both nullable columns for a rolling downgrade to 0049. A deployment
+    # that accepted traffic on the unreleased rename-based draft may contain
+    # hash-only keys; their original raw values cannot be reconstructed for a
+    # rollback below 0047.
     pass

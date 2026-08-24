@@ -107,7 +107,7 @@
 | `DISPATCH_FEED_METADATA_SCAN_LIMIT` (`dispatch_feed_metadata_scan_limit`) | `250` | Feed scan cap for metadata backfill beat cycle. |
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
-| `CELERY_VISIBILITY_TIMEOUT_SECONDS` (`celery_visibility_timeout_seconds`) | `3600` | Redis broker visibility timeout for unacknowledged tasks. Keep this above the longest AI report execution and its generation lease. |
+| `CELERY_VISIBILITY_TIMEOUT_SECONDS` (`celery_visibility_timeout_seconds`) | `3600` | Redis broker visibility timeout for unacknowledged tasks. Keep this above the longest expected AI report execution to avoid duplicate queue load; stable task IDs and renewable generation fencing make a redelivery wait safely when a run exceeds it. |
 | `REPORT_GENERATION_LEASE_SECONDS` (`report_generation_lease_seconds`) | `600` | Renewable database ownership lease for one report generation worker. Must be at least 360 seconds. |
 | `REPORT_SCHEDULE_MAX_ATTEMPTS` (`report_schedule_max_attempts`) | `5` | Consecutive planning attempts before a transient failure is recorded as exhausted and the schedule advances. Invalid configuration failures use a smaller capped retry count before quarantine. |
 | `REPORT_SCHEDULE_RETRY_BACKOFF_SECONDS` (`report_schedule_retry_backoff_seconds`) | `60` | Initial exponential delay after a report schedule planning failure. |
