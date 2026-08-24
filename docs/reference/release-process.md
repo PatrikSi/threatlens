@@ -93,10 +93,10 @@ When a change affects shipped runtime dependencies, bundled assets, or redistrib
 ```bash
 ./backend/.venv/bin/python backend/scripts/generate_runtime_lockfile.py --upgrade
 export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-export APP_VERSION="$(cat VERSION)"
+export THREATLENS_BUILD_VERSION="$(cat VERSION)"
 export VCS_REF="$(git rev-parse HEAD)"
 BACKEND_IMAGE=$(docker build \
-  --build-arg APP_VERSION="$APP_VERSION" \
+  --build-arg APP_VERSION="$THREATLENS_BUILD_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
   -q -f backend/Dockerfile backend)
@@ -108,7 +108,7 @@ docker run --rm -v "$PWD":/src -w /src "$BACKEND_IMAGE" sh -lc '
   cp /usr/share/doc/threatlens/backend-os-packages.txt /src/docs/reference/backend-os-packages.txt &&
   cp -R /usr/share/doc/threatlens/backend-os-package-legal /src/docs/reference/backend-os-package-legal'
 WEB_IMAGE=$(docker build \
-  --build-arg APP_VERSION="$APP_VERSION" \
+  --build-arg APP_VERSION="$THREATLENS_BUILD_VERSION" \
   --build-arg BUILD_DATE="$BUILD_DATE" \
   --build-arg VCS_REF="$VCS_REF" \
   -q -f web/Dockerfile web)
@@ -124,7 +124,7 @@ docker run --rm -v "$PWD":/src -w /src "$WEB_IMAGE" sh -lc '
 
 The lockfile command resolves dependencies without consulting installed distributions. Omit `--upgrade` to validate that the existing lock is a complete resolution of `backend/requirements.txt`; normal validation reproduces the checked-in lock byte-for-byte. Use `--upgrade` only when intentionally refreshing dependency pins.
 
-That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards exported `APP_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI version and provenance labels when those values are set.
+That sequence intentionally refreshes the checked-in backend runtime lockfile, builds the backend and web images, and copies the packaged compliance artifacts back into `docs/reference/`. Before building, keep the mirrored `backend/compliance/` and `web/compliance/` bundles aligned with the repository `LICENSE` and `docs/licenses/*.txt`. Those artifacts cover both the application dependency layers and the redistributed OS package layers shipped by the repository Dockerfiles. The `docker-compose.build.yml` source-build override forwards exported `THREATLENS_BUILD_VERSION`, `BUILD_DATE`, and `VCS_REF` values into every built ThreatLens image, so local compose builds and the explicit compliance rebuild commands carry matching OCI version and provenance labels when those values are set.
 
 The four generated `*-package-legal/` trees preserve upstream legal files byte-for-byte. Repository diff hygiene therefore excludes those trees from whitespace-style and conflict-marker heuristics while continuing to check first-party compliance files, dependency manifests, package inventories, metadata, and source code.
 
