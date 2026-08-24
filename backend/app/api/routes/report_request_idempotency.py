@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import uuid
-from typing import NoReturn, TypeVar
+from collections.abc import Callable
+from functools import wraps
+from typing import ParamSpec, TypeVar
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.ai_task_run import AITaskRun
-from app.models.report import Report
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
-from app.schemas.reports import ReportCreateRequest
 from app.services.report_idempotency import (
     ReportIdempotencyConflictError,
     ReportIdempotencyError,
@@ -29,60 +28,42 @@ from app.services.report_idempotency import (
 
 
 OperationResource = TypeVar("OperationResource", ReportTemplate, ReportSchedule)
+Params = ParamSpec("Params")
+Result = TypeVar("Result")
 
 
-def create_request_identity(
-    key: str | None,
-    *,
-    payload: ReportCreateRequest,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_create_identity(key, payload=payload)
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
+def _translate_idempotency_errors(
+    function: Callable[Params, Result],
+) -> Callable[Params, Result]:
+    @wraps(function)
+    def translated(*args: Params.args, **kwargs: Params.kwargs) -> Result:
+        try:
+            return function(*args, **kwargs)
+        except ReportIdempotencyError as exc:
+            status_code = (
+                status.HTTP_409_CONFLICT
+                if isinstance(exc, ReportIdempotencyConflictError)
+                else status.HTTP_400_BAD_REQUEST
+            )
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    return translated
 
 
-def retry_request_identity(
-    key: str | None,
-    *,
-    report_id: uuid.UUID,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_retry_identity(key, report_id=report_id)
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def schedule_run_request_identity(
-    key: str | None,
-    *,
-    schedule_id: uuid.UUID,
-    actor_user_id: uuid.UUID,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_schedule_run_identity(
-            key,
-            schedule_id=schedule_id,
-            actor_user_id=actor_user_id,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def operation_request_identity(
-    key: str | None,
-    *,
-    operation: str,
-    payload: object,
-) -> ReportRequestIdentity | None:
-    try:
-        return build_report_operation_identity(
-            key,
-            operation=operation,
-            payload=payload,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
+create_request_identity = _translate_idempotency_errors(build_report_create_identity)
+retry_request_identity = _translate_idempotency_errors(build_report_retry_identity)
+schedule_run_request_identity = _translate_idempotency_errors(
+    build_report_schedule_run_identity
+)
+operation_request_identity = _translate_idempotency_errors(
+    build_report_operation_identity
+)
+_find_operation_replay = _translate_idempotency_errors(find_report_operation_replay)
+find_create_replay = _translate_idempotency_errors(find_report_create_replay)
+find_retry_replay = _translate_idempotency_errors(find_report_retry_replay)
+find_schedule_run_replay = _translate_idempotency_errors(
+    find_report_schedule_run_replay
+)
 
 
 def find_operation_resource(
@@ -95,16 +76,13 @@ def find_operation_resource(
     model: type[OperationResource],
     missing_detail: str,
 ) -> OperationResource | None:
-    try:
-        receipt = find_report_operation_replay(
-            db,
-            user_id=user_id,
-            operation=operation,
-            resource_type=resource_type,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
+    receipt = _find_operation_replay(
+        db,
+        user_id=user_id,
+        operation=operation,
+        resource_type=resource_type,
+        identity=identity,
+    )
     if receipt is None:
         return None
     resource = db.get(model, receipt.resource_id)
@@ -153,64 +131,3 @@ def commit_operation_resource(
         raise
     db.refresh(resource)
     return resource
-
-
-def find_create_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> tuple[Report, AITaskRun] | None:
-    try:
-        return find_report_create_replay(
-            db,
-            user_id=user_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def find_retry_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    report_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> AITaskRun | None:
-    try:
-        return find_report_retry_replay(
-            db,
-            user_id=user_id,
-            report_id=report_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def find_schedule_run_replay(
-    db: Session,
-    *,
-    user_id: uuid.UUID,
-    schedule_id: uuid.UUID,
-    identity: ReportRequestIdentity | None,
-) -> tuple[Report, AITaskRun | None] | None:
-    try:
-        return find_report_schedule_run_replay(
-            db,
-            user_id=user_id,
-            schedule_id=schedule_id,
-            identity=identity,
-        )
-    except ReportIdempotencyError as exc:
-        _raise_idempotency_http_error(exc)
-
-
-def _raise_idempotency_http_error(exc: ReportIdempotencyError) -> NoReturn:
-    status_code = (
-        status.HTTP_409_CONFLICT
-        if isinstance(exc, ReportIdempotencyConflictError)
-        else status.HTTP_400_BAD_REQUEST
-    )
-    raise HTTPException(status_code=status_code, detail=str(exc)) from exc
