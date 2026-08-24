@@ -106,6 +106,13 @@ class _AuthRateLimitRedis:
         self.expirations[key] = time.monotonic() + max(0, int(seconds))
         return True
 
+    def pexpire(self, key: str, milliseconds: int):
+        self._purge_expired()
+        if key not in self.values:
+            return False
+        self.expirations[key] = time.monotonic() + max(0, int(milliseconds)) / 1000
+        return True
+
     def set(self, key: str, value: str, ex: int | None = None, nx: bool = False):
         self._purge_expired()
         if nx and key in self.values:
@@ -130,15 +137,54 @@ class _AuthRateLimitRedis:
 
     def eval(self, script: str, numkeys: int, *args):
         self._purge_expired()
-        _ = numkeys
-        if "redis.call('get', KEYS[1]) == ARGV[1]" not in script:
-            raise AssertionError("unexpected redis eval script")
-        key = args[0]
-        token = args[1]
-        if self.get(key) == token:
-            self.delete(key)
+        if numkeys == 2 and len(args) == 5:
+            key, heartbeat_key, token, heartbeat_value, ttl_ms = args
+            if self.get(key) != token:
+                return 0
+            self.pexpire(key, int(ttl_ms))
+            self.set(heartbeat_key, heartbeat_value)
+            self.pexpire(heartbeat_key, int(ttl_ms))
             return 1
-        return 0
+        if numkeys == 2 and len(args) == 3:
+            key, heartbeat_key, token = args
+            if self.get(key) != token:
+                return 0
+            self.delete(key, heartbeat_key)
+            return 1
+        if numkeys == 3 and len(args) == 8:
+            (
+                key,
+                heartbeat_key,
+                observation_key,
+                observed_token,
+                observed_heartbeat,
+                new_token,
+                new_heartbeat,
+                ttl_seconds,
+            ) = args
+            current_heartbeat = self.get(heartbeat_key)
+            if self.get(key) != observed_token or self.ttl(key) != -1:
+                return 0
+            if observed_heartbeat == "__missing__":
+                if current_heartbeat is not None:
+                    return 0
+            elif current_heartbeat != observed_heartbeat:
+                return 0
+            self.set(key, new_token, ex=int(ttl_seconds))
+            self.set(heartbeat_key, new_heartbeat, ex=int(ttl_seconds))
+            self.delete(observation_key)
+            return 1
+        if (
+            numkeys == 1
+            and len(args) == 2
+            and "redis.call('get', KEYS[1]) == ARGV[1]" in script
+        ):
+            key, token = args
+            if self.get(key) == token:
+                self.delete(key)
+                return 1
+            return 0
+        raise AssertionError("unexpected redis eval script")
 
 
 def _build_alembic_config(database_url: str) -> Config:

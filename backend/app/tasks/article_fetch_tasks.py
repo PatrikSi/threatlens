@@ -211,7 +211,8 @@ def _fetch_candidates(
 def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchResult:
     r = runtime
     domain = urlsplit(target_url).hostname or "unknown"
-    with r.domain_slot(domain):
+    with r.domain_slot(domain) as lease:
+        r.ensure_lease_owned(lease)
         timeout = httpx.Timeout(
             connect=r.settings.article_connect_timeout_seconds,
             read=r.settings.article_read_timeout_seconds,
@@ -231,12 +232,18 @@ def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchRes
                 max_redirects=r.settings.outbound_max_redirects,
             )
             try:
+                r.ensure_lease_owned(lease)
                 status_code = response.status_code
                 content_type = response.headers.get("content-type")
                 final_url = r.normalize_url(str(response.url)) or ""
                 body = _read_capped_body(
-                    response, r.settings.article_max_bytes, r.ResponseTooLargeError
+                    response,
+                    r.settings.article_max_bytes,
+                    r.ResponseTooLargeError,
+                    lease=lease,
+                    runtime=r,
                 )
+                r.ensure_lease_owned(lease)
             finally:
                 response.close()
     error = _response_error(status_code, content_type)
@@ -246,11 +253,18 @@ def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchRes
 
 
 def _read_capped_body(
-    response, max_bytes: int, too_large_error: type[Exception]
+    response,
+    max_bytes: int,
+    too_large_error: type[Exception],
+    *,
+    lease=None,
+    runtime: ModuleType | None = None,
 ) -> bytes:
     chunks: list[bytes] = []
     body_size = 0
     for chunk in response.iter_bytes():
+        if runtime is not None:
+            runtime.ensure_lease_owned(lease)
         body_size += len(chunk)
         if body_size > max_bytes:
             raise too_large_error("response body exceeds configured cap")
