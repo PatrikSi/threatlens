@@ -196,6 +196,28 @@ def test_transient_schedule_failure_backs_off_then_advances_occurrence(
     assert schedule.failure_count == 2
 
 
+def test_schedule_failure_version_cannot_move_backward(db_session):
+    observed_at = datetime.now(timezone.utc)
+    future_version = observed_at + timedelta(days=1)
+    schedule = _persist_schedule(
+        db_session,
+        next_run_at=observed_at - timedelta(minutes=1),
+    )
+    schedule.updated_at = future_version
+    db_session.commit()
+
+    record_schedule_failure(
+        db_session,
+        schedule_id=schedule.id,
+        now=observed_at,
+        error=ExportSnapshotChangedError("snapshot changed"),
+    )
+    db_session.commit()
+    db_session.refresh(schedule)
+
+    assert schedule.updated_at > future_version
+
+
 def test_context_budget_failure_eventually_quarantines_schedule(db_session):
     now = datetime.now(timezone.utc)
     schedule = _persist_schedule(
@@ -348,6 +370,7 @@ def test_successful_reservation_clears_retry_state(db_session, monkeypatch):
     db_session.flush()
     schedule.owner_user_id = owner.id
     db_session.commit()
+    previous_version = schedule.updated_at
     monkeypatch.setattr(
         "app.services.report_schedules._create_one_scheduled_report",
         lambda *_args, **_kwargs: None,
@@ -360,3 +383,4 @@ def test_successful_reservation_clears_retry_state(db_session, monkeypatch):
     assert schedule.consecutive_failure_count == 0
     assert schedule.retry_at is None
     assert schedule.next_run_at > now
+    assert schedule.updated_at > previous_version

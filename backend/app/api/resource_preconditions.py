@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
+
+from app.services.resource_versions import (
+    next_resource_version,
+    resource_version_value,
+)
 
 
 class InvalidResourceVersion(ValueError):
@@ -26,51 +31,38 @@ def require_matching_resource_version(
     if not raw_value:
         raise InvalidResourceVersion("If-Match cannot be empty.")
 
+    current = resource_version_tag(current_updated_at)
     candidates = [_parse_version_tag(value) for value in raw_value.split(",")]
-    current = _as_utc(current_updated_at)
     if current not in candidates:
         raise ResourceVersionMismatch
 
 
 def resource_version_tag(updated_at: datetime) -> str:
-    return f'"{_as_utc(updated_at).isoformat()}"'
+    return f'"{resource_version_value(updated_at)}"'
 
 
-def next_resource_version(updated_at: datetime) -> datetime:
-    current = _as_utc(updated_at)
-    observed_at = datetime.now(timezone.utc)
-    return max(observed_at, current + timedelta(microseconds=1))
-
-
-def _parse_version_tag(raw_value: str) -> datetime:
+def _parse_version_tag(raw_value: str) -> str | None:
     value = raw_value.strip()
     if value.startswith("W/"):
-        raise InvalidResourceVersion(
-            "If-Match requires a strong resource version, not a weak ETag."
-        )
-    if len(value) >= 2 and value[0] == value[-1] == '"':
-        value = value[1:-1]
-    if not value:
-        raise InvalidResourceVersion(
-            "If-Match must contain an ISO-8601 resource version."
-        )
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as exc:
-        raise InvalidResourceVersion(
-            "If-Match must contain an ISO-8601 resource version."
-        ) from exc
-    if parsed.tzinfo is None:
-        raise InvalidResourceVersion(
-            "If-Match resource versions must include a UTC offset."
-        )
-    return _as_utc(parsed)
+        _validate_quoted_tag(value[2:])
+        return None
+    _validate_quoted_tag(value)
+    return value
 
 
-def _as_utc(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+def _validate_quoted_tag(value: str) -> None:
+    if len(value) < 2 or value[0] != '"' or value[-1] != '"':
+        raise InvalidResourceVersion(
+            "If-Match resource versions must be quoted strong ETags."
+        )
+    opaque_value = value[1:-1]
+    if not opaque_value or any(
+        character == '"' or ord(character) < 0x21 or ord(character) > 0x7E
+        for character in opaque_value
+    ):
+        raise InvalidResourceVersion(
+            "If-Match contains an invalid resource version."
+        )
 
 
 __all__ = [

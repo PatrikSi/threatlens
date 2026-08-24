@@ -11,15 +11,21 @@ from app.api.resource_preconditions import (
 )
 
 
-def test_resource_version_accepts_equivalent_utc_timestamps():
+def test_resource_version_requires_exact_strong_tag():
     updated_at = datetime(2026, 8, 24, 9, 30, 12, 345678, tzinfo=timezone.utc)
 
     require_matching_resource_version(
         current_updated_at=updated_at,
-        if_match='"2026-08-24T11:30:12.345678+02:00"',
+        if_match='W/"older", "2026-08-24T09:30:12.345678Z"',
     )
 
-    assert resource_version_tag(updated_at) == '"2026-08-24T09:30:12.345678+00:00"'
+    assert resource_version_tag(updated_at) == '"2026-08-24T09:30:12.345678Z"'
+
+    with pytest.raises(ResourceVersionMismatch):
+        require_matching_resource_version(
+            current_updated_at=updated_at,
+            if_match='"2026-08-24T11:30:12.345678+02:00"',
+        )
 
 
 def test_resource_version_rejects_stale_and_malformed_preconditions():
@@ -30,12 +36,12 @@ def test_resource_version_rejects_stale_and_malformed_preconditions():
             current_updated_at=updated_at,
             if_match='"2026-08-24T09:29:00Z"',
         )
-    with pytest.raises(InvalidResourceVersion, match="UTC offset"):
+    with pytest.raises(InvalidResourceVersion, match="quoted strong ETags"):
         require_matching_resource_version(
             current_updated_at=updated_at,
-            if_match='"2026-08-24T09:30:00"',
+            if_match="2026-08-24T09:30:00Z",
         )
-    with pytest.raises(InvalidResourceVersion, match="strong resource version"):
+    with pytest.raises(ResourceVersionMismatch):
         require_matching_resource_version(
             current_updated_at=updated_at,
             if_match='W/"2026-08-24T09:30:00Z"',
