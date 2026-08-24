@@ -179,7 +179,7 @@ describe('serialized reporting writes', () => {
     resetPendingReportingKeys()
     releaseFirst?.()
 
-    await expect(first).resolves.toBe('saved')
+    await expect(first).rejects.toThrow('Authentication changed')
     await expect(second).rejects.toThrow('Authentication changed')
     expect(secondStarted).toBe(false)
   })

@@ -255,7 +255,10 @@ export function useReportingController() {
     },
   })
   const deleteMutation = useMutation({
-    mutationFn: (reportId: string) => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+    mutationFn: (reportId: string) => coalesceReportingRequest(
+      reportingRequestScope(requestOwnerId, 'report:delete', reportId),
+      () => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report deleted.' })
