@@ -296,7 +296,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai@{os.environ[\\\"HOSTNAME\\\"]}'; result = celery_app.control.inspect(timeout=2).ping([target]) or {}; sys.exit(0 if target in result else 1)\"",
+          "python -c \"from app.tasks.celery_app import celery_app; import os, sys; target = f'ai@{os.environ[\\\"HOSTNAME\\\"]}'; inspector = celery_app.control.inspect(destination=[target], timeout=2); ping = inspector.ping() or {}; queues = inspector.active_queues() or {}; names = {entry.get('name') for entry in queues.get(target, [])}; sys.exit(0 if target in ping and {'ai', 'ai-reports-v2'} <= names else 1)\"",
         ]
       interval: 30s
       timeout: 10s
