@@ -65,9 +65,7 @@ def _persist_schedule_for_route_test(db_session) -> ReportSchedule:
         use_company_context=False,
         focus_topics_json=[],
         excluded_topics_json=[],
-        sections_json=[
-            {"key": "executive_summary", "title": "Executive Summary"}
-        ],
+        sections_json=[{"key": "executive_summary", "title": "Executive Summary"}],
         default_filters_json={},
     )
     db_session.add(template)
@@ -117,9 +115,7 @@ def _install_report_creation_stubs(monkeypatch):
             trigger_source="manual",
             generation_stage="queued",
             request_idempotency_key=kwargs.get("request_idempotency_key"),
-            request_idempotency_key_hash=kwargs.get(
-                "request_idempotency_key_hash"
-            ),
+            request_idempotency_key_hash=kwargs.get("request_idempotency_key_hash"),
             request_fingerprint=kwargs.get("request_fingerprint"),
             period_start=payload.period_start,
             period_end=payload.period_end,
@@ -172,7 +168,9 @@ def test_report_preview_returns_actionable_context_budget_error(
     )
 
     assert response.status_code == 422
-    assert response.json()["detail"] == "The report objective leaves no room for evidence."
+    assert (
+        response.json()["detail"] == "The report objective leaves no room for evidence."
+    )
 
 
 def test_report_preview_returns_retryable_snapshot_conflict(
@@ -227,9 +225,7 @@ def test_report_creation_returns_snapshot_conflict_without_persisting_report(
         json={
             "period_start": (now - timedelta(days=7)).isoformat(),
             "period_end": now.isoformat(),
-            "sections": [
-                {"key": "executive_summary", "title": "Executive Summary"}
-            ],
+            "sections": [{"key": "executive_summary", "title": "Executive Summary"}],
         },
         headers=auth_headers["analyst"],
     )
@@ -442,6 +438,33 @@ def test_template_update_rejects_a_stale_resource_version(
     assert delete_response.status_code == 204
 
 
+def test_template_update_combines_repeated_if_match_field_lines(
+    client,
+    auth_headers,
+):
+    created = client.post(
+        "/reports/templates",
+        json=_template_payload(name="Repeated header template"),
+        headers=auth_headers["analyst"],
+    )
+    assert created.status_code == 201
+    template_id = created.json()["id"]
+    headers = [
+        *auth_headers["analyst"].items(),
+        ("If-Match", '"stale-version"'),
+        ("If-Match", f'"{created.json()["resource_version"]}"'),
+    ]
+
+    updated = client.put(
+        f"/reports/templates/{template_id}",
+        json=_template_payload(name="Repeated header update"),
+        headers=headers,
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Repeated header update"
+
+
 def test_concurrent_template_creation_commits_one_resource_and_audit(
     database_engine,
     monkeypatch,
@@ -506,22 +529,31 @@ def test_concurrent_template_creation_commits_one_resource_and_audit(
 
         assert responses[0].id == responses[1].id
         with session_factory() as db:
-            assert db.scalar(
-                select(func.count(ReportTemplate.id)).where(
-                    ReportTemplate.owner_user_id == user_id
+            assert (
+                db.scalar(
+                    select(func.count(ReportTemplate.id)).where(
+                        ReportTemplate.owner_user_id == user_id
+                    )
                 )
-            ) == 1
-            assert db.scalar(
-                select(func.count(ReportOperationReceipt.id)).where(
-                    ReportOperationReceipt.actor_user_id == user_id
+                == 1
+            )
+            assert (
+                db.scalar(
+                    select(func.count(ReportOperationReceipt.id)).where(
+                        ReportOperationReceipt.actor_user_id == user_id
+                    )
                 )
-            ) == 1
-            assert db.scalar(
-                select(func.count(AuditLog.id)).where(
-                    AuditLog.actor_user_id == user_id,
-                    AuditLog.action == "reports.template.create",
+                == 1
+            )
+            assert (
+                db.scalar(
+                    select(func.count(AuditLog.id)).where(
+                        AuditLog.actor_user_id == user_id,
+                        AuditLog.action == "reports.template.create",
+                    )
                 )
-            ) == 1
+                == 1
+            )
     finally:
         with session_factory.begin() as db:
             db.execute(
@@ -658,7 +690,10 @@ def test_analyst_cannot_retry_or_delete_another_users_report(
 
     assert retry_response.status_code == 403
     assert delete_response.status_code == 403
-    assert retry_response.json()["detail"] == "You can only retry or delete reports that you generated."
+    assert (
+        retry_response.json()["detail"]
+        == "You can only retry or delete reports that you generated."
+    )
     assert db_session.get(Report, report.id) is not None
 
 
@@ -747,9 +782,7 @@ def test_admin_can_manage_report_schedule_with_default_filters(
         json=payload,
         headers=auth_headers["admin"],
     )
-    list_response = client.get(
-        "/reports/schedules", headers=auth_headers["admin"]
-    )
+    list_response = client.get("/reports/schedules", headers=auth_headers["admin"])
 
     assert update_response.status_code == 200
     assert update_response.headers["etag"] == (
@@ -851,9 +884,7 @@ def test_manual_schedule_run_idempotency_replays_existing_report(
         use_company_context=True,
         focus_topics_json=[],
         excluded_topics_json=[],
-        sections_json=[
-            {"key": "executive_summary", "title": "Executive Summary"}
-        ],
+        sections_json=[{"key": "executive_summary", "title": "Executive Summary"}],
         default_filters_json={},
     )
     db_session.add(template)
@@ -933,6 +964,163 @@ def test_manual_schedule_run_idempotency_replays_existing_report(
     assert calls["count"] == 1
 
 
+def test_concurrent_manual_schedule_replay_wins_after_schedule_lock(
+    database_engine,
+    monkeypatch,
+):
+    run_id = uuid.uuid4().hex
+    user_id = uuid.uuid4()
+    session_factory = sessionmaker(
+        bind=database_engine,
+        autoflush=False,
+        autocommit=False,
+        class_=Session,
+    )
+    with session_factory.begin() as db:
+        user = User(
+            id=user_id,
+            email=f"schedule-run-race-{run_id}@example.com",
+            password_hash="not-a-login-secret",
+            role="admin",
+            is_active=True,
+            is_approved=True,
+        )
+        template = ReportTemplate(
+            name=f"Schedule race template {run_id}",
+            description="",
+            report_type="weekly",
+            visibility="shared",
+            audience="security_team",
+            objective="Test concurrent schedule replay.",
+            tone="analytical",
+            detail_level="standard",
+            use_company_context=False,
+            focus_topics_json=[],
+            excluded_topics_json=[],
+            sections_json=[{"key": "executive_summary", "title": "Executive Summary"}],
+            default_filters_json={},
+        )
+        db.add_all([user, template])
+        db.flush()
+        schedule = ReportSchedule(
+            template_id=template.id,
+            owner_user_id=user_id,
+            name=f"Schedule race {run_id}",
+            enabled=True,
+            cadence="weekly",
+            day_of_week=0,
+            day_of_month=1,
+            hour=9,
+            minute=0,
+            timezone="UTC",
+            window_type="previous_complete_week",
+            rolling_days=7,
+            filters_json={},
+            delivery_enabled=False,
+            delivery_mode="summary",
+            skip_empty=True,
+            missed_run_policy="latest",
+            next_run_at=datetime.now(timezone.utc) + timedelta(days=1),
+        )
+        db.add(schedule)
+        db.flush()
+        schedule_id = schedule.id
+        template_id = template.id
+        initial_version = schedule.updated_at
+
+    actor = SimpleNamespace(id=user_id, role="admin")
+    idempotency_key = f"schedule-run-race-{run_id}"
+    first_lookup_barrier = Barrier(2)
+    thread_state = local()
+    find_schedule_run_replay = reports_routes.find_schedule_run_replay
+
+    def _synchronized_find(*args, **kwargs):
+        replay = find_schedule_run_replay(*args, **kwargs)
+        lookup_count = getattr(thread_state, "lookup_count", 0)
+        thread_state.lookup_count = lookup_count + 1
+        if lookup_count == 0:
+            first_lookup_barrier.wait(timeout=5)
+        return replay
+
+    reserve_calls = {"count": 0}
+
+    def _reserve(db, **kwargs):
+        reserve_calls["count"] += 1
+        current_schedule = db.get(ReportSchedule, schedule_id)
+        current_schedule.updated_at = reports_routes.next_resource_version(
+            current_schedule.updated_at
+        )
+        now = datetime.now(timezone.utc)
+        report = Report(
+            schedule_id=schedule_id,
+            owner_user_id=user_id,
+            title="Concurrent schedule report",
+            report_type="weekly",
+            status="queued",
+            trigger_source="scheduled",
+            generation_stage="queued",
+            generation_key=kwargs["generation_key_override"],
+            request_idempotency_key_hash=kwargs["request_idempotency_key_hash"],
+            request_fingerprint=kwargs["request_fingerprint"],
+            period_start=now - timedelta(days=7),
+            period_end=now,
+            filters_json={},
+            prompt_config_json={},
+            sections_config_json=[],
+            metrics_json={},
+            coverage_json={},
+        )
+        db.add(report)
+        db.flush()
+        return [report]
+
+    monkeypatch.setattr(
+        reports_routes,
+        "find_schedule_run_replay",
+        _synchronized_find,
+    )
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+    monkeypatch.setattr(reports_routes, "reserve_schedule_runs", _reserve)
+    monkeypatch.setattr(
+        reports_routes,
+        "enqueue_report_task",
+        lambda *, task_run_id, **_kwargs: f"report-{task_run_id}",
+    )
+
+    def _run_schedule():
+        with session_factory() as db:
+            db.execute(text("SET LOCAL lock_timeout = '8s'"))
+            return reports_routes.run_schedule(
+                schedule_id,
+                idempotency_key,
+                [reports_routes.resource_version_tag(initial_version)],
+                db,
+                actor,
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(_run_schedule) for _ in range(2)]
+            responses = [future.result(timeout=15) for future in futures]
+
+        assert responses[0][0].report_id == responses[1][0].report_id
+        assert responses[0][0].task_run_id == responses[1][0].task_run_id
+        assert reserve_calls["count"] == 1
+    finally:
+        with session_factory.begin() as db:
+            report_ids = select(Report.id).where(Report.schedule_id == schedule_id)
+            db.execute(delete(AITaskRun).where(AITaskRun.report_id.in_(report_ids)))
+            db.execute(delete(Report).where(Report.schedule_id == schedule_id))
+            db.execute(delete(ReportSchedule).where(ReportSchedule.id == schedule_id))
+            db.execute(delete(ReportTemplate).where(ReportTemplate.id == template_id))
+            db.execute(delete(AuditLog).where(AuditLog.actor_user_id == user_id))
+            db.execute(delete(User).where(User.id == user_id))
+
+
 def test_manual_schedule_run_maps_invalid_legacy_configuration_to_422(
     client,
     db_session,
@@ -980,9 +1168,7 @@ def test_manual_schedule_run_persists_missing_owner_quarantine(
         use_company_context=True,
         focus_topics_json=[],
         excluded_topics_json=[],
-        sections_json=[
-            {"key": "executive_summary", "title": "Executive Summary"}
-        ],
+        sections_json=[{"key": "executive_summary", "title": "Executive Summary"}],
         default_filters_json={},
     )
     db_session.add(template)

@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "359b73365be14b14d473b1549e980dac7d8045ef01e6f0b32c3e7cc1cfaba598"
+    "x-threatlens-contract-sha256": "eed5c85fd2df21f96f024ad7d145cc0eaa0f37d3348545b4ef0f52700624997f"
   },
   "servers": [
     {
@@ -915,7 +915,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 {
                   "type": "null"
@@ -945,6 +948,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -993,7 +1002,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 {
                   "type": "null"
@@ -1006,6 +1018,12 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -1605,7 +1623,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 {
                   "type": "null"
@@ -1635,6 +1656,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -1683,7 +1710,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 {
                   "type": "null"
@@ -1696,6 +1726,12 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
@@ -1762,7 +1798,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
                 },
                 {
                   "type": "null"
@@ -1786,6 +1825,12 @@
                 }
               }
             }
+          },
+          "400": {
+            "description": "Malformed If-Match header"
+          },
+          "412": {
+            "description": "Resource version no longer matches"
           },
           "422": {
             "description": "Validation Error",
