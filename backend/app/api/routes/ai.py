@@ -71,6 +71,7 @@ from app.services.ai_ops import (
     update_ai_task_run_celery,
 )
 from app.services.audit import record_audit
+from app.services.report_task_lineage import ReportTaskLineageError
 from app.tasks.feed_tasks import CoordinationUnavailableError, daily_ai_brief_lock
 from app.tasks.feed_tasks import backfill_daily_ai_briefs, dispatch_daily_ai_brief_generation, reprocess_recent_ai_items
 from app.tasks.integration_tasks import enqueue_integration_event_routing
@@ -722,7 +723,17 @@ def cancel_ai_ops_run_route(
     admin: User = Depends(get_admin_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_AI)),
 ):
-    run = cancel_ai_task_run(db, run_id=run_id, actor_user_id=admin.id)
+    try:
+        run = cancel_ai_task_run(db, run_id=run_id, actor_user_id=admin.id)
+    except ReportTaskLineageError as exc:
+        logger.exception("report_task_lineage_invalid run_id=%s", run_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This report task has invalid supersession history and cannot be "
+                "canceled safely. Review the server logs before retrying."
+            ),
+        ) from exc
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="AI task run not found")
     record_audit(

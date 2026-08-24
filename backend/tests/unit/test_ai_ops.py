@@ -22,6 +22,7 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPORT,
+    AI_TASK_TYPE_REPORT_SUPERSEDED,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
@@ -503,6 +504,65 @@ def test_canceled_report_task_settles_report_state(db_session):
     assert report.generation_stage == "canceled"
     assert report.error_code == "canceled"
     assert report.error == "Report generation was canceled."
+
+
+def test_canceling_superseded_report_task_targets_replacement(
+    db_session, monkeypatch
+):
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Superseded report",
+        report_type="custom",
+        status=AI_STATUS_QUEUED,
+        trigger_source="manual",
+        generation_stage="queued",
+        period_start=now - timedelta(days=7),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.flush()
+    original = AITaskRun(
+        task_type=AI_TASK_TYPE_REPORT_SUPERSEDED,
+        trigger_source=AI_TRIGGER_MANUAL,
+        status=AI_STATUS_SKIPPED,
+        reason="superseded_for_fenced_dispatch",
+        report_id=report.id,
+        metadata_json={},
+        finished_at=now,
+    )
+    replacement = AITaskRun(
+        task_type=AI_TASK_TYPE_REPORT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        status=AI_STATUS_QUEUED,
+        report_id=report.id,
+        metadata_json={},
+    )
+    db_session.add_all([original, replacement])
+    db_session.flush()
+    original.superseded_by_task_run_id = replacement.id
+    report.initial_task_run_id = original.id
+    db_session.commit()
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot",
+        lambda: (False, [], [], [], []),
+    )
+
+    canceled = cancel_ai_task_run(db_session, run_id=original.id)
+
+    db_session.refresh(original)
+    db_session.refresh(replacement)
+    db_session.refresh(report)
+    assert canceled is not None
+    assert canceled.id == replacement.id
+    assert original.reason == "superseded_for_fenced_dispatch"
+    assert replacement.status == AI_STATUS_SKIPPED
+    assert replacement.reason == "canceled"
+    assert report.generation_stage == "canceled"
 
 
 def test_stale_queued_report_remains_owned_by_durable_dispatcher(
