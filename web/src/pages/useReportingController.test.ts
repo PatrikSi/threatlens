@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   beginPendingReportingRequest,
@@ -160,5 +160,27 @@ describe('serialized reporting writes', () => {
     await expect(second).resolves.toBe('B')
     await expect(final).resolves.toBe('A2')
     expect(started).toEqual(['A1', 'B', 'A2'])
+  })
+
+  it('rejects queued writes when authentication changes before dispatch', async () => {
+    let releaseFirst: (() => void) | undefined
+    let secondStarted = false
+    const first = serializeReportingWrite('template-3', 'A', () => (
+      new Promise<string>((resolve) => {
+        releaseFirst = () => resolve('saved')
+      })
+    ))
+    const second = serializeReportingWrite('template-3', 'B', () => {
+      secondStarted = true
+      return Promise.resolve('should-not-run')
+    })
+    await vi.waitFor(() => expect(releaseFirst).toBeTypeOf('function'))
+
+    resetPendingReportingKeys()
+    releaseFirst?.()
+
+    await expect(first).resolves.toBe('saved')
+    await expect(second).rejects.toThrow('Authentication changed')
+    expect(secondStarted).toBe(false)
   })
 })

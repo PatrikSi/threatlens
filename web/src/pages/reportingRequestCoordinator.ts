@@ -1,3 +1,6 @@
+import { sha256 } from '@noble/hashes/sha2.js'
+
+
 const PENDING_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
 const STORAGE_KEY_PREFIX = 'threatlens.reporting-request.'
 const STORAGE_SALT_KEY = 'threatlens.reporting-scope-salt'
@@ -8,6 +11,7 @@ type PendingRequest = {
   inFlight: number
   retainAfterSettlement: boolean
   storageKey: string
+  durable: boolean
 }
 
 const pendingRequests = new Map<string, PendingRequest>()
@@ -15,6 +19,8 @@ const activeRequests = new Map<string, Promise<unknown>>()
 const writeTails = new Map<string, WriteTail>()
 const knownStorageKeys = new Set<string>()
 let coordinationGeneration = 0
+let volatileScopeSalt: string | undefined
+let scopeSaltIsDurable = false
 
 type WriteTail = {
   requestKey: string
@@ -23,6 +29,11 @@ type WriteTail = {
 }
 
 export type ReportingRequestOutcome = 'confirmed' | 'ambiguous' | 'rejected'
+export type ReportingRequestLease = {
+  key: string
+  generation: number
+  durable: boolean
+}
 
 
 export function reportingRequestScope(
@@ -35,6 +46,15 @@ export function reportingRequestScope(
 
 
 export async function beginPendingReportingRequest(scope: string): Promise<string> {
+  const lease = await beginPendingReportingRequestLease(scope)
+  assertReportingRequestLeaseCurrent(lease)
+  return lease.key
+}
+
+
+export async function beginPendingReportingRequestLease(
+  scope: string,
+): Promise<ReportingRequestLease> {
   const now = Date.now()
   const startingGeneration = coordinationGeneration
   let request = pendingRequests.get(scope)
@@ -60,13 +80,26 @@ export async function beginPendingReportingRequest(scope: string): Promise<strin
       inFlight: 0,
       retainAfterSettlement: false,
       storageKey,
+      durable: false,
     }
     pendingRequests.set(scope, request)
-    persistPendingRequest(request)
+    request.durable = persistPendingRequest(request)
   }
   if (request.inFlight === 0) request.retainAfterSettlement = false
   request.inFlight += 1
-  return request.key
+  requireCurrentCoordinationGeneration(startingGeneration)
+  return {
+    key: request.key,
+    generation: startingGeneration,
+    durable: request.durable,
+  }
+}
+
+
+export function assertReportingRequestLeaseCurrent(
+  lease: ReportingRequestLease,
+): void {
+  requireCurrentCoordinationGeneration(lease.generation)
 }
 
 
@@ -83,7 +116,7 @@ export function settlePendingReportingRequest(
     pendingRequests.delete(scope)
     removePersistedRequest(request)
   } else {
-    persistPendingRequest(request)
+    request.durable = persistPendingRequest(request) || request.durable
   }
 }
 
@@ -93,9 +126,11 @@ export function resetPendingReportingKeys(): void {
   pendingRequests.clear()
   activeRequests.clear()
   writeTails.clear()
-  for (const key of persistedRequestKeys()) removeSessionStorageItem(key)
-  removeSessionStorageItem(STORAGE_SALT_KEY)
+  for (const key of persistedRequestKeys()) removeBrowserStorageItem(key)
+  removeBrowserStorageItem(STORAGE_SALT_KEY)
   knownStorageKeys.clear()
+  volatileScopeSalt = undefined
+  scopeSaltIsDurable = false
 }
 
 
@@ -126,11 +161,15 @@ export function serializeReportingWrite<Result>(
   requestKey: string,
   createRequest: () => Promise<Result>,
 ): Promise<Result> {
+  const queuedGeneration = coordinationGeneration
   const predecessor = writeTails.get(entityKey)
   if (predecessor?.requestKey === requestKey) {
     return predecessor.request as Promise<Result>
   }
-  const request = (predecessor?.settled ?? Promise.resolve()).then(createRequest)
+  const request = (predecessor?.settled ?? Promise.resolve()).then(() => {
+    requireCurrentCoordinationGeneration(queuedGeneration)
+    return createRequest()
+  })
 
   const settled = request.then(
     () => undefined,
@@ -149,7 +188,7 @@ function loadPendingRequest(
   scope: string,
   storageKey: string,
 ): PendingRequest | undefined {
-  const raw = getSessionStorageItem(storageKey)
+  const raw = getBrowserStorageItem(storageKey)
   if (!raw) return undefined
   try {
     const stored = JSON.parse(raw) as Partial<PendingRequest>
@@ -159,55 +198,53 @@ function loadPendingRequest(
       || typeof stored.createdAt !== 'number'
       || !Number.isFinite(stored.createdAt)
       || stored.createdAt < 0
-      || stored.createdAt > now
     ) {
-      removeSessionStorageItem(storageKey)
+      removeBrowserStorageItem(storageKey)
       return undefined
     }
     knownStorageKeys.add(storageKey)
     const request = {
       key: stored.key,
-      createdAt: stored.createdAt,
+      createdAt: Math.min(stored.createdAt, now),
       inFlight: 0,
       retainAfterSettlement: false,
       storageKey,
+      durable: true,
     }
     pendingRequests.set(scope, request)
+    if (stored.createdAt > now) persistPendingRequest(request)
     return request
   } catch {
-    removeSessionStorageItem(storageKey)
+    removeBrowserStorageItem(storageKey)
     return undefined
   }
 }
 
 
-function persistPendingRequest(request: PendingRequest): void {
-  knownStorageKeys.add(request.storageKey)
-  setSessionStorageItem(request.storageKey, JSON.stringify({
+function persistPendingRequest(request: PendingRequest): boolean {
+  if (request.storageKey.includes(`${STORAGE_KEY_PREFIX}v2-`) && !scopeSaltIsDurable) {
+    return false
+  }
+  const persisted = setBrowserStorageItem(request.storageKey, JSON.stringify({
     key: request.key,
     createdAt: request.createdAt,
   }))
+  if (persisted) knownStorageKeys.add(request.storageKey)
+  return persisted
 }
 
 
 function removePersistedRequest(request: PendingRequest): void {
   knownStorageKeys.delete(request.storageKey)
-  removeSessionStorageItem(request.storageKey)
+  removeBrowserStorageItem(request.storageKey)
 }
 
 
 function persistedRequestKeys(): string[] {
-  try {
-    if (typeof window === 'undefined') return [...knownStorageKeys]
-    const keys: string[] = []
-    for (let index = 0; index < window.sessionStorage.length; index += 1) {
-      const key = window.sessionStorage.key(index)
-      if (key?.startsWith(STORAGE_KEY_PREFIX)) keys.push(key)
-    }
-    return keys
-  } catch {
-    return [...knownStorageKeys]
-  }
+  const keys = new Set(knownStorageKeys)
+  collectStorageKeys(() => window.sessionStorage, keys)
+  collectStorageKeys(() => window.localStorage, keys)
+  return [...keys]
 }
 
 
@@ -227,7 +264,7 @@ async function scopeDigest(scope: string): Promise<string> {
   } catch {
     // The deterministic fallback keeps HTTP-only and restricted browsers usable.
   }
-  return fallbackScopeDigest(bytes)
+  return bytesToHex(sha256(bytes))
 }
 
 
@@ -238,10 +275,11 @@ function migrateLegacyPendingRequest(
   const legacyStorageKey = `${STORAGE_KEY_PREFIX}${legacyScopeDigest(scope)}`
   const request = loadPendingRequest(scope, legacyStorageKey)
   if (!request) return undefined
+  const migratedRequest = { ...request, storageKey }
+  if (!persistPendingRequest(migratedRequest)) return request
   knownStorageKeys.delete(legacyStorageKey)
-  removeSessionStorageItem(legacyStorageKey)
+  removeBrowserStorageItem(legacyStorageKey)
   request.storageKey = storageKey
-  persistPendingRequest(request)
   return request
 }
 
@@ -256,30 +294,17 @@ function legacyScopeDigest(scope: string): string {
 }
 
 
-function fallbackScopeDigest(bytes: Uint8Array): string {
-  const seeds = [
-    0xcbf29ce484222325n,
-    0x84222325cbf29cen,
-    0x9e3779b97f4a7c15n,
-    0x6a09e667f3bcc909n,
-  ]
-  return seeds.map((seed, lane) => {
-    let hash = seed
-    for (let index = 0; index < bytes.length; index += 1) {
-      hash ^= BigInt(bytes[index] ^ ((index + lane * 67) & 0xff))
-      hash = BigInt.asUintN(64, hash * 0x100000001b3n)
-      hash ^= hash >> 32n
-    }
-    return BigInt.asUintN(64, hash).toString(16).padStart(16, '0')
-  }).join('')
-}
-
-
 function getOrCreateScopeSalt(): string {
-  const stored = getSessionStorageItem(STORAGE_SALT_KEY)
-  if (stored && /^[0-9a-f]{64}$/i.test(stored)) return stored.toLowerCase()
+  const stored = getBrowserStorageItem(STORAGE_SALT_KEY)
+  if (stored && /^[0-9a-f]{64}$/i.test(stored)) {
+    volatileScopeSalt = stored.toLowerCase()
+    scopeSaltIsDurable = true
+    return volatileScopeSalt
+  }
+  if (volatileScopeSalt) return volatileScopeSalt
   const salt = bytesToHex(randomBytes(32))
-  setSessionStorageItem(STORAGE_SALT_KEY, salt)
+  volatileScopeSalt = salt
+  scopeSaltIsDurable = setBrowserStorageItem(STORAGE_SALT_KEY, salt)
   return salt
 }
 
@@ -318,29 +343,73 @@ function requireCurrentCoordinationGeneration(startingGeneration: number): void 
 }
 
 
-function getSessionStorageItem(key: string): string | null {
+function getBrowserStorageItem(key: string): string | null {
   try {
-    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key)
+    if (typeof window === 'undefined') return null
+    const sessionValue = window.sessionStorage.getItem(key)
+    if (sessionValue !== null) return sessionValue
+  } catch {
+    // Fall through to local storage when session storage is unavailable.
+  }
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage.getItem(key)
   } catch {
     return null
   }
 }
 
 
-function setSessionStorageItem(key: string, value: string): void {
+function setBrowserStorageItem(key: string, value: string): boolean {
   try {
-    if (typeof window !== 'undefined') window.sessionStorage.setItem(key, value)
+    if (typeof window === 'undefined') return false
+    window.sessionStorage.setItem(key, value)
+    if (window.sessionStorage.getItem(key) !== value) return false
+    try {
+      window.localStorage.removeItem(key)
+    } catch {
+      // A stale fallback record is harmless while session storage is readable.
+    }
+    return true
   } catch {
-    // In-memory coordination remains available when browser storage is denied.
+    // Fall through to local storage when session storage is unavailable.
+  }
+  try {
+    if (typeof window === 'undefined') return false
+    window.localStorage.setItem(key, value)
+    return window.localStorage.getItem(key) === value
+  } catch {
+    return false
   }
 }
 
 
-function removeSessionStorageItem(key: string): void {
+function removeBrowserStorageItem(key: string): void {
   try {
     if (typeof window !== 'undefined') window.sessionStorage.removeItem(key)
   } catch {
+    // Continue so a local-storage fallback can still be removed.
+  }
+  try {
+    if (typeof window !== 'undefined') window.localStorage.removeItem(key)
+  } catch {
     // The in-memory record has already been removed.
+  }
+}
+
+
+function collectStorageKeys(
+  getStorage: () => Storage,
+  keys: Set<string>,
+): void {
+  try {
+    if (typeof window === 'undefined') return
+    const storage = getStorage()
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (key?.startsWith(STORAGE_KEY_PREFIX)) keys.add(key)
+    }
+  } catch {
+    // Known in-memory keys remain available for cleanup.
   }
 }
 

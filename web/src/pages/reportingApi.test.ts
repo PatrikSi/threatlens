@@ -7,7 +7,11 @@ vi.mock('../api/client', async (importOriginal) => ({
 
 import { ApiError, ApiTransportError, apiFetch } from '../api/client'
 import { idempotentReportingFetch } from './reportingApi'
-import { resetPendingReportingKeys } from './reportingRequestCoordinator'
+import {
+  beginPendingReportingRequest,
+  resetPendingReportingKeys,
+  settlePendingReportingRequest,
+} from './reportingRequestCoordinator'
 
 
 afterEach(() => {
@@ -28,9 +32,9 @@ describe('idempotentReportingFetch', () => {
         return Promise.resolve({ id: 'report-1' })
       })
 
-    await expect(idempotentReportingFetch('/reports', 'scope-1', { method: 'POST' }, passthrough)).rejects.toThrow(
-      'network down',
-    )
+    await expect(
+      idempotentReportingFetch('/reports', 'scope-1', { method: 'POST' }, passthrough),
+    ).rejects.toThrow('Browser storage is unavailable')
     await expect(idempotentReportingFetch('/reports', 'scope-1', { method: 'POST' }, passthrough)).resolves.toEqual({
       id: 'report-1',
     })
@@ -116,6 +120,23 @@ describe('idempotentReportingFetch', () => {
     expect(keys[0]).not.toBe('')
     expect(keys[1]).toBe(keys[0])
     expect(keys[2]).toBe(keys[0])
+  })
+
+  it('does not dispatch a prepared request after authentication changes', async () => {
+    const scope = 'auth-change-scope'
+    const key = await beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, key, 'ambiguous')
+
+    const request = idempotentReportingFetch(
+      '/reports',
+      scope,
+      { method: 'POST' },
+      passthrough,
+    )
+    resetPendingReportingKeys()
+
+    await expect(request).rejects.toThrow('Authentication changed')
+    expect(apiFetch).not.toHaveBeenCalled()
   })
 })
 
