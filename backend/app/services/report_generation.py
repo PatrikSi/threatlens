@@ -92,7 +92,7 @@ def generate_report(
 
     active = load_active_ai_settings(db)
     ensure_reporting_available(active)
-    _raise_if_canceled(db, task_run_id)
+    _raise_if_task_stopped(db, task_run_id)
     budget = build_context_budget(
         context_window_tokens=active.report_context_window_tokens,
         reserved_output_tokens=active.report_reserved_output_tokens,
@@ -175,7 +175,7 @@ def generate_report(
         ordered_sections = _generation_order(sections)
         for section in ordered_sections:
             _check_execution(execution_checkpoint)
-            _raise_if_canceled(db, task_run_id)
+            _raise_if_task_stopped(db, task_run_id)
             if (
                 counters.model_calls >= active.report_max_model_calls
                 and section.section_key not in DETERMINISTIC_SECTION_KEYS
@@ -204,7 +204,7 @@ def generate_report(
                 "Report was deleted while generation was running.",
                 code="report_deleted",
             )
-        _raise_if_canceled(db, task_run_id)
+        _raise_if_task_stopped(db, task_run_id)
         _check_execution(execution_checkpoint)
         _finalize_ready_report(db, report=report, counters=counters)
         _record_stage(db, task_run_id, report, "ready")
@@ -272,9 +272,16 @@ def _generation_error_code(exc: Exception, *, expected: bool) -> str:
     )
 
 
-def _raise_if_canceled(db: Session, task_run_id: uuid.UUID | None) -> None:
-    if get_ai_task_run_stop_reason(db, run_id=task_run_id) == "canceled":
+def _raise_if_task_stopped(db: Session, task_run_id: uuid.UUID | None) -> None:
+    stop_reason = get_ai_task_run_stop_reason(db, run_id=task_run_id)
+    if stop_reason == "canceled":
         raise ReportGenerationError("Report generation was canceled.", code="canceled")
+    if stop_reason is not None:
+        raise ReportGenerationError(
+            "Report generation stopped because its task run was already settled. "
+            "Review the AI task history before retrying the report.",
+            code="task_stopped",
+        )
 
 
 def _check_execution(checkpoint: Callable[[], None] | None) -> None:
@@ -429,7 +436,7 @@ def _synthesize_evidence_batches(
     findings: list[dict] = []
     known_citations = {source.citation_key for source in sources}
     for index, batch in enumerate(batch_plan.batches, start=1):
-        _raise_if_canceled(db, task_run_id)
+        _raise_if_task_stopped(db, task_run_id)
         if counters.model_calls >= active.report_max_model_calls:
             raise ReportGenerationError(
                 "Evidence synthesis reached the configured model-call limit.",
@@ -463,7 +470,7 @@ def _synthesize_evidence_batches(
         )
         counters.add(completion)
         _check_execution(execution_checkpoint)
-        _raise_if_canceled(db, task_run_id)
+        _raise_if_task_stopped(db, task_run_id)
         findings.extend(
             _normalize_findings(
                 completion.payload.get("findings"), known_citations=known_citations
@@ -558,7 +565,7 @@ def _generate_section(
         )
         counters.add(completion)
         _check_execution(execution_checkpoint)
-        _raise_if_canceled(db, task_run_id)
+        _raise_if_task_stopped(db, task_run_id)
         body = str(completion.payload.get("body_markdown") or "").strip()
         if not body:
             raise ReportGenerationError(

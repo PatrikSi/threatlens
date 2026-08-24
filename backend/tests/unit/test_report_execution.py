@@ -9,6 +9,7 @@ from app.models.report_generation_lease import ReportGenerationLease
 from app.services.report_execution import (
     claim_report_generation,
     fence_report_generation,
+    invalidate_stale_report_generation,
     release_report_generation,
     renew_report_generation,
 )
@@ -59,6 +60,9 @@ def test_report_generation_lease_fences_stale_workers(db_session):
 
     lease = db_session.get(ReportGenerationLease, report.id)
     lease.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    report.generation_lease_expires_at = datetime.now(timezone.utc) - timedelta(
+        seconds=1
+    )
     db_session.commit()
 
     second = claim_report_generation(
@@ -99,6 +103,71 @@ def test_report_generation_lease_fences_stale_workers(db_session):
     db_session.commit()
 
     db_session.refresh(report)
+    assert report.generation_lease_token is None
+    assert report.generation_lease_expires_at is None
+
+
+def test_report_generation_claim_honors_renewed_legacy_worker_lease(db_session):
+    report = _queued_report()
+    db_session.add(report)
+    db_session.commit()
+    first = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="legacy-worker",
+        lease_seconds=600,
+    )
+    db_session.commit()
+
+    lease = db_session.get(ReportGenerationLease, report.id)
+    lease.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    report.generation_lease_expires_at = datetime.now(timezone.utc) + timedelta(
+        minutes=10
+    )
+    db_session.commit()
+
+    contender = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="new-worker",
+        lease_seconds=600,
+    )
+
+    assert first.generation_fence == 1
+    assert contender.status == "busy"
+    assert contender.lease_expires_at == report.generation_lease_expires_at
+
+
+def test_stale_generation_invalidation_skips_active_and_fences_expired_lease(
+    db_session,
+):
+    report = _queued_report()
+    db_session.add(report)
+    db_session.commit()
+    claim = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="worker-one",
+        lease_seconds=600,
+    )
+    db_session.commit()
+
+    assert not invalidate_stale_report_generation(db_session, report_id=report.id)
+    db_session.rollback()
+
+    lease = db_session.get(ReportGenerationLease, report.id)
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    lease.lease_expires_at = expired_at
+    report.generation_lease_expires_at = expired_at
+    db_session.commit()
+
+    assert invalidate_stale_report_generation(db_session, report_id=report.id)
+    db_session.commit()
+    db_session.refresh(lease)
+    db_session.refresh(report)
+    assert lease.generation_fence == claim.generation_fence + 1
+    assert lease.lease_token is None
+    assert lease.lease_expires_at is None
     assert report.generation_lease_token is None
     assert report.generation_lease_expires_at is None
 
@@ -171,6 +240,10 @@ def test_stale_report_output_is_rolled_back_after_takeover(database_engine):
                 lease = takeover_db.get(ReportGenerationLease, report_id)
                 lease.lease_expires_at = datetime.now(timezone.utc) - timedelta(
                     seconds=1
+                )
+                takeover_report = takeover_db.get(Report, report_id)
+                takeover_report.generation_lease_expires_at = (
+                    datetime.now(timezone.utc) - timedelta(seconds=1)
                 )
                 takeover_db.commit()
                 second = claim_report_generation(
