@@ -16,7 +16,6 @@ DOCUMENTED_SETTING_PATTERN = re.compile(
 # than app.core.config.Settings. Keeping the reason beside each exception makes
 # additions to the public environment inventory deliberate and reviewable.
 NON_BACKEND_ENVIRONMENT_NAMES = {
-    "APP_VERSION": "local image build version label",
     "AI_WORKER_CONCURRENCY": "Celery worker process concurrency",
     "MAINTENANCE_WORKER_CONCURRENCY": "Celery maintenance worker concurrency",
     "NOTIFICATION_WORKER_CONCURRENCY": "Celery notification worker concurrency",
@@ -29,7 +28,7 @@ NON_BACKEND_ENVIRONMENT_NAMES = {
     "WEB_VITE_API_BASE_URL": "web build API base path",
     "WORKER_CONCURRENCY": "Celery general worker concurrency",
 }
-EPHEMERAL_BUILD_ENVIRONMENT_NAMES = {"BUILD_DATE", "VCS_REF"}
+EPHEMERAL_BUILD_ENVIRONMENT_NAMES = {"APP_VERSION", "BUILD_DATE", "VCS_REF"}
 
 
 def test_compose_forwards_every_backend_setting():
