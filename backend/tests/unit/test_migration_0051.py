@@ -56,7 +56,7 @@ def test_report_dispatch_claim_migration_backfills_published_work(
             )
             get_settings.cache_clear()
             config = _alembic_config()
-            command.upgrade(config, "0050_report_idempotency_compat")
+            command.upgrade(config, "0049_report_generation_fence")
             with schema_engine.begin() as connection:
                 connection.execute(
                     text(
@@ -108,7 +108,7 @@ def test_report_dispatch_claim_migration_backfills_published_work(
             assert next_attempt_at is not None
             assert next_attempt_at >= published_at + timedelta(minutes=4)
 
-            command.downgrade(config, "0050_report_idempotency_compat")
+            command.downgrade(config, "0049_report_generation_fence")
             columns = {
                 column["name"]
                 for column in inspect(schema_engine).get_columns(
