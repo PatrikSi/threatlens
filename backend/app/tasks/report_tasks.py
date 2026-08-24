@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.models.integration import IntegrationEvent
+from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
@@ -28,6 +29,12 @@ from app.services.report_execution import (
 )
 from app.services.report_notifications import REPORT_READY_EVENT_TYPE
 from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
+from app.services.report_schedules import record_schedule_failure
+from app.services.report_availability import (
+    ReportingUnavailableError,
+    ensure_reporting_available,
+)
+from app.services.ai_config import load_active_ai_settings
 from app.tasks.celery_app import celery_app
 from app.tasks.integration_tasks import enqueue_integration_event_routing
 from app.tasks.task_session import db_session
@@ -108,6 +115,13 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
     celery_task_id = getattr(self.request, "id", None)
     lease_token = uuid.uuid4().hex
     with db_session() as db:
+        candidate_run = db.get(AITaskRun, parsed_run_id)
+        if (
+            candidate_run is None
+            or candidate_run.task_type != AI_TASK_TYPE_REPORT
+            or candidate_run.report_id != parsed_report_id
+        ):
+            return {"status": "skipped", "reason": "run_not_available"}
         started = start_ai_task_run(
             db,
             run_id=parsed_run_id,
@@ -118,8 +132,22 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
         claimed_by_task = (
             started is not None
             and started.status in {"queued", "running"}
+            and started.task_type == AI_TASK_TYPE_REPORT
+            and started.report_id == parsed_report_id
             and (celery_task_id is None or started.celery_task_id == celery_task_id)
         )
+        report = db.get(Report, parsed_report_id) if claimed_by_task else None
+        if claimed_by_task and (report is None or report.status in {"ready", "error", "skipped"}):
+            result = _settle_terminal_report_run(
+                db,
+                report=report,
+                run_id=parsed_run_id,
+                worker_name=worker_name,
+            )
+            db.commit()
+            if result[1] is not None:
+                enqueue_integration_event_routing([result[1]])
+            return result[0]
         claimed_report = claimed_by_task and claim_report_generation(
             db,
             report_id=parsed_report_id,
@@ -166,14 +194,17 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             )
             return {"status": "skipped", "reason": "ownership_lost"}
         except Exception as exc:
-            logger.exception("report_generation_failed report_id=%s", parsed_report_id)
+            canceled = getattr(exc, "code", None) == "canceled"
+            if canceled:
+                logger.info("report_generation_canceled report_id=%s", parsed_report_id)
+            else:
+                logger.exception("report_generation_failed report_id=%s", parsed_report_id)
             report = db.get(Report, parsed_report_id)
             if report is not None and report.status not in {
                 "ready",
                 "error",
                 "skipped",
             }:
-                canceled = getattr(exc, "code", None) == "canceled"
                 report.status = "skipped" if canceled else "error"
                 report.generation_stage = "canceled" if canceled else "failed"
                 report.error_code = str(
@@ -248,6 +279,13 @@ def dispatch_due_report_schedules():
     queued = 0
     failures = 0
     with db_session() as db:
+        try:
+            ensure_reporting_available(load_active_ai_settings(db))
+        except ReportingUnavailableError as exc:
+            logger.info(
+                "scheduled_report_dispatch_deferred reason=%s", exc.code
+            )
+            return {"status": "deferred", "reason": exc.code, "queued": 0, "failures": 0}
         schedule_ids = list_due_schedule_ids(db, now=now)
     for schedule_id in schedule_ids:
         try:
@@ -265,11 +303,25 @@ def dispatch_due_report_schedules():
                     )
                     queue_entries.append((report.id, run.id))
                 db.commit()
-        except Exception:
+        except Exception as exc:
             failures += 1
             logger.exception(
                 "scheduled_report_reservation_failed schedule_id=%s", schedule_id
             )
+            try:
+                with db_session() as failure_db:
+                    record_schedule_failure(
+                        failure_db,
+                        schedule_id=schedule_id,
+                        now=now,
+                        error=exc,
+                    )
+                    failure_db.commit()
+            except Exception:
+                logger.exception(
+                    "scheduled_report_failure_state_update_failed schedule_id=%s",
+                    schedule_id,
+                )
             continue
         for report_id, run_id in queue_entries:
             try:
@@ -291,12 +343,74 @@ def _report_error_for_display(exc: Exception) -> str:
     from app.services.ai_context_budget import AIContextBudgetError
     from app.services.ai_provider_client import AIIntegrationError
     from app.services.report_generation import ReportGenerationError
+    from app.services.report_availability import ReportingUnavailableError
 
     if isinstance(
-        exc, (AIContextBudgetError, AIIntegrationError, ReportGenerationError)
+        exc,
+        (
+            AIContextBudgetError,
+            AIIntegrationError,
+            ReportGenerationError,
+            ReportingUnavailableError,
+        ),
     ):
         return str(exc)[:4000]
     return "Report generation failed unexpectedly. Review the AI worker logs and retry the report."
+
+
+def _settle_terminal_report_run(
+    db,
+    *,
+    report: Report | None,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+) -> tuple[dict[str, str], uuid.UUID | None]:
+    if report is None:
+        finish_ai_task_run(
+            db,
+            run_id=run_id,
+            status=AI_STATUS_SKIPPED,
+            reason="report_not_found",
+            worker_name=worker_name,
+        )
+        return {"status": "skipped", "reason": "report_not_found"}, None
+
+    status = {
+        "ready": AI_STATUS_READY,
+        "error": AI_STATUS_ERROR,
+        "skipped": AI_STATUS_SKIPPED,
+    }[report.status]
+    finish_ai_task_run(
+        db,
+        run_id=run_id,
+        status=status,
+        reason=report.error_code,
+        error=report.error if status == AI_STATUS_ERROR else None,
+        worker_name=worker_name,
+        model=report.model,
+        prompt_tokens=report.prompt_tokens,
+        completion_tokens=report.completion_tokens,
+        total_tokens=report.total_tokens,
+        metadata_updates={
+            "model_calls": report.model_calls,
+            "terminal_report_recovered": True,
+        },
+        report_id=report.id,
+    )
+    event_id = None
+    if report.status == "ready":
+        event_id = db.scalar(
+            select(IntegrationEvent.id).where(
+                IntegrationEvent.event_type == REPORT_READY_EVENT_TYPE,
+                IntegrationEvent.source_type == "report",
+                IntegrationEvent.source_id == str(report.id),
+            )
+        )
+    return {
+        "status": report.status,
+        "reason": "already_completed",
+        "report_id": str(report.id),
+    }, event_id
 
 
 __all__ = [

@@ -333,8 +333,8 @@ def test_lost_execution_lease_does_not_overwrite_report_state(
 
     db_session.expire_all()
     unchanged = db_session.get(Report, report.id)
-    assert unchanged.status == "running"
-    assert unchanged.generation_stage == "evidence_synthesis"
+    assert unchanged.status == "queued"
+    assert unchanged.generation_stage == "queued"
     assert unchanged.error_code is None
     assert unchanged.error is None
 

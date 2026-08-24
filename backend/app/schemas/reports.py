@@ -314,6 +314,13 @@ class ReportScheduleResponse(ReportScheduleCreate):
     owner_user_id: uuid.UUID | None
     next_run_at: datetime | None
     last_run_at: datetime | None
+    failure_state: Literal["healthy", "retrying", "exhausted", "quarantined"]
+    failure_count: int
+    consecutive_failure_count: int
+    last_error_code: str | None
+    last_error: str | None
+    last_error_at: datetime | None
+    retry_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

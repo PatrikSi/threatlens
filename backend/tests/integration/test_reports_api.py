@@ -220,3 +220,33 @@ def test_admin_can_manage_report_schedule_with_default_filters(
 
     assert delete_response.status_code == 204
     assert db_session.get(ReportSchedule, uuid.UUID(schedule_id)) is None
+
+
+def test_manual_schedule_run_maps_snapshot_race_to_conflict(
+    client,
+    auth_headers,
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+    monkeypatch.setattr(
+        reports_routes,
+        "reserve_schedule_runs",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ExportSnapshotChangedError("snapshot changed")
+        ),
+    )
+
+    response = client.post(
+        f"/reports/schedules/{uuid.uuid4()}/run",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Matching articles changed while the scheduled report was being prepared. "
+        "Try running the schedule again."
+    )

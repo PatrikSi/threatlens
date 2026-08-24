@@ -776,7 +776,7 @@ def test_report_retry_expands_only_to_exact_context_headroom(
     assert result.payload == {"ok": True}
     assert requested == [256, 512, 700]
     assert result.attempt_count == 3
-    assert checkpoints == [0, 1, 2]
+    assert checkpoints == [0, 1, 1, 2, 2, 3]
 
 
 def test_report_retry_respects_provider_attempt_budget(

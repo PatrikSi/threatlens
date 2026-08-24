@@ -21,6 +21,10 @@ from app.services.ai_context_budget import (
 from app.services.ai_integration import FEATURE_REPORT, request_ai_json_with_usage
 from app.services.ai_ops import get_ai_task_run_stop_reason, record_ai_task_event
 from app.services.ai_provider_client import AIIntegrationError
+from app.services.report_availability import (
+    ReportingUnavailableError,
+    ensure_reporting_available,
+)
 from app.services.report_sources import DETERMINISTIC_SECTION_KEYS
 from app.services.report_execution import ReportGenerationLeaseLostError
 from app.services.report_prompt_budget import (
@@ -88,7 +92,7 @@ def generate_report(
         )
 
     active = load_active_ai_settings(db)
-    _validate_reporting_available(active)
+    ensure_reporting_available(active)
     _raise_if_canceled(db, task_run_id)
     budget = build_context_budget(
         context_window_tokens=active.report_context_window_tokens,
@@ -124,6 +128,7 @@ def generate_report(
         raise ReportGenerationError(
             "The report has no enabled sections.", code="no_sections"
         )
+    db.commit()
     counters = _UsageCounters()
     try:
         sources, evidence_plan = _prepare_runtime_evidence(
@@ -141,6 +146,7 @@ def generate_report(
         report.error = None
         db.add(report)
         _record_stage(db, task_run_id, report, "evidence_synthesis")
+        _check_execution(execution_checkpoint)
         db.commit()
         _check_execution(execution_checkpoint)
 
@@ -219,7 +225,12 @@ def generate_report(
         db.rollback()
         expected_error = isinstance(
             exc,
-            (AIContextBudgetError, AIIntegrationError, ReportGenerationError),
+            (
+                AIContextBudgetError,
+                AIIntegrationError,
+                ReportGenerationError,
+                ReportingUnavailableError,
+            ),
         )
         current = db.get(Report, report_id)
         if current is not None:
@@ -237,7 +248,13 @@ def generate_report(
             current.completion_tokens = counters.completion_tokens or None
             current.total_tokens = counters.total_tokens or None
             db.add(current)
-            _record_stage(db, task_run_id, current, "failed", message=str(exc))
+            _record_stage(
+                db,
+                task_run_id,
+                current,
+                "canceled" if canceled else "failed",
+                message=str(exc),
+            )
             db.commit()
         raise
 
@@ -281,21 +298,6 @@ class _UsageCounters:
         self.total_tokens += completion.total_tokens or (
             (completion.prompt_tokens or completion.prompt_char_count // 3 or 0)
             + (completion.completion_tokens or completion.response_char_count // 3 or 0)
-        )
-
-
-def _validate_reporting_available(active: ActiveAISettings) -> None:
-    if not active.ai_enabled:
-        raise ReportGenerationError(
-            "AI features are disabled by the server administrator.", code="ai_disabled"
-        )
-    if not active.ai_configured:
-        raise ReportGenerationError(
-            "AI provider settings are incomplete.", code="ai_not_configured"
-        )
-    if not active.reporting_enabled:
-        raise ReportGenerationError(
-            "AI reporting is disabled in AI settings.", code="reporting_disabled"
         )
 
 
@@ -447,6 +449,7 @@ def _synthesize_evidence_batches(
             execution_checkpoint=execution_checkpoint,
         )
         counters.add(completion)
+        _check_execution(execution_checkpoint)
         _raise_if_canceled(db, task_run_id)
         findings.extend(
             _normalize_findings(
@@ -540,6 +543,7 @@ def _generate_section(
             execution_checkpoint=execution_checkpoint,
         )
         counters.add(completion)
+        _check_execution(execution_checkpoint)
         _raise_if_canceled(db, task_run_id)
         body = str(completion.payload.get("body_markdown") or "").strip()
         if not body:
@@ -572,6 +576,7 @@ def _generate_section(
     _record_provider_progress(
         db, task_run_id, report, counters, stage=report.generation_stage
     )
+    _check_execution(execution_checkpoint)
     db.commit()
 
 

@@ -226,6 +226,9 @@ class Settings(BaseSettings):
     dispatch_ai_reprocess_batch_size: int = 100
     celery_visibility_timeout_seconds: int = 3600
     report_generation_lease_seconds: int = 600
+    report_schedule_max_attempts: int = 5
+    report_schedule_retry_backoff_seconds: int = 60
+    report_schedule_retry_max_backoff_seconds: int = 3600
 
     alert_matches_keyword_cap: int = 512
     stats_top_domains_limit: int = 10
@@ -374,12 +377,36 @@ class Settings(BaseSettings):
         "database_pool_timeout_seconds",
         "celery_visibility_timeout_seconds",
         "report_generation_lease_seconds",
+        "report_schedule_max_attempts",
+        "report_schedule_retry_backoff_seconds",
+        "report_schedule_retry_max_backoff_seconds",
     )
     @classmethod
     def _validate_positive_operational_limits(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("Authentication and database limits must be greater than zero")
         return value
+
+    @field_validator("report_generation_lease_seconds")
+    @classmethod
+    def _validate_report_generation_lease(cls, value: int) -> int:
+        if value < 360:
+            raise ValueError(
+                "report_generation_lease_seconds must cover the maximum AI provider request timeout"
+            )
+        return value
+
+    @model_validator(mode="after")
+    def _validate_report_schedule_retry_limits(self):
+        if (
+            self.report_schedule_retry_max_backoff_seconds
+            < self.report_schedule_retry_backoff_seconds
+        ):
+            raise ValueError(
+                "report_schedule_retry_max_backoff_seconds must be at least "
+                "report_schedule_retry_backoff_seconds"
+            )
+        return self
 
     @field_validator(
         "export_max_items",
