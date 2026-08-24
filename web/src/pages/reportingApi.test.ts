@@ -90,7 +90,7 @@ describe('idempotentReportingFetch', () => {
     expect(keys[1]).not.toBe(keys[0])
   })
 
-  it('does not lose a key when overlapping responses settle success then ambiguity', async () => {
+  it('treats one definitive response as settlement for overlapping requests', async () => {
     const keys: string[] = []
     let resolveFirst: ((value: unknown) => void) | undefined
     let rejectSecond: ((error: Error) => void) | undefined
@@ -124,12 +124,13 @@ describe('idempotentReportingFetch', () => {
 
     expect(keys[0]).not.toBe('')
     expect(keys[1]).toBe(keys[0])
-    expect(keys[2]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
   })
 
   it('reports storage loss that occurs after an ambiguous dispatch', async () => {
     let storageIsDenied = false
     const originalSetItem = Storage.prototype.setItem
+    const originalGetItem = Storage.prototype.getItem
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
       this: Storage,
       key: string,
@@ -137,6 +138,13 @@ describe('idempotentReportingFetch', () => {
     ) {
       if (storageIsDenied) throw new DOMException('Storage revoked')
       originalSetItem.call(this, key, value)
+    })
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (storageIsDenied) throw new DOMException('Storage revoked')
+      return originalGetItem.call(this, key)
     })
     vi.mocked(apiFetch).mockImplementation(() => {
       storageIsDenied = true
@@ -148,7 +156,7 @@ describe('idempotentReportingFetch', () => {
       'storage-revoked-scope',
       { method: 'POST' },
       passthrough,
-    )).rejects.toThrow('could not retain the shared request key')
+    )).rejects.toThrow('Browser storage is unavailable')
   })
 
   it('does not dispatch a prepared request after authentication changes', async () => {
@@ -168,25 +176,20 @@ describe('idempotentReportingFetch', () => {
     expect(apiFetch).not.toHaveBeenCalled()
   })
 
-  it('does not dispatch when a shared request key cannot be persisted', async () => {
-    const localStorage = window.localStorage
-    const originalSetItem = Storage.prototype.setItem
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (
-      this: Storage,
-      key: string,
-      value: string,
-    ) {
-      if (this === localStorage) throw new DOMException('Local storage denied')
-      originalSetItem.call(this, key, value)
+  it('dispatches with a volatile key when browser storage is unavailable', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Storage denied')
     })
+    vi.mocked(apiFetch).mockResolvedValue({ id: 'report-1' })
 
     await expect(idempotentReportingFetch(
       '/reports',
       'storage-denied-scope',
       { method: 'POST' },
       passthrough,
-    )).rejects.toThrow('no request was sent')
-    expect(apiFetch).not.toHaveBeenCalled()
+    )).resolves.toEqual({ id: 'report-1' })
+    expect(new Headers(vi.mocked(apiFetch).mock.calls[0]?.[1]?.headers)
+      .get('Idempotency-Key')).toBeTruthy()
   })
 
   it('does not return an old-session response after authentication changes', async () => {
@@ -208,6 +211,25 @@ describe('idempotentReportingFetch', () => {
 
     await expect(request).rejects.toThrow('Authentication changed')
     expect(validate).not.toHaveBeenCalled()
+  })
+
+  it('does not return an old-session error after authentication changes', async () => {
+    let rejectRequest: ((error: Error) => void) | undefined
+    vi.mocked(apiFetch).mockImplementation(() => (
+      new Promise((_resolve, reject) => { rejectRequest = reject })
+    ))
+    const request = idempotentReportingFetch(
+      '/reports',
+      'rejected-auth-change-scope',
+      { method: 'POST' },
+      passthrough,
+    )
+    await vi.waitFor(() => expect(rejectRequest).toBeTypeOf('function'))
+
+    resetPendingReportingKeys()
+    rejectRequest?.(new ApiTransportError('old session failed', '/reports', 'network'))
+
+    await expect(request).rejects.toThrow('Authentication changed')
   })
 })
 
