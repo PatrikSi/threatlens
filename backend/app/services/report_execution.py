@@ -45,6 +45,7 @@ def claim_report_generation(
     report_id: uuid.UUID,
     lease_token: str,
     lease_seconds: int,
+    legacy_worker_grace_seconds: int = 86_400,
 ) -> ReportGenerationClaim:
     report = db.scalar(
         select(Report)
@@ -69,6 +70,25 @@ def claim_report_generation(
     now = datetime.now(timezone.utc)
     lease_expiry = _as_utc(lease.lease_expires_at)
     legacy_expiry = _as_utc(report.generation_lease_expires_at)
+    if (
+        report.status == "running"
+        and lease.lease_token is None
+        and report.generation_lease_token is None
+    ):
+        compatibility_token = f"legacy-unfenced:{report_id.hex}"
+        compatibility_expiry = now + timedelta(seconds=legacy_worker_grace_seconds)
+        lease.generation_fence = int(lease.generation_fence or 0) + 1
+        lease.lease_token = compatibility_token
+        lease.lease_expires_at = compatibility_expiry
+        report.generation_lease_token = compatibility_token
+        report.generation_lease_expires_at = compatibility_expiry
+        db.add(lease)
+        db.add(report)
+        return ReportGenerationClaim(
+            "busy",
+            generation_fence=lease.generation_fence,
+            lease_expires_at=compatibility_expiry,
+        )
     lease_is_active = _active_foreign_lease(
         token=lease.lease_token,
         expected_token=lease_token,

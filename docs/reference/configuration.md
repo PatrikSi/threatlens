@@ -109,13 +109,13 @@
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
 | `CELERY_VISIBILITY_TIMEOUT_SECONDS` (`celery_visibility_timeout_seconds`) | `3600` | Redis broker visibility timeout for unacknowledged tasks. Keep this above the longest expected AI report execution to avoid duplicate queue load; stable task IDs and renewable generation fencing make a redelivery wait safely when a run exceeds it. |
 | `REPORT_GENERATION_LEASE_SECONDS` (`report_generation_lease_seconds`) | `600` | Renewable database ownership lease for one report generation worker. Must be at least 360 seconds. |
+| `REPORT_LEGACY_WORKER_GRACE_SECONDS` (`report_legacy_worker_grace_seconds`) | `86400` | Grace period for an unfenced report worker from an older release during a rolling upgrade. Must be at least the Celery visibility timeout; after expiry, abandoned legacy work can be reconciled safely. |
 | `REPORT_SCHEDULE_MAX_ATTEMPTS` (`report_schedule_max_attempts`) | `5` | Consecutive planning attempts before a transient failure is recorded as exhausted and the schedule advances. Invalid configuration failures use a smaller capped retry count before quarantine. |
 | `REPORT_SCHEDULE_RETRY_BACKOFF_SECONDS` (`report_schedule_retry_backoff_seconds`) | `60` | Initial exponential delay after a report schedule planning failure. |
 | `REPORT_SCHEDULE_RETRY_MAX_BACKOFF_SECONDS` (`report_schedule_retry_max_backoff_seconds`) | `3600` | Maximum report schedule planning retry delay. |
 | `REPORT_DISPATCH_BATCH_SIZE` (`report_dispatch_batch_size`) | `100` | Maximum durable queued report tasks recovered in one dispatch sweep. |
-| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Consecutive initial queue publication failures allowed before an unaccepted report dispatch is settled as failed. Work previously accepted by the broker remains recoverable and is never terminalized by republish failures alone. |
+| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Cap for the persisted consecutive publication-attempt counter used to calculate retry backoff. An unknown broker outcome remains queued and retryable rather than being terminalized. |
 | `REPORT_DISPATCH_CLAIM_SECONDS` (`report_dispatch_claim_seconds`) | `60` | Time allowed for one dispatcher to publish and record a report task before another dispatcher may reclaim the attempt. |
-| `REPORT_DISPATCH_STALE_AFTER_SECONDS` (`report_dispatch_stale_after_seconds`) | `300` | Time a published report task may remain queued without a worker start before it is republished with the same stable task ID. |
 | `REPORT_DISPATCH_RETRY_BACKOFF_SECONDS` (`report_dispatch_retry_backoff_seconds`) | `15` | Initial exponential delay after report queue publication fails. |
 | `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |

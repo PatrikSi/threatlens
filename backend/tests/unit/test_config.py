@@ -74,6 +74,17 @@ def test_celery_visibility_timeout_exceeds_report_lease(
         )
 
 
+def test_legacy_report_worker_grace_covers_visibility_timeout():
+    with pytest.raises(
+        ValueError,
+        match="report_legacy_worker_grace_seconds",
+    ):
+        isolated_settings(
+            celery_visibility_timeout_seconds=3600,
+            report_legacy_worker_grace_seconds=3599,
+        )
+
+
 def test_report_schedule_retry_backoff_must_be_bounded():
     with pytest.raises(
         ValueError, match="report_schedule_retry_max_backoff_seconds"
