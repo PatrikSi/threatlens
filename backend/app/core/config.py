@@ -226,13 +226,13 @@ class Settings(BaseSettings):
     dispatch_ai_reprocess_batch_size: int = 100
     celery_visibility_timeout_seconds: int = 3600
     report_generation_lease_seconds: int = 600
+    report_legacy_worker_grace_seconds: int = 86_400
     report_schedule_max_attempts: int = 5
     report_schedule_retry_backoff_seconds: int = 60
     report_schedule_retry_max_backoff_seconds: int = 3600
     report_dispatch_batch_size: int = 100
     report_dispatch_max_attempts: int = 10
     report_dispatch_claim_seconds: int = 60
-    report_dispatch_stale_after_seconds: int = 300
     report_dispatch_retry_backoff_seconds: int = 15
     report_dispatch_retry_max_backoff_seconds: int = 900
 
@@ -383,13 +383,13 @@ class Settings(BaseSettings):
         "database_pool_timeout_seconds",
         "celery_visibility_timeout_seconds",
         "report_generation_lease_seconds",
+        "report_legacy_worker_grace_seconds",
         "report_schedule_max_attempts",
         "report_schedule_retry_backoff_seconds",
         "report_schedule_retry_max_backoff_seconds",
         "report_dispatch_batch_size",
         "report_dispatch_max_attempts",
         "report_dispatch_claim_seconds",
-        "report_dispatch_stale_after_seconds",
         "report_dispatch_retry_backoff_seconds",
         "report_dispatch_retry_max_backoff_seconds",
     )
@@ -417,6 +417,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "celery_visibility_timeout_seconds must be greater than "
                 "report_generation_lease_seconds"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_report_legacy_worker_grace(self):
+        if self.report_legacy_worker_grace_seconds < self.celery_visibility_timeout_seconds:
+            raise ValueError(
+                "report_legacy_worker_grace_seconds must be at least "
+                "celery_visibility_timeout_seconds"
             )
         return self
 

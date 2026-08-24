@@ -82,7 +82,6 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
 
 def test_report_task_allows_unbounded_ownership_waits():
     assert report_tasks.generate_intelligence_report.max_retries is None
-    assert report_tasks.REPORT_GENERATION_FAILURE_MAX_RETRIES == 20
 
 
 def test_report_task_does_not_resume_expired_running_generation(

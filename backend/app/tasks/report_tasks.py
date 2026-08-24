@@ -51,7 +51,6 @@ from app.tasks.task_session import db_session
 
 
 logger = logging.getLogger(__name__)
-REPORT_GENERATION_FAILURE_MAX_RETRIES = 20
 settings = get_settings()
 
 
@@ -233,6 +232,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 report_id=parsed_report_id,
                 lease_token=lease_token,
                 lease_seconds=settings.report_generation_lease_seconds,
+                legacy_worker_grace_seconds=settings.report_legacy_worker_grace_seconds,
             )
             if claim.status == "busy":
                 db.rollback()
@@ -264,7 +264,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
         raise self.retry(
             exc=exc,
             countdown=30,
-            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+            max_retries=None,
         ) from exc
 
     if claim.status == "busy":
@@ -340,7 +340,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             raise self.retry(
                 exc=exc,
                 countdown=30,
-                max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+                max_retries=None,
             ) from exc
         except Exception as exc:
             return _settle_failed_generation(
@@ -390,7 +390,7 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
             raise self.retry(
                 exc=exc,
                 countdown=30,
-                max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+                max_retries=None,
             ) from exc
     notification_enqueued = (
         enqueue_integration_event_routing([event_id]) if event_id else True
@@ -530,7 +530,7 @@ def _settle_interrupted_generation_task(
         raise task.retry(
             exc=exc,
             countdown=30,
-            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+            max_retries=None,
         ) from exc
 
 
@@ -589,7 +589,7 @@ def _settle_failed_generation(
         raise task.retry(
             exc=commit_error,
             countdown=30,
-            max_retries=REPORT_GENERATION_FAILURE_MAX_RETRIES,
+            max_retries=None,
         ) from commit_error
     return {
         "status": "skipped" if canceled else "error",

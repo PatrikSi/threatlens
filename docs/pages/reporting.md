@@ -80,7 +80,7 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 ## Failure Recovery
 
 - Report creation and retry accept `Idempotency-Key`; an exact replay returns the original report while a conflicting payload is rejected.
-- Report and AI task state commit before queue publication. Broker failures leave durable queued work for the periodic dispatcher, which applies capped exponential backoff and settles exhausted dispatches as failed.
+- Report and AI task state commit before queue publication. A broker exception has an unknown outcome, so durable queued work is retried with the same task identity and capped exponential backoff instead of being marked failed. Once publication is confirmed, ThreatLens trusts the persistent broker and does not emit periodic duplicate messages while a task waits for an AI worker.
 - Worker redelivery cannot make a second provider call while the original renewable generation lease is still owned. A superseded worker cannot persist sections or terminal state after ownership moves.
 - Invalid template or context-budget configuration failures use capped retries and then quarantine the schedule. Transient planning failures use capped exponential backoff; after exhaustion, ThreatLens records the failure and advances to the next occurrence so one schedule cannot starve healthy schedules.
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
@@ -91,7 +91,7 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Queued and running reports cannot be deleted.
 - Scheduled empty periods are retained as skipped report records when **Skip periods with no sources** is enabled.
 
-Operators can tune durable dispatch, schedule retry, and generation lease limits with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. Keep the broker visibility timeout longer than the maximum expected report run to reduce duplicate queue load. If a run exceeds it, redelivery reuses the stable task ID and waits behind the renewable generation fence instead of repeating owned provider work.
+Operators can tune durable dispatch, schedule retry, generation leases, and rolling-upgrade grace with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. Keep the broker visibility timeout longer than the maximum expected report run to reduce duplicate queue load. If a run exceeds it, redelivery reuses the stable task ID and waits behind the renewable generation fence instead of repeating owned provider work. During an upgrade, an unfenced `running` report from an older worker receives a 24-hour compatibility lease by default so the new worker cannot duplicate provider calls.
 
 Migration `0050_report_idempotency_compat` keeps both idempotency columns during a normal rolling downgrade to `0049`. A deployment that accepted report requests on the unreleased rename-based draft must not roll back below `0047`: hash-only keys cannot be converted back into their original raw values. Released upgrade paths are unaffected.
 

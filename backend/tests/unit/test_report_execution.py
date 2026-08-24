@@ -138,6 +138,47 @@ def test_report_generation_claim_honors_renewed_legacy_worker_lease(db_session):
     assert contender.lease_expires_at == report.generation_lease_expires_at
 
 
+def test_report_generation_claim_guards_unfenced_legacy_worker(db_session):
+    report = _queued_report()
+    report.status = "running"
+    report.started_at = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db_session.add(report)
+    db_session.commit()
+
+    guarded = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="new-worker",
+        lease_seconds=600,
+        legacy_worker_grace_seconds=3600,
+    )
+    db_session.commit()
+
+    lease = db_session.get(ReportGenerationLease, report.id)
+    db_session.refresh(report)
+    expected_token = f"legacy-unfenced:{report.id.hex}"
+    assert guarded.status == "busy"
+    assert guarded.lease_expires_at is not None
+    assert lease is not None
+    assert lease.lease_token == expected_token
+    assert report.generation_lease_token == expected_token
+
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    lease.lease_expires_at = expired_at
+    report.generation_lease_expires_at = expired_at
+    db_session.commit()
+
+    takeover = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="new-worker",
+        lease_seconds=600,
+        legacy_worker_grace_seconds=3600,
+    )
+    assert takeover.status == "interrupted"
+    assert takeover.generation_fence == guarded.generation_fence + 1
+
+
 def test_stale_generation_invalidation_skips_active_and_fences_expired_lease(
     db_session,
 ):
