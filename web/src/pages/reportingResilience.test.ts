@@ -2,8 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { ApiError, ApiTransportError } from '../api/client'
 import {
+  isAmbiguousReportingMutationError,
   reportPreviewErrorBlocksCreation,
   reportQueueFeedback,
+  requireReportQueueResponse,
+  requireReportQueueResponseList,
+  requireReportingResource,
   resolveReportCreateBlockedReason,
   shouldRetryReportPreview,
 } from './reportingResilience'
@@ -100,5 +104,49 @@ describe('report queue feedback', () => {
       kind: 'error',
       message: expect.stringContaining('generation failed'),
     })
+  })
+})
+
+describe('report mutation response validation', () => {
+  const queueResponse = {
+    report_id: 'report-1',
+    task_run_id: 'run-1',
+    celery_task_id: null,
+    status: 'queued',
+  }
+
+  it('accepts complete queue and resource confirmations', () => {
+    expect(requireReportQueueResponse(queueResponse, '/reports')).toBe(queueResponse)
+    expect(requireReportQueueResponseList([queueResponse], '/reports/schedules/1/run')).toEqual([queueResponse])
+    expect(requireReportQueueResponseList([], '/reports/schedules/1/run')).toEqual([])
+    expect(requireReportingResource({ id: 'template-1' }, '/reports/templates', 'template')).toEqual({
+      id: 'template-1',
+    })
+  })
+
+  it.each([
+    undefined,
+    null,
+    {},
+    { ...queueResponse, report_id: '' },
+    { ...queueResponse, celery_task_id: 42 },
+  ])('rejects incomplete successful queue responses as ambiguous (%j)', (value) => {
+    const error = (() => {
+      try {
+        requireReportQueueResponse(value, '/reports')
+      } catch (caught) {
+        return caught
+      }
+      return null
+    })()
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ code: 'invalid_response', retryable: true })
+    expect(isAmbiguousReportingMutationError(error)).toBe(true)
+  })
+
+  it('rejects malformed schedule arrays and resource confirmations', () => {
+    expect(() => requireReportQueueResponseList([{}], '/reports/schedules/1/run')).toThrow(ApiError)
+    expect(() => requireReportingResource(undefined, '/reports/templates', 'template')).toThrow(ApiError)
   })
 })

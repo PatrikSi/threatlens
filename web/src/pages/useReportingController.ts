@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { ApiError, ApiTransportError, apiDownload, apiFetch } from '../api/client'
+import { apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -31,11 +31,22 @@ import {
 import {
   REPORT_CREATE_TIMEOUT_MS,
   REPORT_PREVIEW_TIMEOUT_MS,
+  isAmbiguousReportingMutationError,
+  requireReportQueueResponse,
+  requireReportQueueResponseList,
+  requireReportingResource,
   reportQueueFeedback,
   reportPreviewErrorBlocksCreation,
   resolveReportCreateBlockedReason,
   shouldRetryReportPreview,
 } from './reportingResilience'
+import { idempotentReportingFetch } from './reportingApi'
+import {
+  coalesceRequest,
+  reportMutationRequestKey,
+  reportingRequestScope,
+  serializeCoalescedRequest,
+} from './reportingRequestCoordinator'
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
 export type ReportingFeedback = {
@@ -52,6 +63,7 @@ export function useReportingController() {
   const currentUser = useCurrentUser()
   const isAdmin = currentUser.data?.role === 'admin'
   const canAuthor = currentUser.data?.role === 'admin' || currentUser.data?.role === 'analyst'
+  const requestOwnerId = currentUser.data?.id
   const [activeTab, setActiveTab] = useState<ReportingTab>('reports')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [filterDraft, setFilterDraft] = useState<ExportFilterDraft>(createDefaultExportFilterDraftForReports)
@@ -62,16 +74,15 @@ export function useReportingController() {
   const [deliverWhenReady, setDeliverWhenReady] = useState(false)
   const [deliveryMode, setDeliveryMode] = useState<ReportDeliveryMode>('summary')
   const [feedback, setFeedback] = useState<ReportingFeedback>(null)
-  const createRequestRef = useRef<{ body: string; key: string } | null>(null)
-  const retryRequestKeysRef = useRef(new Map<string, string>())
   const templateSaveRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
+  const templateWriteTailsRef = useRef(new Map<string, Promise<void>>())
   const templateCloneRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
   const templateDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
   const scheduleCreateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
   const scheduleUpdateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
+  const scheduleWriteTailsRef = useRef(new Map<string, Promise<void>>())
   const scheduleDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
   const scheduleRunRequestsRef = useRef(new Map<string, Promise<ReportQueueResponse[]>>())
-  const scheduleRunRequestKeysRef = useRef(new Map<string, string>())
   const selectedReportIdRef = useRef(routeReportId)
   const mountedRef = useRef(true)
   const activeDownloadRef = useRef<{
@@ -187,25 +198,25 @@ export function useReportingController() {
         deliver_when_ready: deliverWhenReady,
         delivery_mode: deliveryMode,
       })
-      if (createRequestRef.current?.body !== body) {
-        createRequestRef.current = { body, key: createIdempotencyKey() }
-      }
-      return apiFetch<ReportQueueResponse>('/reports', {
-        method: 'POST',
-        body,
-        headers: { 'Idempotency-Key': createRequestRef.current.key },
-        timeoutMs: REPORT_CREATE_TIMEOUT_MS,
-      })
+      const path = '/reports'
+      return idempotentReportingFetch(
+        path,
+        reportingRequestScope(requestOwnerId, 'report:create', body),
+        {
+          method: 'POST',
+          body,
+          timeoutMs: REPORT_CREATE_TIMEOUT_MS,
+        },
+        (value) => requireReportQueueResponse(value, path),
+      )
     },
     onMutate: () => setFeedback(null),
     onSuccess: (result) => {
-      createRequestRef.current = null
       setFeedback(reportQueueFeedback('create', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate(`/reporting/${result.report_id}`)
     },
     onError: (error) => {
-      if (!isAmbiguousQueueError(error)) createRequestRef.current = null
       setFeedback({
         kind: 'error',
         message: resolveReportQueueError(error),
@@ -215,22 +226,21 @@ export function useReportingController() {
 
   const retryMutation = useMutation({
     mutationFn: (reportId: string) => {
-      const key = retryRequestKeysRef.current.get(reportId) ?? createIdempotencyKey()
-      retryRequestKeysRef.current.set(reportId, key)
-      return apiFetch<ReportQueueResponse>(`/reports/${reportId}/retry`, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': key },
-      })
+      const path = `/reports/${reportId}/retry`
+      return idempotentReportingFetch(
+        path,
+        reportingRequestScope(requestOwnerId, 'report:retry', reportId),
+        { method: 'POST' },
+        (value) => requireReportQueueResponse(value, path),
+      )
     },
     onMutate: () => setFeedback(null),
     onSuccess: (result) => {
-      retryRequestKeysRef.current.delete(result.report_id)
       setFeedback(reportQueueFeedback('retry', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
       navigate(`/reporting/${result.report_id}`)
     },
-    onError: (error, reportId) => {
-      if (!isAmbiguousQueueError(error)) retryRequestKeysRef.current.delete(reportId)
+    onError: (error) => {
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
     },
   })
@@ -265,12 +275,29 @@ export function useReportingController() {
         default_filters: validation.filters,
       })
       const requestKey = reportMutationRequestKey(entityKey, body)
-      return coalesceRequest(templateSaveRequestsRef.current, requestKey, () => (
-        apiFetch<ReportTemplate>(path, {
-          method: payload.mode === 'update' ? 'PUT' : 'POST',
-          body,
-        })
-      ))
+      if (payload.mode === 'update') {
+        return serializeCoalescedRequest(
+          templateSaveRequestsRef.current,
+          templateWriteTailsRef.current,
+          entityKey,
+          requestKey,
+          async () => requireReportingResource<ReportTemplate>(
+            await apiFetch<unknown>(path, { method: 'PUT', body }),
+            path,
+            'report template update',
+          ),
+        )
+      }
+      return coalesceRequest(
+        templateSaveRequestsRef.current,
+        requestKey,
+        () => idempotentReportingFetch(
+          path,
+          reportingRequestScope(requestOwnerId, 'report:template:create', body),
+          { method: 'POST', body },
+          (value) => requireReportingResource<ReportTemplate>(value, path, 'report template creation'),
+        ),
+      )
     },
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
@@ -278,19 +305,35 @@ export function useReportingController() {
       setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report template could not be saved',
+    onError: (error, payload) => (
+      payload.mode === 'create'
+        ? setIdempotentActionError(
+            setFeedback,
+            error,
+            'The report template could not be saved',
+          )
+        : setActionError(
+            setFeedback,
+            error,
+            'The report template could not be saved',
+          )
     ),
   })
   const cloneTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'clone'],
-    mutationFn: (templateId: string) => coalesceRequest(
-      templateCloneRequestsRef.current,
-      templateId,
-      () => apiFetch<ReportTemplate>(`/reports/templates/${templateId}/clone`, { method: 'POST' }),
-    ),
+    mutationFn: (templateId: string) => {
+      const path = `/reports/templates/${templateId}/clone`
+      return coalesceRequest(
+        templateCloneRequestsRef.current,
+        templateId,
+        () => idempotentReportingFetch(
+          path,
+          reportingRequestScope(requestOwnerId, 'report:template:clone', templateId),
+          { method: 'POST' },
+          (value) => requireReportingResource<ReportTemplate>(value, path, 'report template clone'),
+        ),
+      )
+    },
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
       setSelectedTemplateId(template.id)
@@ -301,7 +344,7 @@ export function useReportingController() {
       })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
-    onError: (error) => setActionError(
+    onError: (error) => setIdempotentActionError(
       setFeedback,
       error,
       'The report template could not be cloned',
@@ -329,10 +372,16 @@ export function useReportingController() {
     mutationKey: ['reports', 'schedules', 'create'],
     mutationFn: (payload: ReportScheduleWrite) => {
       const body = JSON.stringify(payload)
+      const path = '/reports/schedules'
       return coalesceRequest(
         scheduleCreateRequestsRef.current,
         reportMutationRequestKey('create', body),
-        () => apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body }),
+        () => idempotentReportingFetch(
+          path,
+          reportingRequestScope(requestOwnerId, 'report:schedule:create', body),
+          { method: 'POST', body },
+          (value) => requireReportingResource<ReportSchedule>(value, path, 'report schedule creation'),
+        ),
       )
     },
     onMutate: () => setFeedback(null),
@@ -340,7 +389,7 @@ export function useReportingController() {
       setFeedback({ kind: 'success', message: 'Report schedule created.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
-    onError: (error) => setActionError(
+    onError: (error) => setIdempotentActionError(
       setFeedback,
       error,
       'The report schedule could not be created',
@@ -350,13 +399,17 @@ export function useReportingController() {
     mutationKey: ['reports', 'schedules', 'update'],
     mutationFn: (schedule: ReportSchedule) => {
       const body = JSON.stringify(schedulePayload(schedule))
-      return coalesceRequest(
+      const path = `/reports/schedules/${schedule.id}`
+      return serializeCoalescedRequest(
         scheduleUpdateRequestsRef.current,
+        scheduleWriteTailsRef.current,
+        schedule.id,
         reportMutationRequestKey(schedule.id, body),
-        () => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
-          method: 'PUT',
-          body,
-        }),
+        async () => requireReportingResource<ReportSchedule>(
+          await apiFetch<unknown>(path, { method: 'PUT', body }),
+          path,
+          'report schedule update',
+        ),
       )
     },
     onMutate: () => setFeedback(null),
@@ -391,20 +444,20 @@ export function useReportingController() {
   const runScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'run'],
     mutationFn: (scheduleId: string) => {
-      const key = scheduleRunRequestKeysRef.current.get(scheduleId) ?? createIdempotencyKey()
-      scheduleRunRequestKeysRef.current.set(scheduleId, key)
+      const path = `/reports/schedules/${scheduleId}/run`
       return coalesceRequest(
         scheduleRunRequestsRef.current,
         scheduleId,
-        () => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, {
-          method: 'POST',
-          headers: { 'Idempotency-Key': key },
-        }),
+        () => idempotentReportingFetch(
+          path,
+          reportingRequestScope(requestOwnerId, 'report:schedule:run', scheduleId),
+          { method: 'POST' },
+          (value) => requireReportQueueResponseList(value, path),
+        ),
       )
     },
     onMutate: () => setFeedback(null),
-    onSuccess: (results, scheduleId) => {
-      scheduleRunRequestKeysRef.current.delete(scheduleId)
+    onSuccess: (results) => {
       void Promise.all([
         queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
         queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
@@ -421,8 +474,7 @@ export function useReportingController() {
             message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
           })
     },
-    onError: (error, scheduleId) => {
-      if (!isAmbiguousQueueError(error)) scheduleRunRequestKeysRef.current.delete(scheduleId)
+    onError: (error) => {
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
     },
   })
@@ -607,38 +659,37 @@ function schedulePayload(schedule: ReportSchedule) {
   }
 }
 
-function createIdempotencyKey(): string {
-  if (typeof globalThis.crypto?.randomUUID === 'function') {
-    return globalThis.crypto.randomUUID()
-  }
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16))
-    return Array.from(bytes, (value) => value.toString(16).padStart(2, '0')).join('')
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-
-export function reportMutationRequestKey(entityKey: string, body: string): string {
-  return `${entityKey}\0${body}`
-}
-
-function isAmbiguousQueueError(error: unknown): boolean {
-  return error instanceof ApiTransportError
-    || (error instanceof ApiError && error.status >= 500)
-}
-
 function resolveReportQueueError(error: unknown): string {
   return resolveApiErrorMessage(
     error,
     'The report could not be queued',
-    isAmbiguousQueueError(error)
+    isAmbiguousReportingMutationError(error)
       ? {
           retryGuidance:
             'Retry safely with the same request, or check the report library because the server may already have accepted it.',
         }
       : {},
   )
+}
+
+function setIdempotentActionError(
+  setter: (feedback: ReportingFeedback) => void,
+  error: unknown,
+  fallback: string,
+) {
+  setter({
+    kind: 'error',
+    message: resolveApiErrorMessage(
+      error,
+      fallback,
+      isAmbiguousReportingMutationError(error)
+        ? {
+            retryGuidance:
+              'Retry safely with the same request. ThreatLens will return the original result if the server already completed it.',
+          }
+        : {},
+    ),
+  })
 }
 
 function setActionError(
@@ -650,21 +701,4 @@ function setActionError(
     kind: 'error',
     message: resolveApiErrorMessage(error, fallback),
   })
-}
-
-function coalesceRequest<Key, Result>(
-  requests: Map<Key, Promise<Result>>,
-  key: Key,
-  createRequest: () => Promise<Result>,
-): Promise<Result> {
-  const activeRequest = requests.get(key)
-  if (activeRequest) return activeRequest
-
-  const request = createRequest()
-  requests.set(key, request)
-  const clear = () => {
-    if (requests.get(key) === request) requests.delete(key)
-  }
-  void request.then(clear, clear)
-  return request
 }

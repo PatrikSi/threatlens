@@ -10,7 +10,7 @@ const CSRF_COOKIE_NAME = import.meta.env.VITE_CSRF_COOKIE_NAME ?? 'threatlens_cs
 const CSRF_HEADER_NAME = (import.meta.env.VITE_CSRF_HEADER_NAME ?? 'x-csrf-token').toLowerCase()
 const UNSAFE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 
-type ApiFetchOptions = RequestInit & {
+export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number
 }
 
@@ -104,6 +104,7 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, a
         responseBody: raw,
         code: 'invalid_response',
         requestId: response.headers.get('x-request-id'),
+        retryable: true,
       })
     }
     return parsed.value as T
