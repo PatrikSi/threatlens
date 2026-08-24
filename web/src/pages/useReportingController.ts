@@ -31,8 +31,10 @@ import {
   REPORT_CREATE_TIMEOUT_MS,
   REPORT_PREVIEW_TIMEOUT_MS,
   isAmbiguousReportingMutationError,
+  reportResourceVersionHeader,
   requireReportQueueResponse,
   requireReportQueueResponseList,
+  requireClonedReportingResource,
   requireReportingResource,
   reportQueueFeedback,
   reportPreviewErrorBlocksCreation,
@@ -261,8 +263,12 @@ export function useReportingController() {
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const selected = templatesQuery.data?.find((template) => template.id === selectedTemplateId)
-      const path = payload.mode === 'update' && selected ? `/reports/templates/${selected.id}` : '/reports/templates'
-      const entityKey = payload.mode === 'update' && selected ? selected.id : 'create'
+      const updateTarget = payload.mode === 'update' ? selected : undefined
+      if (payload.mode === 'update' && !updateTarget) {
+        throw new Error('The selected report template is no longer available. Refresh the template list and try again.')
+      }
+      const path = updateTarget ? `/reports/templates/${updateTarget.id}` : '/reports/templates'
+      const entityKey = updateTarget?.id ?? 'create'
       const body = JSON.stringify({
         name: payload.name,
         description: selected?.description ?? 'Custom intelligence report template.',
@@ -273,7 +279,7 @@ export function useReportingController() {
         default_filters: validation.filters,
       })
       const requestKey = reportMutationRequestKey(entityKey, body)
-      if (payload.mode === 'update') {
+      if (updateTarget) {
         const writeScope = reportingRequestScope(
           requestOwnerId,
           'report:template:update',
@@ -283,7 +289,11 @@ export function useReportingController() {
           writeScope,
           requestKey,
           async () => requireReportingResource<ReportTemplate>(
-            await apiFetch<unknown>(path, { method: 'PUT', body }),
+            await apiFetch<unknown>(path, {
+              method: 'PUT',
+              body,
+              headers: { 'If-Match': reportResourceVersionHeader(updateTarget.updated_at) },
+            }),
             path,
             'report template update',
             200,
@@ -346,11 +356,11 @@ export function useReportingController() {
           path,
           requestScope,
           { method: 'POST' },
-          (value) => requireReportingResource<ReportTemplate>(
+          (value) => requireClonedReportingResource<ReportTemplate>(
             value,
             path,
             'report template clone',
-            201,
+            templateId,
           ),
         ),
       )
@@ -438,7 +448,11 @@ export function useReportingController() {
         writeScope,
         reportMutationRequestKey(schedule.id, body),
         async () => requireReportingResource<ReportSchedule>(
-          await apiFetch<unknown>(path, { method: 'PUT', body }),
+          await apiFetch<unknown>(path, {
+            method: 'PUT',
+            body,
+            headers: { 'If-Match': reportResourceVersionHeader(schedule.updated_at) },
+          }),
           path,
           'report schedule update',
           200,
@@ -489,7 +503,7 @@ export function useReportingController() {
           path,
           requestScope,
           { method: 'POST' },
-          (value) => requireReportQueueResponseList(value, path),
+          (value) => requireReportQueueResponseList(value, path, scheduleId),
         ),
       )
     },
