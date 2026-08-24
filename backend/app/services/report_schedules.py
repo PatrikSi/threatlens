@@ -39,6 +39,7 @@ from app.services.report_sources import (
     filters_for_report_period,
 )
 from app.services.report_storage import ReportStorageError, create_report_from_plan
+from app.services.resource_versions import next_resource_version
 
 
 MAX_CATCH_UP_RUNS = 4
@@ -285,6 +286,7 @@ def reserve_schedule_runs(
     schedule.failure_state = "healthy"
     schedule.consecutive_failure_count = 0
     schedule.retry_at = None
+    schedule.updated_at = next_resource_version(schedule.updated_at)
     db.add(schedule)
     return reports
 
@@ -488,6 +490,10 @@ def record_schedule_failure(
         )
         schedule.failure_state = "retrying"
         schedule.retry_at = observed_at + timedelta(seconds=delay_seconds)
+    schedule.updated_at = next_resource_version(
+        schedule.updated_at,
+        observed_at=observed_at,
+    )
     db.add(schedule)
     return schedule
 
@@ -541,7 +547,10 @@ def _quarantine_schedule(
     schedule.last_error_code = code
     schedule.last_error = message
     schedule.last_error_at = _as_utc(now)
-    schedule.updated_at = _as_utc(now)
+    schedule.updated_at = next_resource_version(
+        schedule.updated_at,
+        observed_at=now,
+    )
 
 
 def _as_utc(value: datetime) -> datetime:
