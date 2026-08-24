@@ -116,6 +116,7 @@
 | `REPORT_DISPATCH_BATCH_SIZE` (`report_dispatch_batch_size`) | `100` | Maximum durable queued report tasks recovered in one dispatch sweep. |
 | `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Cap for the persisted consecutive publication-attempt counter used to calculate retry backoff. An unknown broker outcome remains queued and retryable rather than being terminalized. |
 | `REPORT_DISPATCH_CLAIM_SECONDS` (`report_dispatch_claim_seconds`) | `60` | Time allowed for one dispatcher to publish and record a report task before another dispatcher may reclaim the attempt. |
+| `REPORT_DISPATCH_START_GRACE_SECONDS` (`report_dispatch_start_grace_seconds`) | `3600` | Time a confirmed report publication may remain queued without a worker start before it is safely republished with the same task identity. Increase this above expected AI queue latency on heavily constrained deployments. |
 | `REPORT_DISPATCH_RETRY_BACKOFF_SECONDS` (`report_dispatch_retry_backoff_seconds`) | `15` | Initial exponential delay after report queue publication fails. |
 | `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |

@@ -233,7 +233,12 @@ def test_dispatch_failures_remain_durable_after_attempt_counter_reaches_cap(
     assert third.claimed is True
 
 
-def test_confirmed_dispatch_is_not_republished_while_waiting_for_worker(db_session):
+def test_confirmed_dispatch_is_recovered_only_after_worker_start_grace(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("REPORT_DISPATCH_START_GRACE_SECONDS", "3600")
+    get_settings.cache_clear()
     report, run = _queued_run(db_session)
     now = datetime.now(timezone.utc)
     run.dispatch_next_attempt_at = now - timedelta(seconds=1)
@@ -261,8 +266,113 @@ def test_confirmed_dispatch_is_not_republished_while_waiting_for_worker(db_sessi
     db_session.commit()
     assert list_due_report_dispatches(db_session, now=now) == []
 
-    stale_at = now + timedelta(days=1)
-    assert list_due_report_dispatches(db_session, now=stale_at) == []
+    before_grace = now + timedelta(seconds=3599)
+    assert list_due_report_dispatches(db_session, now=before_grace) == []
+    after_grace = now + timedelta(seconds=3601)
+    assert list_due_report_dispatches(db_session, now=after_grace) == [
+        (report.id, run.id)
+    ]
+    recovery = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=after_grace,
+    )
+    db_session.commit()
+    assert recovery.claimed is True
+    assert record_report_dispatch_success(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=recovery.dispatch_token,
+        celery_task_id=stable_report_task_id(run.id),
+        now=after_grace,
+    )
+    db_session.commit()
+    assert list_due_report_dispatches(
+        db_session,
+        now=after_grace + timedelta(seconds=3599),
+    ) == []
+
+
+def test_stale_dispatcher_cannot_reclaim_freshly_published_run(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("REPORT_DISPATCH_START_GRACE_SECONDS", "3600")
+    get_settings.cache_clear()
+    report, run = _queued_run(db_session)
+    observed_at = datetime.now(timezone.utc)
+
+    first = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=observed_at,
+    )
+    db_session.commit()
+    assert first.dispatch_token is not None
+    assert record_report_dispatch_success(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=first.dispatch_token,
+        celery_task_id=stable_report_task_id(run.id),
+        now=observed_at,
+    )
+    db_session.commit()
+
+    stale_sweep_claim = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=observed_at,
+    )
+
+    assert stale_sweep_claim.claimed is False
+
+
+def test_started_report_is_never_republished(db_session, monkeypatch):
+    monkeypatch.setenv("REPORT_DISPATCH_START_GRACE_SECONDS", "60")
+    get_settings.cache_clear()
+    report, run = _queued_run(db_session)
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    run.dispatch_published_at = old
+    run.dispatch_next_attempt_at = None
+    run.status = "running"
+    run.started_at = old
+    db_session.commit()
+
+    assert list_due_report_dispatches(
+        db_session,
+        now=datetime.now(timezone.utc),
+    ) == []
+    assert not claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=datetime.now(timezone.utc),
+    ).claimed
+
+
+def test_legacy_queued_report_without_dispatch_metadata_is_recovered(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("REPORT_DISPATCH_START_GRACE_SECONDS", "60")
+    get_settings.cache_clear()
+    report, run = _queued_run(db_session)
+    old = datetime.now(timezone.utc) - timedelta(hours=1)
+    run.dispatch_published_at = None
+    run.dispatch_next_attempt_at = None
+    run.queued_at = old
+    run.created_at = old
+    db_session.commit()
+
+    assert list_due_report_dispatches(
+        db_session,
+        now=datetime.now(timezone.utc),
+    ) == [(report.id, run.id)]
 
 
 def test_accepted_dispatch_is_not_terminalized_by_redrive_failures(

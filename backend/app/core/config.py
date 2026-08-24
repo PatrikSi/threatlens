@@ -233,6 +233,7 @@ class Settings(BaseSettings):
     report_dispatch_batch_size: int = 100
     report_dispatch_max_attempts: int = 10
     report_dispatch_claim_seconds: int = 60
+    report_dispatch_start_grace_seconds: int = 3600
     report_dispatch_retry_backoff_seconds: int = 15
     report_dispatch_retry_max_backoff_seconds: int = 900
 
@@ -390,6 +391,7 @@ class Settings(BaseSettings):
         "report_dispatch_batch_size",
         "report_dispatch_max_attempts",
         "report_dispatch_claim_seconds",
+        "report_dispatch_start_grace_seconds",
         "report_dispatch_retry_backoff_seconds",
         "report_dispatch_retry_max_backoff_seconds",
     )
