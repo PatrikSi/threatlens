@@ -505,7 +505,9 @@ def test_canceled_report_task_settles_report_state(db_session):
     assert report.error == "Report generation was canceled."
 
 
-def test_stale_report_task_settles_report_as_failed(db_session, monkeypatch):
+def test_stale_queued_report_remains_owned_by_durable_dispatcher(
+    db_session, monkeypatch
+):
     now = datetime.now(timezone.utc)
     stale_time = now - timedelta(hours=2)
     report = Report(
@@ -543,12 +545,11 @@ def test_stale_report_task_settles_report_as_failed(db_session, monkeypatch):
 
     db_session.expire_all()
     refreshed_report = db_session.get(Report, report.id)
-    assert response.items[0].status == AI_STATUS_ERROR
+    assert response.items[0].status == AI_STATUS_QUEUED
     assert response.items[0].report_id == report.id
     assert refreshed_report is not None
-    assert refreshed_report.status == AI_STATUS_ERROR
-    assert refreshed_report.error_code == "stale_queued_task_unstarted"
-    assert "no longer appears in Celery" in (refreshed_report.error or "")
+    assert refreshed_report.status == AI_STATUS_QUEUED
+    assert refreshed_report.error_code is None
 
 
 def test_finish_ai_task_run_is_atomic_across_postgresql_sessions(database_engine):

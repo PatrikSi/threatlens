@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.report import Report
 from app.schemas.ai import (
     AILiveStatusResponse,
     AILiveTaskResponse,
@@ -858,6 +859,12 @@ def _reconcile_stale_ai_runs(
         )
     )
     for run in unfinished_leaf_runs:
+        # Queued report runs are owned by the durable report dispatcher. Celery
+        # inspection cannot see messages waiting in the broker, so absence from
+        # active/reserved/scheduled snapshots is not evidence that queued work
+        # was lost.
+        if run.task_type == AI_TASK_TYPE_REPORT and run.status == AI_STATUS_QUEUED:
+            continue
         if can_reconcile_missing_live_tasks:
             if not _is_stale_unfinished_run(
                 run,
@@ -1077,6 +1084,32 @@ def _finish_reconciled_stale_run(
             report_id=run.report_id,
         ):
             return False
+        report = db.get(Report, run.report_id)
+        if report is not None and report.status in {"ready", "error", "skipped"}:
+            status = {
+                "ready": AI_STATUS_READY,
+                "error": AI_STATUS_ERROR,
+                "skipped": AI_STATUS_SKIPPED,
+            }[report.status]
+            finish_ai_task_run(
+                db,
+                run_id=run.id,
+                status=status,
+                reason=report.error_code,
+                error=report.error if status == AI_STATUS_ERROR else None,
+                worker_name=run.worker_name,
+                model=report.model,
+                prompt_tokens=report.prompt_tokens,
+                completion_tokens=report.completion_tokens,
+                total_tokens=report.total_tokens,
+                report_id=report.id,
+                metadata_updates={
+                    "stale_reconciled": True,
+                    "stale_snapshot_available": snapshot_available,
+                    "terminal_report_recovered": True,
+                },
+            )
+            return True
 
     if _is_cancel_requested_run(run):
         finish_ai_task_run(
