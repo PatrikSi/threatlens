@@ -143,10 +143,20 @@ export function coalesceReportingRequest<Result>(
   key: string,
   createRequest: () => Promise<Result>,
 ): Promise<Result> {
+  const requestGeneration = coordinationGeneration
   const activeRequest = activeRequests.get(key)
   if (activeRequest) return activeRequest as Promise<Result>
 
-  const request = createRequest()
+  let createdRequest: Promise<Result>
+  try {
+    createdRequest = createRequest()
+  } catch (error) {
+    createdRequest = Promise.reject(error)
+  }
+  const request = createdRequest.then((result) => {
+    requireCurrentCoordinationGeneration(requestGeneration)
+    return result
+  })
   activeRequests.set(key, request)
   const clear = () => {
     if (activeRequests.get(key) === request) activeRequests.delete(key)
@@ -168,7 +178,10 @@ export function serializeReportingWrite<Result>(
   }
   const request = (predecessor?.settled ?? Promise.resolve()).then(() => {
     requireCurrentCoordinationGeneration(queuedGeneration)
-    return createRequest()
+    return createRequest().then((result) => {
+      requireCurrentCoordinationGeneration(queuedGeneration)
+      return result
+    })
   })
 
   const settled = request.then(

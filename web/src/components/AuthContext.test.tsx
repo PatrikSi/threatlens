@@ -79,6 +79,26 @@ describe('AuthProvider session cleanup', () => {
     expect(container?.querySelector('button')?.dataset.sessionVersion).toBe('1')
     remoteTab.close()
   })
+
+  it('clears reporting state when the observed authenticated identity changes', async () => {
+    window.localStorage.setItem('threatlens.auth.identity', 'analyst-1')
+    const scope = reportingRequestScope(
+      'analyst-1',
+      'report:retry',
+      '11111111-1111-4111-8111-111111111111',
+    )
+    const firstKey = await beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, firstKey, 'ambiguous')
+    renderIdentityControl()
+
+    act(() => {
+      container?.querySelector('button')?.click()
+    })
+    const nextKey = await beginPendingReportingRequest(scope)
+
+    expect(nextKey).not.toBe(firstKey)
+    expect(window.localStorage.getItem('threatlens.auth.identity')).toBe('analyst-2')
+  })
 })
 
 
@@ -95,6 +115,19 @@ function renderAuthControl(): void {
   })
 }
 
+function renderIdentityControl(): void {
+  container = document.createElement('div')
+  document.body.appendChild(container)
+  root = createRoot(container)
+  act(() => {
+    root?.render(
+      <AuthProvider>
+        <IdentityControl />
+      </AuthProvider>,
+    )
+  })
+}
+
 
 function LogoutControl() {
   const { markLoggedOut, sessionVersion } = useAuth()
@@ -105,6 +138,18 @@ function LogoutControl() {
       onClick={markLoggedOut}
     >
       Log out
+    </button>
+  )
+}
+
+function IdentityControl() {
+  const { observeAuthenticatedIdentity } = useAuth()
+  return (
+    <button
+      type="button"
+      onClick={() => observeAuthenticatedIdentity('analyst-2')}
+    >
+      Observe identity
     </button>
   )
 }

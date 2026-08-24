@@ -138,6 +138,27 @@ describe('idempotentReportingFetch', () => {
     await expect(request).rejects.toThrow('Authentication changed')
     expect(apiFetch).not.toHaveBeenCalled()
   })
+
+  it('does not return an old-session response after authentication changes', async () => {
+    let resolveRequest: ((value: unknown) => void) | undefined
+    const validate = vi.fn(passthrough)
+    vi.mocked(apiFetch).mockImplementation(() => (
+      new Promise((resolve) => { resolveRequest = resolve })
+    ))
+    const request = idempotentReportingFetch(
+      '/reports',
+      'active-auth-change-scope',
+      { method: 'POST' },
+      validate,
+    )
+    await vi.waitFor(() => expect(resolveRequest).toBeTypeOf('function'))
+
+    resetPendingReportingKeys()
+    resolveRequest?.({ id: 'old-user-report' })
+
+    await expect(request).rejects.toThrow('Authentication changed')
+    expect(validate).not.toHaveBeenCalled()
+  })
 })
 
 function passthrough<T>(value: T): T {

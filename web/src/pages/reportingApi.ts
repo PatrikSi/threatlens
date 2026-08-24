@@ -20,6 +20,7 @@ export async function idempotentReportingFetch<Result>(
     const headers = new Headers(options.headers)
     headers.set('Idempotency-Key', key)
     const value = await apiFetch<unknown>(path, { ...options, headers })
+    assertReportingRequestLeaseCurrent(lease)
     const result = validate(value)
     settlePendingReportingRequest(scope, key, 'confirmed')
     return result

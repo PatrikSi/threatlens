@@ -6,16 +6,22 @@ interface AuthContextValue {
   sessionVersion: number
   markAuthenticated: () => void
   markLoggedOut: () => void
+  observeAuthenticatedIdentity: (identity: string) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 const authSyncStorageKey = 'threatlens.auth.sync'
 const authSyncChannelName = 'threatlens.auth'
+const authSyncHandledStorageKey = 'threatlens.auth.last-handled'
+const authIdentityStorageKey = 'threatlens.auth.identity'
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [sessionVersion, setSessionVersion] = useState(0)
   const authChannelRef = useRef<BroadcastChannel | null>(null)
-  const seenRemoteEventsRef = useRef(new Set<string>())
+  const seenRemoteEventsRef = useRef(new Set<string>(
+    optionalEntry(readSessionStorageItem(authSyncHandledStorageKey)),
+  ))
+  const observedIdentityRef = useRef(readLocalStorageItem(authIdentityStorageKey))
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -26,6 +32,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const eventId = authEventId(value)
       if (!eventId || seenRemoteEventsRef.current.has(eventId)) return
       seenRemoteEventsRef.current.add(eventId)
+      writeSessionStorageItem(authSyncHandledStorageKey, eventId)
+      observedIdentityRef.current = readLocalStorageItem(authIdentityStorageKey)
       if (seenRemoteEventsRef.current.size > 32) {
         const oldest = seenRemoteEventsRef.current.values().next().value
         if (oldest) seenRemoteEventsRef.current.delete(oldest)
@@ -51,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     window.addEventListener('storage', onStorage)
+    applyRemoteChange(readLocalStorageItem(authSyncStorageKey))
     return () => {
       window.removeEventListener('storage', onStorage)
       authChannelRef.current?.removeEventListener('message', onBroadcast)
@@ -66,10 +75,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSessionVersion,
         authChannelRef.current,
       ),
-      markLoggedOut: () => publishAuthStateChange(
-        setSessionVersion,
-        authChannelRef.current,
-      ),
+      markLoggedOut: () => {
+        observedIdentityRef.current = null
+        removeLocalStorageItem(authIdentityStorageKey)
+        publishAuthStateChange(setSessionVersion, authChannelRef.current)
+      },
+      observeAuthenticatedIdentity: (identity: string) => {
+        const normalizedIdentity = identity.trim()
+        if (!normalizedIdentity || observedIdentityRef.current === normalizedIdentity) {
+          return
+        }
+        const previousIdentity = observedIdentityRef.current
+        observedIdentityRef.current = normalizedIdentity
+        writeLocalStorageItem(authIdentityStorageKey, normalizedIdentity)
+        if (previousIdentity !== null) {
+          publishAuthStateChange(setSessionVersion, authChannelRef.current)
+        }
+      },
     }),
     [sessionVersion],
   )
@@ -95,6 +117,7 @@ function publishAuthStateChange(
     id: createAuthEventId(),
     at: Date.now(),
   }
+  writeSessionStorageItem(authSyncHandledStorageKey, event.id)
   try {
     authChannel?.postMessage(event)
   } catch {
@@ -137,4 +160,48 @@ function createAuthEventId(): string {
     return globalThis.crypto.randomUUID()
   }
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+function readLocalStorageItem(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeLocalStorageItem(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.setItem(key, value)
+  } catch {
+    // Identity observation still protects this tab when storage is unavailable.
+  }
+}
+
+function removeLocalStorageItem(key: string): void {
+  try {
+    if (typeof window !== 'undefined') window.localStorage.removeItem(key)
+  } catch {
+    // Identity observation still protects this tab when storage is unavailable.
+  }
+}
+
+function writeSessionStorageItem(key: string, value: string): void {
+  try {
+    if (typeof window !== 'undefined') window.sessionStorage.setItem(key, value)
+  } catch {
+    // The in-memory event set still deduplicates this page lifecycle.
+  }
+}
+
+function readSessionStorageItem(key: string): string | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function optionalEntry(value: string | null): string[] {
+  return value ? [value] : []
 }
