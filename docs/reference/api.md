@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:359b73365be14b14d473b1549e980dac7d8045ef01e6f0b32c3e7cc1cfaba598`
+- OpenAPI contract anchor: `openapi-sha256:eed5c85fd2df21f96f024ad7d145cc0eaa0f37d3348545b4ef0f52700624997f`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -721,7 +721,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `schedule_id` (path, required): string
   - `If-Match` (header, optional): If-Match
-- Responses: `204`, `422` `application/json` -> HTTPValidationError
+- Responses: `204`, `400`, `412`, `422` `application/json` -> HTTPValidationError
 ### `PUT /v1/reports/schedules/{schedule_id}`
 - Summary: Update Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -730,7 +730,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `schedule_id` (path, required): string
   - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportScheduleUpdate
-- Responses: `200` `application/json` -> ReportScheduleResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> ReportScheduleResponse, `400`, `412`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/reports/schedules/{schedule_id}/run`
 - Summary: Run Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -739,7 +739,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `schedule_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
   - `If-Match` (header, optional): If-Match
-- Responses: `202` `application/json` -> array[ReportQueueResponse], `422` `application/json` -> HTTPValidationError
+- Responses: `202` `application/json` -> array[ReportQueueResponse], `400`, `412`, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/reports/templates`
 - Summary: List Report Templates
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -760,7 +760,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `template_id` (path, required): string
   - `If-Match` (header, optional): If-Match
-- Responses: `204`, `422` `application/json` -> HTTPValidationError
+- Responses: `204`, `400`, `412`, `422` `application/json` -> HTTPValidationError
 ### `PUT /v1/reports/templates/{template_id}`
 - Summary: Update Template
 - Auth: ApiTokenBearer or SessionCookieAuth
@@ -769,7 +769,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
   - `template_id` (path, required): string
   - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportTemplateUpdate
-- Responses: `200` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
+- Responses: `200` `application/json` -> ReportTemplateResponse, `400`, `412`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/reports/templates/{template_id}/clone`
 - Summary: Clone Template
 - Auth: ApiTokenBearer or SessionCookieAuth

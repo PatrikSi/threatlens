@@ -107,6 +107,12 @@ from app.tasks.report_tasks import create_report_task_run, enqueue_report_task
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 REPORT_PREVIEW_LIMIT = 25
+RESOURCE_PRECONDITION_RESPONSES = {
+    status.HTTP_400_BAD_REQUEST: {"description": "Malformed If-Match header"},
+    status.HTTP_412_PRECONDITION_FAILED: {
+        "description": "Resource version no longer matches"
+    },
+}
 logger = logging.getLogger(__name__)
 
 
@@ -264,12 +270,16 @@ def create_template(
     return report_template_response(template)
 
 
-@router.put("/templates/{template_id}", response_model=ReportTemplateResponse)
+@router.put(
+    "/templates/{template_id}",
+    response_model=ReportTemplateResponse,
+    responses=RESOURCE_PRECONDITION_RESPONSES,
+)
 def update_template(
     template_id: uuid.UUID,
     payload: ReportTemplateUpdate,
     response: Response,
-    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -377,10 +387,14 @@ def clone_template(
     return report_template_response(clone)
 
 
-@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/templates/{template_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=RESOURCE_PRECONDITION_RESPONSES,
+)
 def remove_template(
     template_id: uuid.UUID,
-    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -782,12 +796,16 @@ def create_schedule(
     return report_schedule_response(schedule)
 
 
-@router.put("/schedules/{schedule_id}", response_model=ReportScheduleResponse)
+@router.put(
+    "/schedules/{schedule_id}",
+    response_model=ReportScheduleResponse,
+    responses=RESOURCE_PRECONDITION_RESPONSES,
+)
 def update_schedule(
     schedule_id: uuid.UUID,
     payload: ReportScheduleUpdate,
     response: Response,
-    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -831,6 +849,7 @@ def update_schedule(
     "/schedules/{schedule_id}/run",
     response_model=list[ReportQueueResponse],
     status_code=status.HTTP_202_ACCEPTED,
+    responses=RESOURCE_PRECONDITION_RESPONSES,
 )
 def run_schedule(
     schedule_id: uuid.UUID,
@@ -838,7 +857,7 @@ def run_schedule(
         str | None,
         Header(alias="Idempotency-Key"),
     ] = None,
-    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -867,6 +886,14 @@ def run_schedule(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Report schedule not found",
         )
+    replay = find_schedule_run_replay(
+        db,
+        user_id=user.id,
+        schedule_id=schedule_id,
+        identity=identity,
+    )
+    if replay is not None:
+        return [_queue_response(*replay)] if replay[1] is not None else []
     _require_current_resource_version(
         current_updated_at=schedule.updated_at,
         if_match=if_match,
@@ -958,10 +985,14 @@ def run_schedule(
     return responses
 
 
-@router.delete("/schedules/{schedule_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/schedules/{schedule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses=RESOURCE_PRECONDITION_RESPONSES,
+)
 def remove_schedule(
     schedule_id: uuid.UUID,
-    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
+    if_match: Annotated[list[str] | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
@@ -1022,7 +1053,7 @@ def _queue_response(
 def _require_current_resource_version(
     *,
     current_updated_at: datetime,
-    if_match: str | None,
+    if_match: str | list[str] | None,
     resource_label: str,
 ) -> None:
     try:

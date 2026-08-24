@@ -602,11 +602,7 @@ export function useReportingController() {
       )
     },
     onMutate: () => setFeedback(null),
-    onSuccess: (results) => {
-      void Promise.all([
-        queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
-        queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
-      ])
+    onSuccess: async (results) => {
       setFeedback(results.length > 0
         ? {
             kind: 'success',
@@ -618,6 +614,10 @@ export function useReportingController() {
             kind: 'info',
             message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
           })
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
+        queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
+      ])
     },
     onError: async (error) => {
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })

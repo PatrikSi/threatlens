@@ -11,7 +11,7 @@ from app.api.resource_preconditions import (
 )
 
 
-def test_resource_version_requires_exact_strong_tag():
+def test_resource_version_requires_a_strong_tag_for_the_matching_instant():
     updated_at = datetime(2026, 8, 24, 9, 30, 12, 345678, tzinfo=timezone.utc)
 
     require_matching_resource_version(
@@ -21,11 +21,10 @@ def test_resource_version_requires_exact_strong_tag():
 
     assert resource_version_tag(updated_at) == '"2026-08-24T09:30:12.345678Z"'
 
-    with pytest.raises(ResourceVersionMismatch):
-        require_matching_resource_version(
-            current_updated_at=updated_at,
-            if_match='"2026-08-24T11:30:12.345678+02:00"',
-        )
+    require_matching_resource_version(
+        current_updated_at=updated_at,
+        if_match='"2026-08-24T11:30:12.345678+02:00"',
+    )
 
 
 def test_resource_version_accepts_exact_transition_aliases_and_quoted_commas():
@@ -52,6 +51,30 @@ def test_resource_version_accepts_exact_transition_aliases_and_quoted_commas():
         current_updated_at=updated_at,
         if_match='"2026-08-24T09:30:12.345678Z"',
     )
+    require_matching_resource_version(
+        current_updated_at=updated_at.astimezone(timezone.utc).replace(tzinfo=None),
+        if_match='"2026-08-24T09:30:12.345678+00:00"',
+    )
+
+
+def test_resource_version_combines_field_lines_and_ignores_empty_members():
+    updated_at = datetime(2026, 8, 24, 9, 30, tzinfo=timezone.utc)
+
+    require_matching_resource_version(
+        current_updated_at=updated_at,
+        if_match=[', "stale",', ' , "2026-08-24T09:30:00Z",'],
+    )
+
+
+def test_resource_version_accepts_legal_opaque_tags_before_mismatch():
+    updated_at = datetime(2026, 8, 24, 9, 30, tzinfo=timezone.utc)
+
+    for value in ['""', '"\x80"']:
+        with pytest.raises(ResourceVersionMismatch):
+            require_matching_resource_version(
+                current_updated_at=updated_at,
+                if_match=value,
+            )
 
 
 def test_resource_version_rejects_stale_and_malformed_preconditions():

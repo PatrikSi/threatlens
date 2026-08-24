@@ -703,12 +703,19 @@ describe('ReportingPage schedule resilience', () => {
     const first = reportSchedule('schedule-1', 'Monday landscape')
     const second = reportSchedule('schedule-2', 'Friday landscape')
     let resolveRun: ((value: unknown[]) => void) | undefined
+    const resolveScheduleRefreshes: Array<(value: ReportSchedule[]) => void> = []
     let runRequests = 0
+    let scheduleRequests = 0
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
       if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
       if (path === '/reports?limit=100') return Promise.resolve([])
-      if (path === '/reports/schedules') return Promise.resolve([first, second])
+      if (path === '/reports/schedules') {
+        scheduleRequests += 1
+        return scheduleRequests === 1
+          ? Promise.resolve([first, second])
+          : new Promise((resolve) => { resolveScheduleRefreshes.push(resolve) })
+      }
       if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
         runRequests += 1
         return new Promise((resolve) => { resolveRun = resolve })
@@ -743,6 +750,15 @@ describe('ReportingPage schedule resilience', () => {
         status: 'queued',
       }])
       await vi.waitFor(() => expect(view.textContent).toContain('Scheduled report run queued'))
+      await vi.waitFor(() => expect(scheduleRequests).toBe(3))
+    })
+    expect(rowButton(firstRow, 'Queueing...').disabled).toBe(true)
+
+    await act(async () => {
+      for (const resolveScheduleRefresh of resolveScheduleRefreshes) {
+        resolveScheduleRefresh([first, second])
+      }
+      await vi.waitFor(() => expect(rowButton(firstRow, 'Run now').disabled).toBe(false))
     })
   })
 })
