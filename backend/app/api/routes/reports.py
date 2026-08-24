@@ -14,6 +14,13 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.api.resource_preconditions import (
+    InvalidResourceVersion,
+    ResourceVersionMismatch,
+    next_resource_version,
+    require_matching_resource_version,
+    resource_version_tag,
+)
 from app.api.routes.report_request_idempotency import (
     commit_operation_resource,
     create_request_identity,
@@ -261,23 +268,36 @@ def create_template(
 def update_template(
     template_id: uuid.UUID,
     payload: ReportTemplateUpdate,
+    response: Response,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_report_author(user)
     _require_shared_template_admin(user, payload.visibility)
-    template = get_visible_report_template(db, template_id=template_id, user_id=user.id)
+    template = get_visible_report_template(
+        db,
+        template_id=template_id,
+        user_id=user.id,
+        for_update=True,
+    )
     if template is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
         )
     _require_template_owner_or_admin(user, template.owner_user_id)
+    _require_current_resource_version(
+        current_updated_at=template.updated_at,
+        if_match=if_match,
+        resource_label="report template",
+    )
     try:
         update_report_template(template, payload=payload)
     except ReportTemplateError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
+    template.updated_at = next_resource_version(template.updated_at)
     db.add(template)
     record_audit(
         db,
@@ -288,6 +308,7 @@ def update_template(
     )
     db.commit()
     db.refresh(template)
+    response.headers["ETag"] = resource_version_tag(template.updated_at)
     return report_template_response(template)
 
 
@@ -754,20 +775,33 @@ def create_schedule(
 def update_schedule(
     schedule_id: uuid.UUID,
     payload: ReportScheduleUpdate,
+    response: Response,
+    if_match: Annotated[str | None, Header(alias="If-Match")] = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_REPORTS)),
 ):
     _require_admin(user)
-    schedule = db.get(ReportSchedule, schedule_id)
+    schedule = db.scalar(
+        select(ReportSchedule)
+        .where(ReportSchedule.id == schedule_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if schedule is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report schedule not found"
         )
+    _require_current_resource_version(
+        current_updated_at=schedule.updated_at,
+        if_match=if_match,
+        resource_label="report schedule",
+    )
     if db.get(ReportTemplate, payload.template_id) is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Report template not found"
         )
     apply_schedule_payload(schedule, payload)
+    schedule.updated_at = next_resource_version(schedule.updated_at)
     db.add(schedule)
     record_audit(
         db,
@@ -778,6 +812,7 @@ def update_schedule(
     )
     db.commit()
     db.refresh(schedule)
+    response.headers["ETag"] = resource_version_tag(schedule.updated_at)
     return report_schedule_response(schedule)
 
 
@@ -894,6 +929,7 @@ def run_schedule(
                 task_run_id=run_id,
                 celery_task_id=task_id,
                 status="queued",
+                schedule_id=schedule_id,
             )
         )
     return responses
@@ -945,7 +981,34 @@ def _queue_response(
         task_run_id=run.id,
         celery_task_id=celery_task_id or run.celery_task_id,
         status=run.status,
+        schedule_id=report.schedule_id,
     )
+
+
+def _require_current_resource_version(
+    *,
+    current_updated_at: datetime,
+    if_match: str | None,
+    resource_label: str,
+) -> None:
+    try:
+        require_matching_resource_version(
+            current_updated_at=current_updated_at,
+            if_match=if_match,
+        )
+    except InvalidResourceVersion as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+    except ResourceVersionMismatch as exc:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail=(
+                f"The {resource_label} changed after you loaded it. Refresh the "
+                "latest version, review the changes, and try again."
+            ),
+        ) from exc
 
 
 def _integrity_constraint_name(exc: IntegrityError) -> str | None:

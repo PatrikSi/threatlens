@@ -367,3 +367,4 @@ class ReportQueueResponse(ReportSchema):
     task_run_id: uuid.UUID
     celery_task_id: str | None
     status: str
+    schedule_id: uuid.UUID | None = None
