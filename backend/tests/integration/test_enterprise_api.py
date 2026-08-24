@@ -1422,7 +1422,7 @@ def test_feed_create_blocks_private_network_urls(client: TestClient, auth_header
 def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.feeds.probe_feed_metadata",
-        lambda _url: FeedProbeResult(
+        lambda _url, **_kwargs: FeedProbeResult(
             name="Detected Feed",
             description="Detected description",
             site_url="https://example.com",
@@ -1890,7 +1890,7 @@ def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, 
 
     probe_called = False
 
-    def _probe(_url):
+    def _probe(_url, **_kwargs):
         nonlocal probe_called
         probe_called = True
         return FeedProbeResult(

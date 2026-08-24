@@ -1,5 +1,6 @@
 import uuid
 from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from app.models.feed import Feed
@@ -140,6 +141,90 @@ def test_article_retry_exhaustion_returns_storable_error_without_retry():
     )
 
     assert result.error == "network_or_rate_limit_error"
+
+
+def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
+    db_session,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Domain lease recovery feed",
+        url=f"https://example.com/{uuid.uuid4()}.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_claimed_at=now,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    feed_lease = object()
+    domain_lease = object()
+
+    @contextmanager
+    def test_session():
+        yield db_session
+
+    @contextmanager
+    def test_feed_lock(_feed_id: str):
+        yield feed_lease
+
+    class Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    class Response:
+        status_code = 200
+        headers: dict[str, str] = {}
+        url = "https://example.com/feed.xml"
+
+        def close(self):
+            pass
+
+    def ensure_owned(lease):
+        if lease is domain_lease:
+            raise LeaseOwnershipLostError("domain slot ownership was lost")
+
+    monkeypatch.setattr(feed_tasks, "db_session", test_session)
+    monkeypatch.setattr(feed_tasks, "feed_lock", test_feed_lock)
+    monkeypatch.setattr(
+        feed_tasks,
+        "build_safe_http_client",
+        lambda **_kwargs: Client(),
+    )
+    monkeypatch.setattr(
+        feed_tasks,
+        "safe_stream_with_redirects",
+        lambda *_args, **_kwargs: Response(),
+    )
+    monkeypatch.setattr(
+        feed_tasks,
+        "safe_fetch_request_guard",
+        lambda _response: domain_lease,
+    )
+    monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
+
+    result = run_fetch_feed(
+        _UnexpectedRetryTask(),
+        str(feed.id),
+        force=True,
+        runtime=feed_tasks,
+    )
+
+    assert result == {
+        "status": "error",
+        "reason": "coordination_unavailable",
+        "feed_id": str(feed.id),
+    }
+    db_session.expire_all()
+    stored_feed = db_session.get(Feed, feed.id)
+    assert stored_feed.dispatch_claimed_at is None
+    assert stored_feed.dispatch_backoff_until is not None
+    assert now < stored_feed.dispatch_backoff_until <= now + timedelta(minutes=2)
+    assert stored_feed.next_fetch_at == stored_feed.dispatch_backoff_until
 
 
 def test_confirmed_coordination_ownership_loss_rolls_back_without_retry(
