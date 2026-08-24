@@ -128,8 +128,28 @@ function HistoryTabs({
   const activeClass = 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]'
   return (
     <div role="tablist" aria-label="SMTP history view" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
-      <button type="button" role="tab" id="smtp-deliveries-tab" aria-selected={historyView === 'deliveries'} aria-controls="smtp-deliveries-panel" className={`rounded px-3 py-1 text-sm ${historyView === 'deliveries' ? activeClass : inactiveClass}`} onClick={() => onChange('deliveries')}>Deliveries</button>
-      <button type="button" role="tab" id="smtp-tests-tab" aria-selected={historyView === 'tests'} aria-controls="smtp-tests-panel" className={`rounded px-3 py-1 text-sm ${historyView === 'tests' ? activeClass : inactiveClass}`} onClick={() => onChange('tests')}>Tests</button>
+      <button
+        type="button"
+        role="tab"
+        id="smtp-deliveries-tab"
+        aria-selected={historyView === 'deliveries'}
+        aria-controls="smtp-deliveries-panel"
+        className={`rounded px-3 py-1 text-sm ${historyView === 'deliveries' ? activeClass : inactiveClass}`}
+        onClick={() => onChange('deliveries')}
+      >
+        Deliveries
+      </button>
+      <button
+        type="button"
+        role="tab"
+        id="smtp-tests-tab"
+        aria-selected={historyView === 'tests'}
+        aria-controls="smtp-tests-panel"
+        className={`rounded px-3 py-1 text-sm ${historyView === 'tests' ? activeClass : inactiveClass}`}
+        onClick={() => onChange('tests')}
+      >
+        Tests
+      </button>
     </div>
   )
 }

@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "11ee76857e2f32c2b70b183de1cf94c869ede874fc08eb3e79b7b0235e4ecb14"
+    "x-threatlens-contract-sha256": "b3c4696bafd2b384894b7ca44628d6259198329b70da61b0a1f83d92e108e755"
   },
   "servers": [
     {
@@ -1127,6 +1127,24 @@
             "SessionCookieAuth": []
           }
         ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1341,6 +1359,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Report Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -16943,6 +16977,70 @@
             ],
             "title": "Last Run At"
           },
+          "failure_state": {
+            "type": "string",
+            "enum": [
+              "healthy",
+              "retrying",
+              "exhausted",
+              "quarantined"
+            ],
+            "title": "Failure State"
+          },
+          "failure_count": {
+            "type": "integer",
+            "title": "Failure Count"
+          },
+          "consecutive_failure_count": {
+            "type": "integer",
+            "title": "Consecutive Failure Count"
+          },
+          "last_error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error Code"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "last_error_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error At"
+          },
+          "retry_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retry At"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -16963,6 +17061,13 @@
           "owner_user_id",
           "next_run_at",
           "last_run_at",
+          "failure_state",
+          "failure_count",
+          "consecutive_failure_count",
+          "last_error_code",
+          "last_error",
+          "last_error_at",
+          "retry_at",
           "created_at",
           "updated_at"
         ],

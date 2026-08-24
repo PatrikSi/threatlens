@@ -100,6 +100,15 @@
 | `DISPATCH_FEED_METADATA_SCAN_LIMIT` (`dispatch_feed_metadata_scan_limit`) | `250` | Feed scan cap for metadata backfill beat cycle. |
 | `DISPATCH_FEED_METADATA_QUEUE_LIMIT` (`dispatch_feed_metadata_queue_limit`) | `50` | Queue cap for metadata backfill beat cycle. |
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
+| `CELERY_VISIBILITY_TIMEOUT_SECONDS` (`celery_visibility_timeout_seconds`) | `3600` | Redis broker visibility timeout for unacknowledged tasks. Keep this above the longest AI report execution and its generation lease. |
+| `REPORT_GENERATION_LEASE_SECONDS` (`report_generation_lease_seconds`) | `600` | Renewable database ownership lease for one report generation worker. Must be at least 360 seconds. |
+| `REPORT_SCHEDULE_MAX_ATTEMPTS` (`report_schedule_max_attempts`) | `5` | Consecutive schedule planning failures allowed before a broken report schedule is quarantined. |
+| `REPORT_SCHEDULE_RETRY_BACKOFF_SECONDS` (`report_schedule_retry_backoff_seconds`) | `60` | Initial exponential delay after a report schedule planning failure. |
+| `REPORT_SCHEDULE_RETRY_MAX_BACKOFF_SECONDS` (`report_schedule_retry_max_backoff_seconds`) | `3600` | Maximum report schedule planning retry delay. |
+| `REPORT_DISPATCH_BATCH_SIZE` (`report_dispatch_batch_size`) | `100` | Maximum durable queued report tasks recovered in one dispatch sweep. |
+| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Queue publication attempts allowed before a report dispatch is settled as failed. |
+| `REPORT_DISPATCH_RETRY_BACKOFF_SECONDS` (`report_dispatch_retry_backoff_seconds`) | `15` | Initial exponential delay after report queue publication fails. |
+| `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
 | `STATS_TOP_DOMAINS_LIMIT` (`stats_top_domains_limit`) | `10` | Number of top domains returned in stats overview. |
 | `RUN_MIGRATIONS_ON_STARTUP` (`run_migrations_on_startup`) | `false` | Controls automatic migration execution in `start-api.sh`; the default compose overrides this to `true` for the API container. |

@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from app.core.config import Settings
 
 
-_LOG_CONTEXT: ContextVar[dict[str, str]] = ContextVar("threatlens_log_context", default={})
+_LOG_CONTEXT: ContextVar[dict[str, str] | None] = ContextVar(
+    "threatlens_log_context",
+    default=None,
+)
 _BEARER_PATTERN = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+\-/]+=*")
 _URL_CREDENTIAL_PATTERN = re.compile(r"(?P<scheme>[a-z][a-z0-9+.-]*://)(?P<credentials>[^/@\s]+)@", re.IGNORECASE)
 _SENSITIVE_VALUE_PATTERN = re.compile(
@@ -36,7 +39,7 @@ _SAFE_RECORD_FIELDS = (
 
 
 def set_log_context(**values: object) -> Token:
-    current = dict(_LOG_CONTEXT.get())
+    current = dict(_LOG_CONTEXT.get() or {})
     current.update({key: str(value) for key, value in values.items() if value is not None and str(value)})
     return _LOG_CONTEXT.set(current)
 
@@ -46,7 +49,7 @@ def reset_log_context(token: Token) -> None:
 
 
 def get_log_context() -> dict[str, str]:
-    return dict(_LOG_CONTEXT.get())
+    return dict(_LOG_CONTEXT.get() or {})
 
 
 def redact_log_text(value: object, *, max_chars: int = 20_000) -> str:
@@ -61,7 +64,7 @@ def redact_log_text(value: object, *, max_chars: int = 20_000) -> str:
 
 class DiagnosticContextFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
-        for key, value in _LOG_CONTEXT.get().items():
+        for key, value in (_LOG_CONTEXT.get() or {}).items():
             if not hasattr(record, key):
                 setattr(record, key, value)
         return True

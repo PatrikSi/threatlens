@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:11ee76857e2f32c2b70b183de1cf94c869ede874fc08eb3e79b7b0235e4ecb14`
+- OpenAPI contract anchor: `openapi-sha256:b3c4696bafd2b384894b7ca44628d6259198329b70da61b0a1f83d92e108e755`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -686,6 +686,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Create Report
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:reports`
+- Parameters:
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportCreateRequest
 - Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> HTTPValidationError
 ### `GET /v1/reports/capabilities`
@@ -789,6 +791,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Parameters:
   - `report_id` (path, required): string
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Responses: `202` `application/json` -> ReportQueueResponse, `422` `application/json` -> HTTPValidationError
 
 ## Stats
