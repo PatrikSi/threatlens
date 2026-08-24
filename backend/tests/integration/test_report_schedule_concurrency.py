@@ -72,6 +72,8 @@ def test_old_schedule_writer_cannot_move_version_backward(database_engine):
         first.execute(text("SET LOCAL lock_timeout = '3s'"))
         second.execute(text("SET LOCAL lock_timeout = '3s'"))
         second.execute(text("SELECT now()"))
+        second_pid = second.scalar(text("SELECT pg_backend_pid()"))
+        assert second_pid is not None
         first.execute(
             text(
                 "SELECT id FROM report_schedules WHERE id = :id FOR UPDATE"
@@ -102,7 +104,7 @@ def test_old_schedule_writer_cannot_move_version_backward(database_engine):
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(_old_worker_update)
             assert old_writer_started.wait(timeout=3)
-            time.sleep(0.2)
+            _wait_for_lock_wait(database_engine, pid=second_pid)
             first.commit()
             future.result(timeout=5)
 
@@ -117,3 +119,20 @@ def test_old_schedule_writer_cannot_move_version_backward(database_engine):
         with session_factory.begin() as db:
             db.execute(delete(ReportSchedule).where(ReportSchedule.id == schedule_id))
             db.execute(delete(ReportTemplate).where(ReportTemplate.id == template_id))
+
+
+def _wait_for_lock_wait(database_engine, *, pid: int, timeout: float = 3.0) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with database_engine.connect() as observer:
+            waiting = observer.scalar(
+                text(
+                    "SELECT wait_event_type = 'Lock' "
+                    "FROM pg_stat_activity WHERE pid = :pid"
+                ),
+                {"pid": pid},
+            )
+        if waiting:
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"Database session {pid} did not enter a lock wait.")

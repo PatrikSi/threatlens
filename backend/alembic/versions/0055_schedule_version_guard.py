@@ -22,8 +22,8 @@ _TRIGGER_NAME = "trg_report_schedules_monotonic_version"
 
 def upgrade() -> None:
     connection = op.get_bind()
-    schema = connection.scalar(sa.text("SELECT current_schema()"))
-    quoted_schema = connection.dialect.identifier_preparer.quote(schema)
+    schema = _relation_schema("report_schedules")
+    quoted_schema = connection.dialect.identifier_preparer.quote_identifier(schema)
     op.execute(
         f"""
         CREATE FUNCTION {quoted_schema}.{_FUNCTION_NAME}()
@@ -51,8 +51,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     connection = op.get_bind()
-    schema = connection.scalar(sa.text("SELECT current_schema()"))
-    quoted_schema = connection.dialect.identifier_preparer.quote(schema)
+    schema = _relation_schema("report_schedules")
+    quoted_schema = connection.dialect.identifier_preparer.quote_identifier(schema)
     op.execute(
         f"DROP TRIGGER IF EXISTS {_TRIGGER_NAME} "
         f"ON {quoted_schema}.report_schedules"
@@ -60,3 +60,20 @@ def downgrade() -> None:
     op.execute(
         f"DROP FUNCTION IF EXISTS {quoted_schema}.{_FUNCTION_NAME}()"
     )
+
+
+def _relation_schema(relation_name: str) -> str:
+    schema = op.get_bind().scalar(
+        sa.text(
+            """
+            SELECT namespace.nspname
+            FROM pg_class AS relation
+            JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+            WHERE relation.oid = to_regclass(:relation_name)
+            """
+        ),
+        {"relation_name": relation_name},
+    )
+    if not schema:
+        raise RuntimeError(f"Could not resolve schema for {relation_name}.")
+    return str(schema)
