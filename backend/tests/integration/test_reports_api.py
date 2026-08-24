@@ -1,17 +1,22 @@
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier, local
 from types import SimpleNamespace
 from zoneinfo import ZoneInfoNotFoundError
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.api.routes import reports as reports_routes
+from app.models.audit_log import AuditLog
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.models.report_operation_receipt import ReportOperationReceipt
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
 from app.models.user import User
+from app.schemas.reports import ReportTemplateCreate
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.export_query import ExportSnapshotChangedError
 
@@ -329,6 +334,100 @@ def test_template_creation_idempotency_replays_and_rejects_changed_payload(
     assert receipt.key_hash != raw_key
     assert len(receipt.key_hash) == 64
     assert len(receipt.fingerprint) == 64
+
+
+def test_concurrent_template_creation_commits_one_resource_and_audit(
+    database_engine,
+    monkeypatch,
+):
+    run_id = uuid.uuid4().hex
+    user_id = uuid.uuid4()
+    session_factory = sessionmaker(
+        bind=database_engine,
+        autoflush=False,
+        autocommit=False,
+        class_=Session,
+    )
+    with session_factory.begin() as db:
+        db.add(
+            User(
+                id=user_id,
+                email=f"report-template-race-{run_id}@example.com",
+                password_hash="not-a-login-secret",
+                role="analyst",
+                is_active=True,
+                is_approved=True,
+            )
+        )
+
+    actor = SimpleNamespace(id=user_id, role="analyst")
+    payload = ReportTemplateCreate.model_validate(
+        _template_payload(name=f"Concurrent template {run_id}")
+    )
+    idempotency_key = f"concurrent-template-{run_id}"
+    first_lookup_barrier = Barrier(2)
+    thread_state = local()
+    find_operation_resource = reports_routes.find_operation_resource
+
+    def _synchronized_find(*args, **kwargs):
+        replay = find_operation_resource(*args, **kwargs)
+        lookup_count = getattr(thread_state, "lookup_count", 0)
+        thread_state.lookup_count = lookup_count + 1
+        if lookup_count == 0:
+            first_lookup_barrier.wait(timeout=5)
+        return replay
+
+    monkeypatch.setattr(
+        reports_routes,
+        "find_operation_resource",
+        _synchronized_find,
+    )
+
+    def _create_template():
+        with session_factory() as db:
+            db.execute(text("SET LOCAL lock_timeout = '8s'"))
+            return reports_routes.create_template(
+                payload,
+                idempotency_key,
+                db,
+                actor,
+            )
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(_create_template) for _ in range(2)]
+            responses = [future.result(timeout=15) for future in futures]
+
+        assert responses[0].id == responses[1].id
+        with session_factory() as db:
+            assert db.scalar(
+                select(func.count(ReportTemplate.id)).where(
+                    ReportTemplate.owner_user_id == user_id
+                )
+            ) == 1
+            assert db.scalar(
+                select(func.count(ReportOperationReceipt.id)).where(
+                    ReportOperationReceipt.actor_user_id == user_id
+                )
+            ) == 1
+            assert db.scalar(
+                select(func.count(AuditLog.id)).where(
+                    AuditLog.actor_user_id == user_id,
+                    AuditLog.action == "reports.template.create",
+                )
+            ) == 1
+    finally:
+        with session_factory.begin() as db:
+            db.execute(
+                delete(ReportOperationReceipt).where(
+                    ReportOperationReceipt.actor_user_id == user_id
+                )
+            )
+            db.execute(
+                delete(ReportTemplate).where(ReportTemplate.owner_user_id == user_id)
+            )
+            db.execute(delete(AuditLog).where(AuditLog.actor_user_id == user_id))
+            db.execute(delete(User).where(User.id == user_id))
 
 
 def test_template_clone_idempotency_survives_source_changes_and_reports_deletion(
