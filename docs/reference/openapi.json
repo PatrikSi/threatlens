@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "539418965c073851d886e68c6f601e9ddc393fbfb28a337aaa242f32f889dd11"
+    "x-threatlens-contract-sha256": "06bc90f79eed659f4db43e561af16dd41cc8a0012aba08e8d2a2442690e92df3"
   },
   "servers": [
     {
@@ -907,6 +907,22 @@
               "format": "uuid",
               "title": "Template Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "requestBody": {
@@ -1564,6 +1580,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Schedule Id"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -16735,6 +16767,18 @@
           "status": {
             "type": "string",
             "title": "Status"
+          },
+          "schedule_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Id"
           }
         },
         "additionalProperties": false,

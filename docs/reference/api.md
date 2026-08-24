@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:539418965c073851d886e68c6f601e9ddc393fbfb28a337aaa242f32f889dd11`
+- OpenAPI contract anchor: `openapi-sha256:06bc90f79eed659f4db43e561af16dd41cc8a0012aba08e8d2a2442690e92df3`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -727,6 +727,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `schedule_id` (path, required): string
+  - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportScheduleUpdate
 - Responses: `200` `application/json` -> ReportScheduleResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/reports/schedules/{schedule_id}/run`
@@ -763,6 +764,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `template_id` (path, required): string
+  - `If-Match` (header, optional): If-Match
 - Request body: `application/json` -> ReportTemplateUpdate
 - Responses: `200` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/reports/templates/{template_id}/clone`
