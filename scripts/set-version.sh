@@ -88,4 +88,14 @@ write_text(
         read_text("docker-compose.build.yml"),
     ),
 )
+
+write_text(
+    ".env.example",
+    re.sub(
+        r"^APP_VERSION=.*$",
+        f"APP_VERSION={version}",
+        read_text(".env.example"),
+        flags=re.MULTILINE,
+    ),
+)
 PY
