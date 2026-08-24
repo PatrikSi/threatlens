@@ -1,10 +1,19 @@
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from typing import Any
 
 import feedparser
 import httpx
 
 from app.core.config import get_settings
-from app.services.safe_fetch import build_safe_http_client, RedirectError, SafeFetchError, safe_stream_with_redirects
+from app.services.safe_fetch import (
+    RedirectError,
+    SafeFetchError,
+    build_safe_http_client,
+    safe_fetch_request_guard,
+    safe_stream_with_redirects,
+)
 from app.services.url_utils import is_fetchable_url
 
 
@@ -24,7 +33,12 @@ class FeedProbeError(RuntimeError):
     pass
 
 
-def probe_feed_metadata(url: str) -> FeedProbeResult:
+def probe_feed_metadata(
+    url: str,
+    *,
+    request_context: Callable[[str], AbstractContextManager[Any]] | None = None,
+    request_guard_validator: Callable[[object], None] | None = None,
+) -> FeedProbeResult:
     settings = get_settings()
     target_url = url.strip()
 
@@ -50,8 +64,11 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                 target_url,
                 allow_private_network=settings.allow_private_network_fetch,
                 max_redirects=settings.outbound_max_redirects,
+                request_context=request_context,
             )
             try:
+                request_guard = safe_fetch_request_guard(response)
+                _validate_request_guard(request_guard, request_guard_validator)
                 if response.status_code != 200:
                     raise FeedProbeError(f"Feed returned HTTP {response.status_code}")
 
@@ -62,6 +79,7 @@ def probe_feed_metadata(url: str) -> FeedProbeResult:
                 body_chunks: list[bytes] = []
                 body_size = 0
                 for chunk in response.iter_bytes():
+                    _validate_request_guard(request_guard, request_guard_validator)
                     body_size += len(chunk)
                     if body_size > settings.feed_max_bytes:
                         raise FeedProbeError("Feed response exceeds configured size limit")
@@ -97,3 +115,11 @@ def _clean(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _validate_request_guard(
+    request_guard: object | None,
+    validator: Callable[[object], None] | None,
+) -> None:
+    if validator is not None and request_guard is not None:
+        validator(request_guard)

@@ -61,7 +61,7 @@
 | `ALLOW_PRIVATE_NETWORK_OIDC` (`allow_private_network_oidc`) | `false` | Allows OIDC discovery, token, JWKS, and UserInfo requests to private-network or internal-only identity providers. Public endpoints must use `https`; enable this only for explicitly trusted internal IdPs. |
 | `ALLOW_INSECURE_HTTP_OIDC` (`allow_insecure_http_oidc`) | `false` | Allows publicly routable OIDC endpoints and the configured ThreatLens callback origin to use plaintext `http`. Private/internal OIDC endpoints still require `ALLOW_PRIVATE_NETWORK_OIDC=true`. Keep disabled outside isolated development environments. |
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
-| `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
+| `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain cap shared by feed fetches, metadata probes, redirects, and article fetches. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
 | `AUTH_LOGIN_IP_MAX_ATTEMPTS` (`auth_login_ip_max_attempts`) | `50` | Failed login attempts allowed per client IP in the same window. Must be at least `AUTH_LOGIN_MAX_ATTEMPTS`. |
 | `AUTH_LOGIN_WINDOW_SECONDS` (`auth_login_window_seconds`) | `300` | Sliding window for failed login attempt counting. |

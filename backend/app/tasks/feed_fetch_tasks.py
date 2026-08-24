@@ -14,6 +14,10 @@ from app.models.item import Item
 FETCH_TASK_MAX_RETRIES = 3
 
 
+class DomainSlotOwnershipLostError(RuntimeError):
+    pass
+
+
 @dataclass(frozen=True)
 class FeedFetchResponse:
     body: bytes
@@ -97,7 +101,13 @@ def run_backfill_feed_metadata(feed_id: str, *, runtime: ModuleType):
                             "reason": "feed_url_unavailable",
                         }
                     try:
-                        metadata = r.probe_feed_metadata(feed_url)
+                        metadata = r.probe_feed_metadata(
+                            feed_url,
+                            request_context=lambda request_url: r.domain_slot(
+                                urlsplit(request_url).hostname or "unknown"
+                            ),
+                            request_guard_validator=r.ensure_lease_owned,
+                        )
                     except r.FeedProbeError as exc:
                         return {
                             "status": "error",
@@ -328,6 +338,20 @@ def _request_feed(
     headers = _conditional_request_headers(feed)
     try:
         response = _read_feed_response(feed_url, headers, lease, runtime=r)
+    except DomainSlotOwnershipLostError as exc:
+        r.logger.warning(
+            "feed_fetch_domain_slot_ownership_lost feed_id=%s error_type=%s",
+            feed_id,
+            r._exception_type_name(exc.__cause__ or exc),
+        )
+        r._stage_feed_after_coordination_failure(feed)
+        db.add(feed)
+        _commit_owned(db, claim, lease, runtime=r)
+        return {
+            "status": "error",
+            "reason": "coordination_unavailable",
+            "feed_id": feed_id,
+        }
     except r.LeaseOwnershipLostError as exc:
         db.rollback()
         return _coordination_lease_lost_result(feed_id, exc, runtime=r)
@@ -491,7 +515,12 @@ def _ensure_fetch_leases_owned(
     runtime: ModuleType,
 ) -> None:
     runtime.ensure_lease_owned(feed_lease)
-    runtime.ensure_lease_owned(domain_lease)
+    try:
+        runtime.ensure_lease_owned(domain_lease)
+    except runtime.LeaseOwnershipLostError as exc:
+        raise DomainSlotOwnershipLostError(
+            "domain-slot ownership was lost during the feed response"
+        ) from exc
 
 
 def _conditional_request_headers(feed: Feed) -> dict[str, str]:

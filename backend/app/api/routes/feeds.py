@@ -1,6 +1,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -30,10 +31,15 @@ from app.services.feed_fetch_ownership import (
     FEED_FETCH_CONFIGURATION_FIELDS,
     apply_feed_fetch_configuration,
 )
-from app.services.feed_probe import FeedProbeError, probe_feed_metadata
+from app.services.feed_probe import FeedProbeError, FeedProbeResult, probe_feed_metadata
 from app.services.feed_storage import feed_url_digest
 from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
 from app.tasks.celery_app import celery_app
+from app.tasks.feed_task_coordination import (
+    CoordinationUnavailableError,
+    domain_slot,
+    ensure_lease_owned,
+)
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
 logger = logging.getLogger(__name__)
@@ -55,7 +61,7 @@ def get_feed_metadata(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     try:
-        metadata = probe_feed_metadata(payload.url)
+        metadata = _probe_feed_metadata(payload.url)
     except FeedProbeError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
@@ -235,7 +241,7 @@ def create_feed(
     if not resolved_name:
         if settings.probe_feed_metadata_on_create:
             try:
-                metadata = probe_feed_metadata(feed_url)
+                metadata = _probe_feed_metadata(feed_url)
             except FeedProbeError:
                 metadata = None
 
@@ -504,6 +510,23 @@ def _clean_optional_text(value: str | None) -> str | None:
     return text or None
 
 
+def _probe_feed_metadata(url: str) -> FeedProbeResult:
+    try:
+        return probe_feed_metadata(
+            url,
+            request_context=lambda request_url: domain_slot(
+                urlsplit(request_url).hostname or "unknown",
+                max_wait_seconds=5,
+            ),
+            request_guard_validator=ensure_lease_owned,
+        )
+    except CoordinationUnavailableError as exc:
+        raise FeedProbeError(
+            "Feed metadata probing is temporarily unavailable because outbound "
+            "fetch coordination could not be acquired. Try again."
+        ) from exc
+
+
 def _resolve_import_text(entry: FeedImportEntry, field_name: str, existing_value: str | None) -> str | None:
     if not _import_field_provided(entry, field_name):
         return _clean_optional_text(existing_value)
@@ -554,7 +577,7 @@ def _resolve_import_feed_values(
     if not resolved_name:
         if settings.probe_feed_metadata_on_import:
             try:
-                metadata = probe_feed_metadata(feed_url)
+                metadata = _probe_feed_metadata(feed_url)
                 resolved_name = metadata.name or redact_feed_url(feed_url)
                 description = description or _clean_optional_text(metadata.description)
                 site_url = site_url or _clean_optional_text(metadata.site_url)
