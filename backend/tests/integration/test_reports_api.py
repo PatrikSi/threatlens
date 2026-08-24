@@ -49,6 +49,7 @@ def _install_report_creation_stubs(monkeypatch):
             status="queued",
             trigger_source="manual",
             generation_stage="queued",
+            request_idempotency_key=kwargs.get("request_idempotency_key"),
             request_idempotency_key_hash=kwargs.get(
                 "request_idempotency_key_hash"
             ),
@@ -196,6 +197,7 @@ def test_report_creation_idempotency_replays_without_replanning(
     assert db_session.query(Report).count() == 1
     report = db_session.get(Report, uuid.UUID(first.json()["report_id"]))
     assert report is not None
+    assert report.request_idempotency_key == raw_key
     assert report.request_idempotency_key_hash != raw_key
     assert len(report.request_idempotency_key_hash or "") == 64
     assert len(report.request_fingerprint or "") == 64
