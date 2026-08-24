@@ -82,7 +82,6 @@ def test_report_task_retries_redelivery_while_another_lease_is_active(
         report_tasks.generate_intelligence_report.run(
             str(report.id),
             str(run.id),
-            report_tasks.settings.report_task_infrastructure_max_retries,
         )
 
     db_session.expire_all()
@@ -97,7 +96,12 @@ def test_report_infrastructure_retry_uses_classified_exponential_countdown():
     captured = {}
 
     class RetryTask:
-        request = SimpleNamespace(kwargs={"infrastructure_retry_count": 2})
+        request = SimpleNamespace(
+            headers={
+                report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 2,
+                "trace-context": "preserved",
+            }
+        )
 
         def retry(self, **kwargs):
             captured.update(kwargs)
@@ -118,7 +122,11 @@ def test_report_infrastructure_retry_uses_classified_exponential_countdown():
 
     assert captured["countdown"] == 120
     assert captured["max_retries"] is None
-    assert captured["kwargs"] == {"infrastructure_retry_count": 3}
+    assert captured["kwargs"] == {}
+    assert captured["headers"] == {
+        report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: 3,
+        "trace-context": "preserved",
+    }
 
 
 def test_report_task_terminalizes_exhausted_startup_failures(
@@ -138,8 +146,8 @@ def test_report_task_terminalizes_exhausted_startup_failures(
 
     result = report_tasks.generate_intelligence_report.apply(
         args=[str(report.id), str(run.id)],
-        kwargs={
-            "infrastructure_retry_count": (
+        headers={
+            report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: (
                 report_tasks.settings.report_task_infrastructure_max_retries
             )
         },
@@ -158,6 +166,126 @@ def test_report_task_terminalizes_exhausted_startup_failures(
     assert stored_run.metadata_json["infrastructure_failure_phase"] == (
         "starting report generation"
     )
+
+
+def test_exhausted_report_task_defers_to_foreign_generation_owner(
+    db_session,
+    monkeypatch,
+):
+    owner_token = "active-foreign-worker"
+    report = _report(lease_token=owner_token)
+    run = _task_run(db_session, report)
+    db_session.add(
+        ReportGenerationLease(
+            report_id=report.id,
+            generation_fence=7,
+            lease_token=owner_token,
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    db_session.commit()
+    _use_test_session(monkeypatch, db_session)
+
+    result = report_tasks._settle_exhausted_report_infrastructure(
+        report_id=report.id,
+        run_id=run.id,
+        worker_name="exhausted-worker",
+        lease_token="different-worker",
+        generation_fence=None,
+        retry_count=3,
+        phase="starting report generation",
+    )
+
+    db_session.expire_all()
+    assert result == {
+        "status": "error",
+        "reason": "worker_infrastructure_reconciliation_pending",
+    }
+    assert db_session.get(Report, report.id).status == "queued"
+    assert db_session.get(AITaskRun, run.id).status == "queued"
+    assert db_session.get(ReportGenerationLease, report.id).lease_token == owner_token
+
+
+def test_exhausted_report_task_recovers_ambiguous_committed_claim(
+    db_session,
+    monkeypatch,
+):
+    owner_token = "ambiguous-commit-worker"
+    report = _report(lease_token=owner_token)
+    run = _task_run(db_session, report)
+    db_session.add(
+        ReportGenerationLease(
+            report_id=report.id,
+            generation_fence=9,
+            lease_token=owner_token,
+            lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+        )
+    )
+    db_session.commit()
+    _use_test_session(monkeypatch, db_session)
+
+    result = report_tasks._settle_exhausted_report_infrastructure(
+        report_id=report.id,
+        run_id=run.id,
+        worker_name="ambiguous-worker",
+        lease_token=owner_token,
+        generation_fence=None,
+        retry_count=3,
+        phase="committing generation ownership",
+    )
+
+    db_session.expire_all()
+    stored_report = db_session.get(Report, report.id)
+    stored_lease = db_session.get(ReportGenerationLease, report.id)
+    assert result == {"status": "error", "reason": "worker_infrastructure_error"}
+    assert stored_report.status == "error"
+    assert stored_report.generation_lease_token is None
+    assert stored_lease.lease_token is None
+
+
+def test_report_task_uses_only_committed_claim_for_exhaustion(
+    db_session,
+    monkeypatch,
+):
+    report = _report()
+    run = _task_run(db_session, report)
+    commit_calls = 0
+
+    class FailFirstCommit:
+        def __getattr__(self, name):
+            return getattr(db_session, name)
+
+        def commit(self):
+            nonlocal commit_calls
+            commit_calls += 1
+            if commit_calls == 1:
+                raise RuntimeError("claim commit failed")
+            db_session.commit()
+
+    @contextmanager
+    def _session():
+        try:
+            yield FailFirstCommit()
+        except Exception:
+            db_session.rollback()
+            raise
+
+    monkeypatch.setattr(report_tasks, "db_session", _session)
+
+    result = report_tasks.generate_intelligence_report.apply(
+        args=[str(report.id), str(run.id)],
+        headers={
+            report_tasks.REPORT_INFRASTRUCTURE_RETRY_HEADER: (
+                report_tasks.settings.report_task_infrastructure_max_retries
+            )
+        },
+        task_id="report-task",
+    ).get()
+
+    db_session.expire_all()
+    assert result == {"status": "error", "reason": "worker_infrastructure_error"}
+    assert db_session.get(Report, report.id).status == "error"
+    assert db_session.get(AITaskRun, run.id).status == "error"
 
 
 def test_report_task_persists_legacy_guard_before_retry(db_session, monkeypatch):
@@ -399,9 +527,7 @@ def test_schedule_dispatch_isolates_reservation_failures(db_session, monkeypatch
     result = report_tasks.dispatch_due_report_schedules.run()
 
     assert result == {"status": "partial", "queued": 1, "failures": 1}
-    assert enqueued == [
-        {"report_id": queued_report.id, "task_run_id": task_run.id}
-    ]
+    assert enqueued == [{"report_id": queued_report.id, "task_run_id": task_run.id}]
     assert len(recorded_failures) == 1
     assert recorded_failures[0]["schedule_id"] == failing_schedule_id
     assert isinstance(recorded_failures[0]["error"], RuntimeError)

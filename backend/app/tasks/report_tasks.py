@@ -8,9 +8,10 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.models.integration import IntegrationEvent
 from app.models.ai_task_run import AITaskRun
+from app.models.integration import IntegrationEvent
 from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.services.ai_ops import (
     AI_STATUS_ERROR,
     AI_STATUS_READY,
@@ -53,6 +54,7 @@ from app.tasks.task_session import db_session
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+REPORT_INFRASTRUCTURE_RETRY_HEADER = "threatlens-report-infrastructure-retry-count"
 
 
 def create_report_task_run(
@@ -187,6 +189,11 @@ def generate_intelligence_report(
     celery_task_id = getattr(self.request, "id", None)
     lease_token = uuid.uuid4().hex
     claim = None
+    durable_generation_fence = None
+    infrastructure_retry_count = _request_infrastructure_retry_count(
+        self,
+        legacy_value=infrastructure_retry_count,
+    )
     try:
         with db_session() as db:
             candidate_run = db.get(AITaskRun, parsed_run_id)
@@ -255,8 +262,10 @@ def generate_intelligence_report(
                 # combining them can make a newly inserted lease invisible to the
                 # conditional release on some database/session combinations.
                 db.commit()
+                durable_generation_fence = claim.generation_fence
             else:
                 db.commit()
+                durable_generation_fence = claim.generation_fence
     except ReportGenerationLeaseLostError as exc:
         logger.warning(
             "report_generation_claim_lost report_id=%s task_run_id=%s error=%s",
@@ -277,7 +286,7 @@ def generate_intelligence_report(
             run_id=parsed_run_id,
             worker_name=worker_name,
             lease_token=lease_token,
-            generation_fence=(claim.generation_fence if claim is not None else None),
+            generation_fence=durable_generation_fence,
             infrastructure_retry_count=infrastructure_retry_count,
             phase="starting report generation",
             exc=exc,
@@ -286,6 +295,8 @@ def generate_intelligence_report(
     if claim.status == "busy":
         raise self.retry(
             countdown=_busy_report_retry_delay(claim.lease_expires_at),
+            headers=_report_retry_headers(self),
+            kwargs={},
             max_retries=None,
         )
 
@@ -658,8 +669,10 @@ def _retry_or_settle_report_infrastructure(
     if retry_count < max_retries:
         next_retry_count = retry_count + 1
         countdown = _infrastructure_retry_delay(retry_count)
-        retry_kwargs = dict(getattr(task.request, "kwargs", None) or {})
-        retry_kwargs["infrastructure_retry_count"] = next_retry_count
+        retry_headers = _report_retry_headers(
+            task,
+            infrastructure_retry_count=next_retry_count,
+        )
         logger.warning(
             "report_generation_infrastructure_retry report_id=%s task_run_id=%s "
             "phase=%s retry=%s max_retries=%s countdown_seconds=%s error_type=%s",
@@ -674,7 +687,8 @@ def _retry_or_settle_report_infrastructure(
         raise task.retry(
             exc=exc,
             countdown=countdown,
-            kwargs=retry_kwargs,
+            headers=retry_headers,
+            kwargs={},
             max_retries=None,
         ) from exc
 
@@ -716,17 +730,63 @@ def _settle_exhausted_report_infrastructure(
     )
     try:
         with db_session() as db:
-            report = db.get(Report, report_id)
+            run = db.scalar(
+                select(AITaskRun)
+                .where(AITaskRun.id == run_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            if (
+                run is None
+                or run.task_type != AI_TASK_TYPE_REPORT
+                or run.report_id != report_id
+            ):
+                db.rollback()
+                return {"status": "skipped", "reason": "run_not_available"}
+            if run.finished_at is not None or run.status in {
+                AI_STATUS_READY,
+                AI_STATUS_ERROR,
+                AI_STATUS_SKIPPED,
+            }:
+                db.rollback()
+                return {
+                    "status": run.status,
+                    "reason": run.reason or "already_settled",
+                }
+
+            report = db.scalar(
+                select(Report)
+                .where(Report.id == report_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
+            )
+            lease = (
+                db.scalar(
+                    select(ReportGenerationLease)
+                    .where(ReportGenerationLease.report_id == report_id)
+                    .with_for_update()
+                    .execution_options(populate_existing=True)
+                )
+                if report is not None
+                else None
+            )
             if (
                 report is not None
                 and report.status == "running"
-                and generation_fence is None
-            ):
-                guarded = guard_unfenced_report_generation(
-                    db,
-                    report_id=report_id,
-                    grace_seconds=settings.report_legacy_worker_grace_seconds,
+                and not _owns_report_generation_for_settlement(
+                    report=report,
+                    lease=lease,
+                    lease_token=lease_token,
+                    generation_fence=generation_fence,
                 )
+            ):
+                guarded = False
+                if not _report_has_generation_owner(report=report, lease=lease):
+                    guarded = guard_unfenced_report_generation(
+                        db,
+                        report_id=report_id,
+                        grace_seconds=settings.report_legacy_worker_grace_seconds,
+                    )
                 if guarded:
                     db.commit()
                 else:
@@ -742,6 +802,35 @@ def _settle_exhausted_report_infrastructure(
                     "reason": "worker_infrastructure_reconciliation_pending",
                 }
 
+            owns_generation = _owns_report_generation_for_settlement(
+                report=report,
+                lease=lease,
+                lease_token=lease_token,
+                generation_fence=generation_fence,
+            )
+            if (
+                report is not None
+                and report.status in {"queued", "running"}
+                and not owns_generation
+                and _report_has_generation_owner(report=report, lease=lease)
+            ):
+                db.rollback()
+                logger.error(
+                    "report_generation_infrastructure_settlement_deferred "
+                    "report_id=%s task_run_id=%s reason=foreign_generation_owner",
+                    report_id,
+                    run_id,
+                )
+                return {
+                    "status": "error",
+                    "reason": "worker_infrastructure_reconciliation_pending",
+                }
+
+            release_owned_generation = bool(
+                owns_generation
+                and report is not None
+                and report.status in {"queued", "running"}
+            )
             event_id = None
             if report is None or report.status in {"ready", "error", "skipped"}:
                 result, event_id = _settle_terminal_report_run(
@@ -766,14 +855,16 @@ def _settle_exhausted_report_infrastructure(
                 )
                 result = {"status": "error", "reason": error_code}
 
-            if generation_fence is not None and not release_report_generation(
-                db,
-                report_id=report_id,
-                lease_token=lease_token,
-                generation_fence=generation_fence,
-            ):
-                db.rollback()
-                return {"status": "skipped", "reason": "ownership_lost"}
+            if release_owned_generation:
+                owned_fence = lease.generation_fence if lease is not None else None
+                if owned_fence is None or not release_report_generation(
+                    db,
+                    report_id=report_id,
+                    lease_token=lease_token,
+                    generation_fence=owned_fence,
+                ):
+                    db.rollback()
+                    return {"status": "skipped", "reason": "ownership_lost"}
             db.commit()
         if event_id is not None:
             enqueue_integration_event_routing([event_id])
@@ -797,6 +888,54 @@ def _coerce_infrastructure_retry_count(value: object) -> int:
         return max(0, int(value))
     except (TypeError, ValueError, OverflowError):
         return 0
+
+
+def _request_infrastructure_retry_count(task, *, legacy_value: object = 0) -> int:
+    headers = getattr(task.request, "headers", None)
+    if isinstance(headers, dict) and REPORT_INFRASTRUCTURE_RETRY_HEADER in headers:
+        return _coerce_infrastructure_retry_count(
+            headers[REPORT_INFRASTRUCTURE_RETRY_HEADER]
+        )
+    return _coerce_infrastructure_retry_count(legacy_value)
+
+
+def _report_retry_headers(
+    task,
+    *,
+    infrastructure_retry_count: int | None = None,
+) -> dict[str, object]:
+    request_headers = getattr(task.request, "headers", None)
+    headers = dict(request_headers) if isinstance(request_headers, dict) else {}
+    if infrastructure_retry_count is not None:
+        headers[REPORT_INFRASTRUCTURE_RETRY_HEADER] = infrastructure_retry_count
+    return headers
+
+
+def _report_has_generation_owner(
+    *,
+    report: Report,
+    lease: ReportGenerationLease | None,
+) -> bool:
+    return bool(
+        report.generation_lease_token or (lease is not None and lease.lease_token)
+    )
+
+
+def _owns_report_generation_for_settlement(
+    *,
+    report: Report | None,
+    lease: ReportGenerationLease | None,
+    lease_token: str,
+    generation_fence: int | None,
+) -> bool:
+    if (
+        report is None
+        or lease is None
+        or report.generation_lease_token != lease_token
+        or lease.lease_token != lease_token
+    ):
+        return False
+    return generation_fence is None or lease.generation_fence == generation_fence
 
 
 def _infrastructure_retry_delay(retry_count: int) -> int:
