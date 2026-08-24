@@ -80,6 +80,39 @@ describe('idempotentReportingFetch', () => {
 
     expect(keys[1]).not.toBe(keys[0])
   })
+
+  it('does not lose a key when overlapping responses settle success then ambiguity', async () => {
+    const keys: string[] = []
+    let resolveFirst: ((value: unknown) => void) | undefined
+    let rejectSecond: ((error: Error) => void) | undefined
+    vi.mocked(apiFetch)
+      .mockImplementationOnce((_path, options) => {
+        keys.push(new Headers(options?.headers).get('Idempotency-Key') ?? '')
+        return new Promise((resolve) => { resolveFirst = resolve })
+      })
+      .mockImplementationOnce((_path, options) => {
+        keys.push(new Headers(options?.headers).get('Idempotency-Key') ?? '')
+        return new Promise((_resolve, reject) => { rejectSecond = reject })
+      })
+      .mockImplementationOnce((_path, options) => {
+        keys.push(new Headers(options?.headers).get('Idempotency-Key') ?? '')
+        return Promise.resolve({ id: 'report-1' })
+      })
+
+    const first = idempotentReportingFetch('/reports', 'overlap-scope', { method: 'POST' }, passthrough)
+    const overlapping = idempotentReportingFetch('/reports', 'overlap-scope', { method: 'POST' }, passthrough)
+    resolveFirst?.({ id: 'report-1' })
+    await expect(first).resolves.toEqual({ id: 'report-1' })
+    rejectSecond?.(new ApiTransportError('network down', '/reports', 'network'))
+    await expect(overlapping).rejects.toThrow('network down')
+    await expect(
+      idempotentReportingFetch('/reports', 'overlap-scope', { method: 'POST' }, passthrough),
+    ).resolves.toEqual({ id: 'report-1' })
+
+    expect(keys[0]).not.toBe('')
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).toBe(keys[0])
+  })
 })
 
 function passthrough<T>(value: T): T {

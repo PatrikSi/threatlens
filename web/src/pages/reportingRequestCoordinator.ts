@@ -3,9 +3,15 @@ const PENDING_REQUEST_TTL_MS = 24 * 60 * 60 * 1000
 type PendingRequest = {
   key: string
   createdAt: number
+  inFlight: number
+  retainAfterSettlement: boolean
 }
 
 const pendingRequests = new Map<string, PendingRequest>()
+const activeRequests = new Map<string, Promise<unknown>>()
+const writeTails = new Map<string, Promise<void>>()
+
+export type ReportingRequestOutcome = 'confirmed' | 'ambiguous' | 'rejected'
 
 
 export function reportingRequestScope(
@@ -17,25 +23,46 @@ export function reportingRequestScope(
 }
 
 
-export function getOrCreatePendingReportingKey(scope: string): string {
+export function beginPendingReportingRequest(scope: string): string {
   const now = Date.now()
-  const existing = pendingRequests.get(scope)
-  if (existing && now - existing.createdAt < PENDING_REQUEST_TTL_MS) {
-    return existing.key
+  let request = pendingRequests.get(scope)
+  if (
+    !request
+    || (request.inFlight === 0 && now - request.createdAt >= PENDING_REQUEST_TTL_MS)
+  ) {
+    request = {
+      key: createIdempotencyKey(),
+      createdAt: now,
+      inFlight: 0,
+      retainAfterSettlement: false,
+    }
+    pendingRequests.set(scope, request)
   }
-  const key = createIdempotencyKey()
-  pendingRequests.set(scope, { key, createdAt: now })
-  return key
+  if (request.inFlight === 0) request.retainAfterSettlement = false
+  request.inFlight += 1
+  return request.key
 }
 
 
-export function clearPendingReportingKey(scope: string, key: string): void {
-  if (pendingRequests.get(scope)?.key === key) pendingRequests.delete(scope)
+export function settlePendingReportingRequest(
+  scope: string,
+  key: string,
+  outcome: ReportingRequestOutcome,
+): void {
+  const request = pendingRequests.get(scope)
+  if (!request || request.key !== key) return
+  request.inFlight = Math.max(0, request.inFlight - 1)
+  if (outcome === 'ambiguous') request.retainAfterSettlement = true
+  if (request.inFlight === 0 && !request.retainAfterSettlement) {
+    pendingRequests.delete(scope)
+  }
 }
 
 
 export function resetPendingReportingKeys(): void {
   pendingRequests.clear()
+  activeRequests.clear()
+  writeTails.clear()
 }
 
 
@@ -44,46 +71,43 @@ export function reportMutationRequestKey(entityKey: string, body: string): strin
 }
 
 
-export function coalesceRequest<Key, Result>(
-  requests: Map<Key, Promise<Result>>,
-  key: Key,
+export function coalesceReportingRequest<Result>(
+  key: string,
   createRequest: () => Promise<Result>,
 ): Promise<Result> {
-  const activeRequest = requests.get(key)
-  if (activeRequest) return activeRequest
+  const activeRequest = activeRequests.get(key)
+  if (activeRequest) return activeRequest as Promise<Result>
 
   const request = createRequest()
-  requests.set(key, request)
+  activeRequests.set(key, request)
   const clear = () => {
-    if (requests.get(key) === request) requests.delete(key)
+    if (activeRequests.get(key) === request) activeRequests.delete(key)
   }
   void request.then(clear, clear)
   return request
 }
 
 
-export function serializeCoalescedRequest<EntityKey, RequestKey, Result>(
-  requests: Map<RequestKey, Promise<Result>>,
-  tails: Map<EntityKey, Promise<void>>,
-  entityKey: EntityKey,
-  requestKey: RequestKey,
+export function serializeReportingWrite<Result>(
+  entityKey: string,
+  requestKey: string,
   createRequest: () => Promise<Result>,
 ): Promise<Result> {
-  const activeRequest = requests.get(requestKey)
-  if (activeRequest) return activeRequest
+  const activeRequest = activeRequests.get(requestKey)
+  if (activeRequest) return activeRequest as Promise<Result>
 
-  const predecessor = tails.get(entityKey)
+  const predecessor = writeTails.get(entityKey)
   const request = (predecessor ?? Promise.resolve()).then(createRequest)
-  requests.set(requestKey, request)
+  activeRequests.set(requestKey, request)
 
   const tail = request.then(
     () => undefined,
     () => undefined,
   )
-  tails.set(entityKey, tail)
+  writeTails.set(entityKey, tail)
   void tail.then(() => {
-    if (requests.get(requestKey) === request) requests.delete(requestKey)
-    if (tails.get(entityKey) === tail) tails.delete(entityKey)
+    if (activeRequests.get(requestKey) === request) activeRequests.delete(requestKey)
+    if (writeTails.get(entityKey) === tail) writeTails.delete(entityKey)
   })
   return request
 }

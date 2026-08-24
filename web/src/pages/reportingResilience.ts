@@ -52,13 +52,14 @@ export function requireReportingResource<T extends { id: string }>(
   value: unknown,
   path: string,
   resourceLabel: string,
+  responseStatus: 200 | 201,
 ): T {
   if (!isRecord(value) || !isNonEmptyString(value.id)) {
     throw invalidReportingResponse(
       path,
       value,
       `The API accepted the ${resourceLabel} request but did not identify the saved resource.`,
-      201,
+      responseStatus,
     )
   }
   return value as T

@@ -119,7 +119,7 @@ describe('report mutation response validation', () => {
     expect(requireReportQueueResponse(queueResponse, '/reports')).toBe(queueResponse)
     expect(requireReportQueueResponseList([queueResponse], '/reports/schedules/1/run')).toEqual([queueResponse])
     expect(requireReportQueueResponseList([], '/reports/schedules/1/run')).toEqual([])
-    expect(requireReportingResource({ id: 'template-1' }, '/reports/templates', 'template')).toEqual({
+    expect(requireReportingResource({ id: 'template-1' }, '/reports/templates', 'template', 201)).toEqual({
       id: 'template-1',
     })
   })
@@ -147,6 +147,15 @@ describe('report mutation response validation', () => {
 
   it('rejects malformed schedule arrays and resource confirmations', () => {
     expect(() => requireReportQueueResponseList([{}], '/reports/schedules/1/run')).toThrow(ApiError)
-    expect(() => requireReportingResource(undefined, '/reports/templates', 'template')).toThrow(ApiError)
+    const error = (() => {
+      try {
+        requireReportingResource(undefined, '/reports/templates/1', 'template update', 200)
+      } catch (caught) {
+        return caught
+      }
+      return null
+    })()
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error).toMatchObject({ status: 200, code: 'invalid_response' })
   })
 })

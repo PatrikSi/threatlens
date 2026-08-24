@@ -13,7 +13,6 @@ import type {
   ReportListItem,
   ReportPreview,
   ReportPromptConfig,
-  ReportQueueResponse,
   ReportSchedule,
   ReportScheduleWrite,
   ReportSectionConfig,
@@ -42,10 +41,10 @@ import {
 } from './reportingResilience'
 import { idempotentReportingFetch } from './reportingApi'
 import {
-  coalesceRequest,
+  coalesceReportingRequest,
   reportMutationRequestKey,
   reportingRequestScope,
-  serializeCoalescedRequest,
+  serializeReportingWrite,
 } from './reportingRequestCoordinator'
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
@@ -74,15 +73,6 @@ export function useReportingController() {
   const [deliverWhenReady, setDeliverWhenReady] = useState(false)
   const [deliveryMode, setDeliveryMode] = useState<ReportDeliveryMode>('summary')
   const [feedback, setFeedback] = useState<ReportingFeedback>(null)
-  const templateSaveRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
-  const templateWriteTailsRef = useRef(new Map<string, Promise<void>>())
-  const templateCloneRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
-  const templateDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
-  const scheduleCreateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
-  const scheduleUpdateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
-  const scheduleWriteTailsRef = useRef(new Map<string, Promise<void>>())
-  const scheduleDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
-  const scheduleRunRequestsRef = useRef(new Map<string, Promise<ReportQueueResponse[]>>())
   const selectedReportIdRef = useRef(routeReportId)
   const mountedRef = useRef(true)
   const activeDownloadRef = useRef<{
@@ -199,15 +189,19 @@ export function useReportingController() {
         delivery_mode: deliveryMode,
       })
       const path = '/reports'
-      return idempotentReportingFetch(
-        path,
-        reportingRequestScope(requestOwnerId, 'report:create', body),
-        {
-          method: 'POST',
-          body,
-          timeoutMs: REPORT_CREATE_TIMEOUT_MS,
-        },
-        (value) => requireReportQueueResponse(value, path),
+      const requestScope = reportingRequestScope(requestOwnerId, 'report:create', body)
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          {
+            method: 'POST',
+            body,
+            timeoutMs: REPORT_CREATE_TIMEOUT_MS,
+          },
+          (value) => requireReportQueueResponse(value, path),
+        ),
       )
     },
     onMutate: () => setFeedback(null),
@@ -227,11 +221,15 @@ export function useReportingController() {
   const retryMutation = useMutation({
     mutationFn: (reportId: string) => {
       const path = `/reports/${reportId}/retry`
-      return idempotentReportingFetch(
-        path,
-        reportingRequestScope(requestOwnerId, 'report:retry', reportId),
-        { method: 'POST' },
-        (value) => requireReportQueueResponse(value, path),
+      const requestScope = reportingRequestScope(requestOwnerId, 'report:retry', reportId)
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          { method: 'POST' },
+          (value) => requireReportQueueResponse(value, path),
+        ),
       )
     },
     onMutate: () => setFeedback(null),
@@ -276,26 +274,39 @@ export function useReportingController() {
       })
       const requestKey = reportMutationRequestKey(entityKey, body)
       if (payload.mode === 'update') {
-        return serializeCoalescedRequest(
-          templateSaveRequestsRef.current,
-          templateWriteTailsRef.current,
+        const writeScope = reportingRequestScope(
+          requestOwnerId,
+          'report:template:update',
           entityKey,
+        )
+        return serializeReportingWrite(
+          writeScope,
           requestKey,
           async () => requireReportingResource<ReportTemplate>(
             await apiFetch<unknown>(path, { method: 'PUT', body }),
             path,
             'report template update',
+            200,
           ),
         )
       }
-      return coalesceRequest(
-        templateSaveRequestsRef.current,
-        requestKey,
+      const createScope = reportingRequestScope(
+        requestOwnerId,
+        'report:template:create',
+        body,
+      )
+      return coalesceReportingRequest(
+        createScope,
         () => idempotentReportingFetch(
           path,
-          reportingRequestScope(requestOwnerId, 'report:template:create', body),
+          createScope,
           { method: 'POST', body },
-          (value) => requireReportingResource<ReportTemplate>(value, path, 'report template creation'),
+          (value) => requireReportingResource<ReportTemplate>(
+            value,
+            path,
+            'report template creation',
+            201,
+          ),
         ),
       )
     },
@@ -323,14 +334,23 @@ export function useReportingController() {
     mutationKey: ['reports', 'templates', 'clone'],
     mutationFn: (templateId: string) => {
       const path = `/reports/templates/${templateId}/clone`
-      return coalesceRequest(
-        templateCloneRequestsRef.current,
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:template:clone',
         templateId,
+      )
+      return coalesceReportingRequest(
+        requestScope,
         () => idempotentReportingFetch(
           path,
-          reportingRequestScope(requestOwnerId, 'report:template:clone', templateId),
+          requestScope,
           { method: 'POST' },
-          (value) => requireReportingResource<ReportTemplate>(value, path, 'report template clone'),
+          (value) => requireReportingResource<ReportTemplate>(
+            value,
+            path,
+            'report template clone',
+            201,
+          ),
         ),
       )
     },
@@ -352,9 +372,8 @@ export function useReportingController() {
   })
   const deleteTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'delete'],
-    mutationFn: (templateId: string) => coalesceRequest(
-      templateDeleteRequestsRef.current,
-      templateId,
+    mutationFn: (templateId: string) => coalesceReportingRequest(
+      reportingRequestScope(requestOwnerId, 'report:template:delete', templateId),
       () => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
     ),
     onMutate: () => setFeedback(null),
@@ -373,14 +392,23 @@ export function useReportingController() {
     mutationFn: (payload: ReportScheduleWrite) => {
       const body = JSON.stringify(payload)
       const path = '/reports/schedules'
-      return coalesceRequest(
-        scheduleCreateRequestsRef.current,
-        reportMutationRequestKey('create', body),
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:create',
+        body,
+      )
+      return coalesceReportingRequest(
+        requestScope,
         () => idempotentReportingFetch(
           path,
-          reportingRequestScope(requestOwnerId, 'report:schedule:create', body),
+          requestScope,
           { method: 'POST', body },
-          (value) => requireReportingResource<ReportSchedule>(value, path, 'report schedule creation'),
+          (value) => requireReportingResource<ReportSchedule>(
+            value,
+            path,
+            'report schedule creation',
+            201,
+          ),
         ),
       )
     },
@@ -400,15 +428,19 @@ export function useReportingController() {
     mutationFn: (schedule: ReportSchedule) => {
       const body = JSON.stringify(schedulePayload(schedule))
       const path = `/reports/schedules/${schedule.id}`
-      return serializeCoalescedRequest(
-        scheduleUpdateRequestsRef.current,
-        scheduleWriteTailsRef.current,
+      const writeScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:update',
         schedule.id,
+      )
+      return serializeReportingWrite(
+        writeScope,
         reportMutationRequestKey(schedule.id, body),
         async () => requireReportingResource<ReportSchedule>(
           await apiFetch<unknown>(path, { method: 'PUT', body }),
           path,
           'report schedule update',
+          200,
         ),
       )
     },
@@ -425,9 +457,8 @@ export function useReportingController() {
   })
   const deleteScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'delete'],
-    mutationFn: (scheduleId: string) => coalesceRequest(
-      scheduleDeleteRequestsRef.current,
-      scheduleId,
+    mutationFn: (scheduleId: string) => coalesceReportingRequest(
+      reportingRequestScope(requestOwnerId, 'report:schedule:delete', scheduleId),
       () => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
     ),
     onMutate: () => setFeedback(null),
@@ -445,12 +476,16 @@ export function useReportingController() {
     mutationKey: ['reports', 'schedules', 'run'],
     mutationFn: (scheduleId: string) => {
       const path = `/reports/schedules/${scheduleId}/run`
-      return coalesceRequest(
-        scheduleRunRequestsRef.current,
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:run',
         scheduleId,
+      )
+      return coalesceReportingRequest(
+        requestScope,
         () => idempotentReportingFetch(
           path,
-          reportingRequestScope(requestOwnerId, 'report:schedule:run', scheduleId),
+          requestScope,
           { method: 'POST' },
           (value) => requireReportQueueResponseList(value, path),
         ),

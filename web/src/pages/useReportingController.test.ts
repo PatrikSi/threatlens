@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
 import {
-  clearPendingReportingKey,
-  getOrCreatePendingReportingKey,
+  beginPendingReportingRequest,
   reportMutationRequestKey,
   reportingRequestScope,
   resetPendingReportingKeys,
-  serializeCoalescedRequest,
+  serializeReportingWrite,
+  settlePendingReportingRequest,
 } from './reportingRequestCoordinator'
 
 
@@ -31,35 +31,47 @@ describe('reporting request identities', () => {
   it('keeps an unresolved key across request-coordinator consumers', () => {
     const scope = reportingRequestScope('analyst-1', 'report:retry', 'report-1')
 
-    const first = getOrCreatePendingReportingKey(scope)
-    const afterRemount = getOrCreatePendingReportingKey(scope)
+    const first = beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, first, 'ambiguous')
+    const afterRemount = beginPendingReportingRequest(scope)
 
     expect(afterRemount).toBe(first)
-    clearPendingReportingKey(scope, first)
-    expect(getOrCreatePendingReportingKey(scope)).not.toBe(first)
+    settlePendingReportingRequest(scope, afterRemount, 'confirmed')
+    expect(beginPendingReportingRequest(scope)).not.toBe(first)
   })
 
   it('does not clear a newer key from a stale completion', () => {
     const scope = reportingRequestScope('analyst-1', 'report:create', '{}')
-    const first = getOrCreatePendingReportingKey(scope)
-    clearPendingReportingKey(scope, first)
-    const second = getOrCreatePendingReportingKey(scope)
+    const first = beginPendingReportingRequest(scope)
+    settlePendingReportingRequest(scope, first, 'rejected')
+    const second = beginPendingReportingRequest(scope)
 
-    clearPendingReportingKey(scope, first)
+    settlePendingReportingRequest(scope, first, 'confirmed')
 
-    expect(getOrCreatePendingReportingKey(scope)).toBe(second)
+    expect(beginPendingReportingRequest(scope)).toBe(second)
+  })
+
+  it('retains a shared key when overlapping callers settle asymmetrically', () => {
+    const scope = reportingRequestScope('analyst-1', 'report:retry', 'report-2')
+    const first = beginPendingReportingRequest(scope)
+    const overlapping = beginPendingReportingRequest(scope)
+
+    settlePendingReportingRequest(scope, first, 'confirmed')
+    settlePendingReportingRequest(scope, overlapping, 'ambiguous')
+    const retry = beginPendingReportingRequest(scope)
+
+    expect(overlapping).toBe(first)
+    expect(retry).toBe(first)
+    settlePendingReportingRequest(scope, retry, 'confirmed')
+    expect(beginPendingReportingRequest(scope)).not.toBe(first)
   })
 })
 
 describe('serialized reporting writes', () => {
   it('coalesces exact duplicates and runs changed payloads in submission order', async () => {
-    const requests = new Map<string, Promise<string>>()
-    const tails = new Map<string, Promise<void>>()
     const started: string[] = []
     let releaseFirst: ((value: string) => void) | undefined
-    const first = serializeCoalescedRequest(
-      requests,
-      tails,
+    const first = serializeReportingWrite(
       'schedule-1',
       'schedule-1-enabled',
       () => {
@@ -67,16 +79,12 @@ describe('serialized reporting writes', () => {
         return new Promise((resolve) => { releaseFirst = resolve })
       },
     )
-    const duplicate = serializeCoalescedRequest(
-      requests,
-      tails,
+    const duplicate = serializeReportingWrite(
       'schedule-1',
       'schedule-1-enabled',
       () => Promise.resolve('duplicate'),
     )
-    const second = serializeCoalescedRequest(
-      requests,
-      tails,
+    const second = serializeReportingWrite(
       'schedule-1',
       'schedule-1-paused',
       () => {
@@ -96,18 +104,12 @@ describe('serialized reporting writes', () => {
   })
 
   it('continues the ordered write stream after a failed request', async () => {
-    const requests = new Map<string, Promise<string>>()
-    const tails = new Map<string, Promise<void>>()
-    const first = serializeCoalescedRequest(
-      requests,
-      tails,
+    const first = serializeReportingWrite(
       'template-1',
       'first',
       () => Promise.reject(new Error('first failed')),
     )
-    const second = serializeCoalescedRequest(
-      requests,
-      tails,
+    const second = serializeReportingWrite(
       'template-1',
       'second',
       () => Promise.resolve('saved'),
