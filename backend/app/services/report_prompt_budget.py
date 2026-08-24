@@ -181,13 +181,29 @@ def extend_evidence_message_batch_plan(
             budget=budget,
         )
 
-    tail_plan = plan_evidence_message_batches(
-        [*plan.batches[-1], evidence],
+    combined_batch = (*plan.batches[-1], evidence)
+    combined_messages, bounded = build_evidence_messages(
         prompt=prompt,
         generation_context=generation_context,
+        evidence=combined_batch,
         budget=budget,
     )
-    batches = (*plan.batches[:-1], *tail_plan.batches)
+    combined_input_tokens = estimate_message_tokens(combined_messages)
+    if combined_input_tokens <= budget.usable_input_tokens:
+        batches = (*plan.batches[:-1], combined_batch)
+        candidate_peak_tokens = combined_input_tokens
+    else:
+        singleton_messages, _ = build_evidence_messages(
+            prompt=prompt,
+            generation_context=generation_context,
+            evidence=[evidence],
+            budget=budget,
+        )
+        singleton_input_tokens = estimate_message_tokens(singleton_messages)
+        if singleton_input_tokens > budget.usable_input_tokens:
+            raise _oversized_evidence_error()
+        batches = (*plan.batches, (evidence,))
+        candidate_peak_tokens = singleton_input_tokens
     evidence_tokens = estimate_tokens(evidence)
     return ReportMessageBatchPlan(
         batches=batches,
@@ -196,9 +212,9 @@ def extend_evidence_message_batch_plan(
         largest_evidence_tokens=max(plan.largest_evidence_tokens, evidence_tokens),
         largest_batch_input_tokens=max(
             plan.largest_batch_input_tokens,
-            tail_plan.largest_batch_input_tokens,
+            candidate_peak_tokens,
         ),
-        context_compacted=plan.context_compacted or tail_plan.context_compacted,
+        context_compacted=plan.context_compacted or bounded.compacted,
     )
 
 
