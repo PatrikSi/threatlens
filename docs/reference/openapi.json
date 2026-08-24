@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "b3c4696bafd2b384894b7ca44628d6259198329b70da61b0a1f83d92e108e755"
+    "x-threatlens-contract-sha256": "cef886cdf1b1ec87d6b622a7db2322e724ad680f9a1427437c0dcaf18cbd531b"
   },
   "servers": [
     {
@@ -1621,6 +1621,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Schedule Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

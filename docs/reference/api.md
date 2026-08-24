@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:b3c4696bafd2b384894b7ca44628d6259198329b70da61b0a1f83d92e108e755`
+- OpenAPI contract anchor: `openapi-sha256:cef886cdf1b1ec87d6b622a7db2322e724ad680f9a1427437c0dcaf18cbd531b`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -733,6 +733,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `schedule_id` (path, required): string
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Responses: `202` `application/json` -> array[ReportQueueResponse], `422` `application/json` -> HTTPValidationError
 ### `GET /v1/reports/templates`
 - Summary: List Report Templates
