@@ -30,7 +30,7 @@ from app.schemas.user import UserUpdateRequest
 from app.core.security import get_password_hash, verify_password
 from app.services import auth_rate_limit
 from app.services.feed_storage import feed_url_digest
-from app.services.feed_probe import FeedProbeResult
+from app.services.feed_probe import FeedProbeCoordinationError, FeedProbeResult
 from app.services.auth_rate_limit import LoginThrottleState
 from app.services.beat_heartbeat import BeatHeartbeatSnapshot, BeatHealthSnapshot
 
@@ -1422,7 +1422,7 @@ def test_feed_create_blocks_private_network_urls(client: TestClient, auth_header
 def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
     monkeypatch.setattr(
         "app.api.routes.feeds.probe_feed_metadata",
-        lambda _url: FeedProbeResult(
+        lambda _url, **_kwargs: FeedProbeResult(
             name="Detected Feed",
             description="Detected description",
             site_url="https://example.com",
@@ -1439,6 +1439,33 @@ def test_feed_metadata_endpoint(client: TestClient, auth_headers, monkeypatch):
     payload = response.json()
     assert payload["name"] == "Detected Feed"
     assert payload["feed_type"] == "rss20"
+
+
+def test_feed_metadata_endpoint_marks_coordination_outage_retryable(
+    client: TestClient,
+    auth_headers,
+    monkeypatch,
+):
+    def unavailable_probe(_url: str):
+        raise FeedProbeCoordinationError(
+            "Feed metadata probing is temporarily unavailable. Try again."
+        )
+
+    monkeypatch.setattr(
+        "app.api.routes.feeds._probe_feed_metadata",
+        unavailable_probe,
+    )
+
+    response = client.post(
+        "/feeds/metadata",
+        json={"url": "https://example.com/feed.xml"},
+        headers=auth_headers["analyst"],
+    )
+
+    assert response.status_code == 503
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["error"]["retryable"] is True
+    assert "temporarily unavailable" in response.json()["error"]["message"]
 
 
 def test_feed_metadata_endpoint_requires_operator_role(client: TestClient, auth_headers):
@@ -1890,7 +1917,7 @@ def test_feed_list_does_not_backfill_metadata(client: TestClient, auth_headers, 
 
     probe_called = False
 
-    def _probe(_url):
+    def _probe(_url, **_kwargs):
         nonlocal probe_called
         probe_called = True
         return FeedProbeResult(

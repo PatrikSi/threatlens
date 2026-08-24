@@ -81,6 +81,7 @@ export interface ReportTemplate {
   default_filters: ArticleExportFilters
   created_at: string
   updated_at: string
+  resource_version?: string
 }
 
 export interface ReportListItem {
@@ -177,13 +178,40 @@ export interface ReportSchedule {
   missed_run_policy: 'latest' | 'skip' | 'all'
   next_run_at: string | null
   last_run_at: string | null
+  failure_state?: 'healthy' | 'retrying' | 'exhausted' | 'quarantined'
+  failure_count?: number
+  consecutive_failure_count?: number
+  last_error_code?: string | null
+  last_error?: string | null
+  last_error_at?: string | null
+  retry_at?: string | null
   created_at: string
   updated_at: string
+  resource_version?: string
 }
+
+export type ReportScheduleWrite = Omit<
+  ReportSchedule,
+  | 'id'
+  | 'owner_user_id'
+  | 'next_run_at'
+  | 'last_run_at'
+  | 'failure_state'
+  | 'failure_count'
+  | 'consecutive_failure_count'
+  | 'last_error_code'
+  | 'last_error'
+  | 'last_error_at'
+  | 'retry_at'
+  | 'created_at'
+  | 'updated_at'
+  | 'resource_version'
+>
 
 export interface ReportQueueResponse {
   report_id: string
   task_run_id: string
   celery_task_id: string | null
   status: string
+  schedule_id?: string | null
 }

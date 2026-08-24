@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = (ROOT / "backend" / "app", ROOT / "web" / "src")
 SOURCE_SUFFIXES = {".py", ".ts", ".tsx"}
 DEFAULT_MAX_LINES = 1_200
-FILE_MAX_LINES: dict[str, int] = {}
+MAX_PHYSICAL_LINE_LENGTH = 300
 
 
 def is_production_source(path: Path) -> bool:
@@ -29,17 +29,26 @@ def main() -> int:
 
             checked += 1
             relative_path = path.relative_to(ROOT).as_posix()
-            line_count = len(path.read_text(encoding="utf-8").splitlines())
-            max_lines = FILE_MAX_LINES.get(relative_path, DEFAULT_MAX_LINES)
-            if line_count > max_lines:
-                violations.append(f"{relative_path}: {line_count} lines (limit {max_lines})")
+            lines = path.read_text(encoding="utf-8").splitlines()
+            line_count = len(lines)
+            if line_count > DEFAULT_MAX_LINES:
+                violations.append(
+                    f"{relative_path}: {line_count} lines "
+                    f"(limit {DEFAULT_MAX_LINES})"
+                )
+            for line_number, line in enumerate(lines, start=1):
+                if len(line) > MAX_PHYSICAL_LINE_LENGTH:
+                    violations.append(
+                        f"{relative_path}:{line_number}: {len(line)} characters "
+                        f"(limit {MAX_PHYSICAL_LINE_LENGTH})"
+                    )
 
     if violations:
         print("Source-size quality gate failed:", file=sys.stderr)
         for violation in violations:
             print(f"  - {violation}", file=sys.stderr)
         print(
-            "Split the file into cohesive modules, or lower an existing exception after refactoring it.",
+            "Split large files into cohesive modules and wrap compressed physical lines.",
             file=sys.stderr,
         )
         return 1

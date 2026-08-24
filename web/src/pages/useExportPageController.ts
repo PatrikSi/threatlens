@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 
 import { apiDownload, apiFetch } from '../api/client'
@@ -27,6 +27,17 @@ export function useExportPageController() {
   const [format, setFormatState] = useState<ArticleExportFormat>('csv')
   const [options, setOptions] = useState<ArticleExportOptions>(() => createDefaultExportOptions('csv'))
   const [notice, setNotice] = useState<string | null>(null)
+  const mountedRef = useRef(true)
+  const activeExportRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      activeExportRef.current?.abort()
+      activeExportRef.current = null
+    }
+  }, [])
 
   const capabilitiesQuery = useQuery({
     queryKey: ['exports', 'capabilities'],
@@ -49,14 +60,26 @@ export function useExportPageController() {
   })
 
   const exportMutation = useMutation({
-    mutationFn: (request: ArticleExportRequest) =>
-      apiDownload('/exports', {
-        method: 'POST',
-        body: JSON.stringify(request),
-        timeoutMs: 300_000,
-      }),
-    onMutate: () => setNotice(null),
+    mutationFn: async (request: ArticleExportRequest) => {
+      activeExportRef.current?.abort()
+      const controller = new AbortController()
+      activeExportRef.current = controller
+      try {
+        return await apiDownload('/exports', {
+          method: 'POST',
+          body: JSON.stringify(request),
+          timeoutMs: 300_000,
+          signal: controller.signal,
+        })
+      } finally {
+        if (activeExportRef.current === controller) activeExportRef.current = null
+      }
+    },
+    onMutate: () => {
+      if (mountedRef.current) setNotice(null)
+    },
     onSuccess: (result, request) => {
+      if (!mountedRef.current) return
       const filename = result.filename ?? defaultExportFilename(request.format, request.options.filename_prefix)
       triggerBrowserDownload(result.blob, filename)
       setNotice(`Export ready: ${filename}`)

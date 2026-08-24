@@ -79,7 +79,11 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 
 ## Failure Recovery
 
-- Queue publication failures mark the report and AI task run as failed instead of leaving accepted work ambiguous.
+- Report creation and retry accept `Idempotency-Key`; an exact replay returns the original report while a conflicting payload is rejected.
+- The web client keeps each tab's unresolved mutation keys in session storage until a definitive response or authentication reset. Server-side idempotency and resource versions remain the correctness boundary. Write failures degrade to an in-memory key with a reload warning; unreadable storage fails before dispatch because an unresolved key cannot be ruled out safely.
+- Report and AI task state commit before queue publication. A broker exception has an unknown outcome, so durable queued work is retried with the same task identity and capped exponential backoff instead of being marked failed. Once publication is confirmed, ThreatLens trusts the persistent broker and does not emit periodic duplicate messages while a task waits for an AI worker.
+- Worker redelivery cannot make a second provider call while the original renewable generation lease is still owned. A superseded worker cannot persist sections or terminal state after ownership moves.
+- Invalid template or context-budget configuration failures use capped retries and then quarantine the schedule. Transient planning failures use capped exponential backoff; after exhaustion, ThreatLens records the failure and advances to the next occurrence so one schedule cannot starve healthy schedules.
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
 - Lost report workers are reconciled into a terminal failure instead of leaving the report indefinitely queued or running.
 - Provider and context errors retain actionable messages; unexpected exception details stay in worker logs while the UI receives a sanitized recovery message.
@@ -87,6 +91,14 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Failed or skipped reports can be retried by their owner or an administrator from the immutable source snapshot.
 - Queued and running reports cannot be deleted.
 - Scheduled empty periods are retained as skipped report records when **Skip periods with no sources** is enabled.
+
+Operators can tune durable dispatch, schedule retry, generation leases, and rolling-upgrade grace with the `REPORT_*` and `CELERY_VISIBILITY_TIMEOUT_SECONDS` settings documented in the configuration reference. Keep the broker visibility timeout longer than the maximum expected report run to reduce duplicate queue load. If a run exceeds it, redelivery reuses the stable task ID and waits behind the renewable generation fence instead of repeating owned provider work. Ownership waits remain unbounded because another valid worker can still finish, while startup, ownership-verification, and settlement faults use a separate bounded exponential retry budget and become a durable task/report error when exhausted. During an upgrade, an unfenced `running` report from an older worker receives a 24-hour compatibility lease by default so the new worker cannot duplicate provider calls. Queued work published by an older binary is atomically superseded with a new task-run identity before it enters `ai-reports-v2`; a delayed message on `ai` then sees its original run as terminal and exits.
+
+Do not roll the AI worker back while `ai-reports-v2` contains work. Stop report-producing API and maintenance processes, let the current worker drain that queue, and only then replace the worker binary. The documented local worker command consumes both `ai` and `ai-reports-v2`.
+
+Report task-lineage migrations are additive, but enabling supersession has one strict upgrade boundary: stop report-producing API and maintenance processes, drain old report publishers, apply the migrations, and only then start the new API and maintenance processes. An old binary must not create report rows after the lineage migration has finished because it cannot populate the canonical task pointer. This ordered handoff prevents a late legacy enqueue failure from overwriting replacement state without adding a permanent database trigger for one deployment transition.
+
+Migration `0053_report_operation_receipts` is additive and preserves its receipt data on downgrade, so the previous backend can run while the table remains present and a later re-upgrade retains accepted keys. In a rolling deployment, migrate first, replace all API replicas, and then publish the matching web bundle: older API replicas do not understand idempotency headers for template, clone, or schedule creation and therefore cannot provide retry deduplication for those new UI requests.
 
 Use `docker compose logs -f worker-ai` for generation diagnostics and the report detail plus **Settings -> AI -> Activity** for persisted stage/provider history.
 

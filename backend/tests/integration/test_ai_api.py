@@ -13,6 +13,8 @@ from app.models.ai_usage_event import AIUsageEvent
 from app.models.article import Article
 from app.models.feed import Feed
 from app.models.item import Item
+from app.models.report import Report
+from app.models.report_generation_lease import ReportGenerationLease
 from app.models.user import User
 from app.schemas.ai import AILiveTaskResponse
 from app.services.ai_integration import AICompletionResult
@@ -20,12 +22,14 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_CONNECTION_TEST,
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
+    AI_TASK_TYPE_REPORT,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _reconcile_stale_ai_runs,
     queue_ai_task_run,
     start_ai_task_run,
 )
+from app.services.report_execution import claim_report_generation
 
 
 @pytest.fixture()
@@ -527,6 +531,165 @@ def test_stale_reconciliation_keeps_run_with_missing_celery_id_when_live_task_ha
     assert run.status == "queued"
     assert run.reason is None
     assert run.finished_at is None
+
+
+def test_stale_reconciliation_does_not_settle_actively_leased_report(db_session):
+    report, run, _lease = _stale_running_report(db_session)
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    assert reconciled_count == 0
+    assert run.status == "running"
+    assert run.finished_at is None
+    assert report.status == "running"
+
+
+def test_stale_reconciliation_fences_expired_report_worker(db_session):
+    report, run, lease = _stale_running_report(db_session)
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    report.generation_lease_expires_at = expired_at
+    lease.lease_expires_at = expired_at
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    db_session.refresh(lease)
+    assert reconciled_count == 1
+    assert run.status == "error"
+    assert run.reason == "stale_task_lost"
+    assert report.status == "error"
+    assert lease.generation_fence == 2
+    assert lease.lease_token is None
+    assert report.generation_lease_token is None
+
+
+def test_stale_reconciliation_guards_late_legacy_report_worker(db_session):
+    report, run, lease = _stale_running_report(db_session)
+    report.generation_lease_token = None
+    report.generation_lease_expires_at = None
+    lease.lease_token = None
+    lease.lease_expires_at = None
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    db_session.refresh(lease)
+    expected_token = f"legacy-unfenced:{report.id.hex}"
+    assert reconciled_count == 0
+    assert run.status == "running"
+    assert report.status == "running"
+    assert report.generation_lease_token == expected_token
+    assert lease.lease_token == expected_token
+
+
+def test_stale_reconciliation_recovers_ready_report_task_history(db_session):
+    report, run, lease = _stale_running_report(db_session)
+    expired_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    report.status = "ready"
+    report.generation_stage = "ready"
+    report.generated_at = datetime.now(timezone.utc)
+    report.prompt_tokens = 120
+    report.completion_tokens = 40
+    report.total_tokens = 160
+    report.generation_lease_expires_at = expired_at
+    lease.lease_expires_at = expired_at
+    db_session.commit()
+
+    reconciled_count = _reconcile_stale_ai_runs(
+        db_session,
+        snapshot_available=True,
+        workers=["worker@example"],
+        active_tasks=[],
+        reserved_tasks=[],
+        scheduled_tasks=[],
+    )
+
+    db_session.refresh(run)
+    db_session.refresh(report)
+    db_session.refresh(lease)
+    assert reconciled_count == 1
+    assert run.status == "ready"
+    assert run.reason is None
+    assert run.prompt_tokens == 120
+    assert run.completion_tokens == 40
+    assert run.total_tokens == 160
+    assert run.metadata_json["terminal_report_recovered"] is True
+    assert report.status == "ready"
+    assert lease.generation_fence == 2
+    assert lease.lease_token is None
+
+
+def _stale_running_report(
+    db_session,
+) -> tuple[Report, AITaskRun, ReportGenerationLease]:
+    now = datetime.now(timezone.utc)
+    report = Report(
+        title="Stale reconciliation test",
+        report_type="custom",
+        status="queued",
+        trigger_source="manual",
+        generation_stage="queued",
+        period_start=now - timedelta(days=1),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.flush()
+    run = queue_ai_task_run(
+        db_session,
+        task_type=AI_TASK_TYPE_REPORT,
+        trigger_source=AI_TRIGGER_MANUAL,
+        report_id=report.id,
+    )
+    claim = claim_report_generation(
+        db_session,
+        report_id=report.id,
+        lease_token="active-report-worker",
+        lease_seconds=600,
+    )
+    assert claim.generation_fence == 1
+    stale_at = now - timedelta(hours=3)
+    report.status = "running"
+    run.status = "running"
+    run.queued_at = stale_at
+    run.started_at = stale_at
+    run.created_at = stale_at
+    run.updated_at = stale_at
+    db_session.commit()
+    lease = db_session.get(ReportGenerationLease, report.id)
+    assert lease is not None
+    return report, run, lease
 
 
 def test_reprocess_rejects_explicit_item_ids_above_effective_batch_limit(

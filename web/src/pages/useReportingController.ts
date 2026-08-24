@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { ApiError, ApiTransportError, apiDownload, apiFetch } from '../api/client'
+import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -13,8 +13,8 @@ import type {
   ReportListItem,
   ReportPreview,
   ReportPromptConfig,
-  ReportQueueResponse,
   ReportSchedule,
+  ReportScheduleWrite,
   ReportSectionConfig,
   ReportTemplate,
 } from '../types/api'
@@ -30,12 +30,32 @@ import {
 import {
   REPORT_CREATE_TIMEOUT_MS,
   REPORT_PREVIEW_TIMEOUT_MS,
+  isAmbiguousReportingMutationError,
+  reportResourceVersionHeader,
+  requireReportQueueResponse,
+  requireReportQueueResponseList,
+  requireClonedReportingResource,
+  requireReportingResource,
+  reportQueueFeedback,
   reportPreviewErrorBlocksCreation,
   resolveReportCreateBlockedReason,
   shouldRetryReportPreview,
 } from './reportingResilience'
+import { idempotentReportingFetch } from './reportingApi'
+import {
+  coalesceReportingRequest,
+  reportMutationRequestKey,
+  reportingRequestScope,
+  serializeReportingWrite,
+} from './reportingRequestCoordinator'
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
+export type ReportingFeedback = {
+  kind: 'error' | 'info' | 'success'
+  message: string
+} | null
+
+type ReportDownloadFormat = 'markdown' | 'html' | 'pdf'
 
 export function useReportingController() {
   const queryClient = useQueryClient()
@@ -44,6 +64,7 @@ export function useReportingController() {
   const currentUser = useCurrentUser()
   const isAdmin = currentUser.data?.role === 'admin'
   const canAuthor = currentUser.data?.role === 'admin' || currentUser.data?.role === 'analyst'
+  const requestOwnerId = currentUser.data?.id
   const [activeTab, setActiveTab] = useState<ReportingTab>('reports')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [filterDraft, setFilterDraft] = useState<ExportFilterDraft>(createDefaultExportFilterDraftForReports)
@@ -53,7 +74,31 @@ export function useReportingController() {
   const [title, setTitle] = useState('')
   const [deliverWhenReady, setDeliverWhenReady] = useState(false)
   const [deliveryMode, setDeliveryMode] = useState<ReportDeliveryMode>('summary')
-  const [notice, setNotice] = useState<string | null>(null)
+  const [feedback, setFeedback] = useState<ReportingFeedback>(null)
+  const selectedReportIdRef = useRef(routeReportId)
+  const mountedRef = useRef(true)
+  const activeDownloadRef = useRef<{
+    reportId: string
+    controller: AbortController
+  } | null>(null)
+  selectedReportIdRef.current = routeReportId
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      activeDownloadRef.current?.controller.abort()
+      activeDownloadRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const activeDownload = activeDownloadRef.current
+    if (activeDownload && activeDownload.reportId !== routeReportId) {
+      activeDownload.controller.abort()
+      activeDownloadRef.current = null
+    }
+  }, [routeReportId])
 
   const capabilitiesQuery = useQuery({
     queryKey: ['reports', 'capabilities'],
@@ -87,8 +132,18 @@ export function useReportingController() {
   })
 
   useEffect(() => {
-    if (selectedTemplateId || !templatesQuery.data?.length) return
-    setSelectedTemplateId(templatesQuery.data[0].id)
+    const templates = templatesQuery.data
+    if (!templates) return
+    if (!templates.length) {
+      if (selectedTemplateId) setSelectedTemplateId('')
+      return
+    }
+    if (
+      !selectedTemplateId
+      || !templates.some((template) => template.id === selectedTemplateId)
+    ) {
+      setSelectedTemplateId(templates[0].id)
+    }
   }, [selectedTemplateId, templatesQuery.data])
 
   useEffect(() => {
@@ -134,104 +189,510 @@ export function useReportingController() {
   const createReportMutation = useMutation({
     mutationFn: async () => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
-      return apiFetch<ReportQueueResponse>('/reports', {
-        method: 'POST',
-        body: JSON.stringify({
-          template_id: selectedTemplateId || null,
-          title: title.trim() || null,
-          ...reportPeriodFromFilters(validation.filters),
-          filters: validation.filters,
-          excluded_item_ids: excludedItemIds,
-          prompt,
-          sections,
-          deliver_when_ready: deliverWhenReady,
-          delivery_mode: deliveryMode,
-        }),
-        timeoutMs: REPORT_CREATE_TIMEOUT_MS,
+      const body = JSON.stringify({
+        template_id: selectedTemplateId || null,
+        title: title.trim() || null,
+        ...reportPeriodFromFilters(validation.filters),
+        filters: validation.filters,
+        excluded_item_ids: excludedItemIds,
+        prompt,
+        sections,
+        deliver_when_ready: deliverWhenReady,
+        delivery_mode: deliveryMode,
       })
+      const path = '/reports'
+      const requestScope = reportingRequestScope(requestOwnerId, 'report:create', body)
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          {
+            method: 'POST',
+            body,
+            timeoutMs: REPORT_CREATE_TIMEOUT_MS,
+          },
+          (value) => requireReportQueueResponse(value, path),
+        ),
+      )
     },
+    onMutate: () => setFeedback(null),
     onSuccess: (result) => {
-      setNotice('Report queued. Progress and provider history are now available.')
+      setFeedback(reportQueueFeedback('create', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate(`/reporting/${result.report_id}`)
+    },
+    onError: (error) => {
+      setFeedback({
+        kind: 'error',
+        message: resolveReportQueueError(error),
+      })
     },
   })
 
   const retryMutation = useMutation({
-    mutationFn: (reportId: string) => apiFetch<ReportQueueResponse>(`/reports/${reportId}/retry`, { method: 'POST' }),
+    mutationFn: (reportId: string) => {
+      const path = `/reports/${reportId}/retry`
+      const requestScope = reportingRequestScope(requestOwnerId, 'report:retry', reportId)
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          { method: 'POST' },
+          (value) => requireReportQueueResponse(value, path, reportId),
+        ),
+      )
+    },
+    onMutate: () => setFeedback(null),
     onSuccess: (result) => {
+      setFeedback(reportQueueFeedback('retry', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
       navigate(`/reporting/${result.report_id}`)
     },
+    onError: (error) => {
+      setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
+    },
   })
   const deleteMutation = useMutation({
-    mutationFn: (reportId: string) => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+    mutationFn: (reportId: string) => coalesceReportingRequest(
+      reportingRequestScope(requestOwnerId, 'report:delete', reportId),
+      () => apiFetch<void>(`/reports/${reportId}`, { method: 'DELETE' }),
+    ),
+    onMutate: () => setFeedback(null),
     onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate('/reporting')
     },
+    onError: (error) => setActionError(
+      setFeedback,
+      error,
+      'The report could not be deleted',
+    ),
   })
   const templateMutation = useMutation({
+    mutationKey: ['reports', 'templates', 'save'],
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const selected = templatesQuery.data?.find((template) => template.id === selectedTemplateId)
-      const path = payload.mode === 'update' && selected ? `/reports/templates/${selected.id}` : '/reports/templates'
-      return apiFetch<ReportTemplate>(path, {
-        method: payload.mode === 'update' ? 'PUT' : 'POST',
-        body: JSON.stringify({
-          name: payload.name,
-          description: selected?.description ?? 'Custom intelligence report template.',
-          report_type: selected?.report_type ?? 'custom',
-          visibility: payload.visibility,
-          prompt,
-          sections,
-          default_filters: validation.filters,
-        }),
+      const updateTarget = payload.mode === 'update' ? selected : undefined
+      if (payload.mode === 'update' && !updateTarget) {
+        throw new Error('The selected report template is no longer available. Refresh the template list and try again.')
+      }
+      const path = updateTarget ? `/reports/templates/${updateTarget.id}` : '/reports/templates'
+      const entityKey = updateTarget?.id ?? 'create'
+      const body = JSON.stringify({
+        name: payload.name,
+        description: selected?.description ?? 'Custom intelligence report template.',
+        report_type: selected?.report_type ?? 'custom',
+        visibility: payload.visibility,
+        prompt,
+        sections,
+        default_filters: validation.filters,
       })
+      const requestKey = reportMutationRequestKey(entityKey, body)
+      if (updateTarget) {
+        const writeScope = reportingRequestScope(
+          requestOwnerId,
+          'report:template:update',
+          entityKey,
+        )
+        return serializeReportingWrite(
+          writeScope,
+          requestKey,
+          async () => requireReportingResource<ReportTemplate>(
+            await apiFetch<unknown>(path, {
+              method: 'PUT',
+              body,
+              headers: {
+                'If-Match': reportResourceVersionHeader(
+                  updateTarget.resource_version ?? updateTarget.updated_at,
+                ),
+              },
+            }),
+            path,
+            'report template update',
+            200,
+            entityKey,
+          ),
+        )
+      }
+      const createScope = reportingRequestScope(
+        requestOwnerId,
+        'report:template:create',
+        body,
+      )
+      return coalesceReportingRequest(
+        createScope,
+        () => idempotentReportingFetch(
+          path,
+          createScope,
+          { method: 'POST', body },
+          (value) => requireReportingResource<ReportTemplate>(
+            value,
+            path,
+            'report template creation',
+            201,
+          ),
+        ),
+      )
     },
+    onMutate: () => setFeedback(null),
     onSuccess: (template) => {
+      queryClient.setQueryData<ReportTemplate[]>(
+        ['reports', 'templates'],
+        (templates) => upsertReportingResource(templates, template),
+      )
       setSelectedTemplateId(template.id)
-      setNotice('Report template saved.')
+      setFeedback({ kind: 'success', message: 'Report template saved.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
+    },
+    onError: async (error, payload) => {
+      if (payload.mode === 'create') {
+        setIdempotentActionError(
+          setFeedback,
+          error,
+          'The report template could not be saved',
+        )
+        return
+      }
+      setActionError(
+        setFeedback,
+        error,
+        'The report template could not be saved',
+      )
+      await queryClient.resetQueries({
+        queryKey: ['reports', 'templates'],
+        exact: true,
+      })
     },
   })
   const cloneTemplateMutation = useMutation({
-    mutationFn: (templateId: string) => apiFetch<ReportTemplate>(`/reports/templates/${templateId}/clone`, { method: 'POST' }),
+    mutationKey: ['reports', 'templates', 'clone'],
+    mutationFn: (templateId: string) => {
+      const path = `/reports/templates/${templateId}/clone`
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:template:clone',
+        templateId,
+      )
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          { method: 'POST' },
+          (value) => requireClonedReportingResource<ReportTemplate>(
+            value,
+            path,
+            'report template clone',
+            templateId,
+          ),
+        ),
+      )
+    },
+    onMutate: () => setFeedback(null),
     onSuccess: (template) => {
       setSelectedTemplateId(template.id)
       setActiveTab('reports')
-      setNotice('Template cloned. Adjust it in the builder and save when ready.')
+      setFeedback({
+        kind: 'success',
+        message: 'Template cloned. Adjust it in the builder and save when ready.',
+      })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
+    onError: (error) => setIdempotentActionError(
+      setFeedback,
+      error,
+      'The report template could not be cloned',
+    ),
   })
   const deleteTemplateMutation = useMutation({
-    mutationFn: (templateId: string) => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] }),
-  })
-  const createScheduleMutation = useMutation({
-    mutationFn: (payload: Omit<ReportSchedule, 'id' | 'owner_user_id' | 'next_run_at' | 'last_run_at' | 'created_at' | 'updated_at'>) =>
-      apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body: JSON.stringify(payload) }),
+    mutationKey: ['reports', 'templates', 'delete'],
+    mutationFn: (templateId: string) => {
+      const template = templatesQuery.data?.find((entry) => entry.id === templateId)
+      if (!template) {
+        throw new Error('The report template is no longer available. Refresh the template list and try again.')
+      }
+      return coalesceReportingRequest(
+        reportingRequestScope(requestOwnerId, 'report:template:delete', templateId),
+        () => apiFetch<void>(`/reports/templates/${templateId}`, {
+          method: 'DELETE',
+          headers: {
+            'If-Match': reportResourceVersionHeader(
+              template.resource_version ?? template.updated_at,
+            ),
+          },
+        }),
+      )
+    },
+    onMutate: () => setFeedback(null),
     onSuccess: () => {
-      setNotice('Report schedule created.')
-      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+      setFeedback({ kind: 'success', message: 'Report template deleted.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
+    },
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report template could not be deleted',
+      )
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'templates'],
+          exact: true,
+        })
+      }
     },
   })
+  const createScheduleMutation = useMutation({
+    mutationKey: ['reports', 'schedules', 'create'],
+    mutationFn: (payload: ReportScheduleWrite) => {
+      const body = JSON.stringify(payload)
+      const path = '/reports/schedules'
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:create',
+        body,
+      )
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          { method: 'POST', body },
+          (value) => requireReportingResource<ReportSchedule>(
+            value,
+            path,
+            'report schedule creation',
+            201,
+          ),
+        ),
+      )
+    },
+    onMutate: () => setFeedback(null),
+    onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report schedule created.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+    },
+    onError: (error) => setIdempotentActionError(
+      setFeedback,
+      error,
+      'The report schedule could not be created',
+    ),
+  })
   const updateScheduleMutation = useMutation({
-    mutationFn: (schedule: ReportSchedule) => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(schedulePayload(schedule)),
-    }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }),
+    mutationKey: ['reports', 'schedules', 'update'],
+    mutationFn: (schedule: ReportSchedule) => {
+      const body = JSON.stringify(schedulePayload(schedule))
+      const path = `/reports/schedules/${schedule.id}`
+      const writeScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:update',
+        schedule.id,
+      )
+      return serializeReportingWrite(
+        writeScope,
+        reportMutationRequestKey(schedule.id, body),
+        async () => requireReportingResource<ReportSchedule>(
+          await apiFetch<unknown>(path, {
+            method: 'PUT',
+            body,
+            headers: {
+              'If-Match': reportResourceVersionHeader(
+                schedule.resource_version ?? schedule.updated_at,
+              ),
+            },
+          }),
+          path,
+          'report schedule update',
+          200,
+          schedule.id,
+        ),
+      )
+    },
+    onMutate: () => setFeedback(null),
+    onSuccess: (schedule) => {
+      queryClient.setQueryData<ReportSchedule[]>(
+        ['reports', 'schedules'],
+        (schedules) => upsertReportingResource(schedules, schedule),
+      )
+      setFeedback({ kind: 'success', message: 'Report schedule updated.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+    },
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report schedule could not be updated',
+      )
+      await queryClient.resetQueries({
+        queryKey: ['reports', 'schedules'],
+        exact: true,
+      })
+    },
   })
   const deleteScheduleMutation = useMutation({
-    mutationFn: (scheduleId: string) => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] }),
+    mutationKey: ['reports', 'schedules', 'delete'],
+    mutationFn: (scheduleId: string) => {
+      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      if (!schedule) {
+        throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
+      }
+      return coalesceReportingRequest(
+        reportingRequestScope(requestOwnerId, 'report:schedule:delete', scheduleId),
+        () => apiFetch<void>(`/reports/schedules/${scheduleId}`, {
+          method: 'DELETE',
+          headers: {
+            'If-Match': reportResourceVersionHeader(
+              schedule.resource_version ?? schedule.updated_at,
+            ),
+          },
+        }),
+      )
+    },
+    onMutate: () => setFeedback(null),
+    onSuccess: () => {
+      setFeedback({ kind: 'success', message: 'Report schedule deleted.' })
+      void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
+    },
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report schedule could not be deleted',
+      )
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'schedules'],
+          exact: true,
+        })
+      }
+    },
   })
   const runScheduleMutation = useMutation({
-    mutationFn: (scheduleId: string) => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, { method: 'POST' }),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['reports'] })
-      setNotice('Scheduled report run queued.')
+    mutationKey: ['reports', 'schedules', 'run'],
+    mutationFn: (scheduleId: string) => {
+      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      if (!schedule) {
+        throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
+      }
+      const path = `/reports/schedules/${scheduleId}/run`
+      const requestScope = reportingRequestScope(
+        requestOwnerId,
+        'report:schedule:run',
+        scheduleId,
+      )
+      return coalesceReportingRequest(
+        requestScope,
+        () => idempotentReportingFetch(
+          path,
+          requestScope,
+          {
+            method: 'POST',
+            headers: {
+              'If-Match': reportResourceVersionHeader(
+                schedule.resource_version ?? schedule.updated_at,
+              ),
+            },
+          },
+          (value) => requireReportQueueResponseList(value, path, scheduleId),
+        ),
+      )
+    },
+    onMutate: () => setFeedback(null),
+    onSuccess: async (results) => {
+      setFeedback(results.length > 0
+        ? {
+            kind: 'success',
+            message: results.length === 1
+              ? 'Scheduled report run queued.'
+              : `${results.length.toLocaleString()} scheduled report runs queued.`,
+          }
+        : {
+            kind: 'info',
+            message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
+          })
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
+        queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
+      ])
+    },
+    onError: async (error) => {
+      setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'schedules'],
+          exact: true,
+        })
+      }
+    },
+  })
+  const downloadMutation = useMutation({
+    mutationFn: async ({
+      reportId,
+      format,
+    }: {
+      reportId: string
+      format: ReportDownloadFormat
+    }) => {
+      if (!mountedRef.current || selectedReportIdRef.current !== reportId) {
+        throw new ReportDownloadCanceledError()
+      }
+      activeDownloadRef.current?.controller.abort()
+      const controller = new AbortController()
+      const activeDownload = { reportId, controller }
+      activeDownloadRef.current = activeDownload
+      try {
+        const result = await apiDownload(
+          `/reports/${reportId}/download?format=${format}`,
+          { timeoutMs: 60_000, signal: controller.signal },
+        )
+        if (
+          controller.signal.aborted
+          || !mountedRef.current
+          || selectedReportIdRef.current !== reportId
+        ) {
+          throw new ReportDownloadCanceledError()
+        }
+        const extension = format === 'markdown' ? 'md' : format
+        const filename = result.filename ?? `threatlens-report-${reportId}.${extension}`
+        triggerBrowserDownload(result.blob, filename)
+        return { filename, reportId }
+      } catch (error) {
+        if (controller.signal.aborted) throw new ReportDownloadCanceledError()
+        throw error
+      } finally {
+        if (activeDownloadRef.current === activeDownload) {
+          activeDownloadRef.current = null
+        }
+      }
+    },
+    onMutate: () => {
+      if (mountedRef.current) setFeedback(null)
+    },
+    onSuccess: ({ filename, reportId }) => {
+      if (mountedRef.current && selectedReportIdRef.current === reportId) {
+        setFeedback({
+          kind: 'success',
+          message: `Report downloaded: ${filename}`,
+        })
+      }
+    },
+    onError: (error, { reportId }) => {
+      if (
+        error instanceof ReportDownloadCanceledError
+        || !mountedRef.current
+        || selectedReportIdRef.current !== reportId
+      ) {
+        return
+      }
+      setActionError(
+        setFeedback,
+        error,
+        'The report download could not be prepared',
+      )
     },
   })
 
@@ -255,11 +716,6 @@ export function useReportingController() {
     previewError: previewQuery.error,
     selectedSourceCount: previewQuery.data?.estimate.selected_source_count,
   })
-
-  async function downloadReport(reportId: string, format: 'markdown' | 'html' | 'pdf') {
-    const result = await apiDownload(`/reports/${reportId}/download?format=${format}`, { timeoutMs: 60_000 })
-    triggerBrowserDownload(result.blob, result.filename ?? `threatlens-report-${reportId}.${format === 'markdown' ? 'md' : format}`)
-  }
 
   function openReport(reportId: string) {
     navigate(`/reporting/${reportId}`)
@@ -302,7 +758,7 @@ export function useReportingController() {
     setDeliveryMode,
     validationErrors: validation.errors,
     createBlockedReason,
-    notice,
+    feedback,
     createReportMutation,
     retryMutation,
     deleteMutation,
@@ -313,20 +769,20 @@ export function useReportingController() {
     updateScheduleMutation,
     deleteScheduleMutation,
     runScheduleMutation,
-    downloadReport,
+    downloadMutation,
+    detailActionPending:
+      retryMutation.isPending
+      || deleteMutation.isPending
+      || downloadMutation.isPending,
     openReport,
     closeReport,
-    actionError: resolveMutationError(createReportMutation, [
-      retryMutation,
-      deleteMutation,
-      templateMutation,
-      cloneTemplateMutation,
-      deleteTemplateMutation,
-      createScheduleMutation,
-      updateScheduleMutation,
-      deleteScheduleMutation,
-      runScheduleMutation,
-    ]),
+  }
+}
+
+class ReportDownloadCanceledError extends Error {
+  constructor() {
+    super('The report download was canceled because the report view changed.')
+    this.name = 'ReportDownloadCanceledError'
   }
 }
 
@@ -354,21 +810,60 @@ function schedulePayload(schedule: ReportSchedule) {
   }
 }
 
-function resolveMutationError(
-  createMutation: { isError: boolean; error: unknown },
-  mutations: Array<{ isError: boolean; error: unknown }>,
-): string | null {
-  if (createMutation.isError) {
-    const ambiguous = createMutation.error instanceof ApiTransportError
-      || (createMutation.error instanceof ApiError && createMutation.error.status >= 500)
-    return resolveApiErrorMessage(
-      createMutation.error,
-      'The report could not be queued',
-      ambiguous
-        ? { retryGuidance: 'Check the report library before submitting again because the server may have accepted the request.' }
+function upsertReportingResource<Resource extends { id: string }>(
+  resources: Resource[] | undefined,
+  resource: Resource,
+): Resource[] {
+  if (!resources) return [resource]
+  const existingIndex = resources.findIndex((entry) => entry.id === resource.id)
+  if (existingIndex < 0) return [...resources, resource]
+  return resources.map((entry, index) => index === existingIndex ? resource : entry)
+}
+
+function resolveReportQueueError(error: unknown): string {
+  return resolveApiErrorMessage(
+    error,
+    'The report could not be queued',
+    isAmbiguousReportingMutationError(error)
+      ? {
+          retryGuidance:
+            'Retry safely with the same request, or check the report library because the server may already have accepted it.',
+        }
+      : {},
+  )
+}
+
+function setIdempotentActionError(
+  setter: (feedback: ReportingFeedback) => void,
+  error: unknown,
+  fallback: string,
+) {
+  setter({
+    kind: 'error',
+    message: resolveApiErrorMessage(
+      error,
+      fallback,
+      isAmbiguousReportingMutationError(error)
+        ? {
+            retryGuidance:
+              'Retry safely with the same request. ThreatLens will return the original result if the server already completed it.',
+          }
         : {},
-    )
-  }
-  const failed = mutations.find((mutation) => mutation.isError)
-  return failed ? resolveApiErrorMessage(failed.error, 'The reporting action could not be completed') : null
+    ),
+  })
+}
+
+function setActionError(
+  setter: (feedback: ReportingFeedback) => void,
+  error: unknown,
+  fallback: string,
+) {
+  setter({
+    kind: 'error',
+    message: resolveApiErrorMessage(error, fallback),
+  })
+}
+
+function isResourceVersionConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 412
 }

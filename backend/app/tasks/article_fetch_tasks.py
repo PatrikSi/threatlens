@@ -12,6 +12,9 @@ from app.models.article import Article
 from app.models.item import Item
 
 
+ARTICLE_FETCH_MAX_RETRIES = 3
+
+
 @dataclass(frozen=True)
 class ArticleFetchResult:
     final_url: str
@@ -210,35 +213,42 @@ def _fetch_candidates(
 
 def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchResult:
     r = runtime
-    domain = urlsplit(target_url).hostname or "unknown"
-    with r.domain_slot(domain):
-        timeout = httpx.Timeout(
-            connect=r.settings.article_connect_timeout_seconds,
-            read=r.settings.article_read_timeout_seconds,
-            write=r.settings.article_read_timeout_seconds,
-            pool=r.settings.article_connect_timeout_seconds,
-        )
-        with r.build_safe_http_client(
-            timeout=timeout,
-            headers={"User-Agent": r.settings.fetch_user_agent},
+    timeout = httpx.Timeout(
+        connect=r.settings.article_connect_timeout_seconds,
+        read=r.settings.article_read_timeout_seconds,
+        write=r.settings.article_read_timeout_seconds,
+        pool=r.settings.article_connect_timeout_seconds,
+    )
+    with r.build_safe_http_client(
+        timeout=timeout,
+        headers={"User-Agent": r.settings.fetch_user_agent},
+        allow_private_network=r.settings.allow_private_network_fetch,
+    ) as client:
+        response = r.safe_stream_with_redirects(
+            client,
+            "GET",
+            target_url,
             allow_private_network=r.settings.allow_private_network_fetch,
-        ) as client:
-            response = r.safe_stream_with_redirects(
-                client,
-                "GET",
-                target_url,
-                allow_private_network=r.settings.allow_private_network_fetch,
-                max_redirects=r.settings.outbound_max_redirects,
+            max_redirects=r.settings.outbound_max_redirects,
+            request_context=lambda request_url: r.domain_slot(
+                urlsplit(request_url).hostname or "unknown"
+            ),
+        )
+        lease = r.safe_fetch_request_guard(response)
+        try:
+            r.ensure_lease_owned(lease)
+            status_code = response.status_code
+            content_type = response.headers.get("content-type")
+            final_url = r.normalize_url(str(response.url)) or ""
+            body = _read_capped_body(
+                response,
+                r.settings.article_max_bytes,
+                r.ResponseTooLargeError,
+                lease=lease,
+                runtime=r,
             )
-            try:
-                status_code = response.status_code
-                content_type = response.headers.get("content-type")
-                final_url = r.normalize_url(str(response.url)) or ""
-                body = _read_capped_body(
-                    response, r.settings.article_max_bytes, r.ResponseTooLargeError
-                )
-            finally:
-                response.close()
+        finally:
+            response.close()
     error = _response_error(status_code, content_type)
     return ArticleFetchResult(
         final_url, status_code, content_type, body=body, error=error
@@ -246,11 +256,18 @@ def _fetch_candidate(target_url: str, *, runtime: ModuleType) -> ArticleFetchRes
 
 
 def _read_capped_body(
-    response, max_bytes: int, too_large_error: type[Exception]
+    response,
+    max_bytes: int,
+    too_large_error: type[Exception],
+    *,
+    lease=None,
+    runtime: ModuleType | None = None,
 ) -> bytes:
     chunks: list[bytes] = []
     body_size = 0
     for chunk in response.iter_bytes():
+        if runtime is not None:
+            runtime.ensure_lease_owned(lease)
         body_size += len(chunk)
         if body_size > max_bytes:
             raise too_large_error("response body exceeds configured cap")
@@ -284,18 +301,7 @@ def _retryable_failure(
             item_id, target_url, candidate_urls[index + 1], error_code, exc, runtime=r
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
-    try:
-        r.logger.warning(
-            "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
-            item_id,
-            task.request.retries,
-            error_code,
-            r._exception_type_name(exc),
-        )
-        raise task.retry(
-            exc=exc, countdown=min(2**task.request.retries, 300), max_retries=3
-        )
-    except r.MaxRetriesExceededError:
+    if int(getattr(task.request, "retries", 0) or 0) >= ARTICLE_FETCH_MAX_RETRIES:
         r.logger.error(
             "article_fetch_failed item_id=%s error_code=%s error_type=%s",
             item_id,
@@ -303,6 +309,18 @@ def _retryable_failure(
             r._exception_type_name(exc),
         )
         return ArticleFetchResult(target_url, 0, None, error=error_code)
+    r.logger.warning(
+        "article_fetch_retrying item_id=%s retries=%s error_code=%s error_type=%s",
+        item_id,
+        task.request.retries,
+        error_code,
+        r._exception_type_name(exc),
+    )
+    raise task.retry(
+        exc=exc,
+        countdown=min(2 ** int(task.request.retries or 0), 300),
+        max_retries=ARTICLE_FETCH_MAX_RETRIES,
+    )
 
 
 def _log_fallback(

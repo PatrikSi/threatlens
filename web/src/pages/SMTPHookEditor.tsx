@@ -204,7 +204,17 @@ function SMTPTransportFields({ controller }: { controller: SMTPIntegrationContro
         <TextInput id="smtp-from-email" label="Sender Email" type="email" value={draft.from_email} error={validation.from_email} placeholder="threatlens@example.com" onChange={(value) => setDraft((current) => ({ ...current, from_email: value }))} />
         <TextInput id="smtp-from-name" label="Sender Name" value={draft.from_name} placeholder="ThreatLens" onChange={(value) => setDraft((current) => ({ ...current, from_name: value }))} />
         <div className="md:col-span-2">
-          <TextArea id="smtp-to-emails" label="Recipient Emails" value={draft.to_emails} error={validation.to_emails} rows={3} placeholder="analyst@example.com, soc@example.com" helperText="Separate addresses with commas, semicolons, or new lines." monospace={false} onChange={(value) => setDraft((current) => ({ ...current, to_emails: value }))} />
+          <TextArea
+            id="smtp-to-emails"
+            label="Recipient Emails"
+            value={draft.to_emails}
+            error={validation.to_emails}
+            rows={3}
+            placeholder="analyst@example.com, soc@example.com"
+            helperText="Separate addresses with commas, semicolons, or new lines."
+            monospace={false}
+            onChange={(value) => setDraft((current) => ({ ...current, to_emails: value }))}
+          />
         </div>
       </div>
       {!draft.credential_source_id && selectedHook?.password_configured && !selectedHook.uses_shared_credentials && (
@@ -273,8 +283,22 @@ function SMTPFeedScope({ controller }: { controller: SMTPIntegrationController }
           <p className="mt-1 text-xs text-slate dark:text-white/65">Limit this hook to all feeds or a selected set.</p>
         </div>
         <div role="group" aria-label="SMTP feed scope" className="flex rounded-lg border border-slate/20 p-1 dark:border-cyan-900/40">
-          <button type="button" aria-pressed={draft.feed_scope === 'all'} className={`rounded px-3 py-1 text-sm ${draft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`} onClick={() => setDraft((current) => ({ ...current, feed_scope: 'all', feed_ids: [] }))}>Any feed</button>
-          <button type="button" aria-pressed={draft.feed_scope === 'selected'} className={`rounded px-3 py-1 text-sm ${draft.feed_scope === 'selected' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`} onClick={() => setDraft((current) => ({ ...current, feed_scope: 'selected' }))}>Selected feeds</button>
+          <button
+            type="button"
+            aria-pressed={draft.feed_scope === 'all'}
+            className={`rounded px-3 py-1 text-sm ${draft.feed_scope === 'all' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`}
+            onClick={() => setDraft((current) => ({ ...current, feed_scope: 'all', feed_ids: [] }))}
+          >
+            Any feed
+          </button>
+          <button
+            type="button"
+            aria-pressed={draft.feed_scope === 'selected'}
+            className={`rounded px-3 py-1 text-sm ${draft.feed_scope === 'selected' ? 'bg-ink text-white dark:bg-cyan dark:text-[#053c2e]' : 'text-slate dark:text-white/75'}`}
+            onClick={() => setDraft((current) => ({ ...current, feed_scope: 'selected' }))}
+          >
+            Selected feeds
+          </button>
         </div>
       </div>
       {draft.feed_scope === 'selected' && (
@@ -331,7 +355,14 @@ function SMTPHookActions({ controller }: { controller: SMTPIntegrationController
     <div className="mt-5 grid gap-4 border-t border-slate/20 pt-5 dark:border-cyan-900/40 lg:grid-cols-[minmax(0,1fr)_280px]">
       <div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={controller.saveHook.isPending} onClick={controller.onSave}>{controller.saveHook.isPending ? 'Saving...' : selectedHook ? 'Save hook' : 'Create hook'}</button>
+          <button
+            type="button"
+            className="rounded bg-ink px-3 py-2 text-sm font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+            disabled={controller.saveHook.isPending}
+            onClick={controller.onSave}
+          >
+            {controller.saveHook.isPending ? 'Saving...' : selectedHook ? 'Save hook' : 'Create hook'}
+          </button>
           <button type="button" className="rounded border border-slate/30 px-3 py-2 text-sm font-semibold disabled:opacity-50 dark:border-cyan-900/40" disabled={controller.testHook.isPending} onClick={controller.onTest}>{controller.testHook.isPending ? 'Testing...' : 'Test SMTP'}</button>
           {selectedHook && !selectedHook.is_default && (
             <button type="button" className="tl-button-danger rounded px-3 py-2 text-sm font-semibold" onClick={() => controller.confirmDiscardUnsavedChanges(() => { controller.setDeleteError(null); controller.setPendingDelete(selectedHook) })}>Delete hook</button>
@@ -398,7 +429,20 @@ function TextInput({ id, label, value, onChange, error, type = 'text', placehold
   return (
     <div>
       <label htmlFor={id} className="text-sm font-semibold">{label}</label>
-      <input id={id} type={type} min={min} max={max} disabled={disabled} className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45" value={value} placeholder={placeholder} autoComplete={autoComplete} aria-invalid={error ? true : undefined} aria-describedby={error ? errorId : undefined} onChange={(event) => onChange(event.target.value)} />
+      <input
+        id={id}
+        type={type}
+        min={min}
+        max={max}
+        disabled={disabled}
+        className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 disabled:bg-slate/5 disabled:text-slate/60 dark:border-cyan-900/40 dark:bg-[#072019] dark:disabled:bg-white/[0.03] dark:disabled:text-white/45"
+        value={value}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        onChange={(event) => onChange(event.target.value)}
+      />
       {error && <p id={errorId} className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   )
@@ -423,7 +467,16 @@ function TextArea({ id, label, value, onChange, error, helperText, monospace = t
   return (
     <div>
       <label htmlFor={id} className="text-sm font-semibold">{label}</label>
-      <textarea id={id} rows={rows} className={`mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019] ${monospace ? 'font-mono' : ''}`} value={value} placeholder={placeholder} aria-invalid={error ? true : undefined} aria-describedby={describedBy} onChange={(event) => onChange(event.target.value)} />
+      <textarea
+        id={id}
+        rows={rows}
+        className={`mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 text-sm dark:border-cyan-900/40 dark:bg-[#072019] ${monospace ? 'font-mono' : ''}`}
+        value={value}
+        placeholder={placeholder}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy}
+        onChange={(event) => onChange(event.target.value)}
+      />
       {helperText && <p id={helperId} className="mt-1 text-xs text-slate dark:text-white/60">{helperText}</p>}
       {error && <p id={errorId} className="mt-1 text-xs text-red-600">{error}</p>}
     </div>

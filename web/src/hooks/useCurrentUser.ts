@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 
 import { ApiError, apiFetch } from '../api/client'
@@ -5,9 +6,9 @@ import { useAuth } from '../components/AuthContext'
 import { CurrentUser } from '../types/api'
 
 export function useCurrentUser() {
-  const { sessionVersion } = useAuth()
+  const { observeAuthenticatedIdentity, sessionVersion } = useAuth()
 
-  return useQuery({
+  const query = useQuery({
     queryKey: ['auth', 'me', sessionVersion],
     queryFn: () => apiFetch<CurrentUser>('/auth/me'),
     staleTime: 60_000,
@@ -18,4 +19,9 @@ export function useCurrentUser() {
       return failureCount < 1
     },
   })
+  const userId = query.data?.id
+  useEffect(() => {
+    if (userId) observeAuthenticatedIdentity(userId)
+  }, [observeAuthenticatedIdentity, userId])
+  return query
 }

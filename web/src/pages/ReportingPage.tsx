@@ -4,6 +4,7 @@ import { ReportDetailView } from './ReportDetailView'
 import { ReportLibrary } from './ReportLibrary'
 import { ReportSchedulesPanel } from './ReportSchedulesPanel'
 import { ReportTemplatesPanel } from './ReportTemplatesPanel'
+import { ReportingActionFeedback } from './ReportingActionFeedback'
 import { type ReportingTab, useReportingController } from './useReportingController'
 
 const TABS: Array<{ id: ReportingTab; label: string }> = [
@@ -19,16 +20,36 @@ export function ReportingPage() {
   if (controller.reportDetailQuery.isLoading) {
     return <PageStatus message="Loading intelligence report..." />
   }
+  if (controller.reportDetailQuery.data) {
+    return (
+      <div className="space-y-3 sm:space-y-4">
+        <ReportingActionFeedback feedback={controller.feedback} />
+        {controller.reportDetailQuery.isError && (
+          <RefreshWarning
+            message={resolveApiErrorMessage(
+              controller.reportDetailQuery.error,
+              'The latest report status could not be refreshed',
+            )}
+            onRetry={() => void controller.reportDetailQuery.refetch()}
+          />
+        )}
+        <ReportDetailView
+          controller={controller}
+          report={controller.reportDetailQuery.data}
+        />
+      </div>
+    )
+  }
   if (controller.reportDetailQuery.isError) {
     return (
       <PageError
-        message={resolveApiErrorMessage(controller.reportDetailQuery.error, 'The intelligence report could not be loaded')}
+        message={resolveApiErrorMessage(
+          controller.reportDetailQuery.error,
+          'The intelligence report could not be loaded',
+        )}
         onRetry={() => void controller.reportDetailQuery.refetch()}
       />
     )
-  }
-  if (controller.reportDetailQuery.data) {
-    return <ReportDetailView controller={controller} report={controller.reportDetailQuery.data} />
   }
 
   return (
@@ -67,16 +88,7 @@ export function ReportingPage() {
         </nav>
       </section>
 
-      {controller.actionError && (
-        <div role="alert" className="rounded-lg border border-red-300/70 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200">
-          {controller.actionError}
-        </div>
-      )}
-      {controller.notice && (
-        <div aria-live="polite" className="rounded-lg border border-emerald-300/60 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800/50 dark:bg-emerald-950/20 dark:text-emerald-200">
-          {controller.notice}
-        </div>
-      )}
+      <ReportingActionFeedback feedback={controller.feedback} />
 
       {controller.capabilitiesQuery.isLoading && <PageStatus message="Loading reporting capabilities..." />}
       {controller.capabilitiesQuery.isError && (
@@ -111,6 +123,30 @@ function PageError({ message, onRetry }: { message: string; onRetry: () => void 
     <div role="alert" className="rounded-lg border border-red-300/70 bg-red-50 p-4 text-sm text-red-800 dark:border-red-800/60 dark:bg-red-950/30 dark:text-red-200">
       <p>{message}</p>
       <button type="button" className="mt-3 rounded border border-red-400 px-3 py-1.5 text-xs font-semibold dark:border-red-700" onClick={onRetry}>Retry</button>
+    </div>
+  )
+}
+
+function RefreshWarning({
+  message,
+  onRetry,
+}: {
+  message: string
+  onRetry: () => void
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700/40 dark:bg-amber-950/20 dark:text-amber-200"
+    >
+      <span>{message} The last loaded report remains visible.</span>
+      <button
+        type="button"
+        className="rounded border border-amber-400 px-2.5 py-1 text-xs font-semibold dark:border-amber-700"
+        onClick={onRetry}
+      >
+        Retry refresh
+      </button>
     </div>
   )
 }

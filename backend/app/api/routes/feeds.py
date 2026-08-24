@@ -1,6 +1,7 @@
 import uuid
 import logging
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.exc import IntegrityError
@@ -26,10 +27,24 @@ from app.schemas.feed import (
     FeedUpdate,
 )
 from app.services.audit import record_audit
-from app.services.feed_probe import FeedProbeError, probe_feed_metadata
+from app.services.feed_fetch_ownership import (
+    FEED_FETCH_CONFIGURATION_FIELDS,
+    apply_feed_fetch_configuration,
+)
+from app.services.feed_probe import (
+    FeedProbeCoordinationError,
+    FeedProbeError,
+    FeedProbeResult,
+    probe_feed_metadata,
+)
 from app.services.feed_storage import feed_url_digest
 from app.services.url_utils import is_fetchable_url, normalize_feed_url, redact_feed_url
 from app.tasks.celery_app import celery_app
+from app.tasks.feed_task_coordination import (
+    CoordinationUnavailableError,
+    domain_slot,
+    ensure_lease_owned,
+)
 
 router = APIRouter(prefix="/feeds", tags=["feeds"])
 logger = logging.getLogger(__name__)
@@ -51,7 +66,13 @@ def get_feed_metadata(
     _scope_user: User = Depends(require_token_scopes(SCOPE_READ_FEEDS)),
 ):
     try:
-        metadata = probe_feed_metadata(payload.url)
+        metadata = _probe_feed_metadata(payload.url)
+    except FeedProbeCoordinationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(exc),
+            headers={"Retry-After": "5"},
+        ) from exc
     except FeedProbeError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
@@ -138,13 +159,16 @@ def import_feeds(
     errors: list[str] = []
     metadata_backfill_ids: list[str] = []
 
-    for index, entry in enumerate(payload.feeds, start=1):
-        feed_url = normalize_feed_url(entry.url)
+    for index, entry, feed_url in _ordered_import_entries(payload):
         if not is_fetchable_url(feed_url, allow_private_network=settings.allow_private_network_fetch):
             errors.append(f"entry {index}: feed URL is not allowed")
             continue
 
-        existing = _get_feed_by_url(db, feed_url)
+        existing = _get_feed_by_url(
+            db,
+            feed_url,
+            for_update=payload.overwrite_existing,
+        )
         if existing is not None and not payload.overwrite_existing:
             skipped += 1
             continue
@@ -158,7 +182,11 @@ def import_feeds(
                 created += 1
                 continue
 
-            existing = _get_feed_by_url(db, feed_url)
+            existing = _get_feed_by_url(
+                db,
+                feed_url,
+                for_update=payload.overwrite_existing,
+            )
             if existing is None:
                 errors.append(f"entry {index}: feed URL already exists")
                 continue
@@ -224,7 +252,7 @@ def create_feed(
     if not resolved_name:
         if settings.probe_feed_metadata_on_create:
             try:
-                metadata = probe_feed_metadata(feed_url)
+                metadata = _probe_feed_metadata(feed_url)
             except FeedProbeError:
                 metadata = None
 
@@ -278,7 +306,7 @@ def update_feed(
     user: User = Depends(get_operator_user),
     _scope_user: User = Depends(require_token_scopes(SCOPE_WRITE_FEEDS)),
 ):
-    feed = db.scalar(select(Feed).where(Feed.id == feed_id))
+    feed = db.scalar(select(Feed).where(Feed.id == feed_id).with_for_update())
     if feed is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feed not found")
 
@@ -298,18 +326,7 @@ def update_feed(
         existing = _get_feed_by_url(db, feed_url)
         if existing is not None and existing.id != feed.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Feed URL already exists")
-
-        if feed_url_digest(feed_url) != feed.url_digest:
-            feed.url = feed_url
-            feed.etag = None
-            feed.last_modified = None
-            feed.last_fetch_at = None
-            feed.last_success_at = None
-            feed.next_fetch_at = None
-            feed.dispatch_claimed_at = None
-            feed.dispatch_backoff_until = None
-            feed.error_count = 0
-            feed.last_error = None
+        updates["url"] = feed_url
         audit_updates["url"] = redact_feed_url(feed_url)
 
     target_mode = updates.get("fetch_mode", feed.fetch_mode)
@@ -322,6 +339,26 @@ def update_feed(
         if not schedule_cron:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="schedule_cron is required for schedule mode")
         updates["schedule_cron"] = schedule_cron
+
+    fetch_configuration_updates = {
+        key: updates.pop(key)
+        for key in tuple(updates)
+        if key in FEED_FETCH_CONFIGURATION_FIELDS
+    }
+    changed_fetch_fields = apply_feed_fetch_configuration(
+        feed,
+        fetch_configuration_updates,
+    )
+    if "url" in changed_fetch_fields:
+        feed.etag = None
+        feed.last_modified = None
+        feed.last_fetch_at = None
+        feed.last_success_at = None
+        feed.next_fetch_at = None
+        feed.dispatch_claimed_at = None
+        feed.dispatch_backoff_until = None
+        feed.error_count = 0
+        feed.last_error = None
 
     for key, value in updates.items():
         setattr(feed, key, value)
@@ -429,11 +466,35 @@ def _create_feed_record(db: Session, **feed_values) -> Feed | None:
     return feed
 
 
-def _get_feed_by_url(db: Session, feed_url: str) -> Feed | None:
+def _ordered_import_entries(
+    payload: FeedImportRequest,
+) -> list[tuple[int, FeedImportEntry, str]]:
+    entries = [
+        (index, entry, normalize_feed_url(entry.url))
+        for index, entry in enumerate(payload.feeds, start=1)
+    ]
+    entries.sort(
+        key=lambda candidate: (
+            feed_url_digest(candidate[2]) or "",
+            candidate[0],
+        )
+    )
+    return entries
+
+
+def _get_feed_by_url(
+    db: Session,
+    feed_url: str,
+    *,
+    for_update: bool = False,
+) -> Feed | None:
     digest = feed_url_digest(feed_url)
     if digest is None:
         return None
-    return db.scalar(select(Feed).where(Feed.url_digest == digest))
+    statement = select(Feed).where(Feed.url_digest == digest)
+    if for_update:
+        statement = statement.with_for_update()
+    return db.scalar(statement)
 
 
 def _enqueue_metadata_backfills(feed_ids: list[str], max_tasks: int, *, errors: list[str] | None = None) -> int:
@@ -457,6 +518,23 @@ def _clean_optional_text(value: str | None) -> str | None:
         return None
     text = value.strip()
     return text or None
+
+
+def _probe_feed_metadata(url: str) -> FeedProbeResult:
+    try:
+        return probe_feed_metadata(
+            url,
+            request_context=lambda request_url: domain_slot(
+                urlsplit(request_url).hostname or "unknown",
+                max_wait_seconds=5,
+            ),
+            request_guard_validator=ensure_lease_owned,
+        )
+    except CoordinationUnavailableError as exc:
+        raise FeedProbeCoordinationError(
+            "Feed metadata probing is temporarily unavailable because outbound "
+            "fetch coordination could not be acquired. Try again."
+        ) from exc
 
 
 def _resolve_import_text(entry: FeedImportEntry, field_name: str, existing_value: str | None) -> str | None:
@@ -509,7 +587,7 @@ def _resolve_import_feed_values(
     if not resolved_name:
         if settings.probe_feed_metadata_on_import:
             try:
-                metadata = probe_feed_metadata(feed_url)
+                metadata = _probe_feed_metadata(feed_url)
                 resolved_name = metadata.name or redact_feed_url(feed_url)
                 description = description or _clean_optional_text(metadata.description)
                 site_url = site_url or _clean_optional_text(metadata.site_url)
@@ -536,7 +614,15 @@ def _resolve_import_feed_values(
 
 
 def _apply_feed_values(feed: Feed, values: dict[str, str | bool | int | None]) -> None:
+    fetch_configuration_values = {
+        key: value
+        for key, value in values.items()
+        if key in FEED_FETCH_CONFIGURATION_FIELDS
+    }
+    apply_feed_fetch_configuration(feed, fetch_configuration_values)
     for key, value in values.items():
+        if key in FEED_FETCH_CONFIGURATION_FIELDS:
+            continue
         setattr(feed, key, value)
 
 

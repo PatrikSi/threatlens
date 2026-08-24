@@ -55,6 +55,18 @@ jobs:
     name: Backend tests and contract
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      THREATLENS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -82,7 +94,16 @@ jobs:
 
       - name: Run backend tests
         working-directory: backend
-        run: timeout 25m python -m pytest
+        run: >-
+          timeout 25m python -m pytest
+          --cov=app
+          --cov-branch
+          --cov-report=term
+          --cov-report=json:coverage.json
+          --cov-fail-under=79
+
+      - name: Enforce critical backend coverage floors
+        run: python scripts/check_coverage.py backend/coverage.json
 
       - name: Verify generated API contract
         run: |
@@ -219,7 +240,15 @@ jobs:
 
   container-smoke:
     name: Container smoke and image scan
-    if: github.event_name != 'workflow_call' || inputs.run_container_smoke
+    # Direct push/PR runs have no input (`null`); only a reusable caller's
+    # explicit false disables this job.
+    if: >-
+      ${{
+        toJSON(inputs.run_container_smoke) != 'false' &&
+        needs.backend.result == 'success' &&
+        needs.frontend.result == 'success' &&
+        needs.migrations.result == 'success'
+      }}
     needs:
       - backend
       - frontend
@@ -244,8 +273,8 @@ jobs:
           BUILD_DATE: 1970-01-01T00:00:00Z
           VCS_REF: ${{ github.sha }}
         run: |
-          APP_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
-          APP_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 30m docker compose -f docker-compose.yml -f docker-compose.build.yml build --pull
+          THREATLENS_BUILD_VERSION="$(cat VERSION)" timeout 5m docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --no-build --wait --wait-timeout 180
 
       - name: Verify running stack
         run: |

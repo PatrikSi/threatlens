@@ -58,7 +58,13 @@ export function AiReportingConfiguration({ draft, setDraft, validation }: AiConf
       <div className="grid gap-3 md:grid-cols-2">
         {fields.map((field) => (
           <Field key={field.key} label={field.label}>
-            <input className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]" value={String(draft[field.key])} onChange={(event) => updateDraft(setDraft, field.key, event.target.value as never)} inputMode="numeric" aria-invalid={Boolean(validation[field.key])} />
+            <input
+              className="mt-1 w-full rounded border border-slate/30 bg-white px-3 py-2 dark:border-cyan-900/40 dark:bg-[#072019]"
+              value={String(draft[field.key])}
+              onChange={(event) => updateDraft(setDraft, field.key, event.target.value as never)}
+              inputMode="numeric"
+              aria-invalid={Boolean(validation[field.key])}
+            />
             <FieldError message={validation[field.key]} />
             <span className="mt-1 block text-xs text-slate dark:text-white/60">{field.note}</span>
           </Field>

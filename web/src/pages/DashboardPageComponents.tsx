@@ -54,7 +54,13 @@ export function ArticlePreviewDrawer({
         aria-valuemax={maxWidth}
         aria-valuenow={width}
         tabIndex={0}
-        className="absolute left-0 top-1/2 z-10 hidden h-24 w-4 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20 bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2 focus-visible:ring-cyan/50 sm:flex dark:border-cyan-900/50 dark:bg-[#062019] dark:hover:border-cyan-500/60"
+        className={[
+          'absolute left-0 top-1/2 z-10 hidden h-24 w-4 -translate-x-1/2 -translate-y-1/2',
+          'cursor-ew-resize touch-none items-center justify-center rounded-full border border-slate/20',
+          'bg-white shadow-md hover:border-cyan hover:text-cyan focus-visible:ring-2',
+          'focus-visible:ring-cyan/50 sm:flex dark:border-cyan-900/50 dark:bg-[#062019]',
+          'dark:hover:border-cyan-500/60',
+        ].join(' ')}
         onPointerDown={onResizeStart}
         onKeyDown={(event) => {
           if (event.key === 'ArrowLeft') {

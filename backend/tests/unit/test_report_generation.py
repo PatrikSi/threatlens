@@ -11,6 +11,7 @@ from app.services import report_generation
 from app.services.ai_context_budget import build_context_budget
 from app.services.ai_provider_client import AIIntegrationError
 from app.services.report_prompt_budget import build_evidence_messages, estimate_message_tokens
+from app.services.report_execution import ReportGenerationLeaseLostError
 from app.services.report_storage import reset_report_for_retry
 
 
@@ -249,6 +250,93 @@ def test_runtime_plan_degrades_legacy_sources_to_current_context_and_call_limits
         warning.startswith("Execution omitted ")
         for warning in report.coverage_json["warnings"]
     )
+
+
+def test_lost_execution_lease_does_not_overwrite_report_state(
+    db_session, monkeypatch
+):
+    now = datetime.now(timezone.utc)
+    report = Report(
+        id=uuid.uuid4(),
+        title="Ownership test",
+        report_type="custom",
+        status="queued",
+        trigger_source="manual",
+        generation_stage="queued",
+        period_start=now - timedelta(days=1),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={"objective": "Summarize material threats."},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+        source_count=1,
+        included_source_count=1,
+        estimated_input_tokens=10,
+        context_window_tokens=8192,
+        generation_batches=1,
+    )
+    db_session.add(report)
+    db_session.flush()
+    db_session.add_all(
+        [
+            ReportSourceItem(
+                report_id=report.id,
+                citation_key="S1",
+                included=True,
+                rank=1,
+                title_snapshot="Source",
+                feed_name_snapshot="Feed",
+                url_snapshot="https://example.com/source",
+                first_seen_at_snapshot=now,
+                tags_snapshot_json=[],
+                iocs_snapshot_json=[],
+                evidence_text="[S1] Source evidence",
+                estimated_tokens=10,
+            ),
+            ReportSection(
+                report_id=report.id,
+                section_key="executive_summary",
+                title="Executive Summary",
+                position=1,
+                status="pending",
+            ),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(
+        report_generation,
+        "load_active_ai_settings",
+        lambda _db: SimpleNamespace(
+            ai_enabled=True,
+            ai_configured=True,
+            reporting_enabled=True,
+            report_context_window_tokens=8192,
+            report_reserved_output_tokens=1200,
+            report_context_safety_percent=15,
+            report_source_token_cap=700,
+            report_max_model_calls=20,
+            provider_type="openai_compatible",
+            model="local-threat-model",
+        ),
+    )
+
+    with pytest.raises(ReportGenerationLeaseLostError):
+        report_generation.generate_report(
+            db_session,
+            report_id=report.id,
+            task_run_id=None,
+            execution_checkpoint=lambda: (_ for _ in ()).throw(
+                ReportGenerationLeaseLostError("ownership changed")
+            ),
+        )
+
+    db_session.expire_all()
+    unchanged = db_session.get(Report, report.id)
+    assert unchanged.status == "queued"
+    assert unchanged.generation_stage == "queued"
+    assert unchanged.error_code is None
+    assert unchanged.error is None
 
 
 def test_report_completion_retry_limit_uses_only_unused_context_headroom():

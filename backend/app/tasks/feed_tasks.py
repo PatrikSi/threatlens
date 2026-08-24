@@ -4,7 +4,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import redis
-from celery.exceptions import MaxRetriesExceededError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -39,6 +38,12 @@ from app.services.feed_metadata import (
     backfill_feed_metadata_from_body as _backfill_feed_metadata_from_body,
     needs_metadata_backfill as _needs_metadata_backfill,
 )
+from app.services.feed_fetch_ownership import (
+    FeedFetchFence,
+    FeedFetchOwnershipLostError,
+    claim_feed_fetch,
+    ensure_feed_fetch_owned,
+)
 from app.services.feed_pipeline import (
     clear_feed_dispatch_claim as _clear_feed_dispatch_claim,
     claim_feed_for_dispatch as _claim_feed_for_dispatch_impl,
@@ -56,6 +61,7 @@ from app.services.safe_fetch import (
     RedirectError,
     SafeFetchError,
     build_safe_http_client,
+    safe_fetch_request_guard,
     safe_stream_with_redirects,
 )
 from app.services.url_utils import extract_url_domain, is_fetchable_url, normalize_url
@@ -78,6 +84,7 @@ from app.tasks.item_processing_tasks import (
 )
 from app.tasks.report_tasks import (
     dispatch_due_report_schedules,
+    dispatch_pending_report_tasks,
     generate_intelligence_report,
 )
 from app.tasks.ai_brief_tasks import (
@@ -96,6 +103,7 @@ from app.tasks.feed_task_coordination import (
     CoordinationUnavailableError,
     DOMAIN_SLOT_TTL_SECONDS,
     DOMAIN_SLOT_WAIT_INTERVAL_SECONDS,
+    LeaseOwnershipLostError,
     TAGGING_REAPPLY_LOCK_KEY,
     _best_effort_release_lease,
     _domain_slot_key,
@@ -112,6 +120,7 @@ from app.tasks.feed_task_coordination import (
     claim_tagging_reapply_dispatch,
     daily_ai_brief_lock,
     domain_slot,
+    ensure_lease_owned,
     feed_lock,
     release_tagging_reapply_dispatch,
     tagging_reapply_lock,
@@ -180,10 +189,12 @@ from app.tasks.notification_tasks import (
     dispatch_smtp_new_item_notification,
     dispatch_smtp_webhook_failed_notification,
     dispatch_webhook_failed_notification_webhooks,
+    enqueue_feed_failure_notifications as _enqueue_feed_failure_notifications,
     enqueue_notification_webhook_delivery_processing,
     mark_feed_failure_and_enqueue_notifications as _mark_feed_failure_and_enqueue_notifications,
     process_notification_webhook_deliveries,
     reserve_notification_webhook_delivery,
+    stage_feed_failure_notifications as _stage_feed_failure_notifications,
 )
 from app.tasks.task_session import db_session
 
@@ -234,6 +245,7 @@ __all__ = [
     "daily_ai_brief_lock",
     "dispatch_daily_ai_brief_generation",
     "dispatch_due_report_schedules",
+    "dispatch_pending_report_tasks",
     "dispatch_alert_match_notification_webhooks",
     "dispatch_daily_digest_notification_webhooks",
     "dispatch_feed_failing_notification_webhooks",
@@ -265,12 +277,16 @@ TAGGING_REAPPLY_COMMIT_INTERVAL = 50
 AI_AUTO_ENRICH_OUTSIDE_NEW_ITEM_WINDOW_REASON = "outside_auto_enrich_new_item_window"
 
 
-def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
+def _stage_feed_after_coordination_failure(feed: Feed) -> None:
     next_attempt_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     _clear_feed_dispatch_claim(feed)
     feed.dispatch_backoff_until = next_attempt_at
     feed.next_fetch_at = next_attempt_at
     feed.last_error = "coordination_unavailable"
+
+
+def _reschedule_feed_after_coordination_failure(db: Session, feed: Feed) -> None:
+    _stage_feed_after_coordination_failure(feed)
     db.add(feed)
     db.commit()
 
@@ -743,10 +759,12 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     ARTICLE_REFRESHED_SKIP_REASON,
     CoordinationUnavailableError,
     FeedProbeError,
+    FeedFetchFence,
+    FeedFetchOwnershipLostError,
     FeedResponseTooLargeError,
     IOC_EXTRACTION_STATE_COMPLETED,
     IOC_EXTRACTION_STATE_COMPLETED_EMPTY,
-    MaxRetriesExceededError,
+    LeaseOwnershipLostError,
     RSSConnector,
     RSSFeedParseError,
     RedirectError,
@@ -764,23 +782,29 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     _get_or_create_ioc,
     _load_article_freshness_token,
     _mark_feed_failure_and_enqueue_notifications,
+    _enqueue_feed_failure_notifications,
     _refresh_feed_next_fetch_at,
     _resolve_feed_runtime_url,
     _safe_article_fetch_error_code,
     _safe_feed_fetch_error_code,
+    _stage_feed_after_coordination_failure,
     _store_article_error,
+    _stage_feed_failure_notifications,
     _upsert_item_from_parsed,
     ai_task_run_stop_reason,
     build_alert_match_context_for_item,
     build_safe_http_client,
     classify_item_content,
     domain_slot,
+    ensure_feed_fetch_owned,
+    ensure_lease_owned,
     enqueue_integration_event_routing,
     extract_canonical_url,
     extract_iocs,
     extract_readable_text,
     extract_url_domain,
     feed_lock,
+    claim_feed_fetch,
     is_fetchable_url,
     load_active_ai_settings,
     load_feedback_adjustments,
@@ -788,6 +812,7 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     probe_feed_metadata,
     record_ai_task_event,
     run_item_ai_enrichment,
+    safe_fetch_request_guard,
     safe_stream_with_redirects,
     start_ai_task_run,
     sync_item_algorithm_tags,

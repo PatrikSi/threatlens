@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from pydantic import ValidationError
@@ -9,6 +9,7 @@ from app.schemas.reports import (
     ReportPreviewRequest,
     ReportScheduleCreate,
     ReportSectionConfig,
+    ReportTemplateCreate,
 )
 
 
@@ -54,3 +55,62 @@ def test_schedule_rejects_unknown_timezone():
 def test_shared_report_inputs_reject_private_user_state(state_filter):
     with pytest.raises(ValidationError, match="private read or starred state"):
         ReportPreviewRequest(filters=state_filter)
+
+
+def test_report_create_rejects_duplicate_section_keys():
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValidationError, match="section keys must be unique"):
+        ReportCreateRequest(
+            period_start=now,
+            period_end=now + timedelta(days=1),
+            sections=[
+                ReportSectionConfig(key="summary", title="Summary"),
+                ReportSectionConfig(key="summary", title="Another summary"),
+            ],
+        )
+
+
+def test_report_create_rejects_all_disabled_sections():
+    now = datetime.now(timezone.utc)
+    with pytest.raises(ValidationError, match="section must be enabled"):
+        ReportCreateRequest(
+            period_start=now,
+            period_end=now + timedelta(days=1),
+            sections=[
+                ReportSectionConfig(
+                    key="summary",
+                    title="Summary",
+                    enabled=False,
+                )
+            ],
+        )
+
+
+def test_report_template_rejects_all_disabled_sections():
+    with pytest.raises(ValidationError, match="section must be enabled"):
+        ReportTemplateCreate(
+            name="Disabled template",
+            sections=[
+                ReportSectionConfig(
+                    key="summary",
+                    title="Summary",
+                    enabled=False,
+                )
+            ],
+        )
+
+
+def test_report_preview_allows_empty_sections_for_source_estimation():
+    preview = ReportPreviewRequest(sections=[])
+
+    assert preview.sections == []
+
+
+def test_report_preview_rejects_invalid_nonempty_section_set():
+    with pytest.raises(ValidationError, match="section keys must be unique"):
+        ReportPreviewRequest(
+            sections=[
+                ReportSectionConfig(key="summary", title="Summary"),
+                ReportSectionConfig(key="summary", title="Duplicate"),
+            ]
+        )

@@ -7,6 +7,7 @@ from app.models.audit_log import AuditLog
 from app.models.feed import Feed
 from app.models.integration import IntegrationInstance, IntegrationRun
 from app.models.item import Item
+from app.models.report import Report
 from app.models.tag import TagFeedbackEvent
 from app.models.user import User
 from app.services.history_maintenance import prune_application_history
@@ -53,6 +54,34 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(db_sess
     )
     db_session.add_all([user, feed, item, integration])
     db_session.flush()
+
+    report = Report(
+        title="Retained report",
+        report_type="custom",
+        status="ready",
+        trigger_source="manual",
+        generation_stage="complete",
+        period_start=old - timedelta(days=7),
+        period_end=old,
+        filters_json={},
+        prompt_config_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+    )
+    db_session.add(report)
+    db_session.flush()
+    report_request_run = AITaskRun(
+        id=uuid.uuid4(),
+        task_type="report",
+        trigger_source="manual",
+        status="ready",
+        report_id=report.id,
+        finished_at=old,
+    )
+    db_session.add(report_request_run)
+    db_session.flush()
+    report.request_task_run_id = report_request_run.id
 
     old_run = AITaskRun(
         id=uuid.uuid4(),
@@ -103,4 +132,5 @@ def test_application_history_retention_prunes_only_expired_terminal_rows(db_sess
     assert result.tag_feedback_events_deleted == 1
     assert result.integration_runs_deleted == 1
     assert db_session.get(AITaskRun, unfinished_run.id) is not None
+    assert db_session.get(AITaskRun, report_request_run.id) is not None
     assert db_session.query(AuditLog).filter(AuditLog.action == "recent").count() == 1

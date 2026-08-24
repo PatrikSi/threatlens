@@ -30,6 +30,7 @@ from app.schemas.ai import AISettingsUpdate
 from app.schemas.notification import NotificationWebhookTestResponse
 from app.services.feed_pipeline import mark_feed_failure as _mark_feed_failure
 from app.services.integration_delivery import ensure_webhook_delivery
+from app.tasks.feed_task_coordination import LeaseOwnershipLostError
 from app.tasks.feed_tasks import (
     _feed_url_digest_still_current,
     _emit_failed_webhook_integration_event,
@@ -146,6 +147,14 @@ class _HeartbeatRedis:
         self.expirations[key] = time.monotonic() + max(0, int(seconds))
         return True
 
+    def pexpire(self, key: str, milliseconds: int):
+        self._purge_expired()
+        if key not in self.values:
+            return False
+        self.expire_counts[key] = self.expire_counts.get(key, 0) + 1
+        self.expirations[key] = time.monotonic() + max(0, int(milliseconds)) / 1000
+        return True
+
     def pttl(self, key: str):
         self._purge_expired()
         if key not in self.values:
@@ -176,14 +185,32 @@ class _HeartbeatRedis:
 
     def eval(self, _script: str, _numkeys: int, *args):
         self._purge_expired()
-        if _numkeys == 1 and len(args) == 2:
-            key, token = args
+        if _numkeys == 2 and len(args) == 5:
+            key, heartbeat_key, token, heartbeat_value, ttl_ms = args
             if self.values.get(key) == token:
-                self.delete(key)
+                self.pexpire(key, int(ttl_ms))
+                self.values[heartbeat_key] = heartbeat_value
+                self.pexpire(heartbeat_key, int(ttl_ms))
                 return 1
             return 0
-        if _numkeys == 2 and len(args) == 7:
-            key, heartbeat_key, observed_token, observed_heartbeat, new_token, new_heartbeat, ttl_seconds = args
+        if _numkeys == 2 and len(args) == 3:
+            key, heartbeat_key, token = args
+            if self.values.get(key) == token:
+                self.delete(key)
+                self.delete(heartbeat_key)
+                return 1
+            return 0
+        if _numkeys == 3 and len(args) == 8:
+            (
+                key,
+                heartbeat_key,
+                observation_key,
+                observed_token,
+                observed_heartbeat,
+                new_token,
+                new_heartbeat,
+                ttl_seconds,
+            ) = args
             current_token = self.values.get(key)
             current_heartbeat = self.values.get(heartbeat_key)
             if current_token != observed_token:
@@ -199,6 +226,7 @@ class _HeartbeatRedis:
             self.values[heartbeat_key] = new_heartbeat
             self.expire(key, int(ttl_seconds))
             self.expire(heartbeat_key, int(ttl_seconds))
+            self.delete(observation_key)
             return 1
         return 0
 
@@ -213,7 +241,7 @@ def test_lease_heartbeats_renew_feed_daily_and_domain_locks(monkeypatch: pytest.
     domain_key = "threatlens:domain:example.com:slot:1"
 
     with feed_lock("feed-1", ttl_seconds=1) as acquired:
-        assert acquired is True
+        assert acquired
         time.sleep(0.05)
         assert redis_client.expire_counts[feed_key] >= 2
 
@@ -249,8 +277,83 @@ def test_feed_lock_can_take_over_stale_lease_without_ttl(monkeypatch: pytest.Mon
     monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
 
     with feed_lock("feed-stale", ttl_seconds=900) as acquired:
-        assert acquired is True
+        assert acquired
         assert redis_client.get(stale_feed_key) != "dead-token"
+
+
+def test_feed_lock_release_does_not_delete_new_owner_heartbeat(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    redis_client = _HeartbeatRedis()
+    feed_key = "threatlens:feed:lock:feed-replaced"
+    heartbeat_key = f"{feed_key}:heartbeat"
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+
+    with feed_lock("feed-replaced", ttl_seconds=30) as lease:
+        assert lease
+        redis_client.set(feed_key, "replacement-token", ex=30)
+        redis_client.set(
+            heartbeat_key,
+            f"replacement-token|{time.time():.6f}",
+            ex=30,
+        )
+
+    assert redis_client.get(feed_key) == "replacement-token"
+    assert redis_client.get(heartbeat_key).startswith("replacement-token|")
+
+
+def test_feed_lease_guard_fails_closed_after_token_replacement(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    redis_client = _HeartbeatRedis()
+    feed_key = "threatlens:feed:lock:feed-replaced"
+    warning_messages: list[str] = []
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+    monkeypatch.setattr(
+        "app.tasks.feed_task_coordination.logger.warning",
+        lambda message, *args: warning_messages.append(message % args),
+    )
+
+    with feed_lock("feed-replaced", ttl_seconds=30) as lease:
+        redis_client.set(feed_key, "replacement-token", ex=30)
+        with pytest.raises(
+            LeaseOwnershipLostError,
+            match="ownership was lost",
+        ):
+            lease.ensure_owned()
+
+    log_output = "\n".join(warning_messages)
+    assert "coordination_lease_ownership_lost" in log_output
+    assert feed_key in log_output
+    assert lease.token not in log_output
+    assert "replacement-token" not in log_output
+
+
+@pytest.mark.parametrize("heartbeat", [None, "malformed-heartbeat"])
+def test_feed_lock_observes_legacy_lease_before_stale_takeover(
+    heartbeat: str | None,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    redis_client = _HeartbeatRedis()
+    feed_key = "threatlens:feed:lock:legacy-feed"
+    heartbeat_key = f"{feed_key}:heartbeat"
+    observation_key = f"{feed_key}:observation"
+    redis_client.set(feed_key, "legacy-token")
+    if heartbeat is not None:
+        redis_client.set(heartbeat_key, heartbeat)
+    monkeypatch.setattr("app.tasks.feed_task_coordination.redis_client", redis_client)
+
+    with feed_lock("legacy-feed", ttl_seconds=1) as acquired:
+        assert acquired is False
+
+    redis_client.set(
+        observation_key,
+        f"legacy-token|{time.time() - 2:.6f}",
+        ex=2,
+    )
+    with feed_lock("legacy-feed", ttl_seconds=1) as acquired:
+        assert acquired
+        assert redis_client.get(feed_key) != "legacy-token"
 
 
 def test_domain_slot_uses_open_slot_instead_of_preempting_live_ttl_slot(monkeypatch: pytest.MonkeyPatch):
@@ -2471,6 +2574,57 @@ def test_dispatch_feed_metadata_backfill_queues_url_placeholder_names_with_site_
 
     assert result == {"queued": 1}
     assert queued_feed_ids == [str(feed.id)]
+
+
+def test_dispatch_feed_metadata_backfill_honors_persisted_coordination_backoff(
+    db_session,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    backed_off_feed = Feed(
+        id=uuid.uuid4(),
+        name="",
+        url="https://example.com/backed-off-metadata.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_backoff_until=now + timedelta(minutes=5),
+        created_at=now - timedelta(hours=2),
+    )
+    due_feed = Feed(
+        id=uuid.uuid4(),
+        name="",
+        url="https://example.com/due-metadata.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_backoff_until=now - timedelta(seconds=1),
+        created_at=now - timedelta(hours=1),
+    )
+    db_session.add_all([backed_off_feed, due_feed])
+    db_session.commit()
+    queued_feed_ids: list[str] = []
+
+    @contextmanager
+    def _db_session_override():
+        yield db_session
+
+    monkeypatch.setattr("app.tasks.feed_tasks.db_session", _db_session_override)
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.settings.dispatch_feed_metadata_scan_limit",
+        10,
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.settings.dispatch_feed_metadata_queue_limit",
+        10,
+    )
+    monkeypatch.setattr(
+        "app.tasks.feed_tasks.backfill_feed_metadata.delay",
+        lambda feed_id: queued_feed_ids.append(feed_id),
+    )
+
+    result = dispatch_feed_metadata_backfill.run()
+
+    assert result == {"queued": 1}
+    assert queued_feed_ids == [str(due_feed.id)]
 
 
 def test_fetch_article_recovers_existing_article_after_soft_failure(db_session, monkeypatch):
