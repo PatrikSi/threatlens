@@ -3,7 +3,10 @@ import uuid
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.routes import feeds as feeds_routes
 from app.models.feed import Feed
+from app.schemas.feed import FeedImportRequest
+from app.services.feed_storage import feed_url_digest
 
 
 def test_feed_patch_advances_fetch_fence_once_for_material_changes(
@@ -88,3 +91,21 @@ def test_feed_import_overwrite_advances_fetch_fence_for_material_changes(
     stored_feed = db_session.get(Feed, feed.id)
     assert stored_feed is not None
     assert stored_feed.fetch_fence == 20
+
+
+def test_overwrite_import_uses_stable_feed_lock_order():
+    payload = FeedImportRequest.model_validate(
+        {
+            "overwrite_existing": True,
+            "feeds": [
+                {"name": "Second", "url": "https://example.com/second.xml"},
+                {"name": "First", "url": "https://example.com/first.xml"},
+            ],
+        }
+    )
+
+    entries = feeds_routes._ordered_import_entries(payload)
+
+    digests = [feed_url_digest(feed_url) for _index, _entry, feed_url in entries]
+    assert digests == sorted(digests)
+    assert {index for index, _entry, _url in entries} == {1, 2}
