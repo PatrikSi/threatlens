@@ -4,7 +4,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 
 import redis
-from celery.exceptions import MaxRetriesExceededError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -766,7 +765,6 @@ _EXTRACTED_TASK_RUNTIME_DEPENDENCIES = (
     IOC_EXTRACTION_STATE_COMPLETED,
     IOC_EXTRACTION_STATE_COMPLETED_EMPTY,
     LeaseOwnershipLostError,
-    MaxRetriesExceededError,
     RSSConnector,
     RSSFeedParseError,
     RedirectError,

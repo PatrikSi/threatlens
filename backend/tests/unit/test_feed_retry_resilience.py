@@ -2,12 +2,15 @@ import uuid
 from contextlib import contextmanager
 from types import SimpleNamespace
 
-from celery.exceptions import MaxRetriesExceededError
-
 from app.models.feed import Feed
 from app.services.feed_fetch_ownership import claim_feed_fetch
 from app.tasks import feed_tasks
-from app.tasks.feed_fetch_tasks import _retry_feed_exception, run_fetch_feed
+from app.tasks.article_fetch_tasks import _retryable_failure
+from app.tasks.feed_fetch_tasks import (
+    _recover_coordination_failure,
+    _retry_feed_exception,
+    run_fetch_feed,
+)
 from app.tasks.feed_task_coordination import (
     CoordinationUnavailableError,
     LeaseOwnershipLostError,
@@ -18,7 +21,7 @@ class _ExhaustedRetryTask:
     request = SimpleNamespace(retries=3)
 
     def retry(self, **_kwargs):
-        raise MaxRetriesExceededError()
+        raise AssertionError("an exhausted task must not request another retry")
 
 
 class _UnexpectedRetryTask:
@@ -89,6 +92,54 @@ def test_coordination_retry_exhaustion_rolls_back_and_takes_fresh_db_claim(
     assert stored_feed.last_error == "coordination_unavailable"
     assert stored_feed.dispatch_backoff_until is not None
     assert stored_feed.next_fetch_at == stored_feed.dispatch_backoff_until
+
+
+def test_outer_coordination_retry_exhaustion_reschedules_without_retry(
+    db_session,
+    monkeypatch,
+):
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Outer coordination recovery feed",
+        url=f"https://example.com/{uuid.uuid4()}.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+    )
+    db_session.add(feed)
+    db_session.commit()
+
+    @contextmanager
+    def test_session():
+        yield db_session
+
+    monkeypatch.setattr(feed_tasks, "db_session", test_session)
+    result = _recover_coordination_failure(
+        _ExhaustedRetryTask(),
+        str(feed.id),
+        CoordinationUnavailableError("redis unavailable"),
+        runtime=feed_tasks,
+    )
+
+    assert result["reason"] == "coordination_unavailable"
+    db_session.expire_all()
+    stored_feed = db_session.get(Feed, feed.id)
+    assert stored_feed.dispatch_backoff_until is not None
+    assert stored_feed.next_fetch_at == stored_feed.dispatch_backoff_until
+
+
+def test_article_retry_exhaustion_returns_storable_error_without_retry():
+    result = _retryable_failure(
+        _ExhaustedRetryTask(),
+        "item-1",
+        "https://example.com/article",
+        TimeoutError("timed out"),
+        False,
+        ["https://example.com/article"],
+        0,
+        runtime=feed_tasks,
+    )
+
+    assert result.error == "network_or_rate_limit_error"
 
 
 def test_confirmed_coordination_ownership_loss_rolls_back_without_retry(
