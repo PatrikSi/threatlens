@@ -64,7 +64,11 @@ def claim_report_dispatch(
     if next_attempt_at is not None and next_attempt_at > observed_at:
         return ReportDispatchClaim(False, celery_task_id=run.celery_task_id)
 
-    if int(run.dispatch_attempt_count or 0) >= settings.report_dispatch_max_attempts:
+    attempt_count = int(run.dispatch_attempt_count or 0)
+    if (
+        attempt_count >= settings.report_dispatch_max_attempts
+        and run.dispatch_published_at is None
+    ):
         _settle_report_dispatch_exhausted(
             db,
             run=run,
@@ -78,7 +82,10 @@ def claim_report_dispatch(
         )
 
     dispatch_token = uuid.uuid4().hex
-    run.dispatch_attempt_count = int(run.dispatch_attempt_count or 0) + 1
+    run.dispatch_attempt_count = min(
+        attempt_count + 1,
+        settings.report_dispatch_max_attempts,
+    )
     run.dispatch_claim_token = dispatch_token
     run.dispatch_claim_expires_at = observed_at + timedelta(
         seconds=settings.report_dispatch_claim_seconds
@@ -112,6 +119,7 @@ def record_report_dispatch_success(
     settings = get_settings()
     observed_at = _as_utc(now)
     run.celery_task_id = celery_task_id
+    run.dispatch_attempt_count = 0
     run.dispatch_published_at = observed_at
     run.dispatch_next_attempt_at = observed_at + timedelta(
         seconds=settings.report_dispatch_stale_after_seconds
@@ -144,7 +152,10 @@ def record_report_dispatch_failure(
     observed_at = _as_utc(now)
     run.dispatch_claim_token = None
     run.dispatch_claim_expires_at = None
-    if run.dispatch_attempt_count >= settings.report_dispatch_max_attempts:
+    if (
+        run.dispatch_attempt_count >= settings.report_dispatch_max_attempts
+        and run.dispatch_published_at is None
+    ):
         _settle_report_dispatch_exhausted(
             db,
             run=run,

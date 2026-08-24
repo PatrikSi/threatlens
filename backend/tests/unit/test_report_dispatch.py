@@ -87,6 +87,7 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     assert stored is not None
     assert stored.celery_task_id == expected_task_id
     assert stored.dispatch_published_at is not None
+    assert stored.dispatch_attempt_count == 0
     assert stored.dispatch_next_attempt_at is not None
     assert stored.dispatch_next_attempt_at > stored.dispatch_published_at
     assert stored.dispatch_claim_token is None
@@ -269,6 +270,47 @@ def test_due_dispatches_recover_stale_published_runs(db_session):
     )
     assert recovery.claimed is True
     assert recovery.celery_task_id == stable_report_task_id(run.id)
+
+
+def test_accepted_dispatch_is_not_terminalized_by_redrive_failures(
+    db_session,
+    monkeypatch,
+):
+    monkeypatch.setenv("REPORT_DISPATCH_MAX_ATTEMPTS", "2")
+    get_settings.cache_clear()
+    report, run = _queued_run(db_session)
+    now = datetime.now(timezone.utc)
+    run.dispatch_published_at = now - timedelta(minutes=10)
+    run.dispatch_attempt_count = 2
+    run.dispatch_next_attempt_at = now - timedelta(seconds=1)
+    db_session.commit()
+
+    claim = claim_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=now,
+    )
+    assert claim.claimed is True
+    assert claim.terminalized is False
+    db_session.commit()
+    assert record_report_dispatch_failure(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        dispatch_token=claim.dispatch_token,
+        now=now,
+    )
+    db_session.commit()
+
+    db_session.refresh(report)
+    db_session.refresh(run)
+    assert report.status == "queued"
+    assert run.status == "queued"
+    assert run.dispatch_attempt_count == 2
+    assert run.dispatch_next_attempt_at is not None
+    assert run.dispatch_next_attempt_at > now
+    assert "retry automatically" in (run.dispatch_error or "")
 
 
 def test_stale_dispatch_claim_cannot_record_publication(db_session, monkeypatch):
