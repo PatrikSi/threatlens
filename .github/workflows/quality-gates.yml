@@ -55,6 +55,18 @@ jobs:
     name: Backend tests and contract
     runs-on: ubuntu-latest
     timeout-minutes: 35
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      THREATLENS_TEST_REDIS_URL: redis://127.0.0.1:6379/0
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -90,7 +102,7 @@ jobs:
           --cov-report=json:coverage.json
           --cov-fail-under=79
 
-      - name: Enforce reporting coverage floors
+      - name: Enforce critical backend coverage floors
         run: python scripts/check_coverage.py backend/coverage.json
 
       - name: Verify generated API contract
@@ -228,9 +240,11 @@ jobs:
 
   container-smoke:
     name: Container smoke and image scan
+    # Direct push/PR runs have no input (`null`); only a reusable caller's
+    # explicit false disables this job.
     if: >-
       ${{
-        (github.event_name != 'workflow_call' || inputs.run_container_smoke == true) &&
+        toJSON(inputs.run_container_smoke) != 'false' &&
         needs.backend.result == 'success' &&
         needs.frontend.result == 'success' &&
         needs.migrations.result == 'success'

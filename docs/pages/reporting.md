@@ -82,7 +82,7 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Report creation and retry accept `Idempotency-Key`; an exact replay returns the original report while a conflicting payload is rejected.
 - Report and AI task state commit before queue publication. Broker failures leave durable queued work for the periodic dispatcher, which applies capped exponential backoff and settles exhausted dispatches as failed.
 - Worker redelivery cannot make a second provider call while the original renewable generation lease is still owned. A superseded worker cannot persist sections or terminal state after ownership moves.
-- Repeated schedule planning failures use capped exponential backoff and quarantine the schedule after the configured attempt limit, preventing one broken schedule from starving healthy schedules.
+- Invalid template or context-budget configuration failures use capped retries and then quarantine the schedule. Transient planning failures use capped exponential backoff; after exhaustion, ThreatLens records the failure and advances to the next occurrence so one schedule cannot starve healthy schedules.
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
 - Lost report workers are reconciled into a terminal failure instead of leaving the report indefinitely queued or running.
 - Provider and context errors retain actionable messages; unexpected exception details stay in worker logs while the UI receives a sanitized recovery message.
