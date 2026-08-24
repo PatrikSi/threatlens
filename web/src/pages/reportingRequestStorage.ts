@@ -3,7 +3,6 @@ import { sha256 } from '@noble/hashes/sha2.js'
 
 const REQUEST_STORAGE_PREFIX = 'threatlens.reporting-request.'
 
-type StorageLocation = 'session' | 'local'
 type StoredRequest = {
   key: string
   createdAt: number
@@ -84,8 +83,7 @@ export function removeReportingRequestStorage(
 export function clearReportingRequestStorage(): boolean {
   if (typeof window === 'undefined') return true
   const persisted = persistedRequestKeys()
-  const removed = removeStorageKeys(persisted.keys)
-  return persisted.complete && removed
+  return persisted !== undefined && removeStorageKeys(persisted)
 }
 
 
@@ -173,48 +171,35 @@ function setStorageValue(key: string, value: string): boolean {
 function removeStorageKeys(keys: string[]): boolean {
   let removed = true
   for (const key of keys) {
-    const sessionRemoved = removeStorageValue(key, 'session')
-    const localRemoved = removeStorageValue(key, 'local')
-    removed = sessionRemoved && localRemoved && removed
+    removed = removeStorageValue(key) && removed
   }
   return removed
 }
 
 
-function removeStorageValue(
-  key: string,
-  location: StorageLocation = 'session',
-): boolean {
+function removeStorageValue(key: string): boolean {
   try {
     if (typeof window === 'undefined') return false
-    const storage = location === 'session'
-      ? window.sessionStorage
-      : window.localStorage
-    storage.removeItem(key)
-    return storage.getItem(key) === null
+    window.sessionStorage.removeItem(key)
+    return window.sessionStorage.getItem(key) === null
   } catch {
     return false
   }
 }
 
 
-function persistedRequestKeys(): { keys: string[], complete: boolean } {
+function persistedRequestKeys(): string[] | undefined {
   const keys = new Set<string>()
-  let complete = true
-  for (const location of ['session', 'local'] as const) {
-    try {
-      const storage = location === 'session'
-        ? window.sessionStorage
-        : window.localStorage
-      for (let index = 0; index < storage.length; index += 1) {
-        const key = storage.key(index)
-        if (key?.startsWith(REQUEST_STORAGE_PREFIX)) keys.add(key)
-      }
-    } catch {
-      complete = false
+  try {
+    const storage = window.sessionStorage
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (key?.startsWith(REQUEST_STORAGE_PREFIX)) keys.add(key)
     }
+  } catch {
+    return undefined
   }
-  return { keys: [...keys], complete }
+  return [...keys]
 }
 
 
