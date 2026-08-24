@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -11,6 +11,7 @@ from app.models.ai_task_run import AITaskRun
 from app.models.ai_usage_event import AIUsageEvent
 from app.models.audit_log import AuditLog
 from app.models.integration import IntegrationRun
+from app.models.report import Report
 from app.models.tag import TagFeedbackEvent
 
 settings = get_settings()
@@ -47,7 +48,14 @@ def prune_application_history(
             AITaskRun.finished_at,
             current_time - timedelta(days=max(1, int(settings.ai_task_history_retention_days))),
             effective_batch_size,
-            extra_predicate=AITaskRun.finished_at.is_not(None),
+            extra_predicate=and_(
+                AITaskRun.finished_at.is_not(None),
+                ~select(Report.id)
+                .where(
+                    Report.request_task_run_id == AITaskRun.id,
+                )
+                .exists(),
+            ),
         ),
         ai_usage_events_deleted=_delete_older_than(
             db,

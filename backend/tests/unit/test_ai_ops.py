@@ -3,7 +3,7 @@ from threading import Barrier, Event, Lock, Thread
 from time import sleep
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.orm import Session
 
 from app.models.ai_task_event import AITaskEvent
@@ -22,7 +22,6 @@ from app.services.ai_ops import (
     AI_TASK_TYPE_DAILY_BRIEF,
     AI_TASK_TYPE_ITEM_ENRICHMENT,
     AI_TASK_TYPE_REPORT,
-    AI_TASK_TYPE_REPORT_SUPERSEDED,
     AI_TASK_TYPE_REPROCESS,
     AI_TRIGGER_MANUAL,
     _flatten_live_tasks,
@@ -37,6 +36,7 @@ from app.services.ai_ops import (
     queue_ai_task_run,
     start_ai_task_run,
 )
+from app.services.report_dispatch import supersede_legacy_report_dispatch
 from app.schemas.ai import AILiveTaskResponse
 
 
@@ -527,7 +527,7 @@ def test_canceling_superseded_report_task_targets_replacement(
     db_session.add(report)
     db_session.flush()
     original = AITaskRun(
-        task_type=AI_TASK_TYPE_REPORT_SUPERSEDED,
+        task_type=AI_TASK_TYPE_REPORT,
         trigger_source=AI_TRIGGER_MANUAL,
         status=AI_STATUS_SKIPPED,
         reason="superseded_for_fenced_dispatch",
@@ -545,7 +545,7 @@ def test_canceling_superseded_report_task_targets_replacement(
     db_session.add_all([original, replacement])
     db_session.flush()
     original.superseded_by_task_run_id = replacement.id
-    report.initial_task_run_id = original.id
+    report.request_task_run_id = original.id
     db_session.commit()
     monkeypatch.setattr(
         "app.services.ai_ops._load_live_task_snapshot",
@@ -563,6 +563,114 @@ def test_canceling_superseded_report_task_targets_replacement(
     assert replacement.status == AI_STATUS_SKIPPED
     assert replacement.reason == "canceled"
     assert report.generation_stage == "canceled"
+
+
+def test_cancel_waits_for_concurrent_report_supersession(
+    database_engine,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    report_id = uuid.uuid4()
+    original_id = uuid.uuid4()
+    with Session(database_engine) as setup:
+        report = Report(
+            id=report_id,
+            title="Concurrent supersession",
+            report_type="custom",
+            status=AI_STATUS_QUEUED,
+            trigger_source="manual",
+            generation_stage="queued",
+            period_start=now - timedelta(days=7),
+            period_end=now,
+            filters_json={},
+            prompt_config_json={},
+            sections_config_json=[],
+            metrics_json={},
+            coverage_json={},
+        )
+        setup.add(report)
+        setup.flush()
+        setup.add(
+            AITaskRun(
+                id=original_id,
+                task_type=AI_TASK_TYPE_REPORT,
+                trigger_source=AI_TRIGGER_MANUAL,
+                status=AI_STATUS_QUEUED,
+                report_id=report_id,
+                metadata_json={},
+                dispatch_protocol_version=1,
+            )
+        )
+        setup.flush()
+        report.request_task_run_id = original_id
+        setup.commit()
+
+    monkeypatch.setattr(
+        "app.services.ai_ops._load_live_task_snapshot",
+        lambda: (False, [], [], [], []),
+    )
+    cancellation_started = Event()
+    canceled_ids: list[uuid.UUID] = []
+    errors: list[BaseException] = []
+
+    def cancel() -> None:
+        try:
+            with Session(database_engine) as contender:
+                contender.execute(text("SET LOCAL lock_timeout = '5s'"))
+                cancellation_started.set()
+                canceled = cancel_ai_task_run(contender, run_id=original_id)
+                contender.commit()
+                assert canceled is not None
+                canceled_ids.append(canceled.id)
+        except BaseException as exc:
+            errors.append(exc)
+
+    blocker = Session(database_engine)
+    thread = Thread(target=cancel, daemon=True)
+    try:
+        blocker.execute(text("SET LOCAL lock_timeout = '5s'"))
+        blocker.execute(
+            select(AITaskRun.id)
+            .where(AITaskRun.id == original_id)
+            .with_for_update()
+        )
+        thread.start()
+        assert cancellation_started.wait(timeout=3)
+        sleep(0.2)
+        replacement_id = supersede_legacy_report_dispatch(
+            blocker,
+            report_id=report_id,
+            task_run_id=original_id,
+            now=now,
+        )
+        assert replacement_id != original_id
+        blocker.commit()
+        thread.join(timeout=10)
+
+        assert not thread.is_alive()
+        assert errors == []
+        assert canceled_ids == [replacement_id]
+        with Session(database_engine) as check:
+            original = check.get(AITaskRun, original_id)
+            replacement = check.get(AITaskRun, replacement_id)
+            report = check.get(Report, report_id)
+            assert original is not None
+            assert replacement is not None
+            assert report is not None
+            assert original.reason == "superseded_for_fenced_dispatch"
+            assert replacement.status == AI_STATUS_SKIPPED
+            assert replacement.reason == "canceled"
+            assert report.request_task_run_id == replacement_id
+    finally:
+        blocker.rollback()
+        blocker.close()
+        thread.join(timeout=1)
+        with Session(database_engine) as cleanup:
+            cleanup.execute(
+                delete(AITaskRun).where(AITaskRun.report_id == report_id)
+            )
+            cleanup.execute(delete(Report).where(Report.id == report_id))
+            cleanup.commit()
 
 
 def test_stale_queued_report_remains_owned_by_durable_dispatcher(

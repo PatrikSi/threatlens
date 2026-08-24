@@ -41,7 +41,8 @@ class Report(Base):
     request_idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     request_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    initial_task_run_id: Mapped[uuid.UUID | None] = mapped_column(
+    request_task_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        "initial_task_run_id",
         Uuid(as_uuid=True),
         ForeignKey(
             "ai_task_runs.id",
