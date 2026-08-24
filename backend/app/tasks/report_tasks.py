@@ -241,23 +241,19 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
                 db.rollback()
                 return {"status": "skipped", "reason": "run_not_available"}
             elif claim.status == "interrupted":
-                interrupted_result = _settle_interrupted_report_run(
-                    db,
-                    report_id=parsed_report_id,
-                    run_id=parsed_run_id,
-                    worker_name=worker_name,
-                    lease_token=lease_token,
-                    generation_fence=_required_generation_fence(claim),
-                )
+                # Persist the fencing takeover before settling the interrupted run.
+                # A crash between these phases leaves a recoverable active lease;
+                # combining them can make a newly inserted lease invisible to the
+                # conditional release on some database/session combinations.
                 db.commit()
-                return interrupted_result
             else:
                 db.commit()
-    except ReportGenerationLeaseLostError:
+    except ReportGenerationLeaseLostError as exc:
         logger.warning(
-            "report_generation_claim_lost report_id=%s task_run_id=%s",
+            "report_generation_claim_lost report_id=%s task_run_id=%s error=%s",
             parsed_report_id,
             parsed_run_id,
+            exc,
         )
         return {"status": "skipped", "reason": "ownership_lost"}
     except Exception as exc:
@@ -275,6 +271,16 @@ def generate_intelligence_report(self, report_id: str, task_run_id: str):
         )
 
     generation_fence = _required_generation_fence(claim)
+    if claim.status == "interrupted":
+        return _settle_interrupted_generation_task(
+            self,
+            report_id=parsed_report_id,
+            run_id=parsed_run_id,
+            worker_name=worker_name,
+            lease_token=lease_token,
+            generation_fence=generation_fence,
+        )
+
     with db_session() as db:
 
         def execution_checkpoint() -> None:
@@ -467,6 +473,50 @@ def _settle_interrupted_report_run(
             "Report execution ownership moved while interruption was being recorded."
         )
     return {"status": "error", "reason": "generation_interrupted"}
+
+
+def _settle_interrupted_generation_task(
+    task,
+    *,
+    report_id: uuid.UUID,
+    run_id: uuid.UUID,
+    worker_name: str | None,
+    lease_token: str,
+    generation_fence: int,
+) -> dict[str, str]:
+    try:
+        with db_session() as db:
+            try:
+                result = _settle_interrupted_report_run(
+                    db,
+                    report_id=report_id,
+                    run_id=run_id,
+                    worker_name=worker_name,
+                    lease_token=lease_token,
+                    generation_fence=generation_fence,
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        return result
+    except ReportGenerationLeaseLostError as exc:
+        logger.warning(
+            "report_generation_interruption_settlement_lost "
+            "report_id=%s task_run_id=%s error=%s",
+            report_id,
+            run_id,
+            exc,
+        )
+        return {"status": "skipped", "reason": "ownership_lost"}
+    except Exception as exc:
+        logger.exception(
+            "report_generation_interruption_settlement_failed "
+            "report_id=%s task_run_id=%s",
+            report_id,
+            run_id,
+        )
+        raise task.retry(exc=exc, countdown=30) from exc
 
 
 def _settle_failed_generation(
