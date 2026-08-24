@@ -101,6 +101,10 @@ describe('idempotentReportingFetch', () => {
 
     const first = idempotentReportingFetch('/reports', 'overlap-scope', { method: 'POST' }, passthrough)
     const overlapping = idempotentReportingFetch('/reports', 'overlap-scope', { method: 'POST' }, passthrough)
+    await vi.waitFor(() => {
+      expect(resolveFirst).toBeTypeOf('function')
+      expect(rejectSecond).toBeTypeOf('function')
+    })
     resolveFirst?.({ id: 'report-1' })
     await expect(first).resolves.toEqual({ id: 'report-1' })
     rejectSecond?.(new ApiTransportError('network down', '/reports', 'network'))

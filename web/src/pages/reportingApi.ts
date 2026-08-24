@@ -12,10 +12,10 @@ export async function idempotentReportingFetch<Result>(
   options: ApiFetchOptions,
   validate: (value: unknown) => Result,
 ): Promise<Result> {
-  const key = beginPendingReportingRequest(scope)
-  const headers = new Headers(options.headers)
-  headers.set('Idempotency-Key', key)
+  const key = await beginPendingReportingRequest(scope)
   try {
+    const headers = new Headers(options.headers)
+    headers.set('Idempotency-Key', key)
     const value = await apiFetch<unknown>(path, { ...options, headers })
     const result = validate(value)
     settlePendingReportingRequest(scope, key, 'confirmed')

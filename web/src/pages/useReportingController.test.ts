@@ -28,42 +28,52 @@ describe('reportMutationRequestKey', () => {
 })
 
 describe('reporting request identities', () => {
-  it('keeps an unresolved key across request-coordinator consumers', () => {
+  it('does not recreate an old account identity after session cleanup', async () => {
+    const pending = beginPendingReportingRequest(
+      reportingRequestScope('analyst-1', 'report:create', '{"session":"old"}'),
+    )
+
+    resetPendingReportingKeys()
+
+    await expect(pending).rejects.toThrow('Authentication changed')
+  })
+
+  it('keeps an unresolved key across request-coordinator consumers', async () => {
     const scope = reportingRequestScope('analyst-1', 'report:retry', 'report-1')
 
-    const first = beginPendingReportingRequest(scope)
+    const first = await beginPendingReportingRequest(scope)
     settlePendingReportingRequest(scope, first, 'ambiguous')
-    const afterRemount = beginPendingReportingRequest(scope)
+    const afterRemount = await beginPendingReportingRequest(scope)
 
     expect(afterRemount).toBe(first)
     settlePendingReportingRequest(scope, afterRemount, 'confirmed')
-    expect(beginPendingReportingRequest(scope)).not.toBe(first)
+    expect(await beginPendingReportingRequest(scope)).not.toBe(first)
   })
 
-  it('does not clear a newer key from a stale completion', () => {
+  it('does not clear a newer key from a stale completion', async () => {
     const scope = reportingRequestScope('analyst-1', 'report:create', '{}')
-    const first = beginPendingReportingRequest(scope)
+    const first = await beginPendingReportingRequest(scope)
     settlePendingReportingRequest(scope, first, 'rejected')
-    const second = beginPendingReportingRequest(scope)
+    const second = await beginPendingReportingRequest(scope)
 
     settlePendingReportingRequest(scope, first, 'confirmed')
 
-    expect(beginPendingReportingRequest(scope)).toBe(second)
+    expect(await beginPendingReportingRequest(scope)).toBe(second)
   })
 
-  it('retains a shared key when overlapping callers settle asymmetrically', () => {
+  it('retains a shared key when overlapping callers settle asymmetrically', async () => {
     const scope = reportingRequestScope('analyst-1', 'report:retry', 'report-2')
-    const first = beginPendingReportingRequest(scope)
-    const overlapping = beginPendingReportingRequest(scope)
+    const first = await beginPendingReportingRequest(scope)
+    const overlapping = await beginPendingReportingRequest(scope)
 
     settlePendingReportingRequest(scope, first, 'confirmed')
     settlePendingReportingRequest(scope, overlapping, 'ambiguous')
-    const retry = beginPendingReportingRequest(scope)
+    const retry = await beginPendingReportingRequest(scope)
 
     expect(overlapping).toBe(first)
     expect(retry).toBe(first)
     settlePendingReportingRequest(scope, retry, 'confirmed')
-    expect(beginPendingReportingRequest(scope)).not.toBe(first)
+    expect(await beginPendingReportingRequest(scope)).not.toBe(first)
   })
 })
 
