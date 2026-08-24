@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 
-import { apiDownload, apiFetch } from '../api/client'
+import { ApiError, apiDownload, apiFetch } from '../api/client'
 import { resolveApiErrorMessage } from '../api/errors'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useCurrentUser } from '../hooks/useCurrentUser'
@@ -302,7 +302,11 @@ export function useReportingController() {
             await apiFetch<unknown>(path, {
               method: 'PUT',
               body,
-              headers: { 'If-Match': reportResourceVersionHeader(updateTarget.updated_at) },
+              headers: {
+                'If-Match': reportResourceVersionHeader(
+                  updateTarget.resource_version ?? updateTarget.updated_at,
+                ),
+              },
             }),
             path,
             'report template update',
@@ -403,20 +407,41 @@ export function useReportingController() {
   })
   const deleteTemplateMutation = useMutation({
     mutationKey: ['reports', 'templates', 'delete'],
-    mutationFn: (templateId: string) => coalesceReportingRequest(
-      reportingRequestScope(requestOwnerId, 'report:template:delete', templateId),
-      () => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
-    ),
+    mutationFn: (templateId: string) => {
+      const template = templatesQuery.data?.find((entry) => entry.id === templateId)
+      if (!template) {
+        throw new Error('The report template is no longer available. Refresh the template list and try again.')
+      }
+      return coalesceReportingRequest(
+        reportingRequestScope(requestOwnerId, 'report:template:delete', templateId),
+        () => apiFetch<void>(`/reports/templates/${templateId}`, {
+          method: 'DELETE',
+          headers: {
+            'If-Match': reportResourceVersionHeader(
+              template.resource_version ?? template.updated_at,
+            ),
+          },
+        }),
+      )
+    },
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report template deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'templates'] })
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report template could not be deleted',
-    ),
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report template could not be deleted',
+      )
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'templates'],
+          exact: true,
+        })
+      }
+    },
   })
   const createScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'create'],
@@ -471,7 +496,11 @@ export function useReportingController() {
           await apiFetch<unknown>(path, {
             method: 'PUT',
             body,
-            headers: { 'If-Match': reportResourceVersionHeader(schedule.updated_at) },
+            headers: {
+              'If-Match': reportResourceVersionHeader(
+                schedule.resource_version ?? schedule.updated_at,
+              ),
+            },
           }),
           path,
           'report schedule update',
@@ -503,24 +532,49 @@ export function useReportingController() {
   })
   const deleteScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'delete'],
-    mutationFn: (scheduleId: string) => coalesceReportingRequest(
-      reportingRequestScope(requestOwnerId, 'report:schedule:delete', scheduleId),
-      () => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
-    ),
+    mutationFn: (scheduleId: string) => {
+      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      if (!schedule) {
+        throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
+      }
+      return coalesceReportingRequest(
+        reportingRequestScope(requestOwnerId, 'report:schedule:delete', scheduleId),
+        () => apiFetch<void>(`/reports/schedules/${scheduleId}`, {
+          method: 'DELETE',
+          headers: {
+            'If-Match': reportResourceVersionHeader(
+              schedule.resource_version ?? schedule.updated_at,
+            ),
+          },
+        }),
+      )
+    },
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule deleted.' })
       void queryClient.invalidateQueries({ queryKey: ['reports', 'schedules'] })
     },
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report schedule could not be deleted',
-    ),
+    onError: async (error) => {
+      setActionError(
+        setFeedback,
+        error,
+        'The report schedule could not be deleted',
+      )
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'schedules'],
+          exact: true,
+        })
+      }
+    },
   })
   const runScheduleMutation = useMutation({
     mutationKey: ['reports', 'schedules', 'run'],
     mutationFn: (scheduleId: string) => {
+      const schedule = schedulesQuery.data?.find((entry) => entry.id === scheduleId)
+      if (!schedule) {
+        throw new Error('The report schedule is no longer available. Refresh the schedule list and try again.')
+      }
       const path = `/reports/schedules/${scheduleId}/run`
       const requestScope = reportingRequestScope(
         requestOwnerId,
@@ -532,7 +586,14 @@ export function useReportingController() {
         () => idempotentReportingFetch(
           path,
           requestScope,
-          { method: 'POST' },
+          {
+            method: 'POST',
+            headers: {
+              'If-Match': reportResourceVersionHeader(
+                schedule.resource_version ?? schedule.updated_at,
+              ),
+            },
+          },
           (value) => requireReportQueueResponseList(value, path, scheduleId),
         ),
       )
@@ -555,8 +616,14 @@ export function useReportingController() {
             message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
           })
     },
-    onError: (error) => {
+    onError: async (error) => {
       setFeedback({ kind: 'error', message: resolveReportQueueError(error) })
+      if (isResourceVersionConflict(error)) {
+        await queryClient.resetQueries({
+          queryKey: ['reports', 'schedules'],
+          exact: true,
+        })
+      }
     },
   })
   const downloadMutation = useMutation({
@@ -792,4 +859,8 @@ function setActionError(
     kind: 'error',
     message: resolveApiErrorMessage(error, fallback),
   })
+}
+
+function isResourceVersionConflict(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 412
 }

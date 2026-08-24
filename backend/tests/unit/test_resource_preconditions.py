@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -26,6 +26,32 @@ def test_resource_version_requires_exact_strong_tag():
             current_updated_at=updated_at,
             if_match='"2026-08-24T11:30:12.345678+02:00"',
         )
+
+
+def test_resource_version_accepts_exact_transition_aliases_and_quoted_commas():
+    updated_at = datetime(
+        2026,
+        8,
+        24,
+        11,
+        30,
+        12,
+        345678,
+        tzinfo=timezone(timedelta(hours=2)),
+    )
+
+    require_matching_resource_version(
+        current_updated_at=updated_at,
+        if_match='"legacy,variant", "2026-08-24T11:30:12.345678+02:00"',
+    )
+    require_matching_resource_version(
+        current_updated_at=updated_at,
+        if_match='"2026-08-24T09:30:12.345678+00:00"',
+    )
+    require_matching_resource_version(
+        current_updated_at=updated_at,
+        if_match='"2026-08-24T09:30:12.345678Z"',
+    )
 
 
 def test_resource_version_rejects_stale_and_malformed_preconditions():

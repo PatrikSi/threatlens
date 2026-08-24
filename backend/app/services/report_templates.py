@@ -15,6 +15,7 @@ from app.schemas.reports import (
     ReportTemplateUpdate,
     validate_report_section_set,
 )
+from app.services.resource_versions import resource_version_value
 
 
 class ReportTemplateError(ValueError):
@@ -128,6 +129,7 @@ def report_template_response(template: ReportTemplate) -> ReportTemplateResponse
         default_filters=ArticleExportFilters.model_validate(template.default_filters_json or {}),
         created_at=template.created_at,
         updated_at=template.updated_at,
+        resource_version=resource_version_value(template.updated_at),
     )
 
 

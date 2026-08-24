@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:06bc90f79eed659f4db43e561af16dd41cc8a0012aba08e8d2a2442690e92df3`
+- OpenAPI contract anchor: `openapi-sha256:359b73365be14b14d473b1549e980dac7d8045ef01e6f0b32c3e7cc1cfaba598`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -720,6 +720,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `schedule_id` (path, required): string
+  - `If-Match` (header, optional): If-Match
 - Responses: `204`, `422` `application/json` -> HTTPValidationError
 ### `PUT /v1/reports/schedules/{schedule_id}`
 - Summary: Update Schedule
@@ -737,6 +738,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `schedule_id` (path, required): string
   - `Idempotency-Key` (header, optional): Idempotency-Key
+  - `If-Match` (header, optional): If-Match
 - Responses: `202` `application/json` -> array[ReportQueueResponse], `422` `application/json` -> HTTPValidationError
 ### `GET /v1/reports/templates`
 - Summary: List Report Templates
@@ -757,6 +759,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `template_id` (path, required): string
+  - `If-Match` (header, optional): If-Match
 - Responses: `204`, `422` `application/json` -> HTTPValidationError
 ### `PUT /v1/reports/templates/{template_id}`
 - Summary: Update Template

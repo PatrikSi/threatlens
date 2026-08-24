@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "06bc90f79eed659f4db43e561af16dd41cc8a0012aba08e8d2a2442690e92df3"
+    "x-threatlens-contract-sha256": "359b73365be14b14d473b1549e980dac7d8045ef01e6f0b32c3e7cc1cfaba598"
   },
   "servers": [
     {
@@ -985,6 +985,22 @@
               "format": "uuid",
               "title": "Template Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -1659,6 +1675,22 @@
               "format": "uuid",
               "title": "Schedule Id"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
           }
         ],
         "responses": {
@@ -1721,6 +1753,22 @@
                 }
               ],
               "title": "Idempotency-Key"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
             }
           }
         ],
@@ -17162,6 +17210,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "resource_version": {
+            "type": "string",
+            "title": "Resource Version"
           }
         },
         "additionalProperties": false,
@@ -17181,7 +17233,8 @@
           "last_error_at",
           "retry_at",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "resource_version"
         ],
         "title": "ReportScheduleResponse"
       },
@@ -17687,6 +17740,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "resource_version": {
+            "type": "string",
+            "title": "Resource Version"
           }
         },
         "additionalProperties": false,
@@ -17703,7 +17760,8 @@
           "sections",
           "default_filters",
           "created_at",
-          "updated_at"
+          "updated_at",
+          "resource_version"
         ],
         "title": "ReportTemplateResponse"
       },

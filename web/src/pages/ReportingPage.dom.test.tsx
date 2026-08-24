@@ -651,6 +651,7 @@ describe('ReportingPage schedule resilience', () => {
     reportingPageMocks.userRole = 'admin'
     const schedule = reportSchedule('schedule-1', 'Monday landscape')
     const requestHeaders: string[] = []
+    const versionHeaders: string[] = []
     let runRequests = 0
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
       if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
@@ -660,6 +661,7 @@ describe('ReportingPage schedule resilience', () => {
       if (path === '/reports/schedules/schedule-1/run' && options?.method === 'POST') {
         runRequests += 1
         requestHeaders.push(new Headers(options.headers).get('Idempotency-Key') ?? '')
+        versionHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
         if (runRequests === 1) {
           return Promise.reject(new ApiTransportError('The API could not be reached.', path, 'network'))
         }
@@ -689,6 +691,10 @@ describe('ReportingPage schedule resilience', () => {
 
     expect(requestHeaders[0]).not.toBe('')
     expect(requestHeaders[1]).toBe(requestHeaders[0])
+    expect(versionHeaders).toEqual([
+      '"2026-08-17T08:00:00Z"',
+      '"2026-08-17T08:00:00Z"',
+    ])
   })
 
   it('blocks duplicate schedule actions only for the affected row', async () => {
@@ -795,7 +801,10 @@ describe('ReportingPage resource version refresh', () => {
   it('uses the server version from each successful schedule update', async () => {
     reportingPageMocks.routeReportId = undefined
     reportingPageMocks.userRole = 'admin'
-    const original = reportSchedule('schedule-1', 'Monday landscape')
+    const original = {
+      ...reportSchedule('schedule-1', 'Monday landscape'),
+      resource_version: 'schedule-v1',
+    }
     let current = original
     let scheduleListRequests = 0
     const updateHeaders: string[] = []
@@ -812,6 +821,9 @@ describe('ReportingPage resource version refresh', () => {
         current = {
           ...current,
           enabled: !current.enabled,
+          resource_version: updateHeaders.length === 1
+            ? 'schedule-v2'
+            : 'schedule-v3',
           updated_at: updateHeaders.length === 1
             ? '2026-08-24T10:00:00Z'
             : '2026-08-24T10:01:00Z',
@@ -838,8 +850,8 @@ describe('ReportingPage resource version refresh', () => {
     })
 
     expect(updateHeaders).toEqual([
-      '"2026-08-17T08:00:00Z"',
-      '"2026-08-24T10:00:00Z"',
+      '"schedule-v1"',
+      '"schedule-v2"',
     ])
   })
 
@@ -897,7 +909,7 @@ describe('ReportingPage resource version refresh', () => {
 
   it('uses the server version from each successful template update', async () => {
     reportingPageMocks.routeReportId = undefined
-    let current = REPORT_TEMPLATE
+    let current = { ...REPORT_TEMPLATE, resource_version: 'template-v1' }
     let templateListRequests = 0
     const updateHeaders: string[] = []
     reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
@@ -911,6 +923,9 @@ describe('ReportingPage resource version refresh', () => {
         updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
         current = {
           ...current,
+          resource_version: updateHeaders.length === 1
+            ? 'template-v2'
+            : 'template-v3',
           updated_at: updateHeaders.length === 1
             ? '2026-08-24T11:00:00Z'
             : '2026-08-24T11:01:00Z',
@@ -947,8 +962,65 @@ describe('ReportingPage resource version refresh', () => {
     })
 
     expect(updateHeaders).toEqual([
-      '"2026-08-17T08:00:00Z"',
-      '"2026-08-24T11:00:00Z"',
+      '"template-v1"',
+      '"template-v2"',
     ])
+  })
+
+  it('sends the canonical schedule version when deleting', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const schedule = {
+      ...reportSchedule('schedule-1', 'Monday landscape'),
+      resource_version: 'schedule-delete-v1',
+    }
+    let deleted = false
+    let deleteHeader = ''
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') return Promise.resolve(deleted ? [] : [schedule])
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'DELETE') {
+        deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
+        deleted = true
+        return Promise.resolve(undefined)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Monday landscape'))
+      rowButton(rowByName(view, 'Monday landscape'), 'Delete').click()
+      await vi.waitFor(() => expect(deleteHeader).toBe('"schedule-delete-v1"'))
+    })
+  })
+
+  it('sends the canonical template version when deleting', async () => {
+    reportingPageMocks.routeReportId = undefined
+    const template = { ...REPORT_TEMPLATE, resource_version: 'template-delete-v1' }
+    let deleted = false
+    let deleteHeader = ''
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve(deleted ? [] : [template])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/templates/template-1' && options?.method === 'DELETE') {
+        deleteHeader = new Headers(options.headers).get('If-Match') ?? ''
+        deleted = true
+        return Promise.resolve(undefined)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Templates')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Threat landscape'))
+      rowButton(rowByName(view, 'Threat landscape'), 'Delete').click()
+      await vi.waitFor(() => expect(deleteHeader).toBe('"template-delete-v1"'))
+    })
   })
 })
