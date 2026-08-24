@@ -39,6 +39,7 @@ from app.services.report_dispatch import (
     record_report_dispatch_failure,
     record_report_dispatch_success,
     stable_report_task_id,
+    supersede_legacy_report_dispatch,
 )
 from app.services.report_schedules import list_due_schedule_ids, reserve_schedule_runs
 from app.services.report_schedules import record_schedule_failure
@@ -91,6 +92,12 @@ def enqueue_report_task(*, report_id: uuid.UUID, task_run_id: uuid.UUID) -> str 
     now = datetime.now(timezone.utc)
     try:
         with db_session() as db:
+            task_run_id = supersede_legacy_report_dispatch(
+                db,
+                report_id=report_id,
+                task_run_id=task_run_id,
+                now=now,
+            )
             claim = claim_report_dispatch(
                 db,
                 report_id=report_id,

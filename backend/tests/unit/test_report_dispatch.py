@@ -12,6 +12,7 @@ from app.services.report_dispatch import (
     record_report_dispatch_failure,
     record_report_dispatch_success,
     stable_report_task_id,
+    supersede_legacy_report_dispatch,
 )
 from app.tasks import report_tasks
 from app.tasks.report_tasks import create_report_task_run
@@ -91,12 +92,79 @@ def test_enqueue_uses_stable_task_id_and_records_publication(
     db_session.expire_all()
     stored = db_session.get(AITaskRun, run.id)
     assert stored is not None
+    assert stored.dispatch_protocol_version == 2
     assert stored.celery_task_id == expected_task_id
     assert stored.dispatch_published_at is not None
     assert stored.dispatch_attempt_count == 0
     assert stored.dispatch_next_attempt_at is None
     assert stored.dispatch_claim_token is None
     assert stored.dispatch_error is None
+
+
+def test_legacy_dispatch_is_superseded_before_v2_publication(
+    db_session,
+    monkeypatch,
+):
+    report, run = _queued_run(db_session)
+    run.dispatch_protocol_version = 1
+    run.celery_task_id = "legacy-celery-task"
+    run.request_idempotency_key_hash = "a" * 64
+    run.request_fingerprint = "b" * 64
+    db_session.commit()
+    _use_test_session(monkeypatch, db_session)
+    published = []
+    monkeypatch.setattr(
+        report_tasks.generate_intelligence_report,
+        "apply_async",
+        lambda *, args, queue, task_id: published.append((args, queue, task_id)),
+    )
+
+    task_id = report_tasks.enqueue_report_task(
+        report_id=report.id,
+        task_run_id=run.id,
+    )
+
+    db_session.expire_all()
+    stored_legacy = db_session.get(AITaskRun, run.id)
+    replacement = db_session.query(AITaskRun).filter(
+        AITaskRun.report_id == report.id,
+        AITaskRun.id != run.id,
+    ).one()
+    assert stored_legacy.status == "skipped"
+    assert stored_legacy.reason == "superseded_for_fenced_dispatch"
+    assert stored_legacy.request_idempotency_key_hash is None
+    assert replacement.status == "queued"
+    assert replacement.dispatch_protocol_version == 2
+    assert replacement.request_idempotency_key_hash == "a" * 64
+    assert replacement.request_fingerprint == "b" * 64
+    assert task_id == stable_report_task_id(replacement.id)
+    assert published == [
+        (
+            [str(report.id), str(replacement.id)],
+            report_tasks.QUEUE_AI_REPORTS,
+            task_id,
+        )
+    ]
+
+
+def test_running_legacy_dispatch_is_not_superseded(db_session):
+    report, run = _queued_run(db_session)
+    run.dispatch_protocol_version = 1
+    run.status = "running"
+    run.started_at = datetime.now(timezone.utc)
+    db_session.commit()
+
+    selected_id = supersede_legacy_report_dispatch(
+        db_session,
+        report_id=report.id,
+        task_run_id=run.id,
+        now=datetime.now(timezone.utc),
+    )
+
+    assert selected_id == run.id
+    assert db_session.query(AITaskRun).filter(
+        AITaskRun.report_id == report.id,
+    ).count() == 1
 
 
 def test_enqueue_failure_keeps_durable_work_due_for_retry(

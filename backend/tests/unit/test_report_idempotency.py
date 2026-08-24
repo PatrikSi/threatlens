@@ -75,6 +75,29 @@ def test_create_replay_finds_legacy_raw_idempotency_key(db_session):
 
     assert replay == (report, run)
 
+    run.status = "skipped"
+    run.reason = "superseded_for_fenced_dispatch"
+    run.finished_at = now
+    replacement = AITaskRun(
+        id=uuid.uuid4(),
+        task_type="report",
+        trigger_source="manual",
+        status="queued",
+        actor_user_id=user.id,
+        report_id=report.id,
+        metadata_json={"supersedes_task_run_id": str(run.id)},
+        created_at=now + timedelta(seconds=1),
+        updated_at=now + timedelta(seconds=1),
+    )
+    db_session.add(replacement)
+    db_session.flush()
+
+    assert find_report_create_replay(
+        db_session,
+        user_id=user.id,
+        identity=identity,
+    ) == (report, replacement)
+
 
 def test_retry_replay_without_idempotency_identity_is_not_a_replay(db_session):
     assert (

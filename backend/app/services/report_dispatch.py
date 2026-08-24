@@ -8,6 +8,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
+from app.models.ai_task_event import AITaskEvent
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
 from app.services.ai_ops_common import AI_STATUS_QUEUED, AI_TASK_TYPE_REPORT
@@ -27,6 +28,102 @@ def initialize_report_dispatch(run: AITaskRun, *, now: datetime | None = None) -
     run.dispatch_claim_token = None
     run.dispatch_claim_expires_at = None
     run.dispatch_published_at = None
+
+
+def supersede_legacy_report_dispatch(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    task_run_id: uuid.UUID,
+    now: datetime,
+) -> uuid.UUID:
+    """Replace queued v1 work so delayed old messages cannot share its run."""
+
+    run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == task_run_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        not _is_dispatchable(run, report_id=report_id)
+        or int(run.dispatch_protocol_version or 1) >= 2
+    ):
+        return task_run_id
+    report = db.scalar(
+        select(Report)
+        .where(Report.id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if report is None or report.status not in {"queued", "running"}:
+        return task_run_id
+
+    observed_at = _as_utc(now)
+    replacement_id = uuid.uuid4()
+    request_key_hash = run.request_idempotency_key_hash
+    request_fingerprint = run.request_fingerprint
+    run.status = "skipped"
+    run.reason = "superseded_for_fenced_dispatch"
+    run.finished_at = observed_at
+    run.dispatch_next_attempt_at = None
+    run.dispatch_error = None
+    run.dispatch_claim_token = None
+    run.dispatch_claim_expires_at = None
+    run.request_idempotency_key_hash = None
+    run.request_fingerprint = None
+    run.metadata_json = {
+        **(run.metadata_json or {}),
+        "superseded_by_task_run_id": str(replacement_id),
+    }
+    db.add(run)
+    db.add(
+        AITaskEvent(
+            task_run_id=run.id,
+            event_type="superseded",
+            message="Queued legacy report work was replaced by a fenced dispatch.",
+            payload_json={"replacement_task_run_id": str(replacement_id)},
+        )
+    )
+    # Release active-run and idempotency uniqueness before inserting the replacement.
+    db.flush()
+
+    replacement_metadata = {
+        **(run.metadata_json or {}),
+        "supersedes_task_run_id": str(run.id),
+    }
+    replacement_metadata.pop("superseded_by_task_run_id", None)
+    replacement = AITaskRun(
+        id=replacement_id,
+        task_type=run.task_type,
+        trigger_source=run.trigger_source,
+        status=AI_STATUS_QUEUED,
+        actor_user_id=run.actor_user_id,
+        report_id=run.report_id,
+        parent_run_id=run.parent_run_id,
+        model=run.model,
+        request_idempotency_key_hash=request_key_hash,
+        request_fingerprint=request_fingerprint,
+        metadata_json=replacement_metadata,
+        target_count=run.target_count,
+        queued_at=observed_at,
+        created_at=observed_at,
+        updated_at=observed_at,
+        dispatch_protocol_version=2,
+    )
+    initialize_report_dispatch(replacement, now=observed_at)
+    db.add(replacement)
+    db.flush()
+    db.add(
+        AITaskEvent(
+            task_run_id=replacement.id,
+            event_type="queued",
+            message="Fenced replacement for queued legacy report work.",
+            payload_json={"superseded_task_run_id": str(run.id)},
+        )
+    )
+    db.flush()
+    return replacement.id
 
 
 def claim_report_dispatch(
@@ -279,4 +376,5 @@ __all__ = [
     "record_report_dispatch_failure",
     "record_report_dispatch_success",
     "stable_report_task_id",
+    "supersede_legacy_report_dispatch",
 ]
