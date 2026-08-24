@@ -202,6 +202,26 @@ describe('report mutation response validation', () => {
     )).toThrow('different report schedule')
   })
 
+  it('compares UUID identities canonically and rejects non-RFC identifiers', () => {
+    expect(requireReportQueueResponse(
+      queueResponse,
+      `/reports/${reportId}/retry`,
+      reportId.toUpperCase(),
+    )).toBe(queueResponse)
+    expect(() => requireReportingResource(
+      { id: '00000000-0000-0000-0000-000000000000' },
+      '/reports/templates',
+      'template creation',
+      201,
+    )).toThrow(ApiError)
+    expect(() => requireReportingResource(
+      { id: '66666666-6666-4666-7666-666666666666' },
+      '/reports/templates',
+      'template creation',
+      201,
+    )).toThrow(ApiError)
+  })
+
   it('rejects clone responses that identify the source template', () => {
     expect(requireClonedReportingResource(
       { id: cloneId },
@@ -210,7 +230,7 @@ describe('report mutation response validation', () => {
       templateId,
     )).toEqual({ id: cloneId })
     expect(() => requireClonedReportingResource(
-      { id: templateId },
+      { id: templateId.toUpperCase() },
       `/reports/templates/${templateId}/clone`,
       'report template clone',
       templateId,

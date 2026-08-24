@@ -44,7 +44,7 @@ vi.mock('react-router-dom', async (importOriginal) => ({
   useParams: () => ({ reportId: reportingPageMocks.routeReportId }),
 }))
 
-import { ApiTransportError } from '../api/client'
+import { ApiError, ApiTransportError } from '../api/client'
 import { ReportingPage } from './ReportingPage'
 import { resetPendingReportingKeys } from './reportingRequestCoordinator'
 
@@ -724,6 +724,7 @@ describe('ReportingPage schedule resilience', () => {
     })
     await act(async () => {
       await vi.waitFor(() => expect(rowButton(firstRow, 'Queueing...').disabled).toBe(true))
+      await vi.waitFor(() => expect(runRequests).toBe(1))
     })
     expect(runRequests).toBe(1)
     expect(rowButton(secondRow, 'Run now').disabled).toBe(false)
@@ -773,6 +774,7 @@ describe('ReportingPage template pending state', () => {
     })
     await act(async () => {
       await vi.waitFor(() => expect(rowButton(firstRow, 'Cloning...').disabled).toBe(true))
+      await vi.waitFor(() => expect(cloneRequests).toBe(1))
     })
     expect(cloneRequests).toBe(1)
     expect(cloneHeaders[0]).not.toBe('')
@@ -786,5 +788,167 @@ describe('ReportingPage template pending state', () => {
       })
       await vi.waitFor(() => expect(view.textContent).toContain('Template cloned'))
     })
+  })
+})
+
+describe('ReportingPage resource version refresh', () => {
+  it('uses the server version from each successful schedule update', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    const original = reportSchedule('schedule-1', 'Monday landscape')
+    let current = original
+    let scheduleListRequests = 0
+    const updateHeaders: string[] = []
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') {
+        scheduleListRequests += 1
+        return Promise.resolve([current])
+      }
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
+        current = {
+          ...current,
+          enabled: !current.enabled,
+          updated_at: updateHeaders.length === 1
+            ? '2026-08-24T10:00:00Z'
+            : '2026-08-24T10:01:00Z',
+        }
+        return Promise.resolve(current)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Monday landscape'))
+    })
+
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Pause').click()
+      await vi.waitFor(() => expect(updateHeaders).toHaveLength(1))
+      await vi.waitFor(() => expect(scheduleListRequests).toBeGreaterThan(1))
+      await vi.waitFor(() => expect(rowButton(rowByName(view, 'Monday landscape'), 'Enable')).toBeTruthy())
+    })
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Enable').click()
+      await vi.waitFor(() => expect(updateHeaders).toHaveLength(2))
+    })
+
+    expect(updateHeaders).toEqual([
+      '"2026-08-17T08:00:00Z"',
+      '"2026-08-24T10:00:00Z"',
+    ])
+  })
+
+  it('refetches a conflicted schedule before allowing a retry', async () => {
+    reportingPageMocks.routeReportId = undefined
+    reportingPageMocks.userRole = 'admin'
+    let current = reportSchedule('schedule-1', 'Monday landscape')
+    let scheduleListRequests = 0
+    const updateHeaders: string[] = []
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates') return Promise.resolve([REPORT_TEMPLATE])
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/schedules') {
+        scheduleListRequests += 1
+        return Promise.resolve([current])
+      }
+      if (path === '/reports/schedules/schedule-1' && options?.method === 'PUT') {
+        updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
+        if (updateHeaders.length === 1) {
+          current = { ...current, updated_at: '2026-08-24T10:30:00Z' }
+          return Promise.reject(new ApiError(
+            'The report schedule changed after you loaded it.',
+            412,
+            path,
+          ))
+        }
+        current = {
+          ...current,
+          enabled: false,
+          updated_at: '2026-08-24T10:31:00Z',
+        }
+        return Promise.resolve(current)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Schedules')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Monday landscape'))
+      rowButton(rowByName(view, 'Monday landscape'), 'Pause').click()
+      await vi.waitFor(() => expect(scheduleListRequests).toBeGreaterThan(1))
+      await vi.waitFor(() => expect(view.textContent).toContain('changed after you loaded it'))
+    })
+    await act(async () => {
+      rowButton(rowByName(view, 'Monday landscape'), 'Pause').click()
+      await vi.waitFor(() => expect(updateHeaders).toHaveLength(2))
+    })
+
+    expect(updateHeaders).toEqual([
+      '"2026-08-17T08:00:00Z"',
+      '"2026-08-24T10:30:00Z"',
+    ])
+  })
+
+  it('uses the server version from each successful template update', async () => {
+    reportingPageMocks.routeReportId = undefined
+    let current = REPORT_TEMPLATE
+    let templateListRequests = 0
+    const updateHeaders: string[] = []
+    reportingPageMocks.apiFetch.mockImplementation((path: string, options?: RequestInit) => {
+      if (path === '/reports/capabilities') return Promise.resolve(CAPABILITIES)
+      if (path === '/reports/templates' && options?.method !== 'POST') {
+        templateListRequests += 1
+        return Promise.resolve([current])
+      }
+      if (path === '/reports?limit=100') return Promise.resolve([])
+      if (path === '/reports/templates/template-1' && options?.method === 'PUT') {
+        updateHeaders.push(new Headers(options.headers).get('If-Match') ?? '')
+        current = {
+          ...current,
+          updated_at: updateHeaders.length === 1
+            ? '2026-08-24T11:00:00Z'
+            : '2026-08-24T11:01:00Z',
+        }
+        return Promise.resolve(current)
+      }
+      return Promise.reject(new Error(`Unexpected API path: ${path}`))
+    })
+    const view = renderPage()
+    await openReportingTab(view, 'Templates')
+    await act(async () => {
+      await vi.waitFor(() => expect(view.textContent).toContain('Threat landscape'))
+      rowButton(rowByName(view, 'Threat landscape'), 'Use template').click()
+      await vi.waitFor(() => expect(button(view, 'Update template')).toBeTruthy())
+    })
+
+    await act(async () => {
+      button(view, 'Update template').click()
+      await vi.waitFor(() => expect(button(view, 'Save')).toBeTruthy())
+    })
+    await act(async () => {
+      button(view, 'Save').click()
+      await vi.waitFor(() => expect(updateHeaders).toHaveLength(1))
+      await vi.waitFor(() => expect(templateListRequests).toBeGreaterThan(1))
+      await vi.waitFor(() => expect(button(view, 'Update template')).toBeTruthy())
+    })
+    await act(async () => {
+      button(view, 'Update template').click()
+      await vi.waitFor(() => expect(button(view, 'Save')).toBeTruthy())
+    })
+    await act(async () => {
+      button(view, 'Save').click()
+      await vi.waitFor(() => expect(updateHeaders).toHaveLength(2))
+    })
+
+    expect(updateHeaders).toEqual([
+      '"2026-08-17T08:00:00Z"',
+      '"2026-08-24T11:00:00Z"',
+    ])
   })
 })
