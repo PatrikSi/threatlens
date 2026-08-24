@@ -85,7 +85,7 @@ When delivery is requested, the ready-report transaction writes one idempotent `
 - Worker redelivery cannot make a second provider call while the original renewable generation lease is still owned. A superseded worker cannot persist sections or terminal state after ownership moves.
 - Invalid template or context-budget configuration failures use capped retries and then quarantine the schedule. Transient planning failures use capped exponential backoff; after exhaustion, ThreatLens records the failure and advances to the next occurrence so one schedule cannot starve healthy schedules.
 - Canceling a report from **Settings -> AI -> Activity** settles both records; generation also checks for cancellation between model calls.
-- Lost report workers are reconciled into a terminal failure instead of leaving the report indefinitely queued or running.
+- Lost workers for a running report are reconciled into a terminal failure. A durable report that has not started remains queued and changes to `waiting_for_worker` when no active worker consumes `ai-reports-v2`; it resumes automatically after that subscription returns.
 - Provider and context errors retain actionable messages; unexpected exception details stay in worker logs while the UI receives a sanitized recovery message.
 - Adaptive context decisions log usable input, fixed prompt size, peak serialized input, batch count, selected sources, omitted sources, and whether optional context was compacted.
 - Failed or skipped reports can be retried by their owner or an administrator from the immutable source snapshot.
@@ -100,7 +100,14 @@ Report task-lineage migrations are additive, but enabling supersession has one s
 
 Migration `0053_report_operation_receipts` is additive and preserves its receipt data on downgrade, so the previous backend can run while the table remains present and a later re-upgrade retains accepted keys. In a rolling deployment, migrate first, replace all API replicas, and then publish the matching web bundle: older API replicas do not understand idempotency headers for template, clone, or schedule creation and therefore cannot provide retry deduplication for those new UI requests.
 
-Use `docker compose logs -f worker-ai` for generation diagnostics and the report detail plus **Settings -> AI -> Activity** for persisted stage/provider history.
+Use `docker compose logs -f worker-ai` for generation diagnostics and the report detail plus **Settings -> AI -> Activity** for persisted stage/provider history. If a report shows **Waiting for an AI report worker**, update the Compose file and recreate the AI worker, then verify that both AI queues are listed:
+
+```bash
+docker compose up -d --force-recreate worker-ai
+docker compose exec -T worker-ai celery -A app.tasks.celery_app.celery_app inspect active_queues
+```
+
+`GET /health/worker` also reports `ai-reports-v2` in `queues.missing` to authenticated administrators when the deployment is using an outdated worker command.
 
 ## API
 
