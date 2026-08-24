@@ -93,10 +93,11 @@ def test_feed_import_overwrite_advances_fetch_fence_for_material_changes(
     assert stored_feed.fetch_fence == 20
 
 
-def test_overwrite_import_uses_stable_feed_lock_order():
+@pytest.mark.parametrize("overwrite_existing", [False, True])
+def test_import_uses_stable_feed_lock_order(overwrite_existing: bool):
     payload = FeedImportRequest.model_validate(
         {
-            "overwrite_existing": True,
+            "overwrite_existing": overwrite_existing,
             "feeds": [
                 {"name": "Second", "url": "https://example.com/second.xml"},
                 {"name": "First", "url": "https://example.com/first.xml"},

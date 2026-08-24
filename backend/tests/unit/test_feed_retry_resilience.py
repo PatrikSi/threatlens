@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from app.models.feed import Feed
 from app.services.feed_fetch_ownership import claim_feed_fetch
 from app.tasks import feed_tasks
@@ -143,9 +145,11 @@ def test_article_retry_exhaustion_returns_storable_error_without_retry():
     assert result.error == "network_or_rate_limit_error"
 
 
+@pytest.mark.parametrize("loss_phase", ["entry", "response"])
 def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
     db_session,
     monkeypatch,
+    loss_phase,
 ):
     now = datetime.now(timezone.utc)
     feed = Feed(
@@ -188,6 +192,11 @@ def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
         if lease is domain_lease:
             raise LeaseOwnershipLostError("domain slot ownership was lost")
 
+    def safe_stream(*_args, **_kwargs):
+        if loss_phase == "entry":
+            raise LeaseOwnershipLostError("domain slot ownership was lost")
+        return Response()
+
     monkeypatch.setattr(feed_tasks, "db_session", test_session)
     monkeypatch.setattr(feed_tasks, "feed_lock", test_feed_lock)
     monkeypatch.setattr(
@@ -198,7 +207,7 @@ def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
     monkeypatch.setattr(
         feed_tasks,
         "safe_stream_with_redirects",
-        lambda *_args, **_kwargs: Response(),
+        safe_stream,
     )
     monkeypatch.setattr(
         feed_tasks,
@@ -213,6 +222,60 @@ def test_domain_slot_lease_loss_clears_feed_dispatch_claim_with_short_backoff(
         force=True,
         runtime=feed_tasks,
     )
+
+    assert result == {
+        "status": "error",
+        "reason": "coordination_unavailable",
+        "feed_id": str(feed.id),
+    }
+    db_session.expire_all()
+    stored_feed = db_session.get(Feed, feed.id)
+    assert stored_feed.dispatch_claimed_at is None
+    assert stored_feed.dispatch_backoff_until is not None
+    assert now < stored_feed.dispatch_backoff_until <= now + timedelta(minutes=2)
+    assert stored_feed.next_fetch_at == stored_feed.dispatch_backoff_until
+
+
+def test_metadata_probe_domain_loss_persists_short_coordination_backoff(
+    db_session,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc)
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Metadata domain lease recovery feed",
+        url=f"https://example.com/{uuid.uuid4()}.xml",
+        enabled=True,
+        fetch_interval_seconds=1800,
+        dispatch_claimed_at=now,
+    )
+    db_session.add(feed)
+    db_session.commit()
+    feed_lease = object()
+    domain_lease = object()
+
+    @contextmanager
+    def test_session():
+        yield db_session
+
+    @contextmanager
+    def test_feed_lock(_feed_id: str):
+        yield feed_lease
+
+    def ensure_owned(lease):
+        if lease is domain_lease:
+            raise LeaseOwnershipLostError("domain slot ownership was lost")
+
+    def probe(_url, *, request_guard_validator, **_kwargs):
+        request_guard_validator(domain_lease)
+        raise AssertionError("lost domain guard must stop metadata parsing")
+
+    monkeypatch.setattr(feed_tasks, "db_session", test_session)
+    monkeypatch.setattr(feed_tasks, "feed_lock", test_feed_lock)
+    monkeypatch.setattr(feed_tasks, "ensure_lease_owned", ensure_owned)
+    monkeypatch.setattr(feed_tasks, "probe_feed_metadata", probe)
+
+    result = feed_tasks.backfill_feed_metadata.run(str(feed.id))
 
     assert result == {
         "status": "error",
