@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.6.0`
-- OpenAPI contract anchor: `openapi-sha256:cef886cdf1b1ec87d6b622a7db2322e724ad680f9a1427437c0dcaf18cbd531b`
+- OpenAPI contract anchor: `openapi-sha256:539418965c073851d886e68c6f601e9ddc393fbfb28a337aaa242f32f889dd11`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -710,6 +710,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Create Schedule
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:reports`
+- Parameters:
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportScheduleCreate
 - Responses: `201` `application/json` -> ReportScheduleResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/reports/schedules/{schedule_id}`
@@ -744,6 +746,8 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Summary: Create Template
 - Auth: ApiTokenBearer or SessionCookieAuth
 - Token scopes: `write:reports`
+- Parameters:
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Request body: `application/json` -> ReportTemplateCreate
 - Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/reports/templates/{template_id}`
@@ -767,6 +771,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Token scopes: `write:reports`
 - Parameters:
   - `template_id` (path, required): string
+  - `Idempotency-Key` (header, optional): Idempotency-Key
 - Responses: `201` `application/json` -> ReportTemplateResponse, `422` `application/json` -> HTTPValidationError
 ### `DELETE /v1/reports/{report_id}`
 - Summary: Remove Report

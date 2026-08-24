@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.6.0",
-    "x-threatlens-contract-sha256": "cef886cdf1b1ec87d6b622a7db2322e724ad680f9a1427437c0dcaf18cbd531b"
+    "x-threatlens-contract-sha256": "539418965c073851d886e68c6f601e9ddc393fbfb28a337aaa242f32f889dd11"
   },
   "servers": [
     {
@@ -785,22 +785,6 @@
         ],
         "summary": "List Report Templates",
         "operationId": "list_report_templates_v1_reports_templates_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReportTemplateResponse"
-                  },
-                  "type": "array",
-                  "title": "Response List Report Templates V1 Reports Templates Get"
-                }
-              }
-            }
-          }
-        },
         "security": [
           {
             "ApiTokenBearer": []
@@ -809,6 +793,22 @@
             "SessionCookieAuth": []
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportTemplateResponse"
+                  },
+                  "title": "Response List Report Templates V1 Reports Templates Get"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "read:reports"
         ]
@@ -819,15 +819,41 @@
         ],
         "summary": "Create Template",
         "operationId": "create_template_v1_reports_templates_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReportTemplateCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -851,14 +877,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "write:reports"
         ]
@@ -997,6 +1015,22 @@
               "type": "string",
               "format": "uuid",
               "title": "Template Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],
@@ -1409,22 +1443,6 @@
         ],
         "summary": "List Schedules",
         "operationId": "list_schedules_v1_reports_schedules_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ReportScheduleResponse"
-                  },
-                  "type": "array",
-                  "title": "Response List Schedules V1 Reports Schedules Get"
-                }
-              }
-            }
-          }
-        },
         "security": [
           {
             "ApiTokenBearer": []
@@ -1433,6 +1451,22 @@
             "SessionCookieAuth": []
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReportScheduleResponse"
+                  },
+                  "title": "Response List Schedules V1 Reports Schedules Get"
+                }
+              }
+            }
+          }
+        },
         "x-threatlens-required-token-scopes": [
           "read:reports"
         ]
@@ -1443,15 +1477,41 @@
         ],
         "summary": "Create Schedule",
         "operationId": "create_schedule_v1_reports_schedules_post",
+        "security": [
+          {
+            "ApiTokenBearer": []
+          },
+          {
+            "SessionCookieAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ReportScheduleCreate"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -1475,14 +1535,6 @@
             }
           }
         },
-        "security": [
-          {
-            "ApiTokenBearer": []
-          },
-          {
-            "SessionCookieAuth": []
-          }
-        ],
         "x-threatlens-required-token-scopes": [
           "write:reports"
         ]
