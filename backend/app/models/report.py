@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, Uuid, func
+from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String, Text, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -9,6 +9,13 @@ from app.db.base import Base
 
 class Report(Base):
     __tablename__ = "reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "request_idempotency_key",
+            name="uq_reports_owner_request_idempotency_key",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     template_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -26,6 +33,12 @@ class Report(Base):
     trigger_source: Mapped[str] = mapped_column(String(16), nullable=False, default="manual", server_default="manual")
     generation_stage: Mapped[str] = mapped_column(String(32), nullable=False, default="queued", server_default="queued")
     generation_key: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
+    request_idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generation_lease_token: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    generation_lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     filters_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
