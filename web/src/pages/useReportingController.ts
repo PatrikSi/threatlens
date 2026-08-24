@@ -31,6 +31,7 @@ import {
 import {
   REPORT_CREATE_TIMEOUT_MS,
   REPORT_PREVIEW_TIMEOUT_MS,
+  reportQueueFeedback,
   reportPreviewErrorBlocksCreation,
   resolveReportCreateBlockedReason,
   shouldRetryReportPreview,
@@ -38,7 +39,7 @@ import {
 
 export type ReportingTab = 'reports' | 'templates' | 'schedules'
 export type ReportingFeedback = {
-  kind: 'error' | 'success'
+  kind: 'error' | 'info' | 'success'
   message: string
 } | null
 
@@ -63,6 +64,37 @@ export function useReportingController() {
   const [feedback, setFeedback] = useState<ReportingFeedback>(null)
   const createRequestRef = useRef<{ body: string; key: string } | null>(null)
   const retryRequestKeysRef = useRef(new Map<string, string>())
+  const templateSaveRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
+  const templateCloneRequestsRef = useRef(new Map<string, Promise<ReportTemplate>>())
+  const templateDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
+  const scheduleCreateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
+  const scheduleUpdateRequestsRef = useRef(new Map<string, Promise<ReportSchedule>>())
+  const scheduleDeleteRequestsRef = useRef(new Map<string, Promise<void>>())
+  const scheduleRunRequestsRef = useRef(new Map<string, Promise<ReportQueueResponse[]>>())
+  const selectedReportIdRef = useRef(routeReportId)
+  const mountedRef = useRef(true)
+  const activeDownloadRef = useRef<{
+    reportId: string
+    controller: AbortController
+  } | null>(null)
+  selectedReportIdRef.current = routeReportId
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      activeDownloadRef.current?.controller.abort()
+      activeDownloadRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const activeDownload = activeDownloadRef.current
+    if (activeDownload && activeDownload.reportId !== routeReportId) {
+      activeDownload.controller.abort()
+      activeDownloadRef.current = null
+    }
+  }, [routeReportId])
 
   const capabilitiesQuery = useQuery({
     queryKey: ['reports', 'capabilities'],
@@ -167,10 +199,7 @@ export function useReportingController() {
     onMutate: () => setFeedback(null),
     onSuccess: (result) => {
       createRequestRef.current = null
-      setFeedback({
-        kind: 'success',
-        message: 'Report queued. Progress and provider history are now available.',
-      })
+      setFeedback(reportQueueFeedback('create', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports', 'library'] })
       navigate(`/reporting/${result.report_id}`)
     },
@@ -195,7 +224,7 @@ export function useReportingController() {
     onMutate: () => setFeedback(null),
     onSuccess: (result) => {
       retryRequestKeysRef.current.delete(result.report_id)
-      setFeedback({ kind: 'success', message: 'Report retry queued.' })
+      setFeedback(reportQueueFeedback('retry', result.status))
       void queryClient.invalidateQueries({ queryKey: ['reports'] })
       navigate(`/reporting/${result.report_id}`)
     },
@@ -219,22 +248,26 @@ export function useReportingController() {
     ),
   })
   const templateMutation = useMutation({
+    mutationKey: ['reports', 'templates', 'save'],
     mutationFn: (payload: { mode: 'create' | 'update'; name: string; visibility: 'private' | 'shared' }) => {
       if (!validation.filters) throw new Error('Report filters are invalid.')
       const selected = templatesQuery.data?.find((template) => template.id === selectedTemplateId)
       const path = payload.mode === 'update' && selected ? `/reports/templates/${selected.id}` : '/reports/templates'
-      return apiFetch<ReportTemplate>(path, {
-        method: payload.mode === 'update' ? 'PUT' : 'POST',
-        body: JSON.stringify({
-          name: payload.name,
-          description: selected?.description ?? 'Custom intelligence report template.',
-          report_type: selected?.report_type ?? 'custom',
-          visibility: payload.visibility,
-          prompt,
-          sections,
-          default_filters: validation.filters,
-        }),
-      })
+      const requestKey = payload.mode === 'update' && selected ? selected.id : 'create'
+      return coalesceRequest(templateSaveRequestsRef.current, requestKey, () => (
+        apiFetch<ReportTemplate>(path, {
+          method: payload.mode === 'update' ? 'PUT' : 'POST',
+          body: JSON.stringify({
+            name: payload.name,
+            description: selected?.description ?? 'Custom intelligence report template.',
+            report_type: selected?.report_type ?? 'custom',
+            visibility: payload.visibility,
+            prompt,
+            sections,
+            default_filters: validation.filters,
+          }),
+        })
+      ))
     },
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
@@ -249,7 +282,12 @@ export function useReportingController() {
     ),
   })
   const cloneTemplateMutation = useMutation({
-    mutationFn: (templateId: string) => apiFetch<ReportTemplate>(`/reports/templates/${templateId}/clone`, { method: 'POST' }),
+    mutationKey: ['reports', 'templates', 'clone'],
+    mutationFn: (templateId: string) => coalesceRequest(
+      templateCloneRequestsRef.current,
+      templateId,
+      () => apiFetch<ReportTemplate>(`/reports/templates/${templateId}/clone`, { method: 'POST' }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: (template) => {
       setSelectedTemplateId(template.id)
@@ -267,7 +305,12 @@ export function useReportingController() {
     ),
   })
   const deleteTemplateMutation = useMutation({
-    mutationFn: (templateId: string) => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
+    mutationKey: ['reports', 'templates', 'delete'],
+    mutationFn: (templateId: string) => coalesceRequest(
+      templateDeleteRequestsRef.current,
+      templateId,
+      () => apiFetch<void>(`/reports/templates/${templateId}`, { method: 'DELETE' }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report template deleted.' })
@@ -280,8 +323,12 @@ export function useReportingController() {
     ),
   })
   const createScheduleMutation = useMutation({
-    mutationFn: (payload: ReportScheduleWrite) =>
-      apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body: JSON.stringify(payload) }),
+    mutationKey: ['reports', 'schedules', 'create'],
+    mutationFn: (payload: ReportScheduleWrite) => coalesceRequest(
+      scheduleCreateRequestsRef.current,
+      'create',
+      () => apiFetch<ReportSchedule>('/reports/schedules', { method: 'POST', body: JSON.stringify(payload) }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule created.' })
@@ -294,10 +341,15 @@ export function useReportingController() {
     ),
   })
   const updateScheduleMutation = useMutation({
-    mutationFn: (schedule: ReportSchedule) => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
-      method: 'PUT',
-      body: JSON.stringify(schedulePayload(schedule)),
-    }),
+    mutationKey: ['reports', 'schedules', 'update'],
+    mutationFn: (schedule: ReportSchedule) => coalesceRequest(
+      scheduleUpdateRequestsRef.current,
+      schedule.id,
+      () => apiFetch<ReportSchedule>(`/reports/schedules/${schedule.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(schedulePayload(schedule)),
+      }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule updated.' })
@@ -310,7 +362,12 @@ export function useReportingController() {
     ),
   })
   const deleteScheduleMutation = useMutation({
-    mutationFn: (scheduleId: string) => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
+    mutationKey: ['reports', 'schedules', 'delete'],
+    mutationFn: (scheduleId: string) => coalesceRequest(
+      scheduleDeleteRequestsRef.current,
+      scheduleId,
+      () => apiFetch<void>(`/reports/schedules/${scheduleId}`, { method: 'DELETE' }),
+    ),
     onMutate: () => setFeedback(null),
     onSuccess: () => {
       setFeedback({ kind: 'success', message: 'Report schedule deleted.' })
@@ -323,11 +380,29 @@ export function useReportingController() {
     ),
   })
   const runScheduleMutation = useMutation({
-    mutationFn: (scheduleId: string) => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, { method: 'POST' }),
+    mutationKey: ['reports', 'schedules', 'run'],
+    mutationFn: (scheduleId: string) => coalesceRequest(
+      scheduleRunRequestsRef.current,
+      scheduleId,
+      () => apiFetch<ReportQueueResponse[]>(`/reports/schedules/${scheduleId}/run`, { method: 'POST' }),
+    ),
     onMutate: () => setFeedback(null),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['reports'] })
-      setFeedback({ kind: 'success', message: 'Scheduled report run queued.' })
+    onSuccess: (results) => {
+      void Promise.all([
+        queryClient.refetchQueries({ queryKey: ['reports', 'library'] }),
+        queryClient.refetchQueries({ queryKey: ['reports', 'schedules'] }),
+      ])
+      setFeedback(results.length > 0
+        ? {
+            kind: 'success',
+            message: results.length === 1
+              ? 'Scheduled report run queued.'
+              : `${results.length.toLocaleString()} scheduled report runs queued.`,
+          }
+        : {
+            kind: 'info',
+            message: 'No new report was queued. The schedule and report library are being refreshed because this period may already have a report.',
+          })
     },
     onError: (error) => setActionError(
       setFeedback,
@@ -343,25 +418,63 @@ export function useReportingController() {
       reportId: string
       format: ReportDownloadFormat
     }) => {
-      const result = await apiDownload(
-        `/reports/${reportId}/download?format=${format}`,
-        { timeoutMs: 60_000 },
-      )
-      const extension = format === 'markdown' ? 'md' : format
-      const filename = result.filename ?? `threatlens-report-${reportId}.${extension}`
-      triggerBrowserDownload(result.blob, filename)
-      return { filename }
+      if (!mountedRef.current || selectedReportIdRef.current !== reportId) {
+        throw new ReportDownloadCanceledError()
+      }
+      activeDownloadRef.current?.controller.abort()
+      const controller = new AbortController()
+      const activeDownload = { reportId, controller }
+      activeDownloadRef.current = activeDownload
+      try {
+        const result = await apiDownload(
+          `/reports/${reportId}/download?format=${format}`,
+          { timeoutMs: 60_000, signal: controller.signal },
+        )
+        if (
+          controller.signal.aborted
+          || !mountedRef.current
+          || selectedReportIdRef.current !== reportId
+        ) {
+          throw new ReportDownloadCanceledError()
+        }
+        const extension = format === 'markdown' ? 'md' : format
+        const filename = result.filename ?? `threatlens-report-${reportId}.${extension}`
+        triggerBrowserDownload(result.blob, filename)
+        return { filename, reportId }
+      } catch (error) {
+        if (controller.signal.aborted) throw new ReportDownloadCanceledError()
+        throw error
+      } finally {
+        if (activeDownloadRef.current === activeDownload) {
+          activeDownloadRef.current = null
+        }
+      }
     },
-    onMutate: () => setFeedback(null),
-    onSuccess: ({ filename }) => setFeedback({
-      kind: 'success',
-      message: `Report downloaded: ${filename}`,
-    }),
-    onError: (error) => setActionError(
-      setFeedback,
-      error,
-      'The report download could not be prepared',
-    ),
+    onMutate: () => {
+      if (mountedRef.current) setFeedback(null)
+    },
+    onSuccess: ({ filename, reportId }) => {
+      if (mountedRef.current && selectedReportIdRef.current === reportId) {
+        setFeedback({
+          kind: 'success',
+          message: `Report downloaded: ${filename}`,
+        })
+      }
+    },
+    onError: (error, { reportId }) => {
+      if (
+        error instanceof ReportDownloadCanceledError
+        || !mountedRef.current
+        || selectedReportIdRef.current !== reportId
+      ) {
+        return
+      }
+      setActionError(
+        setFeedback,
+        error,
+        'The report download could not be prepared',
+      )
+    },
   })
 
   const selectedTemplate = templatesQuery.data?.find((entry) => entry.id === selectedTemplateId)
@@ -447,6 +560,13 @@ export function useReportingController() {
   }
 }
 
+class ReportDownloadCanceledError extends Error {
+  constructor() {
+    super('The report download was canceled because the report view changed.')
+    this.name = 'ReportDownloadCanceledError'
+  }
+}
+
 export type ReportingController = ReturnType<typeof useReportingController>
 
 function schedulePayload(schedule: ReportSchedule) {
@@ -509,4 +629,21 @@ function setActionError(
     kind: 'error',
     message: resolveApiErrorMessage(error, fallback),
   })
+}
+
+function coalesceRequest<Key, Result>(
+  requests: Map<Key, Promise<Result>>,
+  key: Key,
+  createRequest: () => Promise<Result>,
+): Promise<Result> {
+  const activeRequest = requests.get(key)
+  if (activeRequest) return activeRequest
+
+  const request = createRequest()
+  requests.set(key, request)
+  const clear = () => {
+    if (requests.get(key) === request) requests.delete(key)
+  }
+  void request.then(clear, clear)
+  return request
 }

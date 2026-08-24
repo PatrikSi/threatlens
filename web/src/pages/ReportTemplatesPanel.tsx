@@ -1,3 +1,5 @@
+import { useIsMutating } from '@tanstack/react-query'
+
 import { resolveApiErrorMessage } from '../api/errors'
 import type { ReportTemplate } from '../types/api'
 import type { ReportingController } from './useReportingController'
@@ -23,6 +25,15 @@ export function ReportTemplatesPanel({ controller }: { controller: ReportingCont
 
 function TemplateEntry({ template, controller }: { template: ReportTemplate; controller: ReportingController }) {
   const isOwner = template.owner_user_id === controller.currentUser.data?.id
+  const clonePending = useIsMutating({
+    mutationKey: ['reports', 'templates', 'clone'],
+    predicate: (mutation) => mutation.state.variables === template.id,
+  }) > 0
+  const deletePending = useIsMutating({
+    mutationKey: ['reports', 'templates', 'delete'],
+    predicate: (mutation) => mutation.state.variables === template.id,
+  }) > 0
+  const actionPending = clonePending || deletePending
   return (
     <article className="min-w-0 bg-white/90 p-3 dark:bg-[#041612]/95 sm:p-4">
       <div className="flex items-start justify-between gap-2">
@@ -45,7 +56,8 @@ function TemplateEntry({ template, controller }: { template: ReportTemplate; con
       <div className="mt-3 flex flex-wrap gap-1.5">
         <button
           type="button"
-          className="rounded bg-ink px-2.5 py-1.5 text-xs font-semibold text-white dark:bg-cyan dark:text-[#053c2e]"
+          className="rounded bg-ink px-2.5 py-1.5 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]"
+          disabled={actionPending}
           onClick={() => {
             controller.setSelectedTemplateId(template.id)
             controller.setActiveTab('reports')
@@ -55,22 +67,24 @@ function TemplateEntry({ template, controller }: { template: ReportTemplate; con
         </button>
         <button
           type="button"
-          className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold dark:border-white/10"
-          onClick={() => controller.cloneTemplateMutation.mutate(template.id)}
+          className="rounded border border-slate/20 px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10"
+          disabled={actionPending}
+          onClick={() => { if (!actionPending) controller.cloneTemplateMutation.mutate(template.id) }}
         >
-          Clone
+          {clonePending ? 'Cloning...' : 'Clone'}
         </button>
         {!template.builtin_key && (isOwner || controller.isAdmin) && (
           <button
             type="button"
-            className="rounded border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-700 dark:border-red-800 dark:text-red-300"
+            className="rounded border border-red-300 px-2.5 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+            disabled={actionPending}
             onClick={() => {
-              if (window.confirm(`Delete ${template.name}?`)) {
+              if (!actionPending && window.confirm(`Delete ${template.name}?`)) {
                 controller.deleteTemplateMutation.mutate(template.id)
               }
             }}
           >
-            Delete
+            {deletePending ? 'Deleting...' : 'Delete'}
           </button>
         )}
       </div>

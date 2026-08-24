@@ -143,6 +143,7 @@ function TemplateSaveControls({ controller }: { controller: ReportingController 
           className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_160px_auto] sm:items-end"
           onSubmit={(event) => {
             event.preventDefault()
+            if (controller.templateMutation.isPending) return
             controller.templateMutation.mutate(
               { mode, name, visibility },
               { onSuccess: () => setMode(null) },
@@ -162,7 +163,7 @@ function TemplateSaveControls({ controller }: { controller: ReportingController 
           </label>
           <div className="flex gap-1.5">
             <button type="submit" className="min-h-10 rounded bg-ink px-3 py-2 text-xs font-semibold text-white disabled:opacity-50 dark:bg-cyan dark:text-[#053c2e]" disabled={controller.templateMutation.isPending}>{controller.templateMutation.isPending ? 'Saving...' : 'Save'}</button>
-            <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-xs font-semibold dark:border-white/10" onClick={() => setMode(null)}>Cancel</button>
+            <button type="button" className="min-h-10 rounded border border-slate/20 px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-50 dark:border-white/10" disabled={controller.templateMutation.isPending} onClick={() => setMode(null)}>Cancel</button>
           </div>
         </form>
       )}
