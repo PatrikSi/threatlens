@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -57,8 +57,11 @@ def claim_report_dispatch(
     ):
         return ReportDispatchClaim(False, celery_task_id=run.celery_task_id)
 
-    next_attempt_at = _as_optional_utc(run.dispatch_next_attempt_at)
-    if next_attempt_at is not None and next_attempt_at > observed_at:
+    if not _dispatch_is_due(
+        run,
+        now=observed_at,
+        start_grace_seconds=settings.report_dispatch_start_grace_seconds,
+    ):
         return ReportDispatchClaim(False, celery_task_id=run.celery_task_id)
 
     attempt_count = int(run.dispatch_attempt_count or 0)
@@ -148,6 +151,26 @@ def list_due_report_dispatches(
 ) -> list[tuple[uuid.UUID, uuid.UUID]]:
     settings = get_settings()
     observed_at = _as_utc(now)
+    recovery_before = observed_at - timedelta(
+        seconds=settings.report_dispatch_start_grace_seconds
+    )
+    dispatch_due = or_(
+        and_(
+            AITaskRun.dispatch_next_attempt_at.is_not(None),
+            AITaskRun.dispatch_next_attempt_at <= observed_at,
+        ),
+        and_(
+            AITaskRun.dispatch_next_attempt_at.is_(None),
+            AITaskRun.dispatch_published_at.is_not(None),
+            AITaskRun.dispatch_published_at <= recovery_before,
+        ),
+        and_(
+            AITaskRun.dispatch_next_attempt_at.is_(None),
+            AITaskRun.dispatch_published_at.is_(None),
+            func.coalesce(AITaskRun.queued_at, AITaskRun.created_at)
+            <= recovery_before,
+        ),
+    )
     rows = db.execute(
         select(AITaskRun.report_id, AITaskRun.id)
         .join(Report, Report.id == AITaskRun.report_id)
@@ -155,17 +178,23 @@ def list_due_report_dispatches(
             AITaskRun.task_type == AI_TASK_TYPE_REPORT,
             AITaskRun.status == AI_STATUS_QUEUED,
             AITaskRun.finished_at.is_(None),
-            AITaskRun.dispatch_published_at.is_(None),
             or_(
                 AITaskRun.dispatch_claim_token.is_(None),
                 AITaskRun.dispatch_claim_expires_at.is_(None),
                 AITaskRun.dispatch_claim_expires_at <= observed_at,
             ),
-            AITaskRun.dispatch_next_attempt_at.is_not(None),
-            AITaskRun.dispatch_next_attempt_at <= observed_at,
+            dispatch_due,
             Report.status.in_(["queued", "running"]),
         )
-        .order_by(AITaskRun.dispatch_next_attempt_at.asc(), AITaskRun.created_at.asc())
+        .order_by(
+            func.coalesce(
+                AITaskRun.dispatch_next_attempt_at,
+                AITaskRun.dispatch_published_at,
+                AITaskRun.queued_at,
+                AITaskRun.created_at,
+            ).asc(),
+            AITaskRun.created_at.asc(),
+        )
         .limit(limit or settings.report_dispatch_batch_size)
     ).all()
     return [(report_id, run_id) for report_id, run_id in rows if report_id is not None]
@@ -202,6 +231,25 @@ def _is_dispatchable(run: AITaskRun | None, *, report_id: uuid.UUID) -> bool:
         and run.report_id == report_id
         and run.status == AI_STATUS_QUEUED
         and run.finished_at is None
+    )
+
+
+def _dispatch_is_due(
+    run: AITaskRun,
+    *,
+    now: datetime,
+    start_grace_seconds: int,
+) -> bool:
+    next_attempt_at = _as_optional_utc(run.dispatch_next_attempt_at)
+    if next_attempt_at is not None:
+        return next_attempt_at <= now
+    published_at = _as_optional_utc(run.dispatch_published_at)
+    if published_at is not None:
+        return published_at + timedelta(seconds=start_grace_seconds) <= now
+    queued_at = _as_optional_utc(run.queued_at or run.created_at)
+    return bool(
+        queued_at is not None
+        and queued_at + timedelta(seconds=start_grace_seconds) <= now
     )
 
 
