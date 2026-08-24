@@ -83,6 +83,7 @@ from app.services.ai_task_runtime import (
     get_ai_db_live_status as get_ai_db_live_status,
 )
 from app.services.ai_task_settlement import settle_pending_ai_resource
+from app.services.report_execution import invalidate_stale_report_generation
 from app.tasks.celery_app import celery_app
 
 
@@ -883,13 +884,14 @@ def _reconcile_stale_ai_runs(
                 continue
             stale_reason = "stale_task_snapshot_unavailable"
             stale_error = "Task exceeded the fallback stale-run grace period while Celery inspection was unavailable"
-        _finish_reconciled_stale_run(
+        if not _finish_reconciled_stale_run(
             db,
             run=run,
             snapshot_available=can_reconcile_missing_live_tasks,
             stale_reason=stale_reason,
             stale_error=stale_error,
-        )
+        ):
+            continue
         changed = True
         reconciled_count += 1
 
@@ -942,13 +944,14 @@ def _reconcile_stale_ai_runs(
             queued_stale_before=fallback_stale_before,
         ):
             continue
-        _finish_reconciled_stale_run(
+        if not _finish_reconciled_stale_run(
             db,
             run=run,
             snapshot_available=can_reconcile_missing_live_tasks,
             stale_reason="stale_reprocess_tracking",
             stale_error="Reprocess task stopped updating and is no longer active in Celery",
-        )
+        ):
+            continue
         changed = True
         reconciled_count += 1
 
@@ -1054,7 +1057,27 @@ def _finish_reconciled_stale_run(
     snapshot_available: bool,
     stale_reason: str,
     stale_error: str,
-) -> None:
+) -> bool:
+    locked_run = db.scalar(
+        select(AITaskRun)
+        .where(AITaskRun.id == run.id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if (
+        locked_run is None
+        or locked_run.finished_at is not None
+        or locked_run.status in AI_TERMINAL_STATUSES
+    ):
+        return False
+    run = locked_run
+    if run.task_type == AI_TASK_TYPE_REPORT and run.report_id is not None:
+        if not invalidate_stale_report_generation(
+            db,
+            report_id=run.report_id,
+        ):
+            return False
+
     if _is_cancel_requested_run(run):
         finish_ai_task_run(
             db,
@@ -1069,7 +1092,7 @@ def _finish_reconciled_stale_run(
                 "cancel_observed_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        return
+        return True
 
     finish_ai_task_run(
         db,
@@ -1084,6 +1107,7 @@ def _finish_reconciled_stale_run(
             "stale_snapshot_available": snapshot_available,
         },
     )
+    return True
 
 
 def _is_cancel_requested_run(run: AITaskRun) -> bool:

@@ -75,11 +75,7 @@ def claim_report_generation(
         expires_at=lease_expiry,
         now=now,
     )
-    legacy_is_independent = (
-        report.generation_lease_token is not None
-        and report.generation_lease_token != lease.lease_token
-    ) or lease.lease_token is None
-    legacy_is_active = legacy_is_independent and _active_foreign_lease(
+    legacy_is_active = _active_foreign_lease(
         token=report.generation_lease_token,
         expected_token=lease_token,
         expires_at=legacy_expiry,
@@ -152,27 +148,8 @@ def fence_report_generation(
     """Validate ownership in the transaction that will commit report output."""
 
     now = datetime.now(timezone.utc)
-    lease_result = db.execute(
-        update(ReportGenerationLease)
-        .where(
-            ReportGenerationLease.report_id == report_id,
-            ReportGenerationLease.lease_token == lease_token,
-            ReportGenerationLease.generation_fence == generation_fence,
-            ReportGenerationLease.lease_expires_at > now,
-        )
-        .values(lease_expires_at=now + timedelta(seconds=lease_seconds))
-        .execution_options(synchronize_session=False)
-    )
-    if lease_result.rowcount != 1:
-        logger.warning(
-            "report_generation_commit_fence_mismatch report_id=%s fence=%s",
-            report_id,
-            generation_fence,
-        )
-        return False
-
-    # Keep the pre-0049 columns alive during rolling upgrades. The conditional
-    # update also detects an older worker taking ownership of this report row.
+    # Keep the pre-0049 columns alive during rolling upgrades. Lock the report
+    # before the companion lease everywhere that both rows are touched.
     report_result = db.execute(
         update(Report)
         .where(
@@ -194,6 +171,25 @@ def fence_report_generation(
             generation_fence,
         )
         return False
+
+    lease_result = db.execute(
+        update(ReportGenerationLease)
+        .where(
+            ReportGenerationLease.report_id == report_id,
+            ReportGenerationLease.lease_token == lease_token,
+            ReportGenerationLease.generation_fence == generation_fence,
+            ReportGenerationLease.lease_expires_at > now,
+        )
+        .values(lease_expires_at=now + timedelta(seconds=lease_seconds))
+        .execution_options(synchronize_session=False)
+    )
+    if lease_result.rowcount != 1:
+        logger.warning(
+            "report_generation_commit_fence_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
+        return False
     return True
 
 
@@ -204,6 +200,22 @@ def release_report_generation(
     lease_token: str,
     generation_fence: int,
 ) -> bool:
+    report_result = db.execute(
+        update(Report)
+        .where(
+            Report.id == report_id,
+            Report.generation_lease_token == lease_token,
+        )
+        .values(generation_lease_token=None, generation_lease_expires_at=None)
+        .execution_options(synchronize_session=False)
+    )
+    if report_result.rowcount != 1:
+        logger.warning(
+            "report_generation_release_legacy_mismatch report_id=%s fence=%s",
+            report_id,
+            generation_fence,
+        )
+        return False
     lease_result = db.execute(
         update(ReportGenerationLease)
         .where(
@@ -221,22 +233,55 @@ def release_report_generation(
             generation_fence,
         )
         return False
-    report_result = db.execute(
-        update(Report)
-        .where(
-            Report.id == report_id,
-            Report.generation_lease_token == lease_token,
-        )
-        .values(generation_lease_token=None, generation_lease_expires_at=None)
-        .execution_options(synchronize_session=False)
+    return True
+
+
+def invalidate_stale_report_generation(
+    db: Session,
+    *,
+    report_id: uuid.UUID,
+    now: datetime | None = None,
+) -> bool:
+    """Fence expired generation work before its task run is reconciled."""
+
+    observed_at = _as_utc(now or datetime.now(timezone.utc))
+    report = db.scalar(
+        select(Report)
+        .where(Report.id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     )
-    if report_result.rowcount != 1:
-        logger.warning(
-            "report_generation_release_legacy_mismatch report_id=%s fence=%s",
-            report_id,
-            generation_fence,
-        )
+    lease = db.scalar(
+        select(ReportGenerationLease)
+        .where(ReportGenerationLease.report_id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if _active_lease(
+        token=lease.lease_token if lease is not None else None,
+        expires_at=_as_utc(lease.lease_expires_at) if lease is not None else None,
+        now=observed_at,
+    ) or _active_lease(
+        token=report.generation_lease_token if report is not None else None,
+        expires_at=(
+            _as_utc(report.generation_lease_expires_at)
+            if report is not None
+            else None
+        ),
+        now=observed_at,
+    ):
         return False
+
+    if report is not None:
+        report.generation_lease_token = None
+        report.generation_lease_expires_at = None
+        db.add(report)
+    if lease is not None:
+        lease.generation_fence = int(lease.generation_fence or 0) + 1
+        lease.lease_token = None
+        lease.lease_expires_at = None
+        db.add(lease)
+    db.flush()
     return True
 
 
@@ -253,6 +298,12 @@ def _active_foreign_lease(
         and expires_at is not None
         and expires_at > now
     )
+
+
+def _active_lease(
+    *, token: str | None, expires_at: datetime | None, now: datetime
+) -> bool:
+    return bool(token and expires_at is not None and expires_at > now)
 
 
 def _legacy_lease_expiry(*, now: datetime, lease_seconds: int) -> datetime:
@@ -276,6 +327,7 @@ __all__ = [
     "ReportGenerationOwnershipError",
     "claim_report_generation",
     "fence_report_generation",
+    "invalidate_stale_report_generation",
     "release_report_generation",
     "renew_report_generation",
 ]
