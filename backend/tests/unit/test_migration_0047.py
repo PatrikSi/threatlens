@@ -173,7 +173,7 @@ def test_report_dispatch_migration_hashes_keys_and_repairs_active_runs(
                     ),
                     {"report_id": report_id},
                 )
-            assert revision == "0047_report_dispatch"
+            assert revision == "0048_feed_fetch_fence"
             assert reupgraded_hash == expected_hash
     finally:
         schema_engine.dispose()
