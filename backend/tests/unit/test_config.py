@@ -57,6 +57,23 @@ def test_report_generation_lease_covers_provider_timeout():
         isolated_settings(report_generation_lease_seconds=300)
 
 
+@pytest.mark.parametrize("visibility_timeout", [599, 600])
+def test_celery_visibility_timeout_exceeds_report_lease(
+    visibility_timeout: int,
+):
+    with pytest.raises(
+        ValueError,
+        match=(
+            "celery_visibility_timeout_seconds must be greater than "
+            "report_generation_lease_seconds"
+        ),
+    ):
+        isolated_settings(
+            celery_visibility_timeout_seconds=visibility_timeout,
+            report_generation_lease_seconds=600,
+        )
+
+
 def test_report_schedule_retry_backoff_must_be_bounded():
     with pytest.raises(
         ValueError, match="report_schedule_retry_max_backoff_seconds"

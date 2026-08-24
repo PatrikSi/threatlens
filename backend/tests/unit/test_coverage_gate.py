@@ -58,6 +58,19 @@ def test_coverage_gate_reports_critical_module_regression(tmp_path, capsys):
     assert "app/services/report_dispatch.py" in error
 
 
+def test_coverage_gate_reports_feed_coordination_regression(tmp_path, capsys):
+    coverage_path = tmp_path / "coverage.json"
+    _write_coverage(coverage_path)
+    payload = json.loads(coverage_path.read_text(encoding="utf-8"))
+    payload["files"]["app/tasks/feed_task_coordination.py"]["summary"] = (
+        _summary(50, 100)
+    )
+    coverage_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    assert check_coverage.main(coverage_path) == 1
+    assert "app/tasks/feed_task_coordination.py" in capsys.readouterr().err
+
+
 def test_coverage_gate_rejects_invalid_document(tmp_path, capsys):
     coverage_path = tmp_path / "coverage.json"
     coverage_path.write_text("{}", encoding="utf-8")
