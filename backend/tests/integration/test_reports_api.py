@@ -588,3 +588,71 @@ def test_manual_schedule_run_maps_invalid_legacy_configuration_to_422(
 
     assert response.status_code == 422
     assert "Missing/Legacy-Zone" in response.json()["detail"]
+
+
+def test_manual_schedule_run_persists_missing_owner_quarantine(
+    client,
+    db_session,
+    auth_headers,
+    monkeypatch,
+):
+    template = ReportTemplate(
+        name=f"Orphaned schedule template {uuid.uuid4()}",
+        description="",
+        report_type="weekly",
+        visibility="shared",
+        audience="security_team",
+        objective="Summarize material security developments.",
+        tone="analytical",
+        detail_level="standard",
+        use_company_context=True,
+        focus_topics_json=[],
+        excluded_topics_json=[],
+        sections_json=[
+            {"key": "executive_summary", "title": "Executive Summary"}
+        ],
+        default_filters_json={},
+    )
+    db_session.add(template)
+    db_session.flush()
+    schedule = ReportSchedule(
+        template_id=template.id,
+        owner_user_id=None,
+        name=f"Orphaned schedule {uuid.uuid4()}",
+        enabled=True,
+        cadence="weekly",
+        day_of_week=0,
+        day_of_month=1,
+        hour=9,
+        minute=0,
+        timezone="UTC",
+        window_type="previous_complete_week",
+        rolling_days=7,
+        filters_json={},
+        delivery_enabled=False,
+        delivery_mode="summary",
+        skip_empty=True,
+        missed_run_policy="latest",
+        next_run_at=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    db_session.add(schedule)
+    db_session.commit()
+    monkeypatch.setattr(
+        reports_routes,
+        "_active_reporting_settings",
+        lambda _db: _reporting_settings_stub(),
+    )
+
+    response = client.post(
+        f"/reports/schedules/{schedule.id}/run",
+        headers=auth_headers["admin"],
+    )
+
+    assert response.status_code == 422
+    assert "owner no longer exists" in response.json()["detail"]
+    db_session.expire_all()
+    stored = db_session.get(ReportSchedule, schedule.id)
+    assert stored.failure_state == "quarantined"
+    assert stored.last_error_code == "owner_missing"
+    assert stored.enabled is False
+    assert stored.next_run_at is None
