@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -26,6 +26,10 @@ class ReportDispatchClaim:
     claimed: bool
     dispatch_token: str | None = None
     celery_task_id: str | None = None
+
+
+REPORT_STAGE_QUEUED = "queued"
+REPORT_STAGE_WAITING_FOR_WORKER = "waiting_for_worker"
 
 
 def initialize_report_dispatch(run: AITaskRun, *, now: datetime | None = None) -> None:
@@ -320,6 +324,51 @@ def list_due_report_dispatches(
     return [(report_id, run_id) for report_id, run_id in rows if report_id is not None]
 
 
+def has_queued_report_dispatches(db: Session) -> bool:
+    return bool(
+        db.scalar(
+            select(AITaskRun.id)
+            .join(Report, Report.id == AITaskRun.report_id)
+            .where(
+                AITaskRun.task_type == AI_TASK_TYPE_REPORT,
+                AITaskRun.status == AI_STATUS_QUEUED,
+                AITaskRun.finished_at.is_(None),
+                Report.status == "queued",
+            )
+            .limit(1)
+        )
+    )
+
+
+def set_report_dispatch_waiting_state(
+    db: Session,
+    *,
+    waiting: bool,
+) -> int:
+    current_stage, next_stage = (
+        (REPORT_STAGE_QUEUED, REPORT_STAGE_WAITING_FOR_WORKER)
+        if waiting
+        else (REPORT_STAGE_WAITING_FOR_WORKER, REPORT_STAGE_QUEUED)
+    )
+    queued_report_ids = select(AITaskRun.report_id).where(
+        AITaskRun.task_type == AI_TASK_TYPE_REPORT,
+        AITaskRun.status == AI_STATUS_QUEUED,
+        AITaskRun.finished_at.is_(None),
+        AITaskRun.report_id.is_not(None),
+    )
+    result = db.execute(
+        update(Report)
+        .where(
+            Report.id.in_(queued_report_ids),
+            Report.status == "queued",
+            Report.generation_stage == current_stage,
+        )
+        .values(generation_stage=next_stage)
+        .execution_options(synchronize_session=False)
+    )
+    return int(result.rowcount or 0)
+
+
 def stable_report_task_id(task_run_id: uuid.UUID) -> str:
     return f"report-{task_run_id}"
 
@@ -392,12 +441,16 @@ def _as_utc(value: datetime) -> datetime:
 
 
 __all__ = [
+    "REPORT_STAGE_QUEUED",
+    "REPORT_STAGE_WAITING_FOR_WORKER",
     "ReportDispatchClaim",
     "claim_report_dispatch",
+    "has_queued_report_dispatches",
     "initialize_report_dispatch",
     "list_due_report_dispatches",
     "record_report_dispatch_failure",
     "record_report_dispatch_success",
+    "set_report_dispatch_waiting_state",
     "stable_report_task_id",
     "supersede_legacy_report_dispatch",
 ]

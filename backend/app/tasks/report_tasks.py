@@ -34,10 +34,12 @@ from app.services.report_execution import (
 from app.services.report_notifications import REPORT_READY_EVENT_TYPE
 from app.services.report_dispatch import (
     claim_report_dispatch,
+    has_queued_report_dispatches,
     initialize_report_dispatch,
     list_due_report_dispatches,
     record_report_dispatch_failure,
     record_report_dispatch_success,
+    set_report_dispatch_waiting_state,
     stable_report_task_id,
     supersede_legacy_report_dispatch,
 )
@@ -1073,6 +1075,37 @@ def dispatch_pending_report_tasks():
     now = datetime.now(timezone.utc)
     with db_session() as db:
         entries = list_due_report_dispatches(db, now=now)
+        queued_reports_exist = has_queued_report_dispatches(db)
+    if not queued_reports_exist:
+        return {"status": "ok", "dispatched": 0, "deferred": 0}
+
+    queue_available = _report_queue_subscription_available()
+    if queue_available is False:
+        with db_session() as db:
+            changed = set_report_dispatch_waiting_state(db, waiting=True)
+            db.commit()
+        if changed:
+            logger.error(
+                "report_dispatch_queue_has_no_consumer queue=%s affected_reports=%d",
+                QUEUE_AI_REPORTS,
+                changed,
+            )
+        return {
+            "status": "partial",
+            "dispatched": 0,
+            "deferred": len(entries),
+        }
+    if queue_available is True:
+        with db_session() as db:
+            resumed = set_report_dispatch_waiting_state(db, waiting=False)
+            db.commit()
+        if resumed:
+            logger.info(
+                "report_dispatch_queue_consumer_restored queue=%s affected_reports=%d",
+                QUEUE_AI_REPORTS,
+                resumed,
+            )
+
     dispatched = 0
     deferred = 0
     for report_id, run_id in entries:
@@ -1086,6 +1119,28 @@ def dispatch_pending_report_tasks():
         "dispatched": dispatched,
         "deferred": deferred,
     }
+
+
+def _report_queue_subscription_available() -> bool | None:
+    try:
+        inspector = celery_app.control.inspect(
+            timeout=settings.health_worker_ping_timeout_seconds
+        )
+        raw_queues = inspector.active_queues()
+    except Exception as exc:
+        logger.warning(
+            "report_dispatch_queue_inspection_failed error_type=%s",
+            type(exc).__name__,
+        )
+        return None
+    if not isinstance(raw_queues, dict):
+        return False
+    return any(
+        isinstance(queue, dict) and queue.get("name") == QUEUE_AI_REPORTS
+        for queues in raw_queues.values()
+        if isinstance(queues, list)
+        for queue in queues
+    )
 
 
 def _report_error_for_display(exc: Exception) -> str:
