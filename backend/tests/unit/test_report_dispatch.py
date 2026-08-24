@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from app.core.config import get_settings
 from app.models.ai_task_run import AITaskRun
 from app.models.report import Report
+from app.services import report_dispatch as report_dispatch_service
 from app.services.report_dispatch import (
     claim_report_dispatch,
     has_queued_report_dispatches,
@@ -245,7 +246,7 @@ def test_published_task_is_recoverable_when_metadata_commit_fails(
         lambda *, args, queue, task_id: published.append((args, queue, task_id)),
     )
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "record_report_dispatch_success",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             ConnectionError("database unavailable after publish")
@@ -570,12 +571,12 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
 
     monkeypatch.setattr(report_tasks, "db_session", _session)
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "list_due_report_dispatches",
         lambda *_args, **_kwargs: [first, second],
     )
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "has_queued_report_dispatches",
         lambda *_args, **_kwargs: True,
     )
@@ -587,8 +588,8 @@ def test_pending_dispatch_task_reports_partial_progress(monkeypatch):
         ),
     )
     monkeypatch.setattr(
-        report_tasks,
-        "_report_queue_subscription_available",
+        report_dispatch_service,
+        "report_queue_subscription_available",
         lambda: None,
     )
 
@@ -604,13 +605,13 @@ def test_pending_dispatch_marks_waiting_before_redrive_is_due(
     report, run = _queued_run(db_session)
     _use_test_session(monkeypatch, db_session)
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "list_due_report_dispatches",
         lambda *_args, **_kwargs: [],
     )
     monkeypatch.setattr(
-        report_tasks,
-        "_report_queue_subscription_available",
+        report_dispatch_service,
+        "report_queue_subscription_available",
         lambda: False,
     )
     monkeypatch.setattr(
@@ -635,13 +636,13 @@ def test_pending_dispatch_resumes_when_report_queue_returns(
     db_session.commit()
     _use_test_session(monkeypatch, db_session)
     monkeypatch.setattr(
-        report_tasks,
+        report_dispatch_service,
         "list_due_report_dispatches",
         lambda *_args, **_kwargs: [(report.id, run.id)],
     )
     monkeypatch.setattr(
-        report_tasks,
-        "_report_queue_subscription_available",
+        report_dispatch_service,
+        "report_queue_subscription_available",
         lambda: True,
     )
     monkeypatch.setattr(
@@ -682,27 +683,27 @@ def test_report_queue_subscription_inspection_is_tristate(monkeypatch):
             return self.response
 
     monkeypatch.setattr(
-        report_tasks.celery_app.control,
+        report_dispatch_service.celery_app.control,
         "inspect",
         lambda timeout: _Inspector(
             {"ai@worker": [{"name": "ai"}, {"name": "ai-reports-v2"}]}
         ),
     )
-    assert report_tasks._report_queue_subscription_available() is True
+    assert report_dispatch_service.report_queue_subscription_available() is True
 
     monkeypatch.setattr(
-        report_tasks.celery_app.control,
+        report_dispatch_service.celery_app.control,
         "inspect",
         lambda timeout: _Inspector({"ai@worker": [{"name": "ai"}]}),
     )
-    assert report_tasks._report_queue_subscription_available() is False
+    assert report_dispatch_service.report_queue_subscription_available() is False
 
     monkeypatch.setattr(
-        report_tasks.celery_app.control,
+        report_dispatch_service.celery_app.control,
         "inspect",
         lambda timeout: (_ for _ in ()).throw(ConnectionError("offline")),
     )
-    assert report_tasks._report_queue_subscription_available() is None
+    assert report_dispatch_service.report_queue_subscription_available() is None
 
 
 def test_initialize_dispatch_resets_previous_failure_state():
