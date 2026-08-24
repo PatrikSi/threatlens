@@ -88,6 +88,8 @@ When a change affects the published API contract:
 
 That command refreshes both `docs/reference/api.md` and `docs/reference/openapi.json`. The generated schema now carries an immutable contract digest at `info.x-threatlens-contract-sha256`; public release notes should record that digest alongside the eventual `vX.Y.Z` tag.
 
+The generator always reads the checked-in `VERSION` file for source artifacts. An exported runtime `APP_VERSION` does not change the generated contract version.
+
 When a change affects shipped runtime dependencies, bundled assets, or redistribution guidance:
 
 ```bash

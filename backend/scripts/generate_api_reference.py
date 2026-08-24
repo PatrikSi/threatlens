@@ -1,3 +1,4 @@
+import os
 import sys
 from pathlib import Path
 
@@ -5,8 +6,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BACKEND_ROOT = REPO_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 
-from app.main import API_SERVICE_PREFIX, OPENAPI_PROXY_PATH, WEB_PROXY_API_PREFIX, app
-from app.services.api_contract import build_openapi_schema_document, render_api_reference_markdown
+# Checked-in API artifacts describe the source tree, not a surrounding runtime.
+os.environ["APP_VERSION"] = (REPO_ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+from app.main import API_SERVICE_PREFIX, OPENAPI_PROXY_PATH, WEB_PROXY_API_PREFIX, app  # noqa: E402
+from app.services.api_contract import (  # noqa: E402
+    build_openapi_schema_document,
+    render_api_reference_markdown,
+)
 
 REFERENCE_DIR = REPO_ROOT / "docs" / "reference"
 API_REFERENCE_PATH = REFERENCE_DIR / "api.md"
