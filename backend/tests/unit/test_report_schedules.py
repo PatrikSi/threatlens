@@ -6,7 +6,7 @@ from app.core.config import get_settings
 from app.models.report_schedule import ReportSchedule
 from app.models.report_template import ReportTemplate
 from app.models.user import User
-from app.schemas.reports import ReportArticleFilters
+from app.schemas.reports import ReportArticleFilters, ReportSectionSetError
 from app.services.ai_context_budget import AIContextBudgetError
 from app.services.export_query import ExportSnapshotChangedError
 from app.services.report_schedules import (
@@ -217,6 +217,33 @@ def test_context_budget_failure_eventually_quarantines_schedule(db_session):
     assert schedule.next_run_at is None
     assert schedule.retry_at is None
     assert schedule.last_error_code == "context_budget"
+
+
+def test_invalid_section_set_quarantines_schedule_with_configuration_error(
+    db_session,
+):
+    now = datetime.now(timezone.utc)
+    schedule = _persist_schedule(
+        db_session,
+        next_run_at=now - timedelta(minutes=1),
+    )
+
+    for attempt in range(3):
+        record_schedule_failure(
+            db_session,
+            schedule_id=schedule.id,
+            now=now + timedelta(minutes=attempt),
+            error=ReportSectionSetError(
+                "Report section keys must be unique; duplicate keys: summary."
+            ),
+        )
+        db_session.commit()
+
+    db_session.refresh(schedule)
+    assert schedule.failure_state == "quarantined"
+    assert schedule.enabled is False
+    assert schedule.last_error_code == "invalid_configuration"
+    assert "Update the template" in (schedule.last_error or "")
 
 
 def test_schedule_update_clears_retry_state(db_session):
