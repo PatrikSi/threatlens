@@ -190,7 +190,7 @@ def find_report_create_replay(
             AITaskRun.report_id == report.id,
             AITaskRun.task_type == "report",
         )
-        .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        .order_by(AITaskRun.created_at.desc(), AITaskRun.id.desc())
         .limit(1)
     )
     if run is None:
@@ -250,7 +250,7 @@ def find_report_schedule_run_replay(
             AITaskRun.report_id == report.id,
             AITaskRun.task_type == "report",
         )
-        .order_by(AITaskRun.created_at.asc(), AITaskRun.id.asc())
+        .order_by(AITaskRun.created_at.desc(), AITaskRun.id.desc())
         .limit(1)
     )
     if run is None and report.status == "skipped":
