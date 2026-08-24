@@ -32,12 +32,18 @@ def test_schedule_version_guard_migrates_in_active_schema(
     monkeypatch,
 ):
     schema_name = f"migration_0055_{uuid.uuid4().hex}"
+    shadow_schema_name = f"migration_0055_shadow_{uuid.uuid4().hex}"
     schema_database_url = _database_url_for_schema(test_database_url, schema_name)
+    shadow_database_url = _database_url_for_schema(
+        test_database_url,
+        f"{shadow_schema_name},{schema_name}",
+    )
     admin_engine = create_engine(test_database_url, isolation_level="AUTOCOMMIT")
     schema_engine = create_engine(schema_database_url)
 
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE SCHEMA "{schema_name}"'))
+        connection.execute(text(f'CREATE SCHEMA "{shadow_schema_name}"'))
         connection.execute(
             text(
                 f'CREATE TABLE "{schema_name}".alembic_version '
@@ -54,6 +60,26 @@ def test_schedule_version_guard_migrates_in_active_schema(
             get_settings.cache_clear()
             config = _alembic_config()
             command.upgrade(config, "0054_report_dispatch_protocol")
+
+            with admin_engine.connect() as connection:
+                connection.execute(
+                    text(
+                        f'CREATE TABLE "{shadow_schema_name}".alembic_version '
+                        "(version_num VARCHAR(32) NOT NULL PRIMARY KEY)"
+                    )
+                )
+                connection.execute(
+                    text(
+                        f'INSERT INTO "{shadow_schema_name}".alembic_version '
+                        "(version_num) VALUES ('0054_report_dispatch_protocol')"
+                    )
+                )
+            migration_env.setenv(
+                "DATABASE_URL",
+                shadow_database_url.replace("%", "%%"),
+            )
+            get_settings.cache_clear()
+            config = _alembic_config()
             command.upgrade(config, "0055_schedule_version_guard")
 
             with schema_engine.connect() as connection:
@@ -94,5 +120,8 @@ def test_schedule_version_guard_migrates_in_active_schema(
         schema_engine.dispose()
         get_settings.cache_clear()
         with admin_engine.connect() as connection:
+            connection.execute(
+                text(f'DROP SCHEMA IF EXISTS "{shadow_schema_name}" CASCADE')
+            )
             connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
         admin_engine.dispose()
