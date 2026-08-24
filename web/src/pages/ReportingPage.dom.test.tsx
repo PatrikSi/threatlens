@@ -749,9 +749,10 @@ describe('ReportingPage schedule resilience', () => {
         celery_task_id: null,
         status: 'queued',
       }])
-      await vi.waitFor(() => expect(view.textContent).toContain('Scheduled report run queued'))
-      await vi.waitFor(() => expect(scheduleRequests).toBe(3))
+      await Promise.resolve()
     })
+    await vi.waitFor(() => expect(view.textContent).toContain('Scheduled report run queued'))
+    await vi.waitFor(() => expect(scheduleRequests).toBe(3))
     expect(rowButton(firstRow, 'Queueing...').disabled).toBe(true)
 
     await act(async () => {
