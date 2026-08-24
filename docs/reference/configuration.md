@@ -63,8 +63,14 @@
 | `OUTBOUND_MAX_REDIRECTS` (`outbound_max_redirects`) | `5` | Redirect hop cap for outbound fetches. |
 | `PER_DOMAIN_CONCURRENCY` (`per_domain_concurrency`) | `2` | Redis-coordinated per-domain concurrent article fetch cap. |
 | `AUTH_LOGIN_MAX_ATTEMPTS` (`auth_login_max_attempts`) | `8` | Failed login attempts allowed in window before temporary lockout. |
+| `AUTH_LOGIN_IP_MAX_ATTEMPTS` (`auth_login_ip_max_attempts`) | `50` | Failed login attempts allowed per client IP in the same window. Must be at least `AUTH_LOGIN_MAX_ATTEMPTS`. |
 | `AUTH_LOGIN_WINDOW_SECONDS` (`auth_login_window_seconds`) | `300` | Sliding window for failed login attempt counting. |
 | `AUTH_LOGIN_LOCKOUT_SECONDS` (`auth_login_lockout_seconds`) | `900` | Login lockout duration after threshold breaches. |
+| `REDIS_CONNECT_TIMEOUT_SECONDS` (`redis_connect_timeout_seconds`) | `2.0` | Connection timeout for Redis-backed coordination and rate-limit operations. |
+| `REDIS_SOCKET_TIMEOUT_SECONDS` (`redis_socket_timeout_seconds`) | `2.0` | Socket operation timeout for Redis-backed coordination and rate-limit operations. |
+| `DATABASE_CONNECT_TIMEOUT_SECONDS` (`database_connect_timeout_seconds`) | `5` | PostgreSQL connection establishment timeout. |
+| `DATABASE_STATEMENT_TIMEOUT_MS` (`database_statement_timeout_ms`) | `30000` | PostgreSQL statement timeout applied to application connections. |
+| `DATABASE_POOL_TIMEOUT_SECONDS` (`database_pool_timeout_seconds`) | `10` | Maximum wait for an available pooled database connection. |
 | `API_TOKEN_LAST_USED_UPDATE_INTERVAL_SECONDS` (`api_token_last_used_update_interval_seconds`) | `300` | Minimum interval between `last_used_at` writes per API token. |
 | `OIDC_TRANSACTION_COOKIE_NAME` (`oidc_transaction_cookie_name`) | `threatlens_oidc_transaction` | HttpOnly cookie used for the short-lived OIDC state, nonce, and PKCE transaction. |
 | `OIDC_TRANSACTION_TTL_SECONDS` (`oidc_transaction_ttl_seconds`) | `600` | Maximum age of an OIDC sign-in or account-link transaction. |
@@ -75,6 +81,7 @@
 | `OIDC_MAX_RESPONSE_BYTES` (`oidc_max_response_bytes`) | `1000000` | Maximum accepted response size for each OIDC provider endpoint. |
 | `CORS_ORIGINS` (`cors_origins`) | `http://localhost:3000,http://127.0.0.1:3000` | Allowed browser origins. Supports CSV parsing. |
 | `TRUSTED_PROXY_CIDRS` (`trusted_proxy_cidrs`) | _(empty)_ | Trusted proxy CIDRs permitted to append `X-Forwarded-For`. Leave empty unless the API is behind a reverse proxy whose container or network CIDR you explicitly control; broad Docker bridge or private-network ranges let sibling containers spoof client IPs. |
+| `TRUSTED_PROXY_HOSTS` (`trusted_proxy_hosts`) | _(empty)_ | Exact trusted proxy hostnames resolved at startup into client-address networks. The bundled compose stack sets this to `web`; prefer CIDRs when addresses are stable. |
 | `ALLOWED_HOSTS` (`allowed_hosts`) | `api,localhost,127.0.0.1,::1` | Backend Host header allowlist enforced by FastAPI. Add public hostnames when exposing the API service directly or behind a proxy that preserves the public Host header. |
 | `AUTH_COOKIE_NAME` (`auth_cookie_name`) | `threatlens_session` | HttpOnly auth cookie name for browser sessions. |
 | `AUTH_COOKIE_DOMAIN` (`auth_cookie_domain`) | _(empty)_ | Optional cookie domain override for browser session and CSRF cookies. |
@@ -102,11 +109,13 @@
 | `DISPATCH_AI_REPROCESS_BATCH_SIZE` (`dispatch_ai_reprocess_batch_size`) | `100` | Max AI reprocess items queued in one batch. |
 | `CELERY_VISIBILITY_TIMEOUT_SECONDS` (`celery_visibility_timeout_seconds`) | `3600` | Redis broker visibility timeout for unacknowledged tasks. Keep this above the longest AI report execution and its generation lease. |
 | `REPORT_GENERATION_LEASE_SECONDS` (`report_generation_lease_seconds`) | `600` | Renewable database ownership lease for one report generation worker. Must be at least 360 seconds. |
-| `REPORT_SCHEDULE_MAX_ATTEMPTS` (`report_schedule_max_attempts`) | `5` | Consecutive schedule planning failures allowed before a broken report schedule is quarantined. |
+| `REPORT_SCHEDULE_MAX_ATTEMPTS` (`report_schedule_max_attempts`) | `5` | Consecutive planning attempts before a transient failure is recorded as exhausted and the schedule advances. Invalid configuration failures use a smaller capped retry count before quarantine. |
 | `REPORT_SCHEDULE_RETRY_BACKOFF_SECONDS` (`report_schedule_retry_backoff_seconds`) | `60` | Initial exponential delay after a report schedule planning failure. |
 | `REPORT_SCHEDULE_RETRY_MAX_BACKOFF_SECONDS` (`report_schedule_retry_max_backoff_seconds`) | `3600` | Maximum report schedule planning retry delay. |
 | `REPORT_DISPATCH_BATCH_SIZE` (`report_dispatch_batch_size`) | `100` | Maximum durable queued report tasks recovered in one dispatch sweep. |
-| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Queue publication attempts allowed before a report dispatch is settled as failed. |
+| `REPORT_DISPATCH_MAX_ATTEMPTS` (`report_dispatch_max_attempts`) | `10` | Queue publication attempts allowed before a report dispatch is settled as failed and requires an explicit report retry after the queue recovers. |
+| `REPORT_DISPATCH_CLAIM_SECONDS` (`report_dispatch_claim_seconds`) | `60` | Time allowed for one dispatcher to publish and record a report task before another dispatcher may reclaim the attempt. |
+| `REPORT_DISPATCH_STALE_AFTER_SECONDS` (`report_dispatch_stale_after_seconds`) | `300` | Time a published report task may remain queued without a worker start before it is republished with the same stable task ID. |
 | `REPORT_DISPATCH_RETRY_BACKOFF_SECONDS` (`report_dispatch_retry_backoff_seconds`) | `15` | Initial exponential delay after report queue publication fails. |
 | `REPORT_DISPATCH_RETRY_MAX_BACKOFF_SECONDS` (`report_dispatch_retry_max_backoff_seconds`) | `900` | Maximum report queue publication retry delay. |
 | `ALERT_MATCHES_KEYWORD_CAP` (`alert_matches_keyword_cap`) | `512` | Upper bound on distinct keywords considered in alert matching. |
@@ -137,16 +146,29 @@
 | `NOTIFICATION_DELIVERY_RECOVERY_BATCH_SIZE` (`notification_delivery_recovery_batch_size`) | `100` | Delivery batch size when retrying stale webhook deliveries. |
 | `NOTIFICATION_DELIVERY_SENDING_STALE_AFTER_SECONDS` (`notification_delivery_sending_stale_after_seconds`) | `120` | Age after which in-flight webhook sends are treated as stale. |
 | `NOTIFICATION_DELIVERY_QUEUE_DEGRADED_AFTER_SECONDS` (`notification_delivery_queue_degraded_after_seconds`) | `300` | Age after which queued webhook deliveries are surfaced as degraded. |
+| `NOTIFICATION_DELIVERY_RETRY_MAX_ATTEMPTS` (`notification_delivery_retry_max_attempts`) | `3` | Maximum automatic retry attempts for legacy notification webhook deliveries. |
+| `NOTIFICATION_DELIVERY_RETRY_BACKOFF_SECONDS` (`notification_delivery_retry_backoff_seconds`) | `30` | Initial retry delay for legacy notification webhook deliveries. |
 | `INTEGRATION_EVENT_ROUTING_BATCH_SIZE` (`integration_event_routing_batch_size`) | `200` | Maximum outbox events recovered per routing sweep. |
+| `INTEGRATION_EVENT_ROUTING_STALE_AFTER_SECONDS` (`integration_event_routing_stale_after_seconds`) | `120` | Age after which an in-progress outbox routing claim can be recovered. |
+| `INTEGRATION_EVENT_ROUTING_MAX_ATTEMPTS` (`integration_event_routing_max_attempts`) | `10` | Maximum routing attempts before an integration event moves to dead-letter state. |
+| `INTEGRATION_EVENT_ROUTING_BACKOFF_SECONDS` (`integration_event_routing_backoff_seconds`) | `10` | Initial exponential delay after integration event routing fails. |
 | `INTEGRATION_DELIVERY_RECOVERY_BATCH_SIZE` (`integration_delivery_recovery_batch_size`) | `200` | Maximum generic deliveries recovered per sweep. |
 | `INTEGRATION_DELIVERY_RETRY_MAX_ATTEMPTS` (`integration_delivery_retry_max_attempts`) | `5` | Maximum attempts for generic connector deliveries. |
 | `INTEGRATION_DELIVERY_RETRY_BACKOFF_SECONDS` (`integration_delivery_retry_backoff_seconds`) | `30` | Initial exponential retry delay. |
 | `INTEGRATION_DELIVERY_RETRY_MAX_BACKOFF_SECONDS` (`integration_delivery_retry_max_backoff_seconds`) | `3600` | Retry delay ceiling. |
+| `INTEGRATION_DELIVERY_CONCURRENCY_DEFER_SECONDS` (`integration_delivery_concurrency_defer_seconds`) | `5` | Delay before retrying a delivery deferred by an instance concurrency limit. |
 | `INTEGRATION_DELIVERY_CIRCUIT_FAILURE_THRESHOLD` (`integration_delivery_circuit_failure_threshold`) | `5` | Consecutive retryable failures before opening an instance circuit. |
 | `INTEGRATION_DELIVERY_CIRCUIT_OPEN_SECONDS` (`integration_delivery_circuit_open_seconds`) | `300` | Open-circuit cooldown before a half-open probe. |
+| `INTEGRATION_DELIVERY_METRICS_DELAY_SECONDS` (`integration_delivery_metrics_delay_seconds`) | `60` | Minimum terminal-delivery age before metrics aggregation can consume it. |
+| `INTEGRATION_DELIVERY_MAINTENANCE_BATCH_SIZE` (`integration_delivery_maintenance_batch_size`) | `1000` | Maximum delivery or event records processed per maintenance batch. |
 | `INTEGRATION_DELIVERY_RETENTION_DAYS` (`integration_delivery_retention_days`) | `90` | Terminal generic and linked legacy webhook history retention after metric rollup. |
 | `INTEGRATION_EVENT_RETENTION_DAYS` (`integration_event_retention_days`) | `30` | Routed/dead outbox event retention after all deliveries are removed. |
 | `INTEGRATION_METRICS_RETENTION_DAYS` (`integration_metrics_retention_days`) | `730` | Hourly delivery rollup retention. |
+| `AUDIT_LOG_RETENTION_DAYS` (`audit_log_retention_days`) | `730` | Audit log retention before maintenance removes expired records. |
+| `AI_TASK_HISTORY_RETENTION_DAYS` (`ai_task_history_retention_days`) | `180` | Terminal AI task and task-event history retention. |
+| `AI_USAGE_RETENTION_DAYS` (`ai_usage_retention_days`) | `730` | AI usage aggregate retention. |
+| `TAG_FEEDBACK_RETENTION_DAYS` (`tag_feedback_retention_days`) | `730` | User tag-feedback retention for quality analysis. |
+| `INTEGRATION_RUN_RETENTION_DAYS` (`integration_run_retention_days`) | `180` | Terminal integration test and execution run retention. |
 | `EXPORT_MAX_ITEMS` (`export_max_items`) | `10000` | Maximum articles in a non-PDF article export. |
 | `EXPORT_PDF_MAX_ITEMS` (`export_pdf_max_items`) | `500` | Maximum articles in a readable PDF bundle. Must not exceed `EXPORT_MAX_ITEMS`. |
 | `EXPORT_PREVIEW_LIMIT` (`export_preview_limit`) | `25` | Maximum representative rows returned by article export preview. Must not exceed `EXPORT_MAX_ITEMS`. |

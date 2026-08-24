@@ -231,6 +231,8 @@ class Settings(BaseSettings):
     report_schedule_retry_max_backoff_seconds: int = 3600
     report_dispatch_batch_size: int = 100
     report_dispatch_max_attempts: int = 10
+    report_dispatch_claim_seconds: int = 60
+    report_dispatch_stale_after_seconds: int = 300
     report_dispatch_retry_backoff_seconds: int = 15
     report_dispatch_retry_max_backoff_seconds: int = 900
 
@@ -386,6 +388,8 @@ class Settings(BaseSettings):
         "report_schedule_retry_max_backoff_seconds",
         "report_dispatch_batch_size",
         "report_dispatch_max_attempts",
+        "report_dispatch_claim_seconds",
+        "report_dispatch_stale_after_seconds",
         "report_dispatch_retry_backoff_seconds",
         "report_dispatch_retry_max_backoff_seconds",
     )
@@ -403,6 +407,18 @@ class Settings(BaseSettings):
                 "report_generation_lease_seconds must cover the maximum AI provider request timeout"
             )
         return value
+
+    @model_validator(mode="after")
+    def _validate_report_visibility_timeout(self):
+        if (
+            self.celery_visibility_timeout_seconds
+            <= self.report_generation_lease_seconds
+        ):
+            raise ValueError(
+                "celery_visibility_timeout_seconds must be greater than "
+                "report_generation_lease_seconds"
+            )
+        return self
 
     @model_validator(mode="after")
     def _validate_report_schedule_retry_limits(self):
