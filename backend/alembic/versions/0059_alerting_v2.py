@@ -806,6 +806,41 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.execute(
         sa.text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM alert_evaluation_requests
+                    WHERE state NOT IN ('succeeded', 'dead_letter')
+                ) THEN
+                    RAISE EXCEPTION
+                        'Cannot downgrade Alerting v2 while alert evaluations are nonterminal'
+                        USING ERRCODE = '55000',
+                              HINT =
+                                  'Wait for pending work to finish or dead-letter it before retrying the downgrade.';
+                END IF;
+
+                IF EXISTS (
+                    SELECT 1
+                    FROM integration_events
+                    WHERE event_type = 'alert_match'
+                      AND schema_version >= 3
+                      AND routing_state NOT IN ('routed', 'dead_letter')
+                ) THEN
+                    RAISE EXCEPTION
+                        'Cannot downgrade Alerting v2 while schema-3 alert events are nonterminal'
+                        USING ERRCODE = '55000',
+                              HINT =
+                                  'Route or dead-letter every schema-3 alert event before retrying the downgrade.';
+                END IF;
+            END;
+            $$
+            """
+        )
+    )
+    op.execute(
+        sa.text(
             "DROP TRIGGER IF EXISTS trg_alerting_v2_event_fence ON integration_events"
         )
     )
