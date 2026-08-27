@@ -20,6 +20,13 @@ from app.models.integration import (
     IntegrationSubscription,
     IntegrationSubscriptionFeed,
 )
+from app.models.investigation import (
+    Investigation,
+    InvestigationActivity,
+    InvestigationEvidence,
+    InvestigationMember,
+    InvestigationNote,
+)
 from app.models.item import Item
 from app.models.item_ai_enrichment import ItemAIEnrichment
 from app.models.item_classification import ItemClassification
@@ -63,6 +70,11 @@ __all__ = [
     "IntegrationRun",
     "IntegrationSubscription",
     "IntegrationSubscriptionFeed",
+    "Investigation",
+    "InvestigationActivity",
+    "InvestigationEvidence",
+    "InvestigationMember",
+    "InvestigationNote",
     "Item",
     "ItemAIEnrichment",
     "ItemIOC",
