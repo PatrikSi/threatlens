@@ -159,6 +159,7 @@ class InvestigationSummaryResponse(BaseModel):
 class InvestigationDetailResponse(InvestigationSummaryResponse):
     members: list[InvestigationMemberResponse]
     evidence: list[InvestigationEvidenceResponse]
+    evidence_truncated: bool = False
     notes: list[InvestigationNoteResponse]
     notes_truncated: bool
 
@@ -175,3 +176,17 @@ class InvestigationActivityListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class InvestigationEvidenceListResponse(BaseModel):
+    evidence: list[InvestigationEvidenceResponse]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
+
+
+class InvestigationNoteListResponse(BaseModel):
+    notes: list[InvestigationNoteResponse]
+    total: int = Field(ge=0)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
