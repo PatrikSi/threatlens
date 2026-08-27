@@ -23,6 +23,7 @@ export function SettingsLayout() {
     ...(role === 'admin' ? [{ to: '/settings/identity', label: 'Identity' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/users', label: 'Users' }] : []),
     ...(role === 'admin' ? [{ to: '/settings/audit-logs', label: 'Audit Logs' }] : []),
+    ...(role === 'admin' ? [{ to: '/settings/operations', label: 'Operations' }] : []),
   ]
   const activeSettingsLabel = smtpActive
     ? 'Integrations / SMTP'

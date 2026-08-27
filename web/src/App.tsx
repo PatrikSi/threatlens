@@ -36,6 +36,7 @@ const IdentitySettingsPage = lazy(() =>
 const NotificationWebhooksSettingsPage = lazy(() =>
   import('./pages/NotificationsPage').then((module) => ({ default: module.NotificationWebhooksSettings })),
 )
+const OperationsPage = lazy(() => import('./pages/OperationsPage').then((module) => ({ default: module.OperationsPage })))
 const SettingsLayout = lazy(() =>
   import('./pages/SettingsLayout').then((module) => ({ default: module.SettingsLayout })),
 )
@@ -142,6 +143,14 @@ function createAppRouter() {
               }
             />
             <Route path="tokens" element={suspenseRoute(<TokensPage />, 'Loading token inventory...')} />
+            <Route
+              path="operations"
+              element={
+                <RoleRoute roles={['admin']}>
+                  {suspenseRoute(<OperationsPage />, 'Loading operations status...')}
+                </RoleRoute>
+              }
+            />
             <Route
               path="users"
               element={
