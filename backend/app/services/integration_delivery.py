@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import uuid
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
@@ -46,6 +49,10 @@ DEFERRED = "deferred"
 TERMINAL = "terminal"
 MISSING = "missing"
 
+_delivery_claim_observer: ContextVar[Callable[[uuid.UUID, int], None] | None] = (
+    ContextVar("integration_delivery_claim_observer", default=None)
+)
+
 
 @dataclass(frozen=True)
 class IntegrationDeliveryClaim:
@@ -70,6 +77,29 @@ class IntegrationDeliveryOutcome:
 class IntegrationDeliveryRecoveryReservation:
     delivery_ids: tuple[uuid.UUID, ...]
     reserved_at: datetime
+
+
+@dataclass
+class IntegrationDeliveryClaimTracker:
+    delivery_id: uuid.UUID
+    attempt_number: int | None = None
+
+    def observe(self, claimed_delivery_id: uuid.UUID, attempt_number: int) -> None:
+        if claimed_delivery_id == self.delivery_id:
+            self.attempt_number = attempt_number
+
+
+@contextmanager
+def integration_delivery_claim_observer(
+    callback: Callable[[uuid.UUID, int], None] | None,
+) -> Iterator[None]:
+    """Expose successful claim identity to the worker handling its failure path."""
+
+    token = _delivery_claim_observer.set(callback)
+    try:
+        yield
+    finally:
+        _delivery_claim_observer.reset(token)
 
 
 def claim_integration_delivery(
@@ -265,7 +295,11 @@ def claim_integration_delivery(
     )
     db.add(delivery)
     db.commit()
-    return _claim_result(delivery, status=CLAIMED, attempt_number=attempt_number)
+    claim = _claim_result(delivery, status=CLAIMED, attempt_number=attempt_number)
+    observer = _delivery_claim_observer.get()
+    if observer is not None:
+        observer(delivery.id, attempt_number)
+    return claim
 
 
 def renew_integration_delivery_lease(
@@ -400,6 +434,7 @@ def record_integration_delivery_unknown_outcome(
     db: Session,
     *,
     delivery_id: uuid.UUID,
+    expected_attempt_number: int,
     error_code: str,
     error_message: str,
     now: datetime | None = None,
@@ -414,12 +449,14 @@ def record_integration_delivery_unknown_outcome(
     )
     if delivery is None:
         return IntegrationDeliveryOutcome(recorded=False, state=None)
-    if delivery.state != DELIVERY_SENDING:
+    if delivery.state != DELIVERY_SENDING or int(delivery.attempt_count or 0) != int(
+        expected_attempt_number
+    ):
         return IntegrationDeliveryOutcome(recorded=False, state=delivery.state)
     return finalize_integration_delivery(
         db,
         delivery_id=delivery.id,
-        expected_attempt_number=max(1, int(delivery.attempt_count or 0)),
+        expected_attempt_number=expected_attempt_number,
         success=False,
         duration_ms=None,
         error_code=error_code,
@@ -431,6 +468,39 @@ def record_integration_delivery_unknown_outcome(
         },
         finished_at=current_time,
     )
+
+
+def defer_unclaimed_integration_delivery(
+    db: Session,
+    *,
+    delivery_id: uuid.UUID,
+    error_code: str,
+    error_message: str,
+    delay_seconds: int = 60,
+    now: datetime | None = None,
+) -> bool:
+    """Defer only a delivery that no worker has moved into an active attempt."""
+
+    delivery = db.scalar(
+        select(IntegrationDelivery)
+        .where(IntegrationDelivery.id == delivery_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if delivery is None or delivery.state not in {
+        DELIVERY_PENDING,
+        DELIVERY_RETRY_WAIT,
+    }:
+        return False
+    current_time = now or datetime.now(timezone.utc)
+    delivery.state = DELIVERY_RETRY_WAIT
+    delivery.claimed_at = None
+    delivery.not_before = current_time + timedelta(seconds=max(1, int(delay_seconds)))
+    delivery.last_error_code = error_code
+    delivery.last_error_message = _safe_error_message(error_message)
+    delivery.last_error_retryable = True
+    db.add(delivery)
+    return True
 
 
 def list_recoverable_integration_delivery_ids(

@@ -16,8 +16,9 @@ from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.services.integration_delivery import (
     DELIVERY_DEAD_LETTER,
     DELIVERY_FAILED,
-    DELIVERY_RETRY_WAIT,
-    defer_integration_delivery,
+    IntegrationDeliveryClaimTracker,
+    defer_unclaimed_integration_delivery,
+    integration_delivery_claim_observer,
     lock_webhook_delivery_external_io_eligibility,
     record_integration_delivery_unknown_outcome,
     renew_integration_delivery_lease,
@@ -66,17 +67,25 @@ def process_reserved_notification_deliveries(
     terminal_failed_delivery_ids: list[uuid.UUID] = []
 
     for delivery_id in delivery_ids:
+        claim_tracker = IntegrationDeliveryClaimTracker(delivery_id)
+
+        def _renew_lease(
+            lease_seconds: int,
+            *,
+            tracked_delivery_id: uuid.UUID = delivery_id,
+            tracker: IntegrationDeliveryClaimTracker = claim_tracker,
+        ) -> None:
+            _renew_webhook_delivery_lease(
+                db,
+                delivery_id=tracked_delivery_id,
+                expected_attempt_number=tracker.attempt_number,
+                lease_seconds=lease_seconds,
+            )
+
         try:
-            with notification_delivery_lease_heartbeat(
-                lambda lease_seconds, delivery_id=delivery_id: (
-                    _renew_webhook_delivery_lease(
-                        db,
-                        delivery_id=delivery_id,
-                        lease_seconds=lease_seconds,
-                    )
-                )
-            ):
-                attempt = process_delivery(db, delivery_id=delivery_id)
+            with integration_delivery_claim_observer(claim_tracker.observe):
+                with notification_delivery_lease_heartbeat(_renew_lease):
+                    attempt = process_delivery(db, delivery_id=delivery_id)
             result = _complete_webhook_delivery_attempt(
                 db,
                 attempt=attempt,
@@ -92,17 +101,26 @@ def process_reserved_notification_deliveries(
         except Exception as exc:
             db.rollback()
             current = db.scalar(
-                select(NotificationWebhookDelivery).where(
-                    NotificationWebhookDelivery.id == delivery_id
-                )
+                select(NotificationWebhookDelivery)
+                .where(NotificationWebhookDelivery.id == delivery_id)
+                .with_for_update()
+                .execution_options(populate_existing=True)
             )
             if current is None:
                 logger.info(
                     "notification_webhook_delivery_missing delivery_id=%s", delivery_id
                 )
                 continue
-            _record_webhook_processing_failure(db, delivery=current, exc=exc)
-            db.commit()
+            recorded = _record_webhook_processing_failure(
+                db,
+                delivery=current,
+                expected_attempt_number=claim_tracker.attempt_number,
+                exc=exc,
+            )
+            if recorded:
+                db.commit()
+            else:
+                db.rollback()
             failed += 1
             logger.exception(
                 "notification_webhook_delivery_worker_failed delivery_id=%s error_type=%s",
@@ -223,8 +241,11 @@ def _renew_webhook_delivery_lease(
     db: Session,
     *,
     delivery_id: uuid.UUID,
+    expected_attempt_number: int | None,
     lease_seconds: int,
 ) -> None:
+    if expected_attempt_number is None:
+        raise RuntimeError("Webhook delivery claim identity is unavailable")
     current_time = datetime.now(timezone.utc)
     delivery = db.scalar(
         select(NotificationWebhookDelivery)
@@ -232,7 +253,11 @@ def _renew_webhook_delivery_lease(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    if delivery is None or delivery.delivery_state != "sending":
+    if (
+        delivery is None
+        or delivery.delivery_state != "sending"
+        or int(delivery.attempt_count or 0) != int(expected_attempt_number)
+    ):
         db.rollback()
         raise RuntimeError("Webhook delivery lease is no longer owned by this worker")
     if (
@@ -240,7 +265,7 @@ def _renew_webhook_delivery_lease(
         and not renew_integration_delivery_lease(
             db,
             delivery_id=delivery.integration_delivery_id,
-            expected_attempt_number=max(1, int(delivery.attempt_count or 0)),
+            expected_attempt_number=expected_attempt_number,
             lease_seconds=lease_seconds,
             now=current_time,
         )
@@ -254,7 +279,6 @@ def _renew_webhook_delivery_lease(
     db.add(delivery)
     webhook_id = delivery.webhook_id
     integration_delivery_id = delivery.integration_delivery_id
-    attempt_number = max(1, int(delivery.attempt_count or 0))
     db.commit()
     if integration_delivery_id is None:
         raise RuntimeError("Webhook integration delivery configuration is incomplete")
@@ -263,7 +287,7 @@ def _renew_webhook_delivery_lease(
         webhook_id=webhook_id,
         legacy_delivery_id=delivery_id,
         integration_delivery_id=integration_delivery_id,
-        expected_attempt_number=attempt_number,
+        expected_attempt_number=expected_attempt_number,
     )
 
 
@@ -271,31 +295,38 @@ def _record_webhook_processing_failure(
     db: Session,
     *,
     delivery: NotificationWebhookDelivery,
+    expected_attempt_number: int | None,
     exc: Exception,
-) -> None:
+) -> bool:
     error_message = redact_log_text(f"{type(exc).__name__}: {exc}", max_chars=4000)
     retry_at = datetime.now(timezone.utc) + timedelta(seconds=60)
     generic_state: str | None = None
-    if delivery.integration_delivery_id is not None:
-        outcome = record_integration_delivery_unknown_outcome(
-            db,
-            delivery_id=delivery.integration_delivery_id,
-            error_code="worker_error",
-            error_message=error_message,
-        )
-        generic_state = outcome.state
-        if not outcome.recorded and generic_state not in {
-            DELIVERY_DEAD_LETTER,
-            DELIVERY_FAILED,
-        }:
-            defer_integration_delivery(
+    if expected_attempt_number is None:
+        if delivery.delivery_state != "pending":
+            return False
+        if delivery.integration_delivery_id is not None:
+            defer_unclaimed_integration_delivery(
                 db,
                 delivery_id=delivery.integration_delivery_id,
                 error_code="worker_error",
                 error_message=error_message,
                 delay_seconds=60,
             )
-            generic_state = DELIVERY_RETRY_WAIT
+    elif delivery.delivery_state != "sending" or int(
+        delivery.attempt_count or 0
+    ) != int(expected_attempt_number):
+        return False
+    elif delivery.integration_delivery_id is not None:
+        outcome = record_integration_delivery_unknown_outcome(
+            db,
+            delivery_id=delivery.integration_delivery_id,
+            expected_attempt_number=expected_attempt_number,
+            error_code="worker_error",
+            error_message=error_message,
+        )
+        generic_state = outcome.state
+        if not outcome.recorded:
+            return False
         if outcome.retry_at is not None:
             retry_at = outcome.retry_at
 
@@ -310,3 +341,4 @@ def _record_webhook_processing_failure(
     delivery.error = error_message
     delivery.attempted_at = datetime.now(timezone.utc)
     db.add(delivery)
+    return True
