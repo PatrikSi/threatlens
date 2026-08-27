@@ -30,6 +30,7 @@ from app.services.integration_storage import (
     SMTP_SYSTEM_KEY,
     ActiveSMTPSettings,
     SMTPSecretError,
+    acquire_smtp_configuration_read_lock,
     build_active_smtp_settings,
     get_smtp_credential_source,
     smtp_settings_response_from_model,
@@ -241,6 +242,7 @@ def dispatch_smtp_notification(
     source_delivery_id: uuid.UUID | None = None,
     scope_key: str | None = None,
 ) -> SMTPDispatchResult:
+    acquire_smtp_configuration_read_lock(db)
     instance = db.scalar(
         select(IntegrationInstance).where(
             IntegrationInstance.system_key == SMTP_SYSTEM_KEY

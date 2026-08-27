@@ -8,16 +8,21 @@ from threading import Event
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.models.audit_log import AuditLog
 from app.models.integration import (
     IntegrationDelivery,
     IntegrationInstance,
     IntegrationSubscription,
 )
+from app.schemas.integration import SMTPSettingsUpdate
 from app.services.integration_delivery import CLAIMED, claim_integration_delivery
 from app.services.integration_storage import (
+    SMTP_SYSTEM_KEY,
     acquire_smtp_configuration_write_lock,
+    apply_smtp_settings_update,
     build_active_smtp_settings,
 )
+from app.services.smtp_integration import dispatch_smtp_notification
 from app.services.smtp_delivery_eligibility import (
     SMTPDeliveryIneligibleError,
     lock_smtp_delivery_external_io_eligibility,
@@ -133,6 +138,119 @@ def test_smtp_configuration_write_waits_for_external_io_fence(database_engine):
         worker_db.rollback()
         worker_db.close()
         with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(IntegrationInstance).where(IntegrationInstance.id == instance_id)
+            )
+            cleanup_db.commit()
+
+
+def test_legacy_smtp_dispatch_holds_configuration_fence_through_send(
+    database_engine,
+    monkeypatch,
+):
+    instance_id = uuid.uuid4()
+    scope_key = f"legacy-smtp-concurrency:{uuid.uuid4()}"
+    with Session(database_engine) as setup_db:
+        instance = IntegrationInstance(
+            id=instance_id,
+            system_key=SMTP_SYSTEM_KEY,
+            name="Legacy SMTP",
+            integration_type="smtp",
+            direction="destination",
+            enabled=False,
+            config_json={},
+        )
+        apply_smtp_settings_update(
+            instance,
+            SMTPSettingsUpdate(
+                enabled=True,
+                host="smtp.example.com",
+                port=25,
+                security="none",
+                from_email="threatlens@example.com",
+                to_emails=["soc@example.com"],
+                event_types=["rss_item_new"],
+                subject_template="ThreatLens event",
+                html_template="<p>ThreatLens event</p>",
+            ),
+        )
+        setup_db.add(instance)
+        setup_db.commit()
+
+    send_started = Event()
+    allow_send_to_finish = Event()
+    writer_started = Event()
+
+    class _BlockingSMTP:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def ehlo(self):
+            return 250, b"OK"
+
+        def send_message(self, _message):
+            send_started.set()
+            assert allow_send_to_finish.wait(timeout=10)
+            return {}
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration._open_smtp",
+        lambda _settings: _BlockingSMTP(),
+    )
+
+    def _send_legacy_notification():
+        with Session(database_engine) as worker_db:
+            result = dispatch_smtp_notification(
+                worker_db,
+                event_type="rss_item_new",
+                scope_key=scope_key,
+            )
+            worker_db.commit()
+            return result
+
+    def _disable_smtp() -> None:
+        with Session(database_engine) as writer_db:
+            writer_started.set()
+            acquire_smtp_configuration_write_lock(writer_db)
+            instance = writer_db.scalar(
+                select(IntegrationInstance)
+                .where(IntegrationInstance.id == instance_id)
+                .with_for_update()
+            )
+            assert instance is not None
+            instance.enabled = False
+            writer_db.add(instance)
+            writer_db.commit()
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            worker = executor.submit(_send_legacy_notification)
+            assert send_started.wait(timeout=5)
+            writer = executor.submit(_disable_smtp)
+            assert writer_started.wait(timeout=5)
+            time.sleep(0.1)
+            assert not writer.done()
+            allow_send_to_finish.set()
+            result = worker.result(timeout=10)
+            writer.result(timeout=10)
+
+        assert result.sent is True
+        with Session(database_engine) as verify_db:
+            instance = verify_db.get(IntegrationInstance, instance_id)
+            assert instance is not None
+            assert instance.enabled is False
+    finally:
+        allow_send_to_finish.set()
+        with Session(database_engine) as cleanup_db:
+            cleanup_db.execute(
+                delete(AuditLog).where(
+                    AuditLog.resource_type == "integration_instance",
+                    AuditLog.resource_id == str(instance_id),
+                )
+            )
             cleanup_db.execute(
                 delete(IntegrationInstance).where(IntegrationInstance.id == instance_id)
             )
