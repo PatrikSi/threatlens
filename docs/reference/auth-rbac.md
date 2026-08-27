@@ -49,7 +49,7 @@ Defined in `backend/app/core/security.py`:
 - Admin updates that change `password`, `is_active`, or `is_approved` also rotate `auth_token_version` and invalidate existing JWTs/sessions.
 - Role changes rotate browser sessions and revoke active API tokens so old privileges cannot survive a promotion or demotion.
 - Email-only changes do not rotate credentials.
-- Role, active-state, and approval updates require the loaded `expected_security_version`. A missing precondition returns `user_security_version_required` with HTTP 428; a stale value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`. Password-only legacy requests may omit the precondition for backward compatibility; a supplied version is still enforced, and unversioned use is recorded in logs and audit history.
+- Role, active-state, and approval updates should send the loaded `expected_security_version`. A stale supplied value returns `user_security_version_conflict` with HTTP 409 and the current version in `X-Current-Security-Version`. Legacy requests may omit the precondition for backward compatibility; the mutation is serialized under the same database locks and invariants, and unversioned security or password changes are recorded in logs and audit history.
 - A change that would remove the final active, approved administrator returns the stable `last_active_admin` conflict and is written to the audit log as a rejected operation.
 
 Legacy browser JWTs remain accepted during the compatibility window, but newly
@@ -98,6 +98,12 @@ Administrator MFA recovery is fail closed and follows the current session's actu
 
 OIDC provider create, update, enable, and disable operations are browser-only control-plane actions. API tokens cannot authorize `PUT /api/v1/auth/oidc/provider`, even with `write:users` or wildcard scopes. The current opaque admin session must be recent. Local sessions can refresh that proof through `POST /api/v1/auth/security/reauthenticate`; OIDC sessions use `POST /api/v1/auth/oidc/reauth`. Local MFA-enabled admins must prove a current TOTP. OIDC reauthentication always forces `prompt=login` and `max_age=0`, and the resulting signed claims must match the configured ACR/AMR MFA policy or the operation returns `oidc_mfa_assurance_required`.
 
+The browser-only provider mutation is an intentional IAM security boundary. Any
+automation that previously changed OIDC configuration with a personal API token
+must move to an authenticated administrator browser session; read-only provider
+inspection remains available to authorized API clients. The generated OpenAPI
+contract advertises only `SessionCookieAuth` for this mutation.
+
 Disabling the enabled provider is rejected with `oidc_break_glass_admin_required` unless at least one active, approved administrator has local password sign-in available. Test that account before an IdP maintenance window. If role synchronization would demote the final active administrator, ThreatLens keeps the administrator role, permits sign-in, and records a failed `oidc.role.sync` audit entry with reason `last_active_admin` so the mapping can be repaired without locking out the deployment.
 
 Provider writes use optimistic concurrency. Existing configurations require the loaded `expected_config_revision`; an explicit revision of `0` means "create only if no provider is configured." Omitting the field remains accepted for older clients. A stale update or concurrent create returns `oidc_provider_revision_conflict` with the current revision and does not overwrite the newer configuration.
@@ -134,7 +140,7 @@ Account ownership and administration:
 - Every account has a durable provisioning source: `local` or `oidc`. Linking a local account to OIDC does not change its local provisioning source.
 - The user directory identifies local, SSO-provisioned, and local-plus-SSO accounts and lists their available sign-in methods.
 - User-directory `q` searches email, role, approved/pending and active/inactive labels, local/SSO/hybrid account labels, and linked provider name. Structured `role` and `provisioning_source` filters remain available.
-- Directory responses expose `security_version`. Role, active, and approval mutations must send it as `expected_security_version`; omission returns coded `428 user_security_version_required`, and a stale value returns coded `409 user_security_version_conflict` plus `X-Current-Security-Version`. Email- and password-only legacy PATCH requests remain compatible without this precondition.
+- Directory responses expose `security_version`. The bundled UI sends it as `expected_security_version` for role, active, and approval mutations; a stale value returns coded `409 user_security_version_conflict` plus `X-Current-Security-Version`. Legacy PATCH clients remain compatible when they omit the precondition, with unversioned security changes explicitly logged and audited.
 - Passwords and email identifiers for SSO-provisioned accounts remain owned by the identity provider. ThreatLens does not expose local password reset, email edit, or identity unlink actions for these accounts.
 - A linked local account retains its local password and may unlink OIDC after password confirmation.
 - When role synchronization is enabled, linked users' roles are read-only in ThreatLens because the next OIDC login would otherwise overwrite a local edit. Active and approved status remain locally managed so administrators can suspend or approve access independently of the provider.

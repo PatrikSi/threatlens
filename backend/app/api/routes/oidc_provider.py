@@ -78,6 +78,7 @@ def get_oidc_provider(
 @router.put(
     "/provider",
     response_model=OIDCProviderResponse,
+    openapi_extra={"x-threatlens-browser-session-only": True},
     responses={
         status.HTTP_403_FORBIDDEN: {
             "description": (

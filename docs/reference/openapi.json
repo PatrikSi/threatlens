@@ -10,7 +10,7 @@
       "url": "https://www.apache.org/licenses/LICENSE-2.0.html"
     },
     "version": "1.7.0",
-    "x-threatlens-contract-sha256": "0fac61981f0ca825ce28bb79c0f57bc625bb4cb22d0469625c5e0ef0191bcd8b"
+    "x-threatlens-contract-sha256": "ac3f8196a783871ef514a976f0a36d925e4adcb5435b3d68a8c24150d2fc0e7d"
   },
   "servers": [
     {
@@ -792,14 +792,8 @@
         },
         "security": [
           {
-            "ApiTokenBearer": []
-          },
-          {
             "SessionCookieAuth": []
           }
-        ],
-        "x-threatlens-required-token-scopes": [
-          "write:users"
         ]
       }
     },
@@ -6368,9 +6362,6 @@
                 }
               }
             }
-          },
-          "428": {
-            "description": "`user_security_version_required` for role, active, or approval changes."
           },
           "409": {
             "description": "Includes `user_security_version_conflict`; the current version is returned in `X-Current-Security-Version`."

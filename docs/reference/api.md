@@ -5,7 +5,7 @@ This file is generated from the live FastAPI OpenAPI schema. Do not edit it by h
 ## Published Contract
 
 - Schema version: `1.7.0`
-- OpenAPI contract anchor: `openapi-sha256:0fac61981f0ca825ce28bb79c0f57bc625bb4cb22d0469625c5e0ef0191bcd8b`
+- OpenAPI contract anchor: `openapi-sha256:ac3f8196a783871ef514a976f0a36d925e4adcb5435b3d68a8c24150d2fc0e7d`
 - API service base path: `/v1`
 - Web proxy base path: `/api/v1`
 - Bundled web proxy publishes only `/api/v1/*` plus `/api/openapi.json`.
@@ -399,8 +399,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Responses: `200` `application/json` -> OIDCProviderResponse
 ### `PUT /v1/auth/oidc/provider`
 - Summary: Update Oidc Provider
-- Auth: ApiTokenBearer or SessionCookieAuth
-- Token scopes: `write:users`
+- Auth: SessionCookieAuth
 - Request body: `application/json` -> OIDCProviderUpdateRequest
 - Responses: `200` `application/json` -> OIDCProviderResponse, `403`, `409`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/auth/oidc/provider/test`
@@ -1307,7 +1306,7 @@ Error responses retain FastAPI's top-level `detail` field for compatibility and 
 - Parameters:
   - `user_id` (path, required): string
 - Request body: `application/json` -> UserUpdateRequest
-- Responses: `200` `application/json` -> UserAdminResponse, `409`, `422` `application/json` -> HTTPValidationError, `428`
+- Responses: `200` `application/json` -> UserAdminResponse, `409`, `422` `application/json` -> HTTPValidationError
 ### `POST /v1/users/{user_id}/mfa/reset`
 - Summary: Reset User Mfa
 - Auth: ApiTokenBearer or SessionCookieAuth
