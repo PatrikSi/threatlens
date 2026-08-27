@@ -34,6 +34,7 @@ This documentation covers:
 - [Ingestion and Processing Pipeline](./reference/pipeline.md)
 - [Integration Event and Delivery Platform ADR](./architecture/0001-integration-event-delivery-platform.md)
 - [Bounded AI Report Generation ADR](./architecture/0002-bounded-ai-report-generation.md)
+- [Operations, Investigations, Alerting V2, and IAM Hardening ADR](./architecture/0003-operations-investigations-alerting-iam.md)
 - [Bundled OFL Text](./licenses/OFL-1.1.txt)
 - [Bundled MIT Text](./licenses/MIT.txt)
 - [Bundled BSD-2-Clause Text](./licenses/BSD-2-Clause.txt)
