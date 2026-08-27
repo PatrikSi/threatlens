@@ -44,6 +44,9 @@ _LEDGER_FIELDS = frozenset(
         "archive_size_bytes",
         "catalog_checked",
         "outbound_quarantined",
+        "journal_outcome",
+        "reconciled_after_interruption",
+        "reconciled_forward",
         "redis_restored",
         "table_count",
         "tool_version",
@@ -51,7 +54,13 @@ _LEDGER_FIELDS = frozenset(
 )
 _LEDGER_INTEGER_FIELDS = frozenset({"archive_size_bytes", "table_count"})
 _LEDGER_BOOLEAN_FIELDS = frozenset(
-    {"catalog_checked", "outbound_quarantined", "redis_restored"}
+    {
+        "catalog_checked",
+        "outbound_quarantined",
+        "reconciled_after_interruption",
+        "reconciled_forward",
+        "redis_restored",
+    }
 )
 
 
@@ -101,7 +110,9 @@ def _ensure_regular_file(path: Path, *, label: str) -> os.stat_result:
     return metadata
 
 
-def _read_regular_file(path: Path, *, label: str, max_bytes: int | None = None) -> bytes:
+def _read_regular_file(
+    path: Path, *, label: str, max_bytes: int | None = None
+) -> bytes:
     metadata = _ensure_regular_file(path, label=label)
     if max_bytes is not None and metadata.st_size > max_bytes:
         _fail(f"{label} exceeds the {max_bytes}-byte safety limit: {path}")
@@ -187,11 +198,14 @@ def _validate_manifest_document(document: Any) -> dict[str, Any]:
         _fail(f"manifest.format must be {MANIFEST_FORMAT!r}")
     if manifest.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         _fail(
-            "Unsupported manifest schema_version; expected "
-            f"{MANIFEST_SCHEMA_VERSION}"
+            f"Unsupported manifest schema_version; expected {MANIFEST_SCHEMA_VERSION}"
         )
 
-    _require_string(manifest.get("app_version"), label="manifest.app_version", pattern=_APP_VERSION_RE)
+    _require_string(
+        manifest.get("app_version"),
+        label="manifest.app_version",
+        pattern=_APP_VERSION_RE,
+    )
     _require_string(
         manifest.get("alembic_revision"),
         label="manifest.alembic_revision",
@@ -202,8 +216,13 @@ def _validate_manifest_document(document: Any) -> dict[str, Any]:
         label="manifest.postgresql_version",
         pattern=_POSTGRES_VERSION_RE,
     )
-    _require_utc_timestamp(manifest.get("snapshot_time_utc"), label="manifest.snapshot_time_utc")
-    _require_utc_timestamp(manifest.get("metadata_collected_at_utc"), label="manifest.metadata_collected_at_utc")
+    _require_utc_timestamp(
+        manifest.get("snapshot_time_utc"), label="manifest.snapshot_time_utc"
+    )
+    _require_utc_timestamp(
+        manifest.get("metadata_collected_at_utc"),
+        label="manifest.metadata_collected_at_utc",
+    )
     if manifest.get("redis_included") is not False:
         _fail("manifest.redis_included must be false")
 
@@ -220,16 +239,23 @@ def _validate_manifest_document(document: Any) -> dict[str, Any]:
         _fail(f"manifest.archive.filename must be {ARCHIVE_FILENAME!r}")
     if archive.get("format") != ARCHIVE_FORMAT:
         _fail(f"manifest.archive.format must be {ARCHIVE_FORMAT!r}")
-    _require_nonnegative_integer(archive.get("size_bytes"), label="manifest.archive.size_bytes")
+    _require_nonnegative_integer(
+        archive.get("size_bytes"), label="manifest.archive.size_bytes"
+    )
     checksum = archive.get("sha256")
     if not isinstance(checksum, str) or not re.fullmatch(r"[0-9a-f]{64}", checksum):
         _fail("manifest.archive.sha256 must be a lowercase SHA-256 digest")
 
     database = _require_object(manifest.get("database"), label="manifest.database")
-    _require_nonnegative_integer(database.get("size_bytes"), label="manifest.database.size_bytes")
+    _require_nonnegative_integer(
+        database.get("size_bytes"), label="manifest.database.size_bytes"
+    )
     if database.get("count_source") != "pg_stat_user_tables_estimate":
         _fail("manifest.database.count_source has an unsupported value")
-    _validate_counts(database.get("estimated_row_counts"), label="manifest.database.estimated_row_counts")
+    _validate_counts(
+        database.get("estimated_row_counts"),
+        label="manifest.database.estimated_row_counts",
+    )
 
     creator = _require_object(manifest.get("created_by"), label="manifest.created_by")
     if creator.get("tool") != "threatlens-recovery":
@@ -265,7 +291,9 @@ def _atomic_write_json(path: Path, document: dict[str, Any]) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary_path, path)
-        directory_descriptor = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        directory_descriptor = os.open(
+            parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        )
         try:
             os.fsync(directory_descriptor)
         finally:
@@ -307,7 +335,10 @@ def _verified_manifest(
     expected_app_version: str | None = None,
 ) -> tuple[Path, Path, dict[str, Any]]:
     manifest_path, manifest = _validated_manifest(raw_path)
-    if expected_app_version is not None and manifest["app_version"] != expected_app_version:
+    if (
+        expected_app_version is not None
+        and manifest["app_version"] != expected_app_version
+    ):
         _fail(
             "Backup app version does not match this deployment: "
             f"backup={manifest['app_version']} deployment={expected_app_version}"
@@ -399,6 +430,7 @@ def _command_inspect(args: argparse.Namespace) -> None:
         manifest["archive"]["sha256"],
         str(manifest["archive"]["size_bytes"]),
         manifest["postgresql_version"],
+        manifest.get("encryption_key_fingerprint") or "none",
     )
     if any("\n" in value or "\r" in value for value in values):
         _fail("Recovery inspection values must not contain line breaks")
@@ -406,7 +438,9 @@ def _command_inspect(args: argparse.Namespace) -> None:
 
 
 def _dotenv_value(path: Path, key: str) -> str | None:
-    raw = _read_regular_file(path, label="environment file", max_bytes=MAX_MANIFEST_BYTES)
+    raw = _read_regular_file(
+        path, label="environment file", max_bytes=MAX_MANIFEST_BYTES
+    )
     try:
         lines = raw.decode("utf-8").splitlines()
     except UnicodeDecodeError as error:
@@ -479,7 +513,10 @@ def _command_fsync_directory(args: argparse.Namespace) -> None:
 def _command_compose_image(args: argparse.Namespace) -> None:
     raw = sys.stdin.buffer.read(MAX_COMPOSE_CONFIG_BYTES + 1)
     if len(raw) > MAX_COMPOSE_CONFIG_BYTES:
-        _fail("Compose configuration exceeds the safety limit", exit_code=EXIT_PREREQUISITE)
+        _fail(
+            "Compose configuration exceeds the safety limit",
+            exit_code=EXIT_PREREQUISITE,
+        )
     try:
         document = json.loads(raw.decode("utf-8"))
         image = document["services"][args.service]["image"]
@@ -509,6 +546,8 @@ def _command_field(args: argparse.Namespace) -> None:
         "archive_sha256": manifest["archive"]["sha256"],
         "archive_size_bytes": manifest["archive"]["size_bytes"],
         "postgresql_version": manifest["postgresql_version"],
+        "encryption_key_fingerprint": manifest.get("encryption_key_fingerprint")
+        or "none",
     }
     print(fields[args.name])
 
@@ -567,7 +606,9 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--encryption-key-fingerprint")
     create.set_defaults(handler=_command_create)
 
-    verify = subparsers.add_parser("verify", help="validate a completed backup and checksum")
+    verify = subparsers.add_parser(
+        "verify", help="validate a completed backup and checksum"
+    )
     verify.add_argument("--backup", required=True)
     verify.add_argument("--expected-app-version")
     verify.add_argument("--print-archive-path", action="store_true")
@@ -614,6 +655,7 @@ def _parser() -> argparse.ArgumentParser:
             "archive_sha256",
             "archive_size_bytes",
             "postgresql_version",
+            "encryption_key_fingerprint",
         ),
     )
     field.set_defaults(handler=_command_field)

@@ -13,11 +13,14 @@ readonly EXIT_APPLY=5
 readonly EXIT_VERIFY=6
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-MANIFEST_HELPER="${SCRIPT_DIR}/recovery_manifest.py"
+MANIFEST_HELPER="${THREATLENS_RECOVERY_MANIFEST_HELPER:-${SCRIPT_DIR}/recovery_manifest.py}"
 ENV_FILE="${THREATLENS_RECOVERY_ENV_FILE:-}"
 PROJECT_NAME="${THREATLENS_RECOVERY_PROJECT_NAME:-}"
 MANIFEST_PATH="${THREATLENS_RECOVERY_MANIFEST:-}"
 VERIFIED_ARCHIVE_SHA256="${THREATLENS_RECOVERY_ARCHIVE_SHA256:-}"
+DATABASE_CONTAINER="${THREATLENS_RECOVERY_DATABASE_CONTAINER:-}"
+DATABASE_USER="${THREATLENS_RECOVERY_DATABASE_USER:-}"
+DATABASE_NAME="${THREATLENS_RECOVERY_DATABASE_NAME:-}"
 declare -a COMPOSE_FILES=()
 declare -a COMPOSE_COMMAND=()
 
@@ -54,6 +57,8 @@ initialize() {
     || fail "${EXIT_PREREQUISITE}" "Q302" "Recovery environment file is unavailable or unsafe"
   [[ -n "${MANIFEST_PATH}" ]] \
     || fail "${EXIT_PREREQUISITE}" "Q303" "Recovery manifest was not provided"
+  [[ -r "${MANIFEST_HELPER}" && -f "${MANIFEST_HELPER}" && ! -L "${MANIFEST_HELPER}" ]] \
+    || fail "${EXIT_PREREQUISITE}" "Q317" "Recovery manifest helper is unavailable or unsafe"
 
   mapfile -t COMPOSE_FILES <<<"${THREATLENS_RECOVERY_COMPOSE_FILES:-}"
   ((${#COMPOSE_FILES[@]} > 0)) \
@@ -79,10 +84,19 @@ initialize() {
     || fail "${EXIT_PREREQUISITE}" "Q309" "Compose configuration could not be rendered"
   grep -Fxq db <<<"${services}" \
     || fail "${EXIT_PREREQUISITE}" "Q310" "Compose service db is unavailable"
-  running="$(compose ps --services --status running)" \
-    || fail "${EXIT_PREREQUISITE}" "Q311" "Running Compose services could not be inspected"
-  grep -Fxq db <<<"${running}" \
-    || fail "${EXIT_PREREQUISITE}" "Q312" "Compose service db is not running"
+  if [[ -n "${DATABASE_CONTAINER}" ]]; then
+    [[ "${DATABASE_CONTAINER}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] \
+      || fail "${EXIT_PREREQUISITE}" "Q318" "Recovery database container identifier is invalid"
+    [[ -n "${DATABASE_USER}" && -n "${DATABASE_NAME}" ]] \
+      || fail "${EXIT_PREREQUISITE}" "Q319" "Recovery database user and name are required"
+    [[ "$(docker inspect --format '{{.State.Running}}' "${DATABASE_CONTAINER}" 2>/dev/null || true)" == "true" ]] \
+      || fail "${EXIT_PREREQUISITE}" "Q320" "Recovery database container is not running"
+  else
+    running="$(compose ps --services --status running)" \
+      || fail "${EXIT_PREREQUISITE}" "Q311" "Running Compose services could not be inspected"
+    grep -Fxq db <<<"${running}" \
+      || fail "${EXIT_PREREQUISITE}" "Q312" "Compose service db is not running"
+  fi
 }
 
 
@@ -111,10 +125,60 @@ archive_checksum() {
 
 
 run_psql() {
-  compose exec -T db sh -ceu '
+  if [[ -n "${DATABASE_CONTAINER}" ]]; then
+    docker exec --interactive \
+      --env "THREATLENS_RECOVERY_DATABASE_USER=${DATABASE_USER}" \
+      --env "THREATLENS_RECOVERY_DATABASE_NAME=${DATABASE_NAME}" \
+      "${DATABASE_CONTAINER}" sh -ceu '
+      exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
+        --username "$THREATLENS_RECOVERY_DATABASE_USER" \
+        --dbname "$THREATLENS_RECOVERY_DATABASE_NAME"
+    '
+    return
+  fi
+  compose exec -T \
+    --env "THREATLENS_RECOVERY_DATABASE_USER=${DATABASE_USER}" \
+    --env "THREATLENS_RECOVERY_DATABASE_NAME=${DATABASE_NAME}" \
+    db sh -ceu '
+    database_user="${THREATLENS_RECOVERY_DATABASE_USER:-$POSTGRES_USER}"
+    database_name="${THREATLENS_RECOVERY_DATABASE_NAME:-$POSTGRES_DB}"
     exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
-      --username "$POSTGRES_USER" --dbname "$POSTGRES_DB"
+      --username "$database_user" --dbname "$database_name"
   '
+}
+
+
+run_psql_with_restore_context() {
+  local archive_checksum="$1"
+  local audit_id="${2:-}"
+  if [[ -n "${DATABASE_CONTAINER}" ]]; then
+    docker exec --interactive \
+      --env "THREATLENS_RECOVERY_DATABASE_USER=${DATABASE_USER}" \
+      --env "THREATLENS_RECOVERY_DATABASE_NAME=${DATABASE_NAME}" \
+      --env "THREATLENS_RESTORE_CHECKSUM=${archive_checksum}" \
+      --env "THREATLENS_RESTORE_AUDIT_ID=${audit_id}" \
+      "${DATABASE_CONTAINER}" sh -ceu '
+        exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
+          --username "$THREATLENS_RECOVERY_DATABASE_USER" \
+          --dbname "$THREATLENS_RECOVERY_DATABASE_NAME" \
+          --set=restore_checksum="$THREATLENS_RESTORE_CHECKSUM" \
+          --set=audit_id="$THREATLENS_RESTORE_AUDIT_ID"
+      '
+    return
+  fi
+  compose exec -T \
+    --env "THREATLENS_RECOVERY_DATABASE_USER=${DATABASE_USER}" \
+    --env "THREATLENS_RECOVERY_DATABASE_NAME=${DATABASE_NAME}" \
+    --env "THREATLENS_RESTORE_CHECKSUM=${archive_checksum}" \
+    --env "THREATLENS_RESTORE_AUDIT_ID=${audit_id}" \
+    db sh -ceu '
+      database_user="${THREATLENS_RECOVERY_DATABASE_USER:-$POSTGRES_USER}"
+      database_name="${THREATLENS_RECOVERY_DATABASE_NAME:-$POSTGRES_DB}"
+      exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
+        --username "$database_user" --dbname "$database_name" \
+        --set=restore_checksum="$THREATLENS_RESTORE_CHECKSUM" \
+        --set=audit_id="$THREATLENS_RESTORE_AUDIT_ID"
+    '
 }
 
 
@@ -129,9 +193,9 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_catalog.pg_roles
-    WHERE rolname = current_user AND (rolsuper OR rolcreatedb)
+    WHERE rolname = current_user AND rolsuper
   ) THEN
-    RAISE EXCEPTION 'recovery database role requires CREATEDB or superuser capability';
+    RAISE EXCEPTION 'recovery database role requires superuser capability for connection fencing';
   END IF;
   IF NOT EXISTS (
     SELECT 1
@@ -208,10 +272,48 @@ BEGIN
     ('notification_webhook_deliveries', 'success'),
     ('notification_webhook_deliveries', 'claimed_at'),
     ('notification_webhook_deliveries', 'error'),
+    ('feeds', 'enabled'),
+    ('feeds', 'next_fetch_at'),
+    ('feeds', 'dispatch_claimed_at'),
+    ('feeds', 'dispatch_backoff_until'),
+    ('feeds', 'fetch_fence'),
+    ('feeds', 'last_error'),
+    ('ai_settings', 'summary_enabled'),
+    ('ai_settings', 'relevance_enabled'),
+    ('ai_settings', 'daily_brief_enabled'),
+    ('ai_settings', 'reporting_enabled'),
+    ('ai_settings', 'auto_enrich_new_items'),
+    ('ai_task_runs', 'status'),
+    ('ai_task_runs', 'reason'),
+    ('ai_task_runs', 'error'),
+    ('ai_task_runs', 'finished_at'),
+    ('ai_task_runs', 'dispatch_next_attempt_at'),
+    ('ai_task_runs', 'dispatch_claim_token'),
+    ('ai_task_runs', 'dispatch_claim_expires_at'),
+    ('ai_daily_briefs', 'status'),
+    ('ai_daily_briefs', 'error'),
+    ('item_ai_enrichments', 'status'),
+    ('item_ai_enrichments', 'error'),
     ('report_schedules', 'enabled'),
     ('report_schedules', 'delivery_enabled'),
     ('report_schedules', 'next_run_at'),
-    ('reports', 'delivery_requested')
+    ('reports', 'delivery_requested'),
+    ('reports', 'status'),
+    ('reports', 'generation_stage'),
+    ('reports', 'generation_lease_token'),
+    ('reports', 'generation_lease_expires_at'),
+    ('reports', 'error_code'),
+    ('reports', 'error'),
+    ('report_sections', 'status'),
+    ('report_sections', 'error'),
+    ('alert_evaluation_requests', 'state'),
+    ('alert_evaluation_requests', 'dispatch_claimed_at'),
+    ('alert_evaluation_requests', 'claimed_at'),
+    ('alert_evaluation_requests', 'lease_token'),
+    ('alert_evaluation_requests', 'lease_expires_at'),
+    ('alert_evaluation_requests', 'completed_at'),
+    ('alert_evaluation_requests', 'last_error_code'),
+    ('alert_evaluation_requests', 'last_error_message')
   ) AS required(table_name, column_name)
   WHERE to_regclass('public.' || required.table_name) IS NOT NULL
     AND NOT EXISTS (
@@ -297,6 +399,11 @@ SQL
     fail "${EXIT_PREREQUISITE}" "Q314" "Database schema cannot satisfy the quarantine contract"
   fi
   printf 'QUARANTINE_PREFLIGHT=passed\n'
+  if [[ -n "${DATABASE_CONTAINER}" ]]; then
+    printf 'QUARANTINE_DATABASE_TARGET=isolated_container\n'
+  else
+    printf 'QUARANTINE_DATABASE_TARGET=compose_database\n'
+  fi
 }
 
 
@@ -307,15 +414,7 @@ apply_quarantine() {
   audit_id="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
     || fail "${EXIT_APPLY}" "Q502" "Audit identifier generation failed"
 
-  if ! compose exec -T \
-    --env "THREATLENS_RESTORE_CHECKSUM=${archive_checksum}" \
-    --env "THREATLENS_RESTORE_AUDIT_ID=${audit_id}" \
-    db sh -ceu '
-      exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
-        --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-        --set=restore_checksum="$THREATLENS_RESTORE_CHECKSUM" \
-        --set=audit_id="$THREATLENS_RESTORE_AUDIT_ID"
-    ' >/dev/null <<'SQL'
+  if ! run_psql_with_restore_context "${archive_checksum}" "${audit_id}" >/dev/null <<'SQL'
 BEGIN;
 SELECT pg_advisory_xact_lock(721304819352680117);
 SELECT set_config('threatlens.restore_checksum', :'restore_checksum', true);
@@ -334,8 +433,16 @@ DECLARE
   quarantined_deliveries bigint := 0;
   interrupted_attempts bigint := 0;
   quarantined_legacy_deliveries bigint := 0;
+  disabled_feeds bigint := 0;
+  disabled_ai_settings bigint := 0;
+  interrupted_ai_tasks bigint := 0;
+  interrupted_daily_briefs bigint := 0;
+  interrupted_item_enrichments bigint := 0;
   disabled_schedules bigint := 0;
   disabled_report_deliveries bigint := 0;
+  interrupted_reports bigint := 0;
+  interrupted_report_sections bigint := 0;
+  quarantined_alert_evaluations bigint := 0;
 BEGIN
   IF EXISTS (
     SELECT 1 FROM audit_logs
@@ -459,6 +566,52 @@ BEGIN
     GET DIAGNOSTICS quarantined_legacy_deliveries = ROW_COUNT;
   END IF;
 
+  IF to_regclass('public.feeds') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE feeds
+      SET enabled = false, next_fetch_at = NULL, dispatch_claimed_at = NULL,
+          dispatch_backoff_until = NULL, fetch_fence = fetch_fence + 1,
+          last_error = 'Disabled after disaster recovery restore.'
+      WHERE enabled IS TRUE OR next_fetch_at IS NOT NULL
+         OR dispatch_claimed_at IS NOT NULL OR dispatch_backoff_until IS NOT NULL$sql$;
+    GET DIAGNOSTICS disabled_feeds = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.ai_settings') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE ai_settings
+      SET summary_enabled = false, relevance_enabled = false,
+          daily_brief_enabled = false, reporting_enabled = false,
+          auto_enrich_new_items = false
+      WHERE summary_enabled IS TRUE OR relevance_enabled IS TRUE
+         OR daily_brief_enabled IS TRUE OR reporting_enabled IS TRUE
+         OR auto_enrich_new_items IS TRUE$sql$;
+    GET DIAGNOSTICS disabled_ai_settings = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.ai_task_runs') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE ai_task_runs
+      SET status = 'error', reason = 'restore_quarantine',
+          error = 'Interrupted by disaster recovery restore.',
+          finished_at = COALESCE(finished_at, clock_timestamp()),
+          dispatch_next_attempt_at = NULL, dispatch_claim_token = NULL,
+          dispatch_claim_expires_at = NULL
+      WHERE status IN ('queued', 'running')$sql$;
+    GET DIAGNOSTICS interrupted_ai_tasks = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.ai_daily_briefs') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE ai_daily_briefs
+      SET status = 'error', error = 'Interrupted by disaster recovery restore.'
+      WHERE status = 'pending'$sql$;
+    GET DIAGNOSTICS interrupted_daily_briefs = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.item_ai_enrichments') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE item_ai_enrichments
+      SET status = 'error', error = 'Interrupted by disaster recovery restore.'
+      WHERE status = 'pending'$sql$;
+    GET DIAGNOSTICS interrupted_item_enrichments = ROW_COUNT;
+  END IF;
+
   IF to_regclass('public.report_schedules') IS NOT NULL THEN
     IF EXISTS (
       SELECT 1 FROM information_schema.columns
@@ -484,6 +637,32 @@ BEGIN
   IF to_regclass('public.reports') IS NOT NULL THEN
     EXECUTE 'UPDATE reports SET delivery_requested = false WHERE delivery_requested IS TRUE';
     GET DIAGNOSTICS disabled_report_deliveries = ROW_COUNT;
+    EXECUTE $sql$UPDATE reports
+      SET status = 'error', generation_stage = 'failed',
+          generation_lease_token = NULL, generation_lease_expires_at = NULL,
+          error_code = 'restore_quarantine',
+          error = 'Interrupted by disaster recovery restore.',
+          delivery_requested = false
+      WHERE status IN ('queued', 'running')$sql$;
+    GET DIAGNOSTICS interrupted_reports = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.report_sections') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE report_sections
+      SET status = 'error', error = 'Interrupted by disaster recovery restore.'
+      WHERE status IN ('pending', 'running', 'generating')$sql$;
+    GET DIAGNOSTICS interrupted_report_sections = ROW_COUNT;
+  END IF;
+
+  IF to_regclass('public.alert_evaluation_requests') IS NOT NULL THEN
+    EXECUTE $sql$UPDATE alert_evaluation_requests
+      SET state = 'dead_letter', dispatch_claimed_at = NULL, claimed_at = NULL,
+          lease_token = NULL, lease_expires_at = NULL,
+          completed_at = COALESCE(completed_at, clock_timestamp()),
+          last_error_code = 'restore_quarantine',
+          last_error_message = 'Interrupted by disaster recovery restore.'
+      WHERE state IN ('pending', 'processing', 'retry_wait')$sql$;
+    GET DIAGNOSTICS quarantined_alert_evaluations = ROW_COUNT;
   END IF;
 
   INSERT INTO audit_logs (
@@ -510,8 +689,16 @@ BEGIN
       'quarantined_deliveries', quarantined_deliveries,
       'interrupted_attempts', interrupted_attempts,
       'quarantined_legacy_deliveries', quarantined_legacy_deliveries,
+      'disabled_feeds', disabled_feeds,
+      'disabled_ai_settings', disabled_ai_settings,
+      'interrupted_ai_tasks', interrupted_ai_tasks,
+      'interrupted_daily_briefs', interrupted_daily_briefs,
+      'interrupted_item_enrichments', interrupted_item_enrichments,
       'disabled_schedules', disabled_schedules,
-      'disabled_report_deliveries', disabled_report_deliveries
+      'disabled_report_deliveries', disabled_report_deliveries,
+      'interrupted_reports', interrupted_reports,
+      'interrupted_report_sections', interrupted_report_sections,
+      'quarantined_alert_evaluations', quarantined_alert_evaluations
     )
   );
 END
@@ -529,11 +716,7 @@ verify_quarantine() {
   local archive_checksum
   archive_checksum="$(archive_checksum)" \
     || fail "${EXIT_VERIFY}" "Q601" "Recovery manifest validation failed"
-  if ! compose exec -T --env "THREATLENS_RESTORE_CHECKSUM=${archive_checksum}" db sh -ceu '
-    exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet \
-      --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
-      --set=restore_checksum="$THREATLENS_RESTORE_CHECKSUM"
-  ' >/dev/null <<'SQL'
+  if ! run_psql_with_restore_context "${archive_checksum}" >/dev/null <<'SQL'
 SELECT set_config('threatlens.restore_checksum', :'restore_checksum', false);
 DO $verify$
 BEGIN
@@ -543,6 +726,40 @@ BEGIN
   IF to_regclass('public.auth_sessions') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM auth_sessions WHERE revoked_at IS NULL) THEN
       RAISE EXCEPTION 'active browser sessions remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.feeds') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM feeds
+      WHERE enabled IS TRUE OR next_fetch_at IS NOT NULL
+         OR dispatch_claimed_at IS NOT NULL OR dispatch_backoff_until IS NOT NULL
+    ) THEN
+      RAISE EXCEPTION 'scheduler-eligible feeds remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.ai_settings') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM ai_settings
+      WHERE summary_enabled IS TRUE OR relevance_enabled IS TRUE
+         OR daily_brief_enabled IS TRUE OR reporting_enabled IS TRUE
+         OR auto_enrich_new_items IS TRUE
+    ) THEN
+      RAISE EXCEPTION 'enabled AI automation remains after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.ai_task_runs') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM ai_task_runs WHERE status IN ('queued', 'running')) THEN
+      RAISE EXCEPTION 'active AI task runs remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.ai_daily_briefs') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM ai_daily_briefs WHERE status = 'pending') THEN
+      RAISE EXCEPTION 'pending AI daily briefs remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.item_ai_enrichments') IS NOT NULL THEN
+    IF EXISTS (SELECT 1 FROM item_ai_enrichments WHERE status = 'pending') THEN
+      RAISE EXCEPTION 'pending AI enrichments remain after restore quarantine';
     END IF;
   END IF;
   IF to_regclass('public.mfa_login_challenges') IS NOT NULL THEN
@@ -600,6 +817,24 @@ BEGIN
   IF to_regclass('public.reports') IS NOT NULL THEN
     IF EXISTS (SELECT 1 FROM reports WHERE delivery_requested IS TRUE) THEN
       RAISE EXCEPTION 'requested report deliveries remain after restore quarantine';
+    END IF;
+    IF EXISTS (SELECT 1 FROM reports WHERE status IN ('queued', 'running')) THEN
+      RAISE EXCEPTION 'active report generation remains after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.report_sections') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM report_sections WHERE status IN ('pending', 'running', 'generating')
+    ) THEN
+      RAISE EXCEPTION 'active report sections remain after restore quarantine';
+    END IF;
+  END IF;
+  IF to_regclass('public.alert_evaluation_requests') IS NOT NULL THEN
+    IF EXISTS (
+      SELECT 1 FROM alert_evaluation_requests
+      WHERE state IN ('pending', 'processing', 'retry_wait')
+    ) THEN
+      RAISE EXCEPTION 'runnable alert evaluations remain after restore quarantine';
     END IF;
   END IF;
   IF NOT EXISTS (

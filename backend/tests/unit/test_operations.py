@@ -46,8 +46,12 @@ def _healthy_inventory(now: datetime) -> EncryptedDataInventoryResponse:
 
 
 def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> None:
-    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: True)
-    monkeypatch.setattr(operations_probes.health_routes, "_redis_health_ok", lambda _settings: True)
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_database_health_ok", lambda _db: True
+    )
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_redis_health_ok", lambda _settings: True
+    )
 
     def worker_snapshot(settings):
         required = operations_probes.health_routes._required_worker_queues(settings)
@@ -62,13 +66,17 @@ def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> N
             },
         )
 
-    monkeypatch.setattr(operations_probes.health_routes, "_worker_health_snapshot", worker_snapshot)
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_worker_health_snapshot", worker_snapshot
+    )
     monkeypatch.setattr(
         operations_probes.health_routes,
         "_beat_health_snapshot",
         lambda _settings: BeatHealthSnapshot(
             scheduler=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
-            worker_round_trip=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
+            worker_round_trip=BeatHeartbeatSnapshot(
+                True, now.isoformat(), 1, "healthy"
+            ),
         ),
     )
     monkeypatch.setattr(
@@ -88,8 +96,12 @@ def test_operations_scopes_are_explicit_and_not_delegated_to_non_admin_roles():
     assert SCOPE_WRITE_OPERATIONS in ALLOWED_API_TOKEN_SCOPES
     assert SCOPE_READ_OPERATIONS not in DEFAULT_API_TOKEN_SCOPES
     assert SCOPE_WRITE_OPERATIONS not in DEFAULT_API_TOKEN_SCOPES
-    assert missing_role_token_scopes(ROLE_ANALYST, [SCOPE_READ_OPERATIONS]) == [SCOPE_READ_OPERATIONS]
-    assert missing_role_token_scopes(ROLE_VIEWER, [SCOPE_WRITE_OPERATIONS]) == [SCOPE_WRITE_OPERATIONS]
+    assert missing_role_token_scopes(ROLE_ANALYST, [SCOPE_READ_OPERATIONS]) == [
+        SCOPE_READ_OPERATIONS
+    ]
+    assert missing_role_token_scopes(ROLE_VIEWER, [SCOPE_WRITE_OPERATIONS]) == [
+        SCOPE_WRITE_OPERATIONS
+    ]
 
 
 def test_operation_run_helpers_sanitize_and_finish_once(db_session):
@@ -123,10 +135,14 @@ def test_operation_run_helpers_sanitize_and_finish_once(db_session):
     assert "/srv/backups" not in (completed.error_message or "")
     assert "very-secret" not in (completed.error_message or "")
 
-    repeated = operations.finish_system_operation_run(db_session, run_id=run.id, status="failed")
+    repeated = operations.finish_system_operation_run(
+        db_session, run_id=run.id, status="failed"
+    )
     assert repeated.id == run.id
     with pytest.raises(ValueError, match="already complete"):
-        operations.finish_system_operation_run(db_session, run_id=run.id, status="succeeded")
+        operations.finish_system_operation_run(
+            db_session, run_id=run.id, status="succeeded"
+        )
 
 
 def test_operation_run_helpers_reject_invalid_state(db_session):
@@ -293,8 +309,12 @@ def test_overview_reports_delivery_and_report_backlogs(db_session, monkeypatch):
 
 def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch):
     now = datetime.now(timezone.utc).replace(microsecond=0)
-    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: True)
-    monkeypatch.setattr(operations_probes.health_routes, "_redis_health_ok", lambda _settings: False)
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_database_health_ok", lambda _db: True
+    )
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_redis_health_ok", lambda _settings: False
+    )
     monkeypatch.setattr(
         operations_probes.health_routes,
         "_worker_health_snapshot",
@@ -302,9 +322,13 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
             False,
             {"worker@sensitive.internal": "pong"},
             {
-                "required": operations_probes.health_routes._required_worker_queues(settings),
+                "required": operations_probes.health_routes._required_worker_queues(
+                    settings
+                ),
                 "covered": [],
-                "missing": operations_probes.health_routes._required_worker_queues(settings),
+                "missing": operations_probes.health_routes._required_worker_queues(
+                    settings
+                ),
                 "by_worker": {"worker@sensitive.internal": []},
             },
         ),
@@ -312,12 +336,16 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     monkeypatch.setattr(
         operations_probes.health_routes,
         "_beat_health_snapshot",
-        lambda _settings: (_ for _ in ()).throw(RuntimeError("redis://admin:secret@private.internal/0")),
+        lambda _settings: (_ for _ in ()).throw(
+            RuntimeError("redis://admin:secret@private.internal/0")
+        ),
     )
     monkeypatch.setattr(
         operations_probes,
         "scan_encrypted_data_inventory",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("OIDC client_secret=do-not-leak")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("OIDC client_secret=do-not-leak")
+        ),
     )
     monkeypatch.setattr(
         operations_probes.shutil,
@@ -327,17 +355,23 @@ def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch)
     monkeypatch.setattr(
         operations_probes,
         "_load_database_size",
-        lambda _db: (_ for _ in ()).throw(RuntimeError("postgresql://private.internal/db")),
+        lambda _db: (_ for _ in ()).throw(
+            RuntimeError("postgresql://private.internal/db")
+        ),
     )
     monkeypatch.setattr(
         operations_projections,
         "_load_delivery_backlog",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("smtp_password=mail-secret")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("smtp_password=mail-secret")
+        ),
     )
     monkeypatch.setattr(
         operations_projections,
         "_load_report_backlog",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("/srv/reports/private")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("/srv/reports/private")
+        ),
     )
     monkeypatch.setattr(
         operations_projections,
@@ -379,7 +413,9 @@ def test_overview_skips_database_dependent_probes_when_database_is_unavailable(
 ):
     now = datetime.now(timezone.utc).replace(microsecond=0)
     _install_healthy_probes(monkeypatch, now)
-    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: False)
+    monkeypatch.setattr(
+        operations_probes.health_routes, "_database_health_ok", lambda _db: False
+    )
     encrypted_inventory_called = False
 
     def unexpected_inventory(*_args, **_kwargs):
@@ -435,14 +471,152 @@ def _report(
     )
 
 
-def _operation_run(operation_type: str, status: str, started_at: datetime):
+def _operation_run(
+    operation_type: str,
+    status: str,
+    started_at: datetime,
+    *,
+    archive_sha256: str | None = None,
+):
     return SystemOperationRun(
         id=uuid.uuid4(),
         operation_type=operation_type,
         status=status,
         initiated_by="pytest",
         source="test",
-        metadata_json={},
+        metadata_json={"archive_sha256": archive_sha256} if archive_sha256 else {},
         started_at=started_at,
-        finished_at=started_at + timedelta(minutes=1),
+        finished_at=None if status == "running" else started_at + timedelta(minutes=1),
     )
+
+
+def test_recovery_readiness_correlates_evidence_to_the_latest_archive(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    latest_checksum = "a" * 64
+    older_checksum = "b" * 64
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup",
+                "succeeded",
+                now - timedelta(hours=1),
+                archive_sha256=latest_checksum,
+            ),
+            _operation_run(
+                "verify",
+                "succeeded",
+                now - timedelta(minutes=30),
+                archive_sha256=latest_checksum,
+            ),
+            _operation_run(
+                "restore_drill",
+                "succeeded",
+                now - timedelta(days=2),
+                archive_sha256=older_checksum,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    issues = []
+    recovery = operations_projections.collect_recovery_snapshot(
+        db_session,
+        issues=issues,
+        database_ok=True,
+    )
+    issue_codes = {entry.code for entry in issues}
+
+    assert recovery.latest_backup is not None
+    assert recovery.latest_backup.metadata["archive_sha256"] == latest_checksum
+    assert "latest_backup_verify_mismatch" not in issue_codes
+    assert "latest_backup_drill_mismatch" in issue_codes
+
+
+def test_recovery_readiness_reports_stale_success_and_incomplete_attempt(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup",
+                "succeeded",
+                now - timedelta(days=3),
+                archive_sha256="c" * 64,
+            ),
+            _operation_run(
+                "restore_drill",
+                "running",
+                now - timedelta(hours=2),
+                archive_sha256="c" * 64,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    issues = []
+    operations_projections.collect_recovery_snapshot(
+        db_session,
+        issues=issues,
+        database_ok=True,
+    )
+    issue_codes = {entry.code for entry in issues}
+
+    assert "latest_backup_stale" in issue_codes
+    assert "latest_restore_drill_incomplete" in issue_codes
+    assert "latest_backup_not_verified" in issue_codes
+
+
+def test_recovery_readiness_selects_matching_successful_evidence(db_session):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    backup_checksum = "d" * 64
+    unrelated_checksum = "e" * 64
+    db_session.add_all(
+        [
+            _operation_run(
+                "backup",
+                "succeeded",
+                now - timedelta(hours=4),
+                archive_sha256=backup_checksum,
+            ),
+            _operation_run(
+                "backup",
+                "failed",
+                now - timedelta(minutes=30),
+                archive_sha256=unrelated_checksum,
+            ),
+            _operation_run(
+                "verify",
+                "succeeded",
+                now - timedelta(hours=3),
+                archive_sha256=backup_checksum,
+            ),
+            _operation_run(
+                "verify",
+                "succeeded",
+                now - timedelta(hours=1),
+                archive_sha256=unrelated_checksum,
+            ),
+            _operation_run(
+                "restore_drill",
+                "succeeded",
+                now - timedelta(hours=2),
+                archive_sha256=backup_checksum,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    issues = []
+    recovery = operations_projections.collect_recovery_snapshot(
+        db_session,
+        issues=issues,
+        database_ok=True,
+    )
+    issue_codes = {entry.code for entry in issues}
+
+    assert recovery.latest_backup is not None
+    assert recovery.latest_backup.status == "failed"
+    assert "latest_backup_failed" in issue_codes
+    assert "latest_backup_not_verified" not in issue_codes
+    assert "latest_backup_verify_mismatch" not in issue_codes
+    assert "latest_backup_not_drilled" not in issue_codes
+    assert "latest_backup_drill_mismatch" not in issue_codes

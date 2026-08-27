@@ -18,6 +18,14 @@ set -eu
 if [[ "$1" == "info" ]]; then
   exit 0
 fi
+if [[ "$1" == "inspect" ]]; then
+  printf 'true\n'
+  exit 0
+fi
+if [[ "$1" == "exec" ]]; then
+  cat >"$FAKE_SQL_DIRECTORY/${THREATLENS_RECOVERY_PHASE}.sql"
+  exit "${FAKE_PSQL_EXIT:-0}"
+fi
 if [[ "$1" != "compose" ]]; then
   exit 0
 fi
@@ -128,11 +136,34 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         result = self._run("preflight")
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "QUARANTINE_PREFLIGHT=passed")
+        self.assertEqual(
+            result.stdout.strip().splitlines(),
+            [
+                "QUARANTINE_PREFLIGHT=passed",
+                "QUARANTINE_DATABASE_TARGET=compose_database",
+            ],
+        )
         sql = (self.sql_directory / "preflight.sql").read_text(encoding="utf-8")
         self.assertNotRegex(sql, r"(?im)^\s*(UPDATE|INSERT|DELETE|ALTER|DROP)\b")
-        self.assertIn("rolcreatedb", sql)
+        self.assertIn("rolsuper", sql)
         self.assertIn("database.datdba", sql)
+
+    def test_preflight_can_be_bound_to_an_isolated_database_container(self) -> None:
+        result = self._run(
+            "preflight",
+            THREATLENS_RECOVERY_DATABASE_CONTAINER="isolated-postgres",
+            THREATLENS_RECOVERY_DATABASE_USER="postgres",
+            THREATLENS_RECOVERY_DATABASE_NAME="threatlens_restore_drill",
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip().splitlines(),
+            [
+                "QUARANTINE_PREFLIGHT=passed",
+                "QUARANTINE_DATABASE_TARGET=isolated_container",
+            ],
+        )
 
     def test_apply_is_transactional_idempotent_and_covers_outbound_state(self) -> None:
         result = self._run("apply")
@@ -153,8 +184,15 @@ class PostRestoreQuarantineTests(unittest.TestCase):
         self.assertIn("UPDATE integration_events", sql)
         self.assertIn("UPDATE integration_deliveries", sql)
         self.assertIn("UPDATE notification_webhook_deliveries", sql)
+        self.assertIn("UPDATE feeds", sql)
+        self.assertIn("UPDATE ai_settings", sql)
+        self.assertIn("UPDATE ai_task_runs", sql)
+        self.assertIn("UPDATE ai_daily_briefs", sql)
+        self.assertIn("UPDATE item_ai_enrichments", sql)
         self.assertIn("UPDATE report_schedules", sql)
         self.assertIn("UPDATE reports", sql)
+        self.assertIn("UPDATE report_sections", sql)
+        self.assertIn("UPDATE alert_evaluation_requests", sql)
         self.assertIn("system.restore.quarantine", sql)
 
     def test_verify_checks_credentials_outbound_work_and_audit_marker(self) -> None:
@@ -173,8 +211,15 @@ class PostRestoreQuarantineTests(unittest.TestCase):
             "integration_events",
             "integration_deliveries",
             "notification_webhook_deliveries",
+            "feeds",
+            "ai_settings",
+            "ai_task_runs",
+            "ai_daily_briefs",
+            "item_ai_enrichments",
             "report_schedules",
             "reports",
+            "report_sections",
+            "alert_evaluation_requests",
             "system.restore.quarantine",
         ):
             self.assertIn(invariant, sql)
