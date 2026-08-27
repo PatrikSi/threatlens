@@ -379,7 +379,24 @@ class RecoveryShellTests(unittest.TestCase):
             line
             for line in self.docker_log.read_text(encoding="utf-8").splitlines()
             if "THREATLENS_OPERATION_ID=" in line
+            and "THREATLENS_OPERATION_STATUS=running" not in line
         ]
+
+    def _ledger_start_lines(self) -> list[str]:
+        return [
+            line
+            for line in self.docker_log.read_text(encoding="utf-8").splitlines()
+            if "THREATLENS_OPERATION_ID=" in line
+            and "THREATLENS_OPERATION_STATUS=running" in line
+        ]
+
+    def _assert_started_then_finished(self, terminal_line: str) -> None:
+        start_lines = self._ledger_start_lines()
+        self.assertEqual(len(start_lines), 1)
+        start_id = start_lines[0].split("THREATLENS_OPERATION_ID=", 1)[1].split()[0]
+        terminal_id = terminal_line.split("THREATLENS_OPERATION_ID=", 1)[1].split()[0]
+        self.assertEqual(start_id, terminal_id)
+        self.assertIn("ledger_scope_id", start_lines[0])
 
     def test_restore_refuses_wrong_confirmation_before_mutation(self) -> None:
         backup = self._create_backup()
@@ -409,7 +426,7 @@ class RecoveryShellTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 7, result.stderr)
         self.assertIn("E723", result.stderr)
-        self.assertIn("Another destructive restore or reconciliation", result.stderr)
+        self.assertIn("Another recovery operation", result.stderr)
 
     def test_restore_requires_explicit_encryption_fingerprint_mismatch_acknowledgement(
         self,
@@ -480,6 +497,7 @@ class RecoveryShellTests(unittest.TestCase):
         )
         self.assertIn("THREATLENS_OPERATION_STATUS=failed", self._ledger_lines()[0])
         self.assertIn("THREATLENS_OPERATION_ERROR_CODE=E605", self._ledger_lines()[0])
+        self._assert_started_then_finished(self._ledger_lines()[0])
 
     def test_failed_packaged_code_smoke_cleans_all_isolated_resources(self) -> None:
         backup = self._create_backup()
@@ -578,6 +596,7 @@ class RecoveryShellTests(unittest.TestCase):
         self.assertIn("THREATLENS_OPERATION_STATUS=succeeded", ledger_lines[0])
         self.assertIn("archive_sha256", ledger_lines[0])
         self.assertNotIn(str(output_directory), ledger_lines[0])
+        self._assert_started_then_finished(ledger_lines[0])
 
     def test_successful_verify_records_sanitized_history(self) -> None:
         backup = self._create_backup()
@@ -592,6 +611,7 @@ class RecoveryShellTests(unittest.TestCase):
         self.assertIn("THREATLENS_OPERATION_STATUS=succeeded", ledger_line)
         self.assertIn("archive_sha256", ledger_line)
         self.assertNotIn(str(backup), ledger_line)
+        self._assert_started_then_finished(ledger_line)
 
     def test_history_failure_does_not_change_successful_verify(self) -> None:
         backup = self._create_backup()
@@ -618,6 +638,7 @@ class RecoveryShellTests(unittest.TestCase):
         self.assertIn("THREATLENS_OPERATION_STATUS=succeeded", ledger_lines[0])
         self.assertIn("table_count", ledger_lines[0])
         self.assertNotIn(str(backup), ledger_lines[0])
+        self._assert_started_then_finished(ledger_lines[0])
 
     def test_restore_records_success_only_after_hook_verifies(self) -> None:
         backup = self._create_backup()
@@ -1064,6 +1085,7 @@ class RecoveryShellTests(unittest.TestCase):
         self.assertIn("THREATLENS_OPERATION_TYPE=backup", ledger_lines[0])
         self.assertIn("THREATLENS_OPERATION_STATUS=failed", ledger_lines[0])
         self.assertIn("THREATLENS_OPERATION_ERROR_CODE=E512", ledger_lines[0])
+        self._assert_started_then_finished(ledger_lines[0])
 
 
 if __name__ == "__main__":

@@ -37,8 +37,12 @@ Messages include stable identifiers such as E402 plus a specific operator-facing
 explanation. The scripts never enable shell tracing and do not place database,
 Redis, or application encryption secrets in command arguments or logs.
 
-When the system_operation_runs table is present and PostgreSQL is reachable, each
-command writes a succeeded or failed row for the Operations UI. A failed
+When the system_operation_runs table is present and PostgreSQL is reachable,
+backup, verify, and drill durably write a running row before doing their main
+work, then update that same row to succeeded or failed. A later command under the
+same private recovery-journal root and Compose project marks a crash-left running
+row as failed with operation_interrupted before it begins. Rows from another
+scope are never reconciled automatically. A failed
 destructive restore is written to the original database only after rollback has
 been reconciled successfully; no history write is attempted while database
 identity is uncertain. The row contains
@@ -58,9 +62,9 @@ identity, original and replacement PostgreSQL OIDs, access state, and final
 outcome, but no credentials. It is archived only after matching database
 operation evidence has been written. A live active journal blocks another
 restore until an operator runs `reconcile`.
-Restore and reconcile also share a nonblocking advisory lock in that private root.
+All recovery commands share a nonblocking advisory lock in that private root.
 The kernel releases it on normal exit, signals, process death, or host restart, so
-concurrent reconciliation is refused without creating a stale lock after SIGKILL.
+concurrent recovery work is refused without creating a stale lock after SIGKILL.
 Terminal archival first publishes and fsyncs the immutable history record and a
 validated terminal receipt, then atomically retires `active` through a private
 cleanup marker. Restore, archive, and reconciliation recover abandoned
@@ -71,9 +75,19 @@ atomic publication; immutable history remains authoritative if that unpublished
 initialization is interrupted.
 
 The Operations view treats recovery evidence as related artifacts, not independent
-green checks. It warns when the latest backup is older than 26 hours, the latest
-drill is older than 31 days, a run remains incomplete, or the latest successful
-verification or drill checksum does not match the latest successful backup.
+green checks. Verification and drill cards, failures, incomplete states, and age
+warnings are selected by the latest successful backup checksum. A newer failure
+against an older archive remains visible in run history but does not mark the
+current archive untrusted. The view warns when the latest backup is older than 26
+hours, its correlated drill is older than 31 days, a correlated run remains
+incomplete, or successful evidence covers a different checksum.
+
+Database storage figures in the Operations view come from PostgreSQL logical
+size and retained-history growth. The API container cannot reliably inspect free
+space on a separately mounted PostgreSQL volume or managed database host. Monitor
+that filesystem with the Docker host, storage platform, or database service and
+alert before free capacity reaches the restore and maintenance headroom required
+by this runbook.
 
 ## Prerequisites
 

@@ -87,6 +87,7 @@ RESTORE_FORWARD_COMMITTED=false
 RESTORE_RECONCILED_ROLLBACK=false
 OPERATION_ID=""
 OPERATION_EVIDENCE_RECORDED=false
+OPERATION_SCOPE_ID=""
 PINNED_DATABASE_IMAGE=""
 PINNED_APPLICATION_IMAGE=""
 TARGET_BACKEND_SERVICES_TEXT=""
@@ -321,7 +322,7 @@ acquire_recovery_operation_lock() {
     || die "${EXIT_REFUSED}" "E722" "Recovery operation lock could not be opened"
   flock --nonblock "${RECOVERY_OPERATION_LOCK_FD}" \
     || die "${EXIT_REFUSED}" "E723" \
-      "Another destructive restore or reconciliation is active for this journal root"
+      "Another recovery operation is active for this journal root"
 }
 
 
@@ -414,9 +415,16 @@ start_operation() {
   OPERATION_STARTED_AT="$(timestamp)"
   OPERATION_ID="$(python3 -c 'import uuid; print(uuid.uuid4())')" \
     || die "${EXIT_PREREQUISITE}" "E328" "Unable to generate an operation identifier"
+  OPERATION_SCOPE_ID="$(
+    python3 -c \
+      'import hashlib, os, sys; print(hashlib.sha256("\0".join((os.path.abspath(sys.argv[1]), sys.argv[2])).encode()).hexdigest())' \
+      "${RECOVERY_JOURNAL_ROOT}" "${COMPOSE_PROJECT:-default}"
+  )" || die "${EXIT_PREREQUISITE}" "E329" "Unable to derive the recovery ledger scope"
   OPERATION_METADATA_JSON="$(
-    python3 "${MANIFEST_HELPER}" ledger-metadata --field tool_version=1
-  )" || OPERATION_METADATA_JSON='{"tool_version":"1"}'
+    python3 "${MANIFEST_HELPER}" ledger-metadata \
+      --field tool_version=1 \
+      --field "ledger_scope_id=${OPERATION_SCOPE_ID}"
+  )" || OPERATION_METADATA_JSON="{\"ledger_scope_id\":\"${OPERATION_SCOPE_ID}\",\"tool_version\":\"1\"}"
   OPERATION_LEDGER_ALLOWED=true
   if [[ "${OPERATION_TYPE}" == "restore" ]]; then
     OPERATION_LEDGER_ALLOWED=false
@@ -428,12 +436,91 @@ start_operation() {
 
 set_operation_metadata() {
   local metadata
-  if metadata="$(python3 "${MANIFEST_HELPER}" ledger-metadata "$@")"; then
+  local -a metadata_arguments=("$@")
+  if [[ -n "${OPERATION_SCOPE_ID}" ]]; then
+    metadata_arguments+=(--field "ledger_scope_id=${OPERATION_SCOPE_ID}")
+  fi
+  if metadata="$(
+    python3 "${MANIFEST_HELPER}" ledger-metadata "${metadata_arguments[@]}"
+  )"; then
     OPERATION_METADATA_JSON="${metadata}"
   else
     warn "Operation metadata was invalid and was replaced with the minimal safe record"
-    OPERATION_METADATA_JSON='{"tool_version":"1"}'
+    OPERATION_METADATA_JSON="{\"ledger_scope_id\":\"${OPERATION_SCOPE_ID}\",\"tool_version\":\"1\"}"
   fi
+}
+
+
+begin_operation_best_effort() {
+  if [[ -z "${OPERATION_TYPE}" || "${OPERATION_LEDGER_ALLOWED}" != true \
+    || ${#COMPOSE_COMMAND[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  if ! compose exec -T \
+    --env "THREATLENS_OPERATION_ID=${OPERATION_ID}" \
+    --env "THREATLENS_OPERATION_TYPE=${OPERATION_TYPE}" \
+    --env "THREATLENS_OPERATION_STATUS=running" \
+    --env "THREATLENS_OPERATION_STARTED_AT=${OPERATION_STARTED_AT}" \
+    --env "THREATLENS_OPERATION_METADATA=${OPERATION_METADATA_JSON}" \
+    --env "THREATLENS_OPERATION_SCOPE_ID=${OPERATION_SCOPE_ID}" \
+    db sh -ceu '
+      export PGCONNECT_TIMEOUT=3
+      export PGOPTIONS="-c statement_timeout=3000 -c lock_timeout=1000"
+      table_exists="$(psql --no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+        --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --command \
+        "SELECT to_regclass('"'"'public.system_operation_runs'"'"') IS NOT NULL;" | tr -d "[:space:]")"
+      [ "$table_exists" = "t" ] || exit 42
+      exec psql --no-psqlrc --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" \
+        --dbname "$POSTGRES_DB" \
+        --set=operation_id="$THREATLENS_OPERATION_ID" \
+        --set=operation_type="$THREATLENS_OPERATION_TYPE" \
+        --set=operation_started_at="$THREATLENS_OPERATION_STARTED_AT" \
+        --set=operation_metadata="$THREATLENS_OPERATION_METADATA" \
+        --set=operation_scope_id="$THREATLENS_OPERATION_SCOPE_ID" <<'"'"'SQL'"'"'
+BEGIN;
+UPDATE system_operation_runs
+SET status = '"'"'failed'"'"',
+    metadata_json = jsonb_set(
+      metadata_json,
+      '"'"'{reconciled_after_interruption}'"'"',
+      '"'"'true'"'"'::jsonb,
+      true
+    ),
+    error_code = '"'"'operation_interrupted'"'"',
+    error_message = '"'"'A later host recovery command reconciled this unfinished operation.'"'"',
+    finished_at = clock_timestamp(),
+    updated_at = clock_timestamp()
+WHERE status = '"'"'running'"'"'
+  AND source = '"'"'host-recovery-cli'"'"'
+  AND operation_type IN ('"'"'backup'"'"', '"'"'verify'"'"', '"'"'restore_drill'"'"')
+  AND id <> :'"'"'operation_id'"'"'::uuid
+  AND metadata_json ->> '"'"'ledger_scope_id'"'"' = :'"'"'operation_scope_id'"'"';
+INSERT INTO system_operation_runs (
+  id, operation_type, status, initiated_by, source, metadata_json,
+  error_code, error_message, started_at, finished_at
+)
+VALUES (
+  :'"'"'operation_id'"'"'::uuid,
+  :'"'"'operation_type'"'"',
+  '"'"'running'"'"',
+  '"'"'host-operator'"'"',
+  '"'"'host-recovery-cli'"'"',
+  :'"'"'operation_metadata'"'"'::jsonb,
+  NULL,
+  NULL,
+  :'"'"'operation_started_at'"'"'::timestamptz,
+  NULL
+)
+ON CONFLICT (id) DO NOTHING;
+COMMIT;
+SQL
+  ' >/dev/null 2>&1; then
+    warn "System operation start history is unavailable; the command result is unchanged"
+  else
+    OPERATION_EVIDENCE_RECORDED=true
+  fi
+  return 0
 }
 
 
@@ -493,13 +580,20 @@ VALUES (
   :'"'"'operation_status'"'"',
   '"'"'host-operator'"'"',
   '"'"'host-recovery-cli'"'"',
-  :'"'"'operation_metadata'"'"'::json,
+  :'"'"'operation_metadata'"'"'::jsonb,
   NULLIF(:'"'"'operation_error_code'"'"', '"'"''"'"'),
   NULLIF(:'"'"'operation_error_message'"'"', '"'"''"'"'),
   :'"'"'operation_started_at'"'"'::timestamptz,
   clock_timestamp()
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT (id) DO UPDATE
+SET status = EXCLUDED.status,
+    metadata_json = EXCLUDED.metadata_json,
+    error_code = EXCLUDED.error_code,
+    error_message = EXCLUDED.error_message,
+    finished_at = EXCLUDED.finished_at,
+    updated_at = clock_timestamp()
+WHERE system_operation_runs.status = '"'"'running'"'"';
 SQL
   ' >/dev/null 2>&1; then
     warn "System operation history is unavailable; the command result is unchanged"
@@ -1269,7 +1363,26 @@ main() {
   declare -ga COMMAND_ARGUMENTS=()
   parse_global_options "$@"
   validate_common_prerequisites
+  local argument
+  for argument in "${COMMAND_ARGUMENTS[@]}"; do
+    if [[ "${argument}" == "--help" ]]; then
+      case "${COMMAND}" in
+        backup) command_backup "${COMMAND_ARGUMENTS[@]}" ;;
+        verify) command_verify "${COMMAND_ARGUMENTS[@]}" ;;
+        drill) command_drill "${COMMAND_ARGUMENTS[@]}" ;;
+        restore) tlr_restore_command "${COMMAND_ARGUMENTS[@]}" ;;
+        reconcile) tlr_reconcile_command "${COMMAND_ARGUMENTS[@]}" ;;
+      esac
+      return 0
+    fi
+  done
   start_operation "${COMMAND}"
+  case "${COMMAND}" in
+    backup|verify|drill)
+      acquire_recovery_operation_lock
+      begin_operation_best_effort
+      ;;
+  esac
   case "${COMMAND}" in
     backup) command_backup "${COMMAND_ARGUMENTS[@]}" ;;
     verify) command_verify "${COMMAND_ARGUMENTS[@]}" ;;

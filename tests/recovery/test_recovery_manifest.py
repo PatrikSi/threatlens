@@ -225,6 +225,8 @@ class RecoveryManifestTests(unittest.TestCase):
             "archive_size_bytes=4096",
             "--field",
             "catalog_checked=true",
+            "--field",
+            "ledger_scope_id=" + "a" * 64,
         )
 
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -233,6 +235,7 @@ class RecoveryManifestTests(unittest.TestCase):
             {
                 "archive_size_bytes": 4096,
                 "catalog_checked": True,
+                "ledger_scope_id": "a" * 64,
                 "tool_version": "1",
             },
         )
