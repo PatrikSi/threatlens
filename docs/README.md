@@ -55,3 +55,4 @@ This documentation covers:
 - [Stats](./pages/stats.md)
 - [Settings](./pages/settings.md) including integrations, tagging, tokens, users, and audit logs
 - [AI](./pages/ai.md)
+- [PostgreSQL Backup and Recovery](./pages/operations.md)
