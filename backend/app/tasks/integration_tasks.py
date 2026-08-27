@@ -6,8 +6,10 @@ import uuid
 from app.core.config import get_settings
 from app.models.integration import IntegrationDelivery
 from app.services.integration_delivery import (
-    DELIVERY_TERMINAL_STATES,
+    IntegrationDeliveryClaimTracker,
     defer_integration_delivery,
+    defer_unclaimed_integration_delivery,
+    integration_delivery_claim_observer,
     record_integration_delivery_unknown_outcome,
     release_integration_delivery_publications,
     reserve_recoverable_integration_deliveries,
@@ -73,6 +75,8 @@ def process_integration_deliveries(delivery_ids: list[str]):
             except (AttributeError, TypeError, ValueError):
                 skipped += 1
                 continue
+            claim_tracker = IntegrationDeliveryClaimTracker(delivery_id)
+
             try:
                 delivery = db.get(IntegrationDelivery, delivery_id)
                 if delivery is None:
@@ -92,7 +96,8 @@ def process_integration_deliveries(delivery_ids: list[str]):
                     db.commit()
                     deferred += 1
                     continue
-                result = connector.process_delivery(db, delivery=delivery)
+                with integration_delivery_claim_observer(claim_tracker.observe):
+                    result = connector.process_delivery(db, delivery=delivery)
                 for followup in result.followup_deliveries:
                     enqueue_integration_delivery_processing(
                         [followup.delivery_id],
@@ -110,21 +115,21 @@ def process_integration_deliveries(delivery_ids: list[str]):
                     failed += 1
             except Exception as exc:
                 db.rollback()
-                outcome = record_integration_delivery_unknown_outcome(
-                    db,
-                    delivery_id=delivery_id,
-                    error_code="worker_error",
-                    error_message=f"{type(exc).__name__}: {exc}"[:4000],
-                )
-                if (
-                    not outcome.recorded
-                    and outcome.state not in DELIVERY_TERMINAL_STATES
-                ):
-                    defer_integration_delivery(
+                error_message = f"{type(exc).__name__}: {exc}"[:4000]
+                if claim_tracker.attempt_number is not None:
+                    record_integration_delivery_unknown_outcome(
+                        db,
+                        delivery_id=delivery_id,
+                        expected_attempt_number=claim_tracker.attempt_number,
+                        error_code="worker_error",
+                        error_message=error_message,
+                    )
+                else:
+                    defer_unclaimed_integration_delivery(
                         db,
                         delivery_id=delivery_id,
                         error_code="worker_error",
-                        error_message=f"{type(exc).__name__}: {exc}"[:4000],
+                        error_message=error_message,
                     )
                 db.commit()
                 failed += 1

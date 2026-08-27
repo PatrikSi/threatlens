@@ -40,6 +40,18 @@ def lock_webhook_delivery_external_io_eligibility(
     between this check and the outbound request. Lease renewal may commit, but it
     must invoke this function again before the next request or redirect.
     """
+    legacy = db.scalar(
+        select(NotificationWebhookDelivery)
+        .where(NotificationWebhookDelivery.id == legacy_delivery_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if legacy is None or legacy.webhook_id != webhook_id:
+        raise WebhookDeliveryIneligibleError(
+            "webhook_delivery_missing",
+            "Webhook delivery no longer exists or belongs to this webhook.",
+        )
+
     webhook = db.scalar(
         select(NotificationWebhook)
         .where(NotificationWebhook.id == webhook_id)
@@ -58,18 +70,6 @@ def lock_webhook_delivery_external_io_eligibility(
         raise WebhookDeliveryIneligibleError(
             "webhook_projection_missing",
             "Webhook integration configuration is incomplete.",
-        )
-
-    legacy = db.scalar(
-        select(NotificationWebhookDelivery)
-        .where(NotificationWebhookDelivery.id == legacy_delivery_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if legacy is None or legacy.webhook_id != webhook.id:
-        raise WebhookDeliveryIneligibleError(
-            "webhook_delivery_missing",
-            "Webhook delivery no longer exists or belongs to this webhook.",
         )
 
     generic = db.scalar(
