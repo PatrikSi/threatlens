@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.core.api_errors import ApiHTTPException, error_code_for_status
+from app.core.config import get_settings
 from app.core.rbac import ROLE_ADMIN, ROLE_ANALYST
-from app.core.token_scopes import SCOPE_READ_INVESTIGATIONS, SCOPE_WRITE_INVESTIGATIONS
+from app.core.token_scopes import (
+    SCOPE_READ_ALERTS,
+    SCOPE_READ_INVESTIGATIONS,
+    SCOPE_READ_ITEMS,
+    SCOPE_READ_REPORTS,
+    SCOPE_WRITE_INVESTIGATIONS,
+    has_required_scope,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.investigation import (
@@ -49,6 +58,12 @@ router = APIRouter(prefix="/investigations", tags=["investigations"])
 
 VALID_STATUSES = frozenset({"open", "monitoring", "closed", "archived"})
 VALID_SEVERITIES = frozenset({"low", "medium", "high", "critical"})
+EVIDENCE_SOURCE_READ_SCOPES = {
+    "item": SCOPE_READ_ITEMS,
+    "ioc": SCOPE_READ_ITEMS,
+    "report": SCOPE_READ_REPORTS,
+    "alert_occurrence": SCOPE_READ_ALERTS,
+}
 
 
 @router.get("", response_model=InvestigationListResponse)
@@ -88,7 +103,9 @@ def get_investigations(
     )
 
 
-@router.post("", response_model=InvestigationDetailResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=InvestigationDetailResponse, status_code=status.HTTP_201_CREATED
+)
 def post_investigation(
     payload: InvestigationCreate,
     db: Session = Depends(get_db),
@@ -111,15 +128,22 @@ def post_investigation(
             action="investigations.create",
             resource_type="investigation",
             resource_id=str(investigation.id),
-            metadata={"severity": investigation.severity, "visibility": investigation.visibility},
+            metadata={
+                "severity": investigation.severity,
+                "visibility": investigation.visibility,
+            },
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation.id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation.id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.get("/member-candidates", response_model=InvestigationMemberCandidateListResponse)
+@router.get(
+    "/member-candidates", response_model=InvestigationMemberCandidateListResponse
+)
 def get_investigation_member_candidates(
     q: str | None = Query(default=None, max_length=255),
     page: int = Query(default=1, ge=1),
@@ -143,9 +167,11 @@ def get_investigation(
     user: User = Depends(require_token_scopes(SCOPE_READ_INVESTIGATIONS)),
 ):
     try:
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
 @router.patch("/{investigation_id}", response_model=InvestigationDetailResponse)
@@ -172,12 +198,17 @@ def patch_investigation(
                 action="investigations.update",
                 resource_type="investigation",
                 resource_id=str(investigation.id),
-                metadata={"changed_fields": sorted(changed_fields), "version": investigation.version},
+                metadata={
+                    "changed_fields": sorted(changed_fields),
+                    "version": investigation.version,
+                },
             )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation.id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation.id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
 @router.post("/{investigation_id}/members", response_model=InvestigationDetailResponse)
@@ -206,12 +237,17 @@ def post_investigation_member(
             metadata={"member_user_id": str(payload.user_id), "role": payload.role},
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.patch("/{investigation_id}/members/{member_user_id}", response_model=InvestigationDetailResponse)
+@router.patch(
+    "/{investigation_id}/members/{member_user_id}",
+    response_model=InvestigationDetailResponse,
+)
 def patch_investigation_member(
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
@@ -221,7 +257,7 @@ def patch_investigation_member(
 ):
     _require_investigation_author(user)
     try:
-        update_member(
+        member, changed = update_member(
             db,
             investigation_id=investigation_id,
             user=user,
@@ -229,21 +265,27 @@ def patch_investigation_member(
             role=payload.role,
             expected_version=payload.expected_version,
         )
-        record_audit(
-            db,
-            actor_user_id=user.id,
-            action="investigations.member.update",
-            resource_type="investigation",
-            resource_id=str(investigation_id),
-            metadata={"member_user_id": str(member_user_id), "role": payload.role},
-        )
+        if changed:
+            record_audit(
+                db,
+                actor_user_id=user.id,
+                action="investigations.member.update",
+                resource_type="investigation",
+                resource_id=str(investigation_id),
+                metadata={"member_user_id": str(member.user_id), "role": payload.role},
+            )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.delete("/{investigation_id}/members/{member_user_id}", response_model=InvestigationDetailResponse)
+@router.delete(
+    "/{investigation_id}/members/{member_user_id}",
+    response_model=InvestigationDetailResponse,
+)
 def delete_investigation_member(
     investigation_id: uuid.UUID,
     member_user_id: uuid.UUID,
@@ -269,19 +311,23 @@ def delete_investigation_member(
             metadata={"member_user_id": str(member_user_id)},
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
 @router.post("/{investigation_id}/evidence", response_model=InvestigationDetailResponse)
 def post_investigation_evidence(
     investigation_id: uuid.UUID,
     payload: InvestigationEvidenceAdd,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_INVESTIGATIONS)),
 ):
     _require_investigation_author(user)
+    _require_evidence_source_read_scope(request, payload.source_type)
     try:
         evidence = add_evidence(
             db,
@@ -305,12 +351,17 @@ def post_investigation_evidence(
             },
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.delete("/{investigation_id}/evidence/{evidence_id}", response_model=InvestigationDetailResponse)
+@router.delete(
+    "/{investigation_id}/evidence/{evidence_id}",
+    response_model=InvestigationDetailResponse,
+)
 def delete_investigation_evidence(
     investigation_id: uuid.UUID,
     evidence_id: uuid.UUID,
@@ -336,9 +387,11 @@ def delete_investigation_evidence(
             metadata={"evidence_id": str(evidence_id)},
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
 @router.post("/{investigation_id}/notes", response_model=InvestigationDetailResponse)
@@ -366,12 +419,16 @@ def post_investigation_note(
             metadata={"note_id": str(note.id)},
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.patch("/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse)
+@router.patch(
+    "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
+)
 def patch_investigation_note(
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
@@ -381,7 +438,7 @@ def patch_investigation_note(
 ):
     _require_investigation_author(user)
     try:
-        note = update_note(
+        note, changed = update_note(
             db,
             investigation_id=investigation_id,
             note_id=note_id,
@@ -390,21 +447,26 @@ def patch_investigation_note(
             expected_note_version=payload.expected_note_version,
             expected_investigation_version=payload.expected_investigation_version,
         )
-        record_audit(
-            db,
-            actor_user_id=user.id,
-            action="investigations.note.update",
-            resource_type="investigation",
-            resource_id=str(investigation_id),
-            metadata={"note_id": str(note.id), "note_version": note.version},
-        )
+        if changed:
+            record_audit(
+                db,
+                actor_user_id=user.id,
+                action="investigations.note.update",
+                resource_type="investigation",
+                resource_id=str(investigation_id),
+                metadata={"note_id": str(note.id), "note_version": note.version},
+            )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.delete("/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse)
+@router.delete(
+    "/{investigation_id}/notes/{note_id}", response_model=InvestigationDetailResponse
+)
 def delete_investigation_note(
     investigation_id: uuid.UUID,
     note_id: uuid.UUID,
@@ -432,12 +494,16 @@ def delete_investigation_note(
             metadata={"note_id": str(note_id)},
         )
         db.commit()
-        return get_investigation_detail(db, investigation_id=investigation_id, user=user)
+        return get_investigation_detail(
+            db, investigation_id=investigation_id, user=user
+        )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
-@router.get("/{investigation_id}/activity", response_model=InvestigationActivityListResponse)
+@router.get(
+    "/{investigation_id}/activity", response_model=InvestigationActivityListResponse
+)
 def get_investigation_activity(
     investigation_id: uuid.UUID,
     page: int = Query(default=1, ge=1),
@@ -454,7 +520,7 @@ def get_investigation_activity(
             page_size=page_size,
         )
     except Exception as exc:
-        _raise_service_error(exc)
+        _raise_service_error(db, exc)
 
 
 def _require_investigation_author(user: User) -> None:
@@ -465,13 +531,40 @@ def _require_investigation_author(user: User) -> None:
         )
 
 
-def _raise_service_error(exc: Exception):
+def _require_evidence_source_read_scope(request: Request, source_type: str) -> None:
+    token_scopes = getattr(request.state, "token_scopes", None)
+    if token_scopes is None:
+        return
+    granted_scopes = set(token_scopes)
+    if not granted_scopes and get_settings().allow_legacy_unscoped_tokens:
+        return
+    required_scope = EVIDENCE_SOURCE_READ_SCOPES[source_type]
+    if not has_required_scope(granted_scopes, required_scope):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Attaching {source_type} evidence requires the {required_scope} token scope.",
+        )
+
+
+def _raise_service_error(db: Session, exc: Exception) -> None:
     if isinstance(exc, InvestigationNotFoundError):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Investigation not found.") from exc
-    if isinstance(exc, InvestigationPermissionError):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
-    if isinstance(exc, InvestigationConflictError):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    if isinstance(exc, InvestigationValidationError):
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    raise exc
+        status_code = status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, InvestigationPermissionError):
+        status_code = status.HTTP_403_FORBIDDEN
+    elif isinstance(exc, InvestigationConflictError):
+        status_code = status.HTTP_409_CONFLICT
+    elif isinstance(exc, InvestigationValidationError):
+        status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    else:
+        db.rollback()
+        raise exc
+
+    db.rollback()
+    detail = str(exc)
+    code = str(getattr(exc, "code", None) or error_code_for_status(status_code))
+    raise ApiHTTPException(
+        status_code=status_code,
+        detail=detail,
+        error_code=code,
+        headers={"X-Error-Code": code},
+    ) from exc

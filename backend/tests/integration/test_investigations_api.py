@@ -1,15 +1,24 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import func, select
 
+from app.core.config import get_settings
 from app.core.security import generate_api_token
-from app.core.token_scopes import SCOPE_READ_ITEMS
+from app.core.token_scopes import (
+    SCOPE_READ_ALERTS,
+    SCOPE_READ_ITEMS,
+    SCOPE_READ_REPORTS,
+    SCOPE_WRITE_INVESTIGATIONS,
+)
 from app.models.api_token import ApiToken
 from app.models.audit_log import AuditLog
 from app.models.feed import Feed
+from app.models.investigation import InvestigationActivity
 from app.models.item import Item
+from app.services.investigations import eligible_investigation_owner_ids_query
 
 
 def _create_investigation(
@@ -55,11 +64,39 @@ def _create_item(db_session) -> Item:
     return item
 
 
-def test_private_and_team_visibility_are_membership_aware(client: TestClient, auth_headers):
+def _create_api_token(db_session, user, *, name: str, scopes: list[str]) -> str:
+    token_value, prefix, token_hash = generate_api_token()
+    db_session.add(
+        ApiToken(
+            user_id=user.id,
+            name=name,
+            token_prefix=prefix,
+            token_hash=token_hash,
+            scopes=scopes,
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        )
+    )
+    db_session.commit()
+    return token_value
+
+
+def test_private_and_team_visibility_are_membership_aware(
+    client: TestClient, auth_headers
+):
     private = _create_investigation(client, auth_headers["analyst"])
 
-    assert client.get(f"/investigations/{private['id']}", headers=auth_headers["admin"]).status_code == 404
-    assert client.get(f"/investigations/{private['id']}", headers=auth_headers["viewer"]).status_code == 404
+    assert (
+        client.get(
+            f"/investigations/{private['id']}", headers=auth_headers["admin"]
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"/investigations/{private['id']}", headers=auth_headers["viewer"]
+        ).status_code
+        == 404
+    )
 
     viewer_list = client.get("/investigations", headers=auth_headers["viewer"])
     assert viewer_list.status_code == 200
@@ -71,7 +108,9 @@ def test_private_and_team_visibility_are_membership_aware(client: TestClient, au
         title="Shared ransomware tracking",
         visibility="team",
     )
-    viewer_detail = client.get(f"/investigations/{team['id']}", headers=auth_headers["viewer"])
+    viewer_detail = client.get(
+        f"/investigations/{team['id']}", headers=auth_headers["viewer"]
+    )
     assert viewer_detail.status_code == 200
     assert viewer_detail.json()["current_user_role"] is None
 
@@ -84,7 +123,9 @@ def test_private_and_team_visibility_are_membership_aware(client: TestClient, au
     assert "analyst or administrator" in denied_update.json()["detail"]
 
 
-def test_membership_roles_and_final_owner_invariant(client: TestClient, auth_headers, seed_users):
+def test_membership_roles_and_final_owner_invariant(
+    client: TestClient, auth_headers, seed_users
+):
     investigation = _create_investigation(client, auth_headers["analyst"])
     investigation_id = investigation["id"]
 
@@ -104,7 +145,10 @@ def test_membership_roles_and_final_owner_invariant(client: TestClient, auth_hea
     editor_update = client.patch(
         f"/investigations/{investigation_id}",
         headers=auth_headers["admin"],
-        json={"expected_version": detail["version"], "description": "Updated by the assigned editor."},
+        json={
+            "expected_version": detail["version"],
+            "description": "Updated by the assigned editor.",
+        },
     )
     assert editor_update.status_code == 200
     detail = editor_update.json()
@@ -124,6 +168,7 @@ def test_membership_roles_and_final_owner_invariant(client: TestClient, auth_hea
     )
     assert final_owner_change.status_code == 409
     assert "at least one owner" in final_owner_change.json()["detail"]
+    assert final_owner_change.json()["error"]["code"] == "investigation_owner_required"
 
     promote_admin = client.patch(
         f"/investigations/{investigation_id}/members/{seed_users['admin'].id}",
@@ -158,7 +203,10 @@ def test_stale_versions_preserve_the_first_update(client: TestClient, auth_heade
     first = client.patch(
         f"/investigations/{investigation['id']}",
         headers=auth_headers["analyst"],
-        json={"expected_version": investigation["version"], "title": "First accepted title"},
+        json={
+            "expected_version": investigation["version"],
+            "title": "First accepted title",
+        },
     )
     assert first.status_code == 200
 
@@ -169,8 +217,12 @@ def test_stale_versions_preserve_the_first_update(client: TestClient, auth_heade
     )
     assert stale.status_code == 409
     assert "changed after you loaded it" in stale.json()["detail"]
+    assert stale.json()["error"]["code"] == "investigation_version_conflict"
+    assert stale.headers["x-error-code"] == "investigation_version_conflict"
 
-    current = client.get(f"/investigations/{investigation['id']}", headers=auth_headers["analyst"])
+    current = client.get(
+        f"/investigations/{investigation['id']}", headers=auth_headers["analyst"]
+    )
     assert current.json()["title"] == "First accepted title"
 
 
@@ -211,12 +263,18 @@ def test_evidence_uses_bounded_snapshot_that_survives_source_removal(
     )
     assert duplicate.status_code == 409
     assert "already included" in duplicate.json()["detail"]
+    assert duplicate.json()["error"]["code"] == "investigation_evidence_exists"
 
     db_session.delete(item)
     db_session.commit()
-    detail = client.get(f"/investigations/{investigation['id']}", headers=auth_headers["analyst"])
+    detail = client.get(
+        f"/investigations/{investigation['id']}", headers=auth_headers["analyst"]
+    )
     assert detail.status_code == 200
-    assert detail.json()["evidence"][0]["title_snapshot"] == "Observed credential theft infrastructure"
+    assert (
+        detail.json()["evidence"][0]["title_snapshot"]
+        == "Observed credential theft infrastructure"
+    )
 
 
 def test_notes_are_versioned_and_activity_does_not_duplicate_note_body(
@@ -257,6 +315,7 @@ def test_notes_are_versioned_and_activity_does_not_duplicate_note_body(
         },
     )
     assert stale_note.status_code == 409
+    assert stale_note.json()["error"]["code"] == "investigation_note_version_conflict"
 
     activity = client.get(
         f"/investigations/{investigation['id']}/activity",
@@ -284,8 +343,12 @@ def test_notes_are_versioned_and_activity_does_not_duplicate_note_body(
     assert delete_response.json()["note_count"] == 0
 
 
-def test_archive_is_owner_only_read_only_and_reopenable(client: TestClient, auth_headers, seed_users):
-    investigation = _create_investigation(client, auth_headers["analyst"], visibility="team")
+def test_archive_is_owner_only_read_only_and_reopenable(
+    client: TestClient, auth_headers, seed_users
+):
+    investigation = _create_investigation(
+        client, auth_headers["analyst"], visibility="team"
+    )
     add_editor = client.post(
         f"/investigations/{investigation['id']}/members",
         headers=auth_headers["analyst"],
@@ -314,10 +377,41 @@ def test_archive_is_owner_only_read_only_and_reopenable(client: TestClient, auth
     archived_note = client.post(
         f"/investigations/{investigation['id']}/notes",
         headers=auth_headers["analyst"],
-        json={"body": "Must not be accepted", "expected_version": archived.json()["version"]},
+        json={
+            "body": "Must not be accepted",
+            "expected_version": archived.json()["version"],
+        },
     )
     assert archived_note.status_code == 409
     assert "read-only" in archived_note.json()["detail"]
+    assert archived_note.json()["error"]["code"] == "investigation_archived"
+
+    archived_member_add = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["viewer"].id),
+            "role": "viewer",
+            "expected_version": archived.json()["version"],
+        },
+    )
+    archived_member_update = client.patch(
+        f"/investigations/{investigation['id']}/members/{seed_users['admin'].id}",
+        headers=auth_headers["analyst"],
+        json={"role": "editor", "expected_version": archived.json()["version"]},
+    )
+    archived_member_remove = client.delete(
+        f"/investigations/{investigation['id']}/members/{seed_users['admin'].id}",
+        headers=auth_headers["analyst"],
+        params={"expected_version": archived.json()["version"]},
+    )
+    for response in (
+        archived_member_add,
+        archived_member_update,
+        archived_member_remove,
+    ):
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "investigation_archived"
 
     reopened = client.patch(
         f"/investigations/{investigation['id']}",
@@ -329,7 +423,9 @@ def test_archive_is_owner_only_read_only_and_reopenable(client: TestClient, auth
     assert reopened.json()["archived_at"] is None
 
 
-def test_member_candidates_are_narrow_and_writer_only(client: TestClient, auth_headers, seed_users):
+def test_member_candidates_are_narrow_and_writer_only(
+    client: TestClient, auth_headers, seed_users
+):
     analyst_response = client.get(
         "/investigations/member-candidates",
         params={"q": "admin@"},
@@ -351,8 +447,12 @@ def test_member_candidates_are_narrow_and_writer_only(client: TestClient, auth_h
     assert viewer_response.status_code == 403
 
 
-def test_api_tokens_require_new_explicit_scope(client: TestClient, db_session, seed_users, auth_headers):
-    investigation = _create_investigation(client, auth_headers["analyst"], visibility="team")
+def test_api_tokens_require_new_explicit_scope(
+    client: TestClient, db_session, seed_users, auth_headers
+):
+    investigation = _create_investigation(
+        client, auth_headers["analyst"], visibility="team"
+    )
     token_value, prefix, token_hash = generate_api_token()
     db_session.add(
         ApiToken(
@@ -374,7 +474,359 @@ def test_api_tokens_require_new_explicit_scope(client: TestClient, db_session, s
     assert response.json()["detail"] == "Insufficient token scope"
 
 
-def test_mutations_emit_global_audit_records(client: TestClient, auth_headers, db_session):
+def test_evidence_attachment_requires_the_source_read_scope_for_api_tokens(
+    client: TestClient,
+    db_session,
+    seed_users,
+    auth_headers,
+):
+    investigation = _create_investigation(
+        client, auth_headers["analyst"], visibility="team"
+    )
+    item = _create_item(db_session)
+    token_value = _create_api_token(
+        db_session,
+        seed_users["analyst"],
+        name="investigations-without-source-read",
+        scopes=[SCOPE_WRITE_INVESTIGATIONS],
+    )
+    token_headers = {"Authorization": f"Bearer {token_value}"}
+
+    for source_type, required_scope in (
+        ("item", SCOPE_READ_ITEMS),
+        ("ioc", SCOPE_READ_ITEMS),
+        ("report", SCOPE_READ_REPORTS),
+        ("alert_occurrence", SCOPE_READ_ALERTS),
+    ):
+        denied = client.post(
+            f"/investigations/{investigation['id']}/evidence",
+            headers=token_headers,
+            json={
+                "source_type": source_type,
+                "source_id": str(item.id),
+                "expected_version": investigation["version"],
+            },
+        )
+        assert denied.status_code == 403
+        assert required_scope in denied.json()["detail"]
+
+    allowed_token = _create_api_token(
+        db_session,
+        seed_users["analyst"],
+        name="investigations-with-item-read",
+        scopes=[SCOPE_WRITE_INVESTIGATIONS, SCOPE_READ_ITEMS],
+    )
+    allowed = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers={"Authorization": f"Bearer {allowed_token}"},
+        json={
+            "source_type": "item",
+            "source_id": str(item.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_cookie_session_evidence_attachment_remains_rbac_governed(
+    client: TestClient,
+    db_session,
+    seed_users,
+    auth_headers,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    item = _create_item(db_session)
+    login = client.post(
+        "/auth/login",
+        json={"email": seed_users["analyst"].email, "password": "AnalystPass123!"},
+    )
+    assert login.status_code == 200, login.text
+
+    response = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers={"x-csrf-token": login.json()["csrf_token"]},
+        json={
+            "source_type": "item",
+            "source_id": str(item.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+def test_legacy_unscoped_token_compatibility_applies_to_evidence_sources(
+    client: TestClient,
+    db_session,
+    seed_users,
+    auth_headers,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    investigation = _create_investigation(
+        client, auth_headers["analyst"], visibility="team"
+    )
+    item = _create_item(db_session)
+    token_value = _create_api_token(
+        db_session,
+        seed_users["analyst"],
+        name="legacy-unscoped-investigation",
+        scopes=[],
+    )
+    monkeypatch.setenv("ALLOW_LEGACY_UNSCOPED_TOKENS", "true")
+    get_settings.cache_clear()
+
+    response = client.post(
+        f"/investigations/{investigation['id']}/evidence",
+        headers={"Authorization": f"Bearer {token_value}"},
+        json={
+            "source_type": "item",
+            "source_id": str(item.id),
+            "expected_version": investigation["version"],
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize(
+    ("attribute", "ineligible_value"),
+    (("is_active", False), ("is_approved", False), ("role", "viewer")),
+)
+def test_last_owner_checks_ignore_ineligible_owner_memberships(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+    attribute: str,
+    ineligible_value,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    add_owner = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["admin"].id),
+            "role": "owner",
+            "expected_version": investigation["version"],
+        },
+    )
+    assert add_owner.status_code == 200, add_owner.text
+    setattr(seed_users["admin"], attribute, ineligible_value)
+    db_session.commit()
+
+    eligible_owner_ids = set(
+        db_session.scalars(
+            eligible_investigation_owner_ids_query(uuid.UUID(investigation["id"]))
+        ).all()
+    )
+    assert eligible_owner_ids == {seed_users["analyst"].id}
+
+    downgrade = client.patch(
+        f"/investigations/{investigation['id']}/members/{seed_users['analyst'].id}",
+        headers=auth_headers["analyst"],
+        json={"role": "editor", "expected_version": add_owner.json()["version"]},
+    )
+    assert downgrade.status_code == 409
+    assert downgrade.json()["error"]["code"] == "investigation_owner_required"
+    assert downgrade.json()["detail"].startswith(
+        "An investigation must retain at least one owner"
+    )
+
+
+def test_private_owner_cannot_remove_self_and_lose_response_access(
+    client: TestClient,
+    auth_headers,
+    seed_users,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    add_owner = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["admin"].id),
+            "role": "owner",
+            "expected_version": investigation["version"],
+        },
+    )
+    assert add_owner.status_code == 200, add_owner.text
+
+    removal = client.delete(
+        f"/investigations/{investigation['id']}/members/{seed_users['analyst'].id}",
+        headers=auth_headers["analyst"],
+        params={"expected_version": add_owner.json()["version"]},
+    )
+    assert removal.status_code == 409
+    assert removal.json()["error"]["code"] == "investigation_private_self_removal"
+    assert "Ask another owner" in removal.json()["detail"]
+
+    unchanged = client.get(
+        f"/investigations/{investigation['id']}", headers=auth_headers["analyst"]
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["version"] == add_owner.json()["version"]
+    assert unchanged.json()["current_user_role"] == "owner"
+
+
+def test_noop_member_and_note_updates_do_not_advance_history(
+    client: TestClient,
+    auth_headers,
+    db_session,
+    seed_users,
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    add_member = client.post(
+        f"/investigations/{investigation['id']}/members",
+        headers=auth_headers["analyst"],
+        json={
+            "user_id": str(seed_users["admin"].id),
+            "role": "editor",
+            "expected_version": investigation["version"],
+        },
+    )
+    note_added = client.post(
+        f"/investigations/{investigation['id']}/notes",
+        headers=auth_headers["analyst"],
+        json={
+            "body": "Stable note body",
+            "expected_version": add_member.json()["version"],
+        },
+    )
+    assert note_added.status_code == 200, note_added.text
+    detail = note_added.json()
+    note = detail["notes"][0]
+    investigation_id = uuid.UUID(investigation["id"])
+
+    activity_before = db_session.scalar(
+        select(func.count(InvestigationActivity.id)).where(
+            InvestigationActivity.investigation_id == investigation_id
+        )
+    )
+    audit_before = db_session.scalar(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.resource_id == investigation["id"],
+            AuditLog.action.in_(
+                ("investigations.member.update", "investigations.note.update")
+            ),
+        )
+    )
+
+    member_noop = client.patch(
+        f"/investigations/{investigation['id']}/members/{seed_users['admin'].id}",
+        headers=auth_headers["analyst"],
+        json={"role": "editor", "expected_version": detail["version"]},
+    )
+    assert member_noop.status_code == 200, member_noop.text
+    assert member_noop.json()["version"] == detail["version"]
+
+    note_noop = client.patch(
+        f"/investigations/{investigation['id']}/notes/{note['id']}",
+        headers=auth_headers["analyst"],
+        json={
+            "body": note["body"],
+            "expected_note_version": note["version"],
+            "expected_investigation_version": detail["version"],
+        },
+    )
+    assert note_noop.status_code == 200, note_noop.text
+    assert note_noop.json()["version"] == detail["version"]
+    assert note_noop.json()["notes"][0]["version"] == note["version"]
+
+    activity_after = db_session.scalar(
+        select(func.count(InvestigationActivity.id)).where(
+            InvestigationActivity.investigation_id == investigation_id
+        )
+    )
+    audit_after = db_session.scalar(
+        select(func.count(AuditLog.id)).where(
+            AuditLog.resource_id == investigation["id"],
+            AuditLog.action.in_(
+                ("investigations.member.update", "investigations.note.update")
+            ),
+        )
+    )
+    assert activity_after == activity_before
+    assert audit_after == audit_before
+
+
+def test_archiving_preserves_closed_at_and_records_status_transitions(
+    client: TestClient, auth_headers
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    closed = client.patch(
+        f"/investigations/{investigation['id']}",
+        headers=auth_headers["analyst"],
+        json={"status": "closed", "expected_version": investigation["version"]},
+    )
+    assert closed.status_code == 200, closed.text
+    archived = client.patch(
+        f"/investigations/{investigation['id']}",
+        headers=auth_headers["analyst"],
+        json={"status": "archived", "expected_version": closed.json()["version"]},
+    )
+    assert archived.status_code == 200, archived.text
+    assert archived.json()["closed_at"] == closed.json()["closed_at"]
+
+    activity = client.get(
+        f"/investigations/{investigation['id']}/activity",
+        headers=auth_headers["analyst"],
+    )
+    transitions = [
+        entry["details"]["status_transition"]
+        for entry in activity.json()["activities"]
+        if "status_transition" in entry["details"]
+    ]
+    assert {(transition["from"], transition["to"]) for transition in transitions} >= {
+        ("open", "closed"),
+        ("closed", "archived"),
+    }
+
+
+def test_missing_investigation_children_return_specific_safe_problem_codes(
+    client: TestClient, auth_headers
+):
+    investigation = _create_investigation(client, auth_headers["analyst"])
+    missing_id = uuid.uuid4()
+    missing_investigation = client.get(
+        f"/investigations/{missing_id}", headers=auth_headers["analyst"]
+    )
+    assert missing_investigation.status_code == 404
+    assert missing_investigation.json()["detail"] == "Investigation not found."
+    assert missing_investigation.json()["error"]["code"] == "investigation_not_found"
+
+    requests = (
+        client.patch(
+            f"/investigations/{investigation['id']}/members/{missing_id}",
+            headers=auth_headers["analyst"],
+            json={"role": "viewer", "expected_version": investigation["version"]},
+        ),
+        client.delete(
+            f"/investigations/{investigation['id']}/evidence/{missing_id}",
+            headers=auth_headers["analyst"],
+            params={"expected_version": investigation["version"]},
+        ),
+        client.patch(
+            f"/investigations/{investigation['id']}/notes/{missing_id}",
+            headers=auth_headers["analyst"],
+            json={
+                "body": "Missing note",
+                "expected_note_version": 1,
+                "expected_investigation_version": investigation["version"],
+            },
+        ),
+    )
+    expectations = (
+        ("Investigation member not found.", "investigation_member_not_found"),
+        ("Investigation evidence not found.", "investigation_evidence_not_found"),
+        ("Investigation note not found.", "investigation_note_not_found"),
+    )
+    for response, (detail, code) in zip(requests, expectations, strict=True):
+        assert response.status_code == 404
+        assert response.json()["detail"] == detail
+        assert response.json()["error"]["code"] == code
+        assert response.headers["x-error-code"] == code
+
+
+def test_mutations_emit_global_audit_records(
+    client: TestClient, auth_headers, db_session
+):
     investigation = _create_investigation(client, auth_headers["analyst"])
     actions = set(
         db_session.scalars(
