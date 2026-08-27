@@ -305,6 +305,13 @@ export interface ApiToken {
   created_at: string
 }
 
+export interface ApiTokenListResponse {
+  tokens: ApiToken[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface ApiTokenCreateResponse {
   token: string
   token_prefix: string

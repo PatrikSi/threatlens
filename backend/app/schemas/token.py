@@ -62,3 +62,10 @@ class ApiTokenResponse(BaseModel):
     expires_at: datetime | None
     revoked_at: datetime | None
     created_at: datetime
+
+
+class ApiTokenListResponse(BaseModel):
+    tokens: list[ApiTokenResponse]
+    total: int
+    page: int
+    page_size: int

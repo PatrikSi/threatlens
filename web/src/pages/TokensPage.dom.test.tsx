@@ -33,6 +33,7 @@ const tokensPageDomMocks = vi.hoisted(() => ({
   },
   queryClient: {
     invalidateQueries: vi.fn(),
+    setQueriesData: vi.fn(),
     getMutationCache: () => tokensPageDomMocks.mutationCache,
   },
   mutationRecords: [] as Array<{
@@ -159,7 +160,14 @@ vi.mock('@tanstack/react-query', () => ({
     }
     tokensPageDomMocks.tokenQueryKeys.push(options.queryKey ?? [])
     return {
-      data: tokensPageDomMocks.tokensError ? undefined : tokenInventory,
+      data: tokensPageDomMocks.tokensError
+        ? undefined
+        : {
+            tokens: tokenInventory,
+            total: tokenInventory.length,
+            page: 1,
+            page_size: 25,
+          },
       isLoading: false,
       isFetching: false,
       isError: Boolean(tokensPageDomMocks.tokensError),
@@ -178,7 +186,18 @@ vi.mock('@tanstack/react-query', () => ({
       ? options.mutationKey.join(':')
       : String(options?.mutationKey ?? '')
     if (mutationKey === 'tokens:revoke') {
-      return tokenMutationResult(tokensPageDomMocks.revokeMutate)
+      return tokenMutationResult((tokenId: unknown) => {
+        tokensPageDomMocks.revokeMutate(tokenId)
+        options.onMutate?.(tokenId as never)
+        options.onSuccess?.(
+          {
+            revokedTokenCount: 1,
+            revokedDescendantCount: 0,
+            rootTokenRevoked: true,
+          } as never,
+          tokenId as never,
+        )
+      })
     }
     if (mutationKey === 'auth:oidc:reauth:api-token') {
       return tokenMutationResult(tokensPageDomMocks.oidcReauthMutate)
@@ -264,6 +283,8 @@ afterEach(() => {
   document.body.innerHTML = ''
   tokensPageDomMocks.createMutate.mockReset()
   tokensPageDomMocks.revokeMutate.mockReset()
+  tokensPageDomMocks.queryClient.invalidateQueries.mockReset()
+  tokensPageDomMocks.queryClient.setQueriesData.mockReset()
   tokensPageDomMocks.oidcReauthMutate.mockReset()
   tokensPageDomMocks.mfaEnabled = false
   tokensPageDomMocks.mfaError = null
@@ -336,6 +357,15 @@ describe('TokensPage DOM workflows', () => {
     })
 
     expect(tokensPageDomMocks.revokeMutate).toHaveBeenCalledWith('token-2')
+    expect(tokensPageDomMocks.queryClient.setQueriesData).toHaveBeenCalled()
+    const updater = tokensPageDomMocks.queryClient.setQueriesData.mock.calls[0][1]
+    const updated = updater({
+      tokens: tokenInventory,
+      total: tokenInventory.length,
+      page: 1,
+      page_size: 25,
+    })
+    expect(updated.tokens[1].revoked_at).not.toBeNull()
   })
 
   it('validates token creation before sending the request', () => {
@@ -656,7 +686,12 @@ describe('TokensPage DOM workflows', () => {
     expect(view.querySelector('[role="alert"]')?.textContent).toContain(
       'Enter a complete user ID',
     )
-    expect(tokensPageDomMocks.tokenQueryKeys.at(-1)).toEqual(['tokens', ''])
+    expect(tokensPageDomMocks.tokenQueryKeys.at(-1)).toEqual([
+      'tokens',
+      'inventory',
+      '',
+      1,
+    ])
 
     act(() => {
       if (input)
@@ -667,7 +702,9 @@ describe('TokensPage DOM workflows', () => {
     expect(view.querySelector('[role="alert"]')).toBeNull()
     expect(tokensPageDomMocks.tokenQueryKeys.at(-1)).toEqual([
       'tokens',
+      'inventory',
       'f65e5641-2fb1-4e1f-bbba-a70aef700c73',
+      1,
     ])
 
     act(() => {
@@ -678,7 +715,9 @@ describe('TokensPage DOM workflows', () => {
     )
     expect(tokensPageDomMocks.tokenQueryKeys.at(-1)).toEqual([
       'tokens',
+      'inventory',
       'f65e5641-2fb1-4e1f-bbba-a70aef700c73',
+      1,
     ])
   })
 })

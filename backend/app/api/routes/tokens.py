@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
@@ -35,6 +35,7 @@ from app.models.user import User
 from app.schemas.token import (
     ApiTokenCreateRequest,
     ApiTokenCreateResponse,
+    ApiTokenListResponse,
     ApiTokenResponse,
 )
 from app.services.audit import record_audit
@@ -93,6 +94,44 @@ def list_tokens(
         .order_by(ApiToken.created_at.desc())
     ).all()
     return list(tokens)
+
+
+@router.get("/inventory", response_model=ApiTokenListResponse)
+def list_token_inventory(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_TOKENS)),
+    user_id: uuid.UUID | None = Query(default=None),
+    page: int = Query(default=1, ge=1, le=100_000),
+    page_size: int = Query(default=25, ge=1, le=100),
+):
+    target_user_id = user.id
+    if user_id is not None:
+        if user.role != ROLE_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+        target_user_id = user_id
+
+    criteria = (ApiToken.user_id == target_user_id,)
+    total = int(
+        db.scalar(select(func.count(ApiToken.id)).where(*criteria)) or 0
+    )
+    tokens = list(
+        db.scalars(
+            select(ApiToken)
+            .where(*criteria)
+            .order_by(ApiToken.created_at.desc(), ApiToken.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+    )
+    return ApiTokenListResponse(
+        tokens=tokens,
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.post(

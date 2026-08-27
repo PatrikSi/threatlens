@@ -3792,6 +3792,47 @@ def test_token_defaults_scopes_when_not_provided(client: TestClient, auth_header
     ]
 
 
+def test_token_inventory_paginates_without_changing_legacy_list_contract(
+    client: TestClient,
+    auth_headers,
+):
+    initial = client.get("/tokens", headers=auth_headers["admin"])
+    assert initial.status_code == 200
+    initial_count = len(initial.json())
+    for index in range(3):
+        created = client.post(
+            "/tokens",
+            json={"name": f"inventory-token-{index}", "expires_in_days": 30},
+            headers=auth_headers["admin"],
+        )
+        assert created.status_code == 201, created.text
+
+    first = client.get(
+        "/tokens/inventory?page=1&page_size=2",
+        headers=auth_headers["admin"],
+    )
+    second = client.get(
+        "/tokens/inventory?page=2&page_size=2",
+        headers=auth_headers["admin"],
+    )
+    legacy = client.get("/tokens", headers=auth_headers["admin"])
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    expected_total = initial_count + 3
+    assert first.json()["total"] == expected_total
+    assert first.json()["page"] == 1
+    assert first.json()["page_size"] == 2
+    assert len(first.json()["tokens"]) == 2
+    assert len(second.json()["tokens"]) == min(2, expected_total - 2)
+    assert {
+        token["id"] for token in first.json()["tokens"]
+    }.isdisjoint({token["id"] for token in second.json()["tokens"]})
+    assert legacy.status_code == 200
+    assert isinstance(legacy.json(), list)
+    assert len(legacy.json()) == expected_total
+
+
 def test_token_rejects_explicit_empty_scope_list(client: TestClient, auth_headers):
     create_response = client.post(
         "/tokens",
