@@ -1,0 +1,353 @@
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
+
+import { apiFetch } from '../api/client'
+import { useCurrentUser } from '../hooks/useCurrentUser'
+import type {
+  InvestigationActivityListResponse,
+  InvestigationDetail,
+  InvestigationEvidenceType,
+  InvestigationMemberCandidateListResponse,
+  InvestigationMemberRole,
+  InvestigationSeverity,
+  InvestigationVisibility,
+} from '../types/investigations'
+import {
+  INVESTIGATION_ACTIVITY_PAGE_SIZE,
+  INVESTIGATION_MEMBER_PAGE_SIZE,
+  isAlertOccurrenceUnavailable,
+  isInvestigationVersionConflict,
+  readInvestigationTab,
+  resolveInvestigationAccess,
+} from './investigationPageModel'
+
+export interface InvestigationOverviewDraft {
+  title: string
+  description: string
+  severity: InvestigationSeverity
+  visibility: InvestigationVisibility
+  assigneeUserId: string
+}
+
+export interface InvestigationEvidenceDraft {
+  sourceType: InvestigationEvidenceType
+  sourceId: string
+  note: string
+}
+
+export type InvestigationMutationOperation =
+  | { kind: 'update'; changes: Record<string, unknown> }
+  | { kind: 'add-member'; userId: string; role: InvestigationMemberRole }
+  | { kind: 'update-member'; userId: string; role: InvestigationMemberRole }
+  | { kind: 'remove-member'; userId: string }
+  | { kind: 'add-evidence'; sourceType: InvestigationEvidenceType; sourceId: string; note: string }
+  | { kind: 'remove-evidence'; evidenceId: string }
+  | { kind: 'add-note'; body: string }
+  | { kind: 'update-note'; noteId: string; body: string }
+  | { kind: 'remove-note'; noteId: string }
+
+const EMPTY_OVERVIEW_DRAFT: InvestigationOverviewDraft = {
+  title: '',
+  description: '',
+  severity: 'medium',
+  visibility: 'private',
+  assigneeUserId: '',
+}
+
+const EMPTY_EVIDENCE_DRAFT: InvestigationEvidenceDraft = {
+  sourceType: 'item',
+  sourceId: '',
+  note: '',
+}
+
+export function useInvestigationDetail(investigationId: string) {
+  const queryClient = useQueryClient()
+  const currentUserQuery = useCurrentUser()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const activeTab = readInvestigationTab(searchParams)
+  const detailKey = useMemo(() => ['investigations', 'detail', investigationId] as const, [investigationId])
+  const [overviewDraft, setOverviewDraft] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
+  const [overviewBaseline, setOverviewBaseline] = useState<InvestigationOverviewDraft>(EMPTY_OVERVIEW_DRAFT)
+  const [noteDraft, setNoteDraft] = useState('')
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [editingNoteBody, setEditingNoteBody] = useState('')
+  const [evidenceDraft, setEvidenceDraft] = useState<InvestigationEvidenceDraft>(EMPTY_EVIDENCE_DRAFT)
+  const [alertOccurrenceUnavailable, setAlertOccurrenceUnavailable] = useState(false)
+  const [memberSearch, setMemberSearch] = useState('')
+  const [debouncedMemberSearch, setDebouncedMemberSearch] = useState('')
+  const [memberPage, setMemberPage] = useState(1)
+  const [activityPage, setActivityPage] = useState(1)
+  const [conflictNotice, setConflictNotice] = useState<string | null>(null)
+  const [successNotice, setSuccessNotice] = useState<string | null>(null)
+
+  const detailQuery = useQuery({
+    queryKey: detailKey,
+    queryFn: () => apiFetch<InvestigationDetail>(`/investigations/${investigationId}`),
+    staleTime: 15_000,
+  })
+  const detail = detailQuery.data
+  const access = detail
+    ? resolveInvestigationAccess(detail, currentUserQuery.data?.role)
+    : null
+  const overviewDirty = !sameOverviewDraft(overviewDraft, overviewBaseline)
+
+  useEffect(() => {
+    if (!detail || overviewDirty) return
+    const next = overviewDraftFromDetail(detail)
+    setOverviewDraft(next)
+    setOverviewBaseline(next)
+  }, [detail, overviewDirty])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedMemberSearch(memberSearch.trim())
+      setMemberPage(1)
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [memberSearch])
+
+  const memberCandidatesQuery = useQuery({
+    queryKey: ['investigations', 'member-candidates', debouncedMemberSearch, memberPage],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        page: String(memberPage),
+        page_size: String(INVESTIGATION_MEMBER_PAGE_SIZE),
+      })
+      if (debouncedMemberSearch) params.set('q', debouncedMemberSearch)
+      return apiFetch<InvestigationMemberCandidateListResponse>(
+        `/investigations/member-candidates?${params.toString()}`,
+      )
+    },
+    enabled: Boolean(access?.canManageMembers && activeTab === 'members'),
+    placeholderData: (previous) => previous,
+    staleTime: 30_000,
+  })
+
+  const availableMemberCandidates = useMemo(() => {
+    const memberIds = new Set(detail?.members.map((member) => member.user_id) ?? [])
+    return (memberCandidatesQuery.data?.users ?? []).filter((candidate) => !memberIds.has(candidate.id))
+  }, [detail?.members, memberCandidatesQuery.data?.users])
+
+  const activityQuery = useQuery({
+    queryKey: ['investigations', 'activity', investigationId, activityPage],
+    queryFn: () =>
+      apiFetch<InvestigationActivityListResponse>(
+        `/investigations/${investigationId}/activity?page=${activityPage}&page_size=${INVESTIGATION_ACTIVITY_PAGE_SIZE}`,
+      ),
+    enabled: Boolean(detail && activeTab === 'activity'),
+    placeholderData: (previous) => previous,
+    staleTime: 15_000,
+  })
+
+  const mutation = useMutation({
+    mutationKey: ['investigations', 'mutate', investigationId],
+    mutationFn: (operation: InvestigationMutationOperation) =>
+      executeInvestigationMutation(queryClient, detailKey, investigationId, operation),
+    onMutate: () => {
+      setConflictNotice(null)
+      setSuccessNotice(null)
+    },
+    onSuccess: (updated, operation) => {
+      queryClient.setQueryData(detailKey, updated)
+      void queryClient.invalidateQueries({ queryKey: ['investigations', 'list'] })
+      if (operation.kind === 'update' && isOverviewFieldUpdate(operation.changes)) {
+        const nextOverview = overviewDraftFromDetail(updated)
+        setOverviewDraft(nextOverview)
+        setOverviewBaseline(nextOverview)
+      }
+      resetSuccessfulDraft(operation)
+      setSuccessNotice(successMessage(operation))
+    },
+    onError: (error) => {
+      if (isInvestigationVersionConflict(error)) {
+        setConflictNotice(
+          'This investigation changed after you loaded it. Refresh and review the latest version before retrying. Your unsaved text has been preserved.',
+        )
+        void queryClient.invalidateQueries({ queryKey: detailKey, exact: true })
+      }
+      if (isAlertOccurrenceUnavailable(error)) setAlertOccurrenceUnavailable(true)
+    },
+  })
+
+  const resetSuccessfulDraft = (operation: InvestigationMutationOperation) => {
+    if (operation.kind === 'add-note') setNoteDraft('')
+    if (operation.kind === 'update-note') {
+      setEditingNoteId(null)
+      setEditingNoteBody('')
+    }
+    if (operation.kind === 'add-evidence') setEvidenceDraft(EMPTY_EVIDENCE_DRAFT)
+  }
+
+  const setActiveTab = (tab: typeof activeTab) => {
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'overview') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
+
+  const refreshLatest = async () => {
+    const result = await detailQuery.refetch()
+    if (!result.error) setConflictNotice(null)
+  }
+
+  const beginNoteEdit = (noteId: string, body: string) => {
+    setEditingNoteId(noteId)
+    setEditingNoteBody(body)
+  }
+
+  return {
+    access,
+    activeTab,
+    activityPage,
+    activityQuery,
+    alertOccurrenceUnavailable,
+    availableMemberCandidates,
+    beginNoteEdit,
+    conflictNotice,
+    currentUserQuery,
+    detailQuery,
+    editingNoteBody,
+    editingNoteId,
+    evidenceDraft,
+    memberCandidatesQuery,
+    memberPage,
+    memberSearch,
+    mutation,
+    noteDraft,
+    overviewBaseline,
+    overviewDraft,
+    overviewDirty,
+    refreshLatest,
+    setActiveTab,
+    setActivityPage,
+    setEditingNoteBody,
+    setEditingNoteId,
+    setEvidenceDraft,
+    setMemberPage,
+    setMemberSearch,
+    setNoteDraft,
+    setOverviewDraft,
+    successNotice,
+  }
+}
+
+export async function executeInvestigationMutation(
+  queryClient: QueryClient,
+  detailKey: readonly ['investigations', 'detail', string],
+  investigationId: string,
+  operation: InvestigationMutationOperation,
+): Promise<InvestigationDetail> {
+  const latest = queryClient.getQueryData<InvestigationDetail>(detailKey)
+  if (!latest) throw new Error('The latest investigation version is unavailable. Refresh the page before retrying.')
+  const expectedVersion = latest.version
+  const basePath = `/investigations/${investigationId}`
+
+  if (operation.kind === 'update') {
+    return apiFetch<InvestigationDetail>(basePath, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...operation.changes, expected_version: expectedVersion }),
+    })
+  }
+  if (operation.kind === 'add-member') {
+    return apiFetch<InvestigationDetail>(`${basePath}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: operation.userId, role: operation.role, expected_version: expectedVersion }),
+    })
+  }
+  if (operation.kind === 'update-member') {
+    return apiFetch<InvestigationDetail>(`${basePath}/members/${operation.userId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role: operation.role, expected_version: expectedVersion }),
+    })
+  }
+  if (operation.kind === 'remove-member') {
+    return apiFetch<InvestigationDetail>(
+      `${basePath}/members/${operation.userId}?expected_version=${expectedVersion}`,
+      { method: 'DELETE' },
+    )
+  }
+  if (operation.kind === 'add-evidence') {
+    return apiFetch<InvestigationDetail>(`${basePath}/evidence`, {
+      method: 'POST',
+      body: JSON.stringify({
+        source_type: operation.sourceType,
+        source_id: operation.sourceId,
+        note: operation.note.trim() || null,
+        expected_version: expectedVersion,
+      }),
+    })
+  }
+  if (operation.kind === 'remove-evidence') {
+    return apiFetch<InvestigationDetail>(
+      `${basePath}/evidence/${operation.evidenceId}?expected_version=${expectedVersion}`,
+      { method: 'DELETE' },
+    )
+  }
+  if (operation.kind === 'add-note') {
+    return apiFetch<InvestigationDetail>(`${basePath}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ body: operation.body, expected_version: expectedVersion }),
+    })
+  }
+
+  const latestNote = latest.notes.find((note) => note.id === operation.noteId)
+  if (!latestNote) throw new Error('The note is no longer available. Refresh the investigation before retrying.')
+  if (operation.kind === 'remove-note') {
+    const params = new URLSearchParams({
+      expected_note_version: String(latestNote.version),
+      expected_investigation_version: String(expectedVersion),
+    })
+    return apiFetch<InvestigationDetail>(`${basePath}/notes/${operation.noteId}?${params.toString()}`, {
+      method: 'DELETE',
+    })
+  }
+  return apiFetch<InvestigationDetail>(`${basePath}/notes/${operation.noteId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      body: operation.body,
+      expected_note_version: latestNote.version,
+      expected_investigation_version: expectedVersion,
+    }),
+  })
+}
+
+function overviewDraftFromDetail(detail: InvestigationDetail): InvestigationOverviewDraft {
+  return {
+    title: detail.title,
+    description: detail.description,
+    severity: detail.severity,
+    visibility: detail.visibility,
+    assigneeUserId: detail.assignee_user_id ?? '',
+  }
+}
+
+function sameOverviewDraft(left: InvestigationOverviewDraft, right: InvestigationOverviewDraft): boolean {
+  return left.title === right.title
+    && left.description === right.description
+    && left.severity === right.severity
+    && left.visibility === right.visibility
+    && left.assigneeUserId === right.assigneeUserId
+}
+
+function isOverviewFieldUpdate(changes: Record<string, unknown>): boolean {
+  return ['title', 'description', 'severity', 'visibility', 'assignee_user_id']
+    .some((field) => field in changes)
+}
+
+function successMessage(operation: InvestigationMutationOperation): string {
+  const labels: Record<InvestigationMutationOperation['kind'], string> = {
+    update: 'Investigation updated.',
+    'add-member': 'Member added.',
+    'update-member': 'Member role updated.',
+    'remove-member': 'Member removed.',
+    'add-evidence': 'Evidence added.',
+    'remove-evidence': 'Evidence removed.',
+    'add-note': 'Note added.',
+    'update-note': 'Note updated.',
+    'remove-note': 'Note removed.',
+  }
+  return labels[operation.kind]
+}
+
+export type InvestigationDetailController = ReturnType<typeof useInvestigationDetail>

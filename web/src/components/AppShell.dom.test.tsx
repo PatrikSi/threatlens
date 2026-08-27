@@ -154,6 +154,7 @@ describe('AppShell logout', () => {
     expect(menuButton?.getAttribute('aria-expanded')).toBe('true')
     expect(mobileNavigation?.textContent).toContain('Export')
     expect(mobileNavigation?.textContent).toContain('Reporting')
+    expect(mobileNavigation?.textContent).toContain('Investigations')
   })
 
   it('shows a subtle app version in the footer', () => {
