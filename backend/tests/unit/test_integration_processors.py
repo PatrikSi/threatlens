@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 
 from app.models.audit_log import AuditLog
@@ -17,6 +18,10 @@ from app.services.integration_connectors.smtp import SMTPIntegrationConnector
 from app.services.integration_processors import (
     SMTP_OWNER_NOT_ELIGIBLE,
     process_smtp_integration_delivery,
+)
+from app.services.integration_storage import (
+    build_active_smtp_settings,
+    get_smtp_credential_source,
 )
 from app.services.smtp_integration import SMTPNotificationResult
 
@@ -163,11 +168,16 @@ def test_smtp_delivery_rechecks_owner_after_lease_renewal(
     delivery = _persist_routed_smtp_delivery(db_session, owner_user_id=owner.id)
     send_calls = []
 
-    def _attempt(*_args, lease_heartbeat, **_kwargs):
+    def _attempt(*_args, lease_heartbeat, **kwargs):
+        instance = kwargs["instance"]
+        active = build_active_smtp_settings(
+            instance,
+            credential_source=get_smtp_credential_source(db_session, instance),
+        )
         owner.is_approved = False
         db_session.add(owner)
         db_session.commit()
-        lease_heartbeat(30)
+        lease_heartbeat(30, active)
         send_calls.append(True)
         raise AssertionError("SMTP send must not start for an ineligible owner")
 
@@ -187,10 +197,64 @@ def test_smtp_delivery_rechecks_owner_after_lease_renewal(
     assert delivery.state == "succeeded"
     assert attempt is not None
     assert attempt.status == "succeeded"
-    assert attempt.response_json == {
-        "skipped": True,
-        "reason": SMTP_OWNER_NOT_ELIGIBLE,
-    }
+    assert attempt.response_json["skipped"] is True
+    assert attempt.response_json["reason"] == SMTP_OWNER_NOT_ELIGIBLE
+    assert "no longer active and approved" in attempt.response_json["message"]
+    assert send_calls == []
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_reason"),
+    [
+        ("disable", "smtp_integration_disabled"),
+        ("recipients", "smtp_configuration_changed"),
+    ],
+)
+def test_smtp_delivery_rechecks_configuration_before_external_io(
+    db_session,
+    monkeypatch,
+    mutation,
+    expected_reason,
+):
+    _feed, _item, delivery = _persist_smtp_delivery(db_session)
+    send_calls = []
+
+    def _attempt(*_args, lease_heartbeat, **kwargs):
+        instance = kwargs["instance"]
+        active = build_active_smtp_settings(
+            instance,
+            credential_source=get_smtp_credential_source(db_session, instance),
+        )
+        if mutation == "disable":
+            instance.enabled = False
+        else:
+            config = dict(instance.config_json)
+            config["to_emails"] = ["replacement@example.com"]
+            instance.config_json = config
+        db_session.add(instance)
+        db_session.commit()
+        lease_heartbeat(30, active)
+        send_calls.append(True)
+        raise AssertionError("SMTP send must not start with stale configuration")
+
+    monkeypatch.setattr(
+        "app.services.integration_processors.attempt_smtp_integration_delivery",
+        _attempt,
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "succeeded"
+    assert result.reason == expected_reason
+    assert delivery.state == "succeeded"
+    assert attempt is not None
+    assert attempt.status == "succeeded"
+    assert attempt.response_json["skipped"] is True
+    assert attempt.response_json["reason"] == expected_reason
     assert send_calls == []
 
 
