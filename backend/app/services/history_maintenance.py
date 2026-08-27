@@ -13,6 +13,11 @@ from app.models.audit_log import AuditLog
 from app.models.integration import IntegrationRun
 from app.models.report import Report
 from app.models.tag import TagFeedbackEvent
+from app.services.auth_sessions import cleanup_auth_sessions
+from app.services.local_mfa import (
+    cleanup_mfa_challenges,
+    cleanup_pending_totp_enrollments,
+)
 
 settings = get_settings()
 
@@ -24,6 +29,9 @@ class HistoryMaintenanceResult:
     ai_usage_events_deleted: int
     tag_feedback_events_deleted: int
     integration_runs_deleted: int
+    auth_sessions_deleted: int
+    mfa_challenges_deleted: int
+    pending_mfa_enrollments_deleted: int
 
 
 def prune_application_history(
@@ -33,20 +41,24 @@ def prune_application_history(
     batch_size: int | None = None,
 ) -> HistoryMaintenanceResult:
     current_time = now or datetime.now(timezone.utc)
-    effective_batch_size = max(1, int(batch_size or settings.integration_delivery_maintenance_batch_size))
+    effective_batch_size = max(
+        1, int(batch_size or settings.integration_delivery_maintenance_batch_size)
+    )
     deleted = HistoryMaintenanceResult(
         audit_logs_deleted=_delete_older_than(
             db,
             AuditLog,
             AuditLog.created_at,
-            current_time - timedelta(days=max(1, int(settings.audit_log_retention_days))),
+            current_time
+            - timedelta(days=max(1, int(settings.audit_log_retention_days))),
             effective_batch_size,
         ),
         ai_task_runs_deleted=_delete_older_than(
             db,
             AITaskRun,
             AITaskRun.finished_at,
-            current_time - timedelta(days=max(1, int(settings.ai_task_history_retention_days))),
+            current_time
+            - timedelta(days=max(1, int(settings.ai_task_history_retention_days))),
             effective_batch_size,
             extra_predicate=and_(
                 AITaskRun.finished_at.is_not(None),
@@ -61,35 +73,64 @@ def prune_application_history(
             db,
             AIUsageEvent,
             AIUsageEvent.created_at,
-            current_time - timedelta(days=max(1, int(settings.ai_usage_retention_days))),
+            current_time
+            - timedelta(days=max(1, int(settings.ai_usage_retention_days))),
             effective_batch_size,
         ),
         tag_feedback_events_deleted=_delete_older_than(
             db,
             TagFeedbackEvent,
             TagFeedbackEvent.created_at,
-            current_time - timedelta(days=max(1, int(settings.tag_feedback_retention_days))),
+            current_time
+            - timedelta(days=max(1, int(settings.tag_feedback_retention_days))),
             effective_batch_size,
         ),
         integration_runs_deleted=_delete_older_than(
             db,
             IntegrationRun,
             IntegrationRun.finished_at,
-            current_time - timedelta(days=max(1, int(settings.integration_run_retention_days))),
+            current_time
+            - timedelta(days=max(1, int(settings.integration_run_retention_days))),
             effective_batch_size,
             extra_predicate=IntegrationRun.finished_at.is_not(None),
+        ),
+        auth_sessions_deleted=cleanup_auth_sessions(
+            db,
+            retention_days=settings.auth_session_retention_days,
+            now=current_time,
+            limit=effective_batch_size,
+        ),
+        mfa_challenges_deleted=cleanup_mfa_challenges(
+            db,
+            now=current_time,
+            limit=effective_batch_size,
+        ),
+        pending_mfa_enrollments_deleted=cleanup_pending_totp_enrollments(
+            db,
+            now=current_time,
+            limit=effective_batch_size,
         ),
     )
     db.commit()
     return deleted
 
 
-def _delete_older_than(db, model, timestamp_column, cutoff, batch_size, *, extra_predicate=None) -> int:
+def _delete_older_than(
+    db, model, timestamp_column, cutoff, batch_size, *, extra_predicate=None
+) -> int:
     query = select(model.id).where(timestamp_column < cutoff)
     if extra_predicate is not None:
         query = query.where(extra_predicate)
-    ids = list(db.scalars(query.order_by(timestamp_column.asc(), model.id.asc()).limit(batch_size)).all())
+    ids = list(
+        db.scalars(
+            query.order_by(timestamp_column.asc(), model.id.asc()).limit(batch_size)
+        ).all()
+    )
     if not ids:
         return 0
-    result = db.execute(delete(model).where(model.id.in_(ids)).execution_options(synchronize_session=False))
+    result = db.execute(
+        delete(model)
+        .where(model.id.in_(ids))
+        .execution_options(synchronize_session=False)
+    )
     return int(result.rowcount or 0)

@@ -29,6 +29,7 @@ from app.api.routes import (
     alerts,
     audit,
     auth,
+    auth_security,
     exports,
     feeds,
     health,
@@ -63,11 +64,26 @@ API_TOKEN_SECURITY_SCHEME_NAME = "ApiTokenBearer"
 SESSION_COOKIE_SECURITY_SCHEME_NAME = "SessionCookieAuth"
 OPENAPI_CONTRACT_ANCHOR_FIELD = "x-threatlens-contract-sha256"
 OPENAPI_REQUIRED_TOKEN_SCOPES_FIELD = "x-threatlens-required-token-scopes"
+PUBLIC_BROWSER_RESPONSE_HEADERS = (
+    "Content-Disposition",
+    "Retry-After",
+    "X-Current-Revision",
+    "X-Current-Row-Version",
+    "X-Current-Rule-Revision",
+    "X-Current-Security-Version",
+    "X-Current-Version",
+    "X-Error-Code",
+    "X-Request-ID",
+    "X-ThreatLens-Revoked-Descendant-Count",
+    "X-ThreatLens-Revoked-Token-Count",
+    "X-ThreatLens-Root-Token-Revoked",
+)
 SAVED_VIEW_QUERY_SCHEMA = "SavedViewQueryPayload"
 SAVED_VIEW_QUERY_INPUT_SCHEMA = "SavedViewQueryPayload-Input"
 SAVED_VIEW_QUERY_OUTPUT_SCHEMA = "SavedViewQueryPayload-Output"
 API_ROUTERS: tuple[APIRouter, ...] = (
     auth.router,
+    auth_security.router,
     oidc.router,
     exports.router,
     reports.router,
@@ -159,6 +175,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=list(PUBLIC_BROWSER_RESPONSE_HEADERS),
 )
 
 if settings.allowed_hosts:

@@ -1,13 +1,16 @@
+import logging
 import uuid
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import String, and_, cast, func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_token_scopes
+from app.api.routes.alert_operations import router as alert_operations_router
+from app.core.api_errors import ApiHTTPException
 from app.core.config import get_settings
+from app.core.rbac import ROLE_ADMIN
 from app.core.token_scopes import (
     SCOPE_READ_ALERTS,
     SCOPE_READ_ITEMS,
@@ -15,70 +18,82 @@ from app.core.token_scopes import (
 )
 from app.db.session import get_db
 from app.models.alert_interest import AlertInterest
-from app.models.feed import Feed
-from app.models.item import Item
-from app.models.item_classification import ItemClassification
-from app.models.item_state import ItemState
-from app.models.tag import ItemTag, Tag
 from app.models.user import User
 from app.schemas.alert import (
     AlertInterestCreate,
     AlertInterestPreviewRequest,
     AlertInterestResponse,
     AlertInterestUpdate,
-    AlertMatchEntry,
+    AlertBackfillApplyResponse,
+    AlertBackfillApplyRequest,
+    AlertBackfillPreviewResponse,
+    AlertBackfillRequest,
     AlertMatchListResponse,
-    AlertMatchReference,
+    AlertOccurrenceActivityListResponse,
+    AlertOccurrenceBulkResponse,
+    AlertOccurrenceBulkUpdate,
+    AlertOccurrenceLifecycleUpdate,
+    AlertOccurrenceListResponse,
+    AlertOccurrenceResponse,
+    AlertOccurrenceSnoozeUpdate,
 )
-from app.schemas.item import ItemListEntry
+from app.services.alert_evaluation import (
+    AlertBackfillPreviewError,
+    create_alert_backfill_preview,
+    persist_alert_backfill_preview_intents,
+)
+from app.services.alert_match_queries import (
+    AlertMatchDefinition,
+    list_matches_for_alerts,
+)
+from app.services.alert_matching import normalize_alert_keywords
+from app.services.alert_occurrences import (
+    ALERT_OCCURRENCE_SEVERITIES,
+    ALERT_OCCURRENCE_STATES,
+    AlertOccurrenceConflictError,
+    AlertOccurrenceNotFoundError,
+    AlertOccurrenceValidationError,
+    bulk_update_alert_occurrence_lifecycle,
+    get_alert_occurrence,
+    list_alert_occurrence_activity,
+    list_alert_occurrences,
+    update_alert_occurrence_lifecycle,
+    update_alert_occurrence_snooze,
+)
 from app.services.audit import record_audit
+from app.tasks.alert_tasks import enqueue_alert_evaluation_requests
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
-
-ALERT_SORT_OPTIONS = {
-    "published_at_desc": Item.published_at.desc().nullslast(),
-    "published_at_asc": Item.published_at.asc().nullsfirst(),
-    "first_seen_desc": Item.first_seen_at.desc(),
-    "first_seen_asc": Item.first_seen_at.asc(),
-}
-
-
-@dataclass(frozen=True)
-class _AlertMatchDefinition:
-    id: uuid.UUID
-    name: str
-    category: str
-    keywords: list[str]
+logger = logging.getLogger(__name__)
 
 
 def _normalize_name(value: str) -> str:
     normalized = value.strip()
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Alert name cannot be empty")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Alert name cannot be empty",
+        )
     return normalized
 
 
 def _normalize_category(value: str) -> str:
     normalized = "_".join(value.strip().lower().split())
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Alert category cannot be empty")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Alert category cannot be empty",
+        )
     return normalized
 
 
 def _normalize_keywords(values: list[str]) -> list[str]:
-    normalized: list[str] = []
-    seen: set[str] = set()
-
-    for raw in values:
-        keyword = " ".join(raw.strip().lower().split())
-        if not keyword or keyword in seen:
-            continue
-        normalized.append(keyword)
-        seen.add(keyword)
-
+    normalized = normalize_alert_keywords(values)
     if not normalized:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="At least one keyword is required")
-
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="At least one keyword is required",
+        )
     return normalized
 
 
@@ -95,7 +110,9 @@ def _parse_uuid_csv(raw_value: str | None, detail: str) -> list[uuid.UUID]:
         try:
             parsed_uuid = uuid.UUID(candidate)
         except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail) from exc
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=detail
+            ) from exc
         if parsed_uuid in seen:
             continue
         seen.add(parsed_uuid)
@@ -119,40 +136,6 @@ def _parse_category_csv(raw_value: str | None) -> list[str]:
     return categories
 
 
-def _build_keyword_condition(keyword: str):
-    pattern = f"%{_escape_like(keyword)}%"
-    return or_(
-        func.lower(Item.title).like(pattern, escape="\\"),
-        func.lower(func.coalesce(Item.summary, "")).like(pattern, escape="\\"),
-        func.lower(cast(Item.url, String)).like(pattern, escape="\\"),
-        func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern, escape="\\"),
-        func.lower(func.coalesce(ItemClassification.primary_category, "")).like(pattern, escape="\\"),
-    )
-
-
-def _build_item_haystack(
-    *,
-    title: str,
-    summary: str | None,
-    url: str,
-    canonical_url: str | None,
-    classification: str | None,
-) -> str:
-    return " ".join(
-        [
-            title,
-            summary or "",
-            url,
-            canonical_url or "",
-            classification or "",
-        ]
-    ).lower()
-
-
-def _escape_like(value: str) -> str:
-    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-
 @router.get("", response_model=list[AlertInterestResponse])
 def list_alert_interests(
     include_disabled: bool = Query(default=True),
@@ -167,18 +150,27 @@ def list_alert_interests(
     return list(rows)
 
 
-@router.post("", response_model=AlertInterestResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "", response_model=AlertInterestResponse, status_code=status.HTTP_201_CREATED
+)
 def create_alert_interest(
     payload: AlertInterestCreate,
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
 ):
+    now = datetime.now(timezone.utc)
     alert = AlertInterest(
         user_id=user.id,
         name=_normalize_name(payload.name),
         category=_normalize_category(payload.category),
         keywords=_normalize_keywords(payload.keywords),
         enabled=payload.enabled,
+        severity=payload.severity,
+        revision=1,
+        row_version=1,
+        durable_since=now if payload.enabled else None,
+        suppression_until=payload.suppression_until,
+        suppression_reason=_normalize_optional_reason(payload.suppression_reason),
     )
     db.add(alert)
     db.flush()
@@ -193,72 +185,15 @@ def create_alert_interest(
             "category": alert.category,
             "keyword_count": len(alert.keywords),
             "enabled": alert.enabled,
+            "severity": alert.severity,
+            "revision": alert.revision,
+            "row_version": alert.row_version,
+            "suppressed": alert.suppression_until is not None,
         },
     )
     db.commit()
     db.refresh(alert)
     return alert
-
-
-@router.patch("/{alert_id}", response_model=AlertInterestResponse)
-def update_alert_interest(
-    alert_id: uuid.UUID,
-    payload: AlertInterestUpdate,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
-):
-    alert = db.scalar(select(AlertInterest).where(AlertInterest.id == alert_id, AlertInterest.user_id == user.id))
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found")
-
-    if payload.name is not None:
-        alert.name = _normalize_name(payload.name)
-    if payload.category is not None:
-        alert.category = _normalize_category(payload.category)
-    if payload.keywords is not None:
-        alert.keywords = _normalize_keywords(payload.keywords)
-    if payload.enabled is not None:
-        alert.enabled = payload.enabled
-
-    db.add(alert)
-    db.flush()
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="alerts.update",
-        resource_type="alert_interest",
-        resource_id=str(alert.id),
-        metadata={
-            "name": alert.name,
-            "category": alert.category,
-            "keyword_count": len(alert.keywords),
-            "enabled": alert.enabled,
-        },
-    )
-    db.commit()
-    db.refresh(alert)
-    return alert
-
-
-@router.delete("/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_alert_interest(
-    alert_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
-):
-    alert = db.scalar(select(AlertInterest).where(AlertInterest.id == alert_id, AlertInterest.user_id == user.id))
-    if alert is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found")
-
-    db.delete(alert)
-    record_audit(
-        db,
-        actor_user_id=user.id,
-        action="alerts.delete",
-        resource_type="alert_interest",
-        resource_id=str(alert_id),
-    )
-    db.commit()
 
 
 @router.post("/preview", response_model=AlertMatchListResponse)
@@ -267,7 +202,7 @@ def preview_alert_interest(
     db: Session = Depends(get_db),
     user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
 ):
-    preview = _AlertMatchDefinition(
+    preview = AlertMatchDefinition(
         id=uuid.uuid4(),
         name=_normalize_name(payload.name or "Preview"),
         category=_normalize_category(payload.category),
@@ -308,7 +243,9 @@ def list_alert_matches(
     if selected_alert_ids:
         alerts_query = alerts_query.where(AlertInterest.id.in_(selected_alert_ids))
     if selected_categories:
-        alerts_query = alerts_query.where(AlertInterest.category.in_(selected_categories))
+        alerts_query = alerts_query.where(
+            AlertInterest.category.in_(selected_categories)
+        )
 
     alerts = db.scalars(alerts_query.order_by(AlertInterest.created_at.desc())).all()
     return _list_matches_for_alerts(
@@ -326,148 +263,729 @@ def list_alert_matches(
     )
 
 
-def _list_matches_for_alerts(
+def _list_matches_for_alerts(db: Session, **kwargs) -> AlertMatchListResponse:
+    return list_matches_for_alerts(
+        db,
+        **kwargs,
+        keyword_cap=get_settings().alert_matches_keyword_cap,
+    )
+
+
+@router.get("/occurrences", response_model=AlertOccurrenceListResponse)
+def get_alert_occurrences(
+    lifecycle_states: list[str] = Query(default=[]),
+    severities: list[str] = Query(default=[]),
+    alert_interest_id: uuid.UUID | None = None,
+    suppressed: bool | None = None,
+    snoozed: bool | None = None,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+):
+    since = _as_utc(since)
+    until = _as_utc(until)
+    invalid_states = sorted(set(lifecycle_states) - ALERT_OCCURRENCE_STATES)
+    invalid_severities = sorted(set(severities) - ALERT_OCCURRENCE_SEVERITIES)
+    if invalid_states:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unsupported alert occurrence state: {', '.join(invalid_states)}.",
+            error_code="alert_occurrence_state_invalid",
+        )
+    if invalid_severities:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Unsupported alert occurrence severity: {', '.join(invalid_severities)}.",
+            error_code="alert_occurrence_severity_invalid",
+        )
+    if since is not None and until is not None and since > until:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="since must be earlier than or equal to until.",
+            error_code="alert_occurrence_window_invalid",
+        )
+    result = list_alert_occurrences(
+        db,
+        user=user,
+        lifecycle_states=list(dict.fromkeys(lifecycle_states)),
+        severities=list(dict.fromkeys(severities)),
+        alert_interest_id=alert_interest_id,
+        suppressed=suppressed,
+        snoozed=snoozed,
+        since=since,
+        until=until,
+        page=page,
+        page_size=page_size,
+    )
+    return {
+        "items": result.items,
+        "total": result.total,
+        "page": result.page,
+        "page_size": result.page_size,
+    }
+
+
+@router.post(
+    "/occurrences/reconciliation/preview",
+    response_model=AlertBackfillPreviewResponse,
+)
+def preview_alert_occurrence_backfill(
+    payload: AlertBackfillRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+):
+    _require_alert_admin(user)
+    snapshot = create_alert_backfill_preview(
+        db,
+        actor_user_id=user.id,
+        since=payload.since,
+        until=payload.until,
+        limit=payload.limit,
+        cursor_first_seen_at=payload.cursor_first_seen_at,
+        cursor_item_id=payload.cursor_item_id,
+    )
+    result = snapshot.preview
+    candidates = [
+        {
+            "item_id": uuid.UUID(str(candidate["item_id"])),
+            "content_hash": str(candidate["content_hash"]),
+            "title": str(candidate["title"]),
+            "first_seen_at": datetime.fromisoformat(str(candidate["first_seen_at"])),
+        }
+        for candidate in result.candidates_json
+    ]
+    db.commit()
+    return {
+        "preview_token": result.id,
+        "expires_at": result.expires_at,
+        "candidates": candidates,
+        "matched_count": result.matched_count,
+        "returned_count": len(candidates),
+        "truncated": result.has_more,
+        "has_more": result.has_more,
+        "next_cursor_first_seen_at": result.next_cursor_first_seen_at,
+        "next_cursor_item_id": result.next_cursor_item_id,
+        "notifications_enabled": False,
+    }
+
+
+@router.post(
+    "/occurrences/reconciliation/apply",
+    response_model=AlertBackfillApplyResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+def apply_alert_occurrence_backfill(
+    payload: AlertBackfillApplyRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+):
+    _require_alert_admin(user)
+    try:
+        result = persist_alert_backfill_preview_intents(
+            db,
+            preview_id=payload.preview_token,
+            actor_user_id=user.id,
+        )
+    except AlertBackfillPreviewError as exc:
+        db.rollback()
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if exc.code == "alert_backfill_preview_not_found"
+            else status.HTTP_409_CONFLICT
+        )
+        raise ApiHTTPException(
+            status_code=status_code,
+            detail=str(exc),
+            error_code=exc.code,
+            headers={"X-Error-Code": exc.code},
+        ) from exc
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="alerts.occurrences.backfill",
+        resource_type="alert_evaluation_request",
+        metadata={
+            "accepted": len(result.request_ids),
+            "existing": result.existing_count,
+            "skipped": result.skipped_count,
+            "preview_token": str(payload.preview_token),
+            "has_more": result.next_cursor_item_id is not None,
+            "notifications_enabled": False,
+        },
+    )
+    db.commit()
+    enqueue_ok = enqueue_alert_evaluation_requests(list(result.request_ids))
+    return {
+        "accepted": len(result.request_ids),
+        "existing": result.existing_count,
+        "skipped": result.skipped_count,
+        "enqueue_failed": bool(result.request_ids) and not enqueue_ok,
+        "has_more": result.next_cursor_item_id is not None,
+        "next_cursor_first_seen_at": result.next_cursor_first_seen_at,
+        "next_cursor_item_id": result.next_cursor_item_id,
+        "notifications_enabled": False,
+    }
+
+
+@router.post(
+    "/occurrences/bulk/acknowledge",
+    response_model=AlertOccurrenceBulkResponse,
+)
+def bulk_acknowledge_alert_occurrences(
+    payload: AlertOccurrenceBulkUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+):
+    if payload.disposition is not None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A disposition can be supplied only when closing alert occurrences.",
+            error_code="alert_occurrence_disposition_unexpected",
+        )
+    return _bulk_mutate_occurrences(
+        db,
+        user=user,
+        payload=payload,
+        target_state="acknowledged",
+        audit_action="alerts.occurrences.bulk_acknowledge",
+    )
+
+
+@router.post(
+    "/occurrences/bulk/close",
+    response_model=AlertOccurrenceBulkResponse,
+)
+def bulk_close_alert_occurrences(
+    payload: AlertOccurrenceBulkUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+):
+    if payload.disposition is None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A disposition is required when closing alert occurrences.",
+            error_code="alert_occurrence_disposition_required",
+        )
+    return _bulk_mutate_occurrences(
+        db,
+        user=user,
+        payload=payload,
+        target_state="closed",
+        audit_action="alerts.occurrences.bulk_close",
+    )
+
+
+router.include_router(alert_operations_router)
+
+
+@router.get(
+    "/occurrences/{occurrence_id}",
+    response_model=AlertOccurrenceResponse,
+)
+def get_alert_occurrence_detail(
+    occurrence_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS, SCOPE_READ_ITEMS)),
+):
+    try:
+        return get_alert_occurrence(db, user=user, occurrence_id=occurrence_id)
+    except Exception as exc:
+        return _raise_occurrence_error(db, exc)
+
+
+@router.get(
+    "/occurrences/{occurrence_id}/activity",
+    response_model=AlertOccurrenceActivityListResponse,
+)
+def get_alert_occurrence_activity(
+    occurrence_id: uuid.UUID,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_READ_ALERTS)),
+):
+    try:
+        result = list_alert_occurrence_activity(
+            db,
+            user=user,
+            occurrence_id=occurrence_id,
+            page=page,
+            page_size=page_size,
+        )
+        return {
+            "items": result.items,
+            "total": result.total,
+            "page": result.page,
+            "page_size": result.page_size,
+        }
+    except Exception as exc:
+        return _raise_occurrence_error(db, exc)
+
+
+@router.patch(
+    "/occurrences/{occurrence_id}/lifecycle",
+    response_model=AlertOccurrenceResponse,
+)
+def patch_alert_occurrence_lifecycle(
+    occurrence_id: uuid.UUID,
+    payload: AlertOccurrenceLifecycleUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+):
+    try:
+        occurrence = update_alert_occurrence_lifecycle(
+            db,
+            user=user,
+            occurrence_id=occurrence_id,
+            expected_version=payload.expected_version,
+            target_state=payload.state,
+            disposition=payload.disposition,
+        )
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="alerts.occurrence.lifecycle",
+            resource_type="alert_occurrence",
+            resource_id=str(occurrence.id),
+            metadata={
+                "state": occurrence.lifecycle_state,
+                "version": occurrence.version,
+                "disposition": occurrence.closure_disposition,
+            },
+        )
+        db.commit()
+        db.refresh(occurrence)
+        return occurrence
+    except Exception as exc:
+        return _raise_occurrence_error(db, exc)
+
+
+@router.patch(
+    "/occurrences/{occurrence_id}/snooze",
+    response_model=AlertOccurrenceResponse,
+)
+def patch_alert_occurrence_snooze(
+    occurrence_id: uuid.UUID,
+    payload: AlertOccurrenceSnoozeUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS, SCOPE_READ_ITEMS)),
+):
+    try:
+        occurrence = update_alert_occurrence_snooze(
+            db,
+            user=user,
+            occurrence_id=occurrence_id,
+            expected_version=payload.expected_version,
+            snoozed_until=payload.snoozed_until,
+            reason=payload.reason,
+        )
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action="alerts.occurrence.snooze",
+            resource_type="alert_occurrence",
+            resource_id=str(occurrence.id),
+            metadata={
+                "snoozed": occurrence.snoozed_until is not None,
+                "version": occurrence.version,
+            },
+        )
+        db.commit()
+        db.refresh(occurrence)
+        return occurrence
+    except Exception as exc:
+        return _raise_occurrence_error(db, exc)
+
+
+@router.patch("/{alert_id}", response_model=AlertInterestResponse)
+def update_alert_interest(
+    alert_id: uuid.UUID,
+    payload: AlertInterestUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+):
+    alert = db.scalar(
+        select(AlertInterest)
+        .where(
+            AlertInterest.id == alert_id,
+            AlertInterest.user_id == user.id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if alert is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found"
+        )
+    expected_row_version = _expected_alert_row_version(payload)
+    if expected_row_version is not None and expected_row_version != alert.row_version:
+        _raise_alert_revision_conflict(alert)
+
+    now = datetime.now(timezone.utc)
+    changed_fields: set[str] = set()
+    revision_changed = False
+    rule_mutated = False
+    fields_set = payload.model_fields_set
+    suppression_until = (
+        payload.suppression_until
+        if "suppression_until" in fields_set
+        else alert.suppression_until
+    )
+    suppression_reason = (
+        _normalize_optional_reason(payload.suppression_reason)
+        if "suppression_reason" in fields_set
+        else alert.suppression_reason
+    )
+    if (
+        "suppression_until" in fields_set
+        and payload.suppression_until is None
+        and "suppression_reason" not in fields_set
+    ):
+        suppression_reason = None
+    if {"suppression_until", "suppression_reason"} & fields_set:
+        _validate_rule_suppression(suppression_until, suppression_reason)
+
+    if payload.name is not None:
+        normalized = _normalize_name(payload.name)
+        if normalized != alert.name:
+            alert.name = normalized
+            revision_changed = True
+            rule_mutated = True
+            changed_fields.add("name")
+    if payload.category is not None:
+        normalized = _normalize_category(payload.category)
+        if normalized != alert.category:
+            alert.category = normalized
+            revision_changed = True
+            rule_mutated = True
+            changed_fields.add("category")
+    if payload.keywords is not None:
+        normalized_keywords = _normalize_keywords(payload.keywords)
+        if normalized_keywords != alert.keywords:
+            alert.keywords = normalized_keywords
+            revision_changed = True
+            rule_mutated = True
+            changed_fields.add("keywords")
+    if payload.severity is not None and payload.severity != alert.severity:
+        alert.severity = payload.severity
+        revision_changed = True
+        rule_mutated = True
+        changed_fields.add("severity")
+
+    if (
+        "suppression_until" in fields_set
+        and suppression_until != alert.suppression_until
+    ):
+        alert.suppression_until = suppression_until
+        rule_mutated = True
+        changed_fields.add("suppression_until")
+        if (
+            payload.suppression_until is None
+            and "suppression_reason" not in fields_set
+            and alert.suppression_reason is not None
+        ):
+            alert.suppression_reason = None
+            rule_mutated = True
+            changed_fields.add("suppression_reason")
+    if (
+        "suppression_reason" in fields_set
+        and suppression_reason != alert.suppression_reason
+    ):
+        alert.suppression_reason = suppression_reason
+        rule_mutated = True
+        changed_fields.add("suppression_reason")
+
+    if payload.enabled is not None and payload.enabled != alert.enabled:
+        alert.enabled = payload.enabled
+        rule_mutated = True
+        changed_fields.add("enabled")
+        if payload.enabled:
+            revision_changed = True
+    if revision_changed:
+        alert.revision = max(1, int(alert.revision or 1)) + 1
+        changed_fields.add("revision")
+    if alert.enabled:
+        if revision_changed or alert.durable_since is None:
+            alert.durable_since = now
+            rule_mutated = True
+            changed_fields.add("durable_since")
+    elif alert.durable_since is not None:
+        alert.durable_since = None
+        rule_mutated = True
+        changed_fields.add("durable_since")
+    if rule_mutated:
+        alert.row_version = max(1, int(alert.row_version or 1)) + 1
+        changed_fields.add("row_version")
+
+    db.add(alert)
+    db.flush()
+    if rule_mutated and expected_row_version is None:
+        _record_unversioned_alert_mutation(
+            db,
+            actor_user_id=user.id,
+            alert=alert,
+            operation="update",
+        )
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="alerts.update",
+        resource_type="alert_interest",
+        resource_id=str(alert.id),
+        metadata={
+            "name": alert.name,
+            "category": alert.category,
+            "keyword_count": len(alert.keywords),
+            "enabled": alert.enabled,
+            "severity": alert.severity,
+            "revision": alert.revision,
+            "row_version": alert.row_version,
+            "changed_fields": sorted(changed_fields),
+            "expected_row_version_supplied": expected_row_version is not None,
+        },
+    )
+    db.commit()
+    db.refresh(alert)
+    return alert
+
+
+@router.delete("/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_alert_interest(
+    alert_id: uuid.UUID,
+    expected_revision: int | None = Query(default=None, ge=1),
+    expected_row_version: int | None = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_token_scopes(SCOPE_WRITE_ALERTS)),
+):
+    alert = db.scalar(
+        select(AlertInterest)
+        .where(
+            AlertInterest.id == alert_id,
+            AlertInterest.user_id == user.id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    if alert is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Alert interest not found"
+        )
+    expected_version = _coalesce_expected_alert_row_version(
+        expected_revision,
+        expected_row_version,
+    )
+    if expected_version is not None and expected_version != alert.row_version:
+        _raise_alert_revision_conflict(alert)
+
+    if expected_version is None:
+        _record_unversioned_alert_mutation(
+            db,
+            actor_user_id=user.id,
+            alert=alert,
+            operation="delete",
+        )
+    db.delete(alert)
+    record_audit(
+        db,
+        actor_user_id=user.id,
+        action="alerts.delete",
+        resource_type="alert_interest",
+        resource_id=str(alert_id),
+        metadata={"expected_row_version_supplied": expected_version is not None},
+    )
+    db.commit()
+
+
+def _bulk_mutate_occurrences(
     db: Session,
     *,
     user: User,
-    alerts: list[AlertInterest | _AlertMatchDefinition],
-    q: str | None = None,
-    is_starred: bool | None = None,
-    is_read: bool | None = None,
-    since: datetime | None = None,
-    until: datetime | None = None,
-    page: int = 1,
-    page_size: int = 25,
-    sort: str = "published_at_desc",
-) -> AlertMatchListResponse:
-    settings = get_settings()
-    if not alerts:
-        return AlertMatchListResponse(items=[], total=0, page=page, page_size=page_size)
+    payload: AlertOccurrenceBulkUpdate,
+    target_state: str,
+    audit_action: str,
+):
+    try:
+        occurrences = bulk_update_alert_occurrence_lifecycle(
+            db,
+            user=user,
+            entries=[
+                (entry.occurrence_id, entry.expected_version) for entry in payload.items
+            ],
+            target_state=target_state,
+            disposition=payload.disposition,
+        )
+        record_audit(
+            db,
+            actor_user_id=user.id,
+            action=audit_action,
+            resource_type="alert_occurrence",
+            metadata={
+                "count": len(occurrences),
+                "state": target_state,
+                "disposition": payload.disposition,
+            },
+        )
+        db.commit()
+        for occurrence in occurrences:
+            db.refresh(occurrence)
+        return {"items": occurrences, "updated": len(occurrences)}
+    except Exception as exc:
+        return _raise_occurrence_error(db, exc)
 
-    all_keywords = sorted({keyword for alert in alerts for keyword in alert.keywords if keyword})
-    if not all_keywords:
-        return AlertMatchListResponse(items=[], total=0, page=page, page_size=page_size)
-    if len(all_keywords) > settings.alert_matches_keyword_cap:
-        alert_label = "alert" if len(alerts) == 1 else "alerts"
-        raise HTTPException(
+
+def _require_alert_admin(user: User) -> None:
+    if user.role != ROLE_ADMIN:
+        raise ApiHTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Alert reconciliation and backfill require the administrator role.",
+            error_code="alert_backfill_admin_required",
+        )
+
+
+def _raise_occurrence_error(db: Session, exc: Exception):
+    db.rollback()
+    if isinstance(exc, AlertOccurrenceNotFoundError):
+        raise ApiHTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+            error_code=exc.code,
+        ) from exc
+    if isinstance(exc, AlertOccurrenceConflictError):
+        raise ApiHTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+            error_code=exc.code,
+            headers={
+                "X-Error-Code": exc.code,
+                "X-Current-Version": str(exc.current_version),
+            },
+        ) from exc
+    if isinstance(exc, AlertOccurrenceValidationError):
+        raise ApiHTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Alert matching selected {len(alerts)} {alert_label} with {len(all_keywords)} distinct keywords, "
-                f"exceeding ALERT_MATCHES_KEYWORD_CAP={settings.alert_matches_keyword_cap}. "
-                "Reduce keywords or disable unneeded alerts, narrow the request with alert_ids or categories, "
-                "or increase ALERT_MATCHES_KEYWORD_CAP."
+            detail=str(exc),
+            error_code=exc.code,
+        ) from exc
+    raise exc
+
+
+def _normalize_optional_reason(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(value.strip().split())
+    return normalized or None
+
+
+def _expected_alert_row_version(payload: AlertInterestUpdate) -> int | None:
+    return _coalesce_expected_alert_row_version(
+        payload.expected_revision,
+        payload.expected_row_version,
+    )
+
+
+def _coalesce_expected_alert_row_version(
+    expected_revision: int | None,
+    expected_row_version: int | None,
+) -> int | None:
+    if (
+        expected_revision is not None
+        and expected_row_version is not None
+        and expected_revision != expected_row_version
+    ):
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="expected_revision and expected_row_version must match when both are supplied.",
+            error_code="alert_expected_version_invalid",
+        )
+    return (
+        expected_row_version if expected_row_version is not None else expected_revision
+    )
+
+
+def _raise_alert_revision_conflict(alert: AlertInterest) -> None:
+    row_version = max(1, int(alert.row_version or 1))
+    rule_revision = max(1, int(alert.revision or 1))
+    raise ApiHTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "message": (
+                "The alert rule changed after it was loaded. Refresh the rule "
+                "and review the latest values before saving again."
             ),
-        )
-
-    state_subquery = (
-        select(
-            ItemState.item_id.label("item_id"),
-            ItemState.is_read.label("is_read"),
-            ItemState.is_starred.label("is_starred"),
-        )
-        .where(ItemState.user_id == user.id)
-        .subquery()
+            # current_revision remains the compatibility counterpart to expected_revision.
+            "current_revision": row_version,
+            "current_row_version": row_version,
+            "current_rule_revision": rule_revision,
+        },
+        error_code="alert_revision_conflict",
+        headers={
+            "X-Current-Revision": str(row_version),
+            "X-Current-Row-Version": str(row_version),
+            "X-Current-Rule-Revision": str(rule_revision),
+        },
     )
 
-    items_query = (
-        select(
-            Item,
-            Feed.name.label("feed_name"),
-            ItemClassification.primary_category.label("primary_category"),
-            func.coalesce(state_subquery.c.is_read, False).label("is_read"),
-            func.coalesce(state_subquery.c.is_starred, False).label("is_starred"),
-        )
-        .join(Feed, Feed.id == Item.feed_id)
-        .outerjoin(ItemClassification, ItemClassification.item_id == Item.id)
-        .outerjoin(state_subquery, state_subquery.c.item_id == Item.id)
+
+def _record_unversioned_alert_mutation(
+    db: Session,
+    *,
+    actor_user_id: uuid.UUID,
+    alert: AlertInterest,
+    operation: str,
+) -> None:
+    logger.warning(
+        "alert_rule_unversioned_mutation operation=%s alert_id=%s actor_user_id=%s row_version=%s",
+        operation,
+        alert.id,
+        actor_user_id,
+        alert.row_version,
+    )
+    record_audit(
+        db,
+        actor_user_id=actor_user_id,
+        action="alerts.compatibility.unversioned_mutation",
+        resource_type="alert_interest",
+        resource_id=str(alert.id),
+        metadata={
+            "operation": operation,
+            "row_version": max(1, int(alert.row_version or 1)),
+            "deprecation": "expected_row_version_will_be_required",
+        },
     )
 
-    filters = []
-    if q:
-        pattern = f"%{_escape_like(q.strip().lower())}%"
-        filters.append(
-            or_(
-                func.lower(Item.title).like(pattern, escape="\\"),
-                func.lower(func.coalesce(Item.summary, "")).like(pattern, escape="\\"),
-                func.lower(cast(Item.url, String)).like(pattern, escape="\\"),
-                func.lower(cast(func.coalesce(Item.canonical_url, ""), String)).like(pattern, escape="\\"),
+
+def _validate_rule_suppression(until: datetime | None, reason: str | None) -> None:
+    if until is None:
+        if reason is not None:
+            raise ApiHTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A suppression reason requires suppression_until.",
+                error_code="alert_suppression_until_required",
             )
+        return
+    normalized_until = (
+        until if until.tzinfo is not None else until.replace(tzinfo=timezone.utc)
+    )
+    if normalized_until <= datetime.now(timezone.utc):
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="suppression_until must be in the future.",
+            error_code="alert_suppression_until_invalid",
         )
-    if since is not None:
-        filters.append(Item.first_seen_at >= since)
-    if until is not None:
-        filters.append(Item.first_seen_at <= until)
-    if is_read is not None:
-        filters.append(func.coalesce(state_subquery.c.is_read, False) == is_read)
-    if is_starred is not None:
-        filters.append(func.coalesce(state_subquery.c.is_starred, False) == is_starred)
-
-    keyword_conditions = [_build_keyword_condition(keyword) for keyword in all_keywords]
-    if keyword_conditions:
-        filters.append(or_(*keyword_conditions))
-
-    if filters:
-        items_query = items_query.where(and_(*filters))
-
-    total = db.scalar(select(func.count()).select_from(items_query.subquery())) or 0
-    order_by = ALERT_SORT_OPTIONS.get(sort, ALERT_SORT_OPTIONS["published_at_desc"])
-
-    rows = db.execute(items_query.order_by(order_by).offset((page - 1) * page_size).limit(page_size)).all()
-    item_ids = [row.Item.id for row in rows]
-
-    tags_by_item: dict[uuid.UUID, list[str]] = {item_id: [] for item_id in item_ids}
-    if item_ids:
-        tag_rows = db.execute(
-            select(ItemTag.item_id, Tag.name)
-            .join(Tag, Tag.id == ItemTag.tag_id)
-            .where(ItemTag.item_id.in_(item_ids))
-            .order_by(Tag.name.asc())
-        ).all()
-        for item_id_value, tag_name in tag_rows:
-            tags_by_item[item_id_value].append(tag_name)
-
-    items: list[AlertMatchEntry] = []
-    for row in rows:
-        haystack = _build_item_haystack(
-            title=row.Item.title,
-            summary=row.Item.summary,
-            url=row.Item.url,
-            canonical_url=row.Item.canonical_url,
-            classification=row.primary_category,
+    if reason is None:
+        raise ApiHTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="A reason is required when suppressing alert notifications.",
+            error_code="alert_suppression_reason_required",
         )
-        matches: list[AlertMatchReference] = []
-        for alert in alerts:
-            matched_keywords = [keyword for keyword in alert.keywords if keyword and keyword in haystack]
-            if not matched_keywords:
-                continue
-            matches.append(
-                AlertMatchReference(
-                    alert_id=alert.id,
-                    alert_name=alert.name,
-                    category=alert.category,
-                    matched_keywords=matched_keywords,
-                )
-            )
 
-        if not matches:
-            continue
 
-        base_entry = ItemListEntry(
-            id=row.Item.id,
-            feed_id=row.Item.feed_id,
-            feed_name=row.feed_name,
-            url=row.Item.url,
-            canonical_url=row.Item.canonical_url,
-            title=row.Item.title,
-            summary=row.Item.summary,
-            published_at=row.Item.published_at,
-            first_seen_at=row.Item.first_seen_at,
-            status=row.Item.status,
-            classification=row.primary_category,
-            is_read=row.is_read,
-            is_starred=row.is_starred,
-            tags=tags_by_item.get(row.Item.id, []),
-        )
-        items.append(AlertMatchEntry(**base_entry.model_dump(), matches=matches))
-
-    return AlertMatchListResponse(items=items, total=total, page=page, page_size=page_size)
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)

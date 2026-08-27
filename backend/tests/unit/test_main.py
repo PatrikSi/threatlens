@@ -4,7 +4,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.main import API_SERVICE_PREFIX, app, _build_openapi_visibility_kwargs, _mount_api_routers, _should_mount_legacy_api_aliases
+from app.main import (
+    API_SERVICE_PREFIX,
+    PUBLIC_BROWSER_RESPONSE_HEADERS,
+    _build_openapi_visibility_kwargs,
+    _mount_api_routers,
+    _should_mount_legacy_api_aliases,
+    app,
+)
 
 
 def _production_settings(**overrides) -> Settings:
@@ -81,6 +88,22 @@ def test_versioned_routes_are_published_while_backend_compatibility_routes_remai
     payload = schema.json()
     assert "/v1/health/live" in payload["paths"]
     assert "/health/live" not in payload["paths"]
+
+
+def test_cors_exposes_browser_visible_operational_response_headers():
+    client = TestClient(app)
+
+    response = client.get(
+        "/v1/health/live",
+        headers={"Origin": "http://localhost:3000"},
+    )
+
+    assert response.status_code == 200
+    exposed = {
+        value.strip().lower()
+        for value in response.headers["access-control-expose-headers"].split(",")
+    }
+    assert exposed == {value.lower() for value in PUBLIC_BROWSER_RESPONSE_HEADERS}
 
 
 def test_live_schema_publishes_versioned_auth_contract():

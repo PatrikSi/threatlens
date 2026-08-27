@@ -27,6 +27,7 @@ def _test_app() -> FastAPI:
             status_code=409,
             detail="The resource changed after it was loaded.",
             error_code="resource_version_conflict",
+            error_context={"current_version": 7, "reload_required": True},
         )
 
     @application.get("/boom")
@@ -73,6 +74,10 @@ def test_coded_http_errors_preserve_detail_and_use_stable_error_code():
     assert payload["detail"] == "The resource changed after it was loaded."
     assert payload["error"]["code"] == "resource_version_conflict"
     assert payload["error"]["message"] == payload["detail"]
+    assert payload["error"]["context"] == {
+        "current_version": 7,
+        "reload_required": True,
+    }
 
 
 def test_unexpected_errors_return_safe_reference_without_exception_details():

@@ -13,6 +13,7 @@ from app.models.integration import (
     IntegrationSubscription,
     IntegrationSubscriptionFeed,
 )
+from app.models.user import User
 from app.services.integration_connectors.base import (
     ConnectorDeliveryResult,
     ConnectorRoutingResult,
@@ -60,7 +61,7 @@ class SMTPIntegrationConnector:
             sync_smtp_subscriptions(db, instance)
 
     def route_event(self, db: Session, *, event: IntegrationEvent) -> ConnectorRoutingResult:
-        from app.services.integration_events import delivery_payload_for_owner
+        from app.services.integration_events import alert_match_event_owner_ids
 
         feed_id = _payload_uuid(event, "feed_id", required=False)
         query = (
@@ -73,6 +74,18 @@ class SMTPIntegrationConnector:
                 IntegrationSubscription.event_type == event.event_type,
             )
         )
+        if event.event_type == "alert_match":
+            query = query.join(
+                User, User.id == IntegrationInstance.owner_user_id
+            ).where(
+                User.is_active.is_(True),
+                User.is_approved.is_(True),
+            )
+            owner_ids = alert_match_event_owner_ids(event)
+            if owner_ids is not None:
+                if not owner_ids:
+                    return ConnectorRoutingResult()
+                query = query.where(IntegrationInstance.owner_user_id.in_(owner_ids))
         if feed_id is None and event.event_type not in {"daily_digest", "report_ready"}:
             query = query.where(IntegrationSubscription.feed_scope == "all")
         elif feed_id is not None:
@@ -91,6 +104,13 @@ class SMTPIntegrationConnector:
 
         delivery_ids: list[uuid.UUID] = []
         for subscription, instance in db.execute(query).unique().all():
+            delivery_payload = _smtp_delivery_payload_for_owner(
+                db,
+                event=event,
+                owner_user_id=instance.owner_user_id,
+            )
+            if delivery_payload is None:
+                continue
             existing = db.scalar(
                 select(IntegrationDelivery).where(
                     IntegrationDelivery.event_id == event.id,
@@ -111,10 +131,7 @@ class SMTPIntegrationConnector:
                 delivery_kind="live",
                 state="pending",
                 idempotency_key=f"event:{event.id}:subscription:{subscription.id}:live",
-                payload_json=delivery_payload_for_owner(
-                    event,
-                    owner_user_id=instance.owner_user_id,
-                ),
+                payload_json=delivery_payload,
                 max_attempts=max(1, int(settings.integration_delivery_retry_max_attempts)),
             )
             db.add(delivery)
@@ -147,3 +164,46 @@ def _payload_uuid(event: IntegrationEvent, key: str, *, required: bool = True) -
         return uuid.UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise IntegrationEventContextError(f"{event.event_type} event has invalid {key}") from exc
+
+
+def _smtp_delivery_payload_for_owner(
+    db: Session,
+    *,
+    event: IntegrationEvent,
+    owner_user_id: uuid.UUID | None,
+) -> dict | None:
+    from app.services.integration_events import (
+        build_alert_match_snapshot_payload,
+        delivery_payload_for_owner,
+        hydrate_integration_event_resources,
+    )
+
+    if event.event_type != "alert_match" or int(event.schema_version or 1) >= 2:
+        return delivery_payload_for_owner(event, owner_user_id=owner_user_id)
+    if owner_user_id is None:
+        raise IntegrationEventContextError(
+            "Legacy alert-match SMTP delivery requires an owning user"
+        )
+
+    from app.services.notification_webhooks import build_alert_match_context_for_item
+
+    resources = hydrate_integration_event_resources(db, event=event)
+    if resources.item is None or resources.feed is None:
+        raise IntegrationEventContextError(
+            "Legacy alert-match event is missing item or feed context"
+        )
+    context = build_alert_match_context_for_item(
+        db,
+        user_id=owner_user_id,
+        item=resources.item,
+    )
+    if context is None:
+        return None
+    return build_alert_match_snapshot_payload(
+        item=resources.item,
+        feed=resources.feed,
+        contexts_by_owner={owner_user_id: context},
+        occurrence_ids=[],
+        evaluation_request_id=None,
+        owner_user_id=owner_user_id,
+    )

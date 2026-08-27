@@ -8,11 +8,16 @@ from app.models.feed import Feed
 from app.models.integration import (
     IntegrationAttempt,
     IntegrationDelivery,
+    IntegrationEvent,
     IntegrationInstance,
     IntegrationSubscription,
 )
 from app.models.item import Item
-from app.services.integration_processors import process_smtp_integration_delivery
+from app.services.integration_connectors.smtp import SMTPIntegrationConnector
+from app.services.integration_processors import (
+    SMTP_OWNER_NOT_ELIGIBLE,
+    process_smtp_integration_delivery,
+)
 from app.services.smtp_integration import SMTPNotificationResult
 
 
@@ -75,6 +80,118 @@ def test_smtp_delivery_with_missing_context_is_dead_lettered_with_clear_error(
     assert result.status == "dead_letter"
     assert delivery.last_error_code == "context_error"
     assert "Referenced item" in (delivery.last_error_message or "")
+
+
+def test_routed_smtp_delivery_is_skipped_when_owner_is_deactivated_before_send(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    owner = seed_users["viewer"]
+    delivery = _persist_routed_smtp_delivery(db_session, owner_user_id=owner.id)
+    owner.is_active = False
+    db_session.add(owner)
+    db_session.commit()
+    send_calls = []
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        lambda *_args, **_kwargs: send_calls.append(True),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "succeeded"
+    assert result.reason == SMTP_OWNER_NOT_ELIGIBLE
+    assert delivery.state == "succeeded"
+    assert delivery.attempt_count == 1
+    assert attempt is not None
+    assert attempt.status == "succeeded"
+    assert attempt.response_json == {
+        "skipped": True,
+        "reason": SMTP_OWNER_NOT_ELIGIBLE,
+    }
+    assert send_calls == []
+
+
+def test_routed_smtp_delivery_is_skipped_when_owner_approval_is_removed_before_send(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    owner = seed_users["viewer"]
+    delivery = _persist_routed_smtp_delivery(db_session, owner_user_id=owner.id)
+    owner.is_approved = False
+    db_session.add(owner)
+    db_session.commit()
+    send_calls = []
+
+    monkeypatch.setattr(
+        "app.services.smtp_integration.send_smtp_notification",
+        lambda *_args, **_kwargs: send_calls.append(True),
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "succeeded"
+    assert result.reason == SMTP_OWNER_NOT_ELIGIBLE
+    assert delivery.state == "succeeded"
+    assert delivery.attempt_count == 1
+    assert attempt is not None
+    assert attempt.status == "succeeded"
+    assert attempt.response_json == {
+        "skipped": True,
+        "reason": SMTP_OWNER_NOT_ELIGIBLE,
+    }
+    assert send_calls == []
+
+
+def test_smtp_delivery_rechecks_owner_after_lease_renewal(
+    db_session,
+    seed_users,
+    monkeypatch,
+):
+    owner = seed_users["viewer"]
+    delivery = _persist_routed_smtp_delivery(db_session, owner_user_id=owner.id)
+    send_calls = []
+
+    def _attempt(*_args, lease_heartbeat, **_kwargs):
+        owner.is_approved = False
+        db_session.add(owner)
+        db_session.commit()
+        lease_heartbeat(30)
+        send_calls.append(True)
+        raise AssertionError("SMTP send must not start for an ineligible owner")
+
+    monkeypatch.setattr(
+        "app.services.integration_processors.attempt_smtp_integration_delivery",
+        _attempt,
+    )
+
+    result = process_smtp_integration_delivery(db_session, delivery_id=delivery.id)
+
+    db_session.refresh(delivery)
+    attempt = db_session.scalar(
+        select(IntegrationAttempt).where(IntegrationAttempt.delivery_id == delivery.id)
+    )
+    assert result.status == "succeeded"
+    assert result.reason == SMTP_OWNER_NOT_ELIGIBLE
+    assert delivery.state == "succeeded"
+    assert attempt is not None
+    assert attempt.status == "succeeded"
+    assert attempt.response_json == {
+        "skipped": True,
+        "reason": SMTP_OWNER_NOT_ELIGIBLE,
+    }
+    assert send_calls == []
 
 
 def test_smtp_delivery_uses_v2_snapshot_when_source_rows_are_unavailable(
@@ -386,3 +503,67 @@ def _persist_smtp_delivery(db_session) -> tuple[Feed, Item, IntegrationDelivery]
     db_session.add(delivery)
     db_session.commit()
     return feed, item, delivery
+
+
+def _persist_routed_smtp_delivery(
+    db_session,
+    *,
+    owner_user_id: uuid.UUID,
+) -> IntegrationDelivery:
+    feed = Feed(
+        id=uuid.uuid4(),
+        name="Owned SMTP feed",
+        url=f"https://example.com/{uuid.uuid4()}.xml",
+    )
+    item = Item(
+        id=uuid.uuid4(),
+        feed_id=feed.id,
+        source_guid=str(uuid.uuid4()),
+        url="https://example.com/owned-item",
+        canonical_url="https://example.com/owned-item",
+        title="Owned SMTP integration item",
+        summary="Delivery routed before access changes",
+        dedupe_key=str(uuid.uuid4()),
+        content_hash=uuid.uuid4().hex,
+    )
+    instance = IntegrationInstance(
+        id=uuid.uuid4(),
+        owner_user_id=owner_user_id,
+        name="Owned SMTP",
+        integration_type="smtp",
+        direction="destination",
+        enabled=True,
+        config_json={
+            "host": "smtp.example.com",
+            "port": 587,
+            "security": "starttls",
+            "from_email": "threatlens@example.com",
+            "to_emails": ["owner@example.com"],
+            "timeout_seconds": 10,
+            "event_types": ["rss_item_new"],
+            "feed_scope": "all",
+            "feed_ids": [],
+            "subject_template": "{{ item.title }}",
+            "html_template": "<p>{{ item.title }}</p>",
+        },
+    )
+    event = IntegrationEvent(
+        id=uuid.uuid4(),
+        event_type="rss_item_new",
+        schema_version=1,
+        source_type="item",
+        source_id=str(item.id),
+        idempotency_key=f"owned-smtp:{item.id}",
+        payload_json={"item_id": str(item.id), "feed_id": str(feed.id)},
+    )
+    db_session.add_all([feed, item, instance, event])
+    db_session.flush()
+
+    connector = SMTPIntegrationConnector()
+    connector.prepare_routing(db_session, event=event)
+    routed = connector.route_event(db_session, event=event)
+    assert len(routed.delivery_ids) == 1
+    db_session.commit()
+    delivery = db_session.get(IntegrationDelivery, routed.delivery_ids[0])
+    assert delivery is not None
+    return delivery

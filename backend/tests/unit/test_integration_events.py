@@ -482,7 +482,11 @@ def test_v2_alert_event_preserves_owner_specific_match_snapshot(db_session):
         source_type="item",
         source_id=item.id,
         idempotency_key=f"immutable-alert:{item.id}",
-        payload={"item_id": str(item.id), "feed_id": str(feed.id)},
+        payload={
+            "item_id": str(item.id),
+            "feed_id": str(feed.id),
+            "evaluation_request_id": str(uuid.uuid4()),
+        },
     )
     assert event.schema_version == 2
     assert event.payload_json["alert_matches"][0]["owner_user_id"] == str(user.id)
