@@ -1,0 +1,448 @@
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+
+from app.core.token_scopes import (
+    ALLOWED_API_TOKEN_SCOPES,
+    DEFAULT_API_TOKEN_SCOPES,
+    SCOPE_READ_OPERATIONS,
+    SCOPE_WRITE_OPERATIONS,
+    missing_role_token_scopes,
+)
+from app.core.rbac import ROLE_ANALYST, ROLE_VIEWER
+from app.models.integration import IntegrationDelivery, IntegrationInstance
+from app.models.report import Report
+from app.models.system_operation_run import SystemOperationRun
+from app.schemas.health import (
+    EncryptedDataInventoryCategory,
+    EncryptedDataInventoryResponse,
+    EncryptedDataInventorySummary,
+    EncryptedDataStartupScan,
+)
+from app.services import operations, operations_probes, operations_projections
+from app.services.beat_heartbeat import BeatHealthSnapshot, BeatHeartbeatSnapshot
+
+
+def _healthy_inventory(now: datetime) -> EncryptedDataInventoryResponse:
+    empty = EncryptedDataInventoryCategory()
+    return EncryptedDataInventoryResponse(
+        ok=True,
+        status="healthy",
+        scanned_at=now,
+        warnings=[],
+        require_explicit_app_data_encryption_key=False,
+        using_derived_app_data_encryption_key=False,
+        startup_scan=EncryptedDataStartupScan(),
+        feeds=empty,
+        integration_secrets=empty,
+        notification_webhooks=empty,
+        notification_delivery_snapshots=empty,
+        summary=EncryptedDataInventorySummary(),
+    )
+
+
+def _install_healthy_probes(monkeypatch: pytest.MonkeyPatch, now: datetime) -> None:
+    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: True)
+    monkeypatch.setattr(operations_probes.health_routes, "_redis_health_ok", lambda _settings: True)
+
+    def worker_snapshot(settings):
+        required = operations_probes.health_routes._required_worker_queues(settings)
+        return (
+            True,
+            {"worker@internal-host": "pong"},
+            {
+                "required": required,
+                "covered": required,
+                "missing": [],
+                "by_worker": {"worker@internal-host": required},
+            },
+        )
+
+    monkeypatch.setattr(operations_probes.health_routes, "_worker_health_snapshot", worker_snapshot)
+    monkeypatch.setattr(
+        operations_probes.health_routes,
+        "_beat_health_snapshot",
+        lambda _settings: BeatHealthSnapshot(
+            scheduler=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
+            worker_round_trip=BeatHeartbeatSnapshot(True, now.isoformat(), 1, "healthy"),
+        ),
+    )
+    monkeypatch.setattr(
+        operations_probes,
+        "scan_encrypted_data_inventory",
+        lambda _db, settings: _healthy_inventory(now),
+    )
+    monkeypatch.setattr(
+        operations_probes.shutil,
+        "disk_usage",
+        lambda _path: SimpleNamespace(total=1_000_000, used=500_000, free=500_000),
+    )
+
+
+def test_operations_scopes_are_explicit_and_not_delegated_to_non_admin_roles():
+    assert SCOPE_READ_OPERATIONS in ALLOWED_API_TOKEN_SCOPES
+    assert SCOPE_WRITE_OPERATIONS in ALLOWED_API_TOKEN_SCOPES
+    assert SCOPE_READ_OPERATIONS not in DEFAULT_API_TOKEN_SCOPES
+    assert SCOPE_WRITE_OPERATIONS not in DEFAULT_API_TOKEN_SCOPES
+    assert missing_role_token_scopes(ROLE_ANALYST, [SCOPE_READ_OPERATIONS]) == [SCOPE_READ_OPERATIONS]
+    assert missing_role_token_scopes(ROLE_VIEWER, [SCOPE_WRITE_OPERATIONS]) == [SCOPE_WRITE_OPERATIONS]
+
+
+def test_operation_run_helpers_sanitize_and_finish_once(db_session):
+    run = operations.create_system_operation_run(
+        db_session,
+        operation_type="backup",
+        initiated_by="operator@example.com",
+        source="offline_cli",
+        metadata={
+            "row_count": 42,
+            "database_url": "postgresql://operator:password@db.internal/threatlens",
+        },
+    )
+    db_session.commit()
+
+    assert run.metadata_json == {"row_count": 42, "database_url": "[REDACTED]"}
+
+    completed = operations.finish_system_operation_run(
+        db_session,
+        run_id=run.id,
+        status="failed",
+        error_code="archive_verify_failed",
+        error_message="Could not read /srv/backups/private.dump with token=very-secret",
+        metadata={"attempt": 1},
+    )
+    db_session.commit()
+
+    assert completed.status == "failed"
+    assert completed.finished_at is not None
+    assert completed.metadata_json["attempt"] == 1
+    assert "/srv/backups" not in (completed.error_message or "")
+    assert "very-secret" not in (completed.error_message or "")
+
+    repeated = operations.finish_system_operation_run(db_session, run_id=run.id, status="failed")
+    assert repeated.id == run.id
+    with pytest.raises(ValueError, match="already complete"):
+        operations.finish_system_operation_run(db_session, run_id=run.id, status="succeeded")
+
+
+def test_operation_run_helpers_reject_invalid_state(db_session):
+    with pytest.raises(ValueError, match="Unsupported"):
+        operations.create_system_operation_run(
+            db_session,
+            operation_type="shell",
+            initiated_by="operator",
+            source="cli",
+        )
+    with pytest.raises(ValueError, match="completion status"):
+        operations.finish_system_operation_run(
+            db_session,
+            run_id=uuid.uuid4(),
+            status="running",
+        )
+
+    run = operations.create_system_operation_run(
+        db_session,
+        operation_type="verify",
+        initiated_by="operator",
+        source="cli",
+        started_at=datetime.now(timezone.utc),
+    )
+    with pytest.raises(ValueError, match="cannot precede"):
+        operations.finish_system_operation_run(
+            db_session,
+            run_id=run.id,
+            status="failed",
+            finished_at=run.started_at - timedelta(seconds=1),
+        )
+
+
+def test_operation_metadata_is_recursively_redacted_and_bounded():
+    sanitized = operations.sanitize_operation_metadata(
+        {
+            "safe_count": 7,
+            "database_url": "postgresql://admin:secret@db.internal/threatlens",
+            "smtp_password": "mail-secret",
+            "oidc_client_secret": "oidc-secret",
+            "nested": {
+                "path": "/var/lib/threatlens/private.dump",
+                "message": (
+                    "Bearer abc.def at https://auth.internal/application and "
+                    "notify admin@example.com from db.internal:5432; "
+                    "SMTP host=mail.internal and OIDC issuer=auth.internal; "
+                    "read backups/private.dump from 192.0.2.10"
+                ),
+                "short_path": "/root",
+            },
+            "values": list(range(100)),
+        }
+    )
+
+    rendered = str(sanitized)
+    assert sanitized["safe_count"] == 7
+    assert sanitized["database_url"] == "[REDACTED]"
+    assert sanitized["smtp_password"] == "[REDACTED]"
+    assert sanitized["oidc_client_secret"] == "[REDACTED]"
+    assert len(sanitized["values"]) == operations.MAX_METADATA_ENTRIES + 1
+    for secret in (
+        "admin:secret",
+        "mail-secret",
+        "oidc-secret",
+        "/var/lib/threatlens",
+        "abc.def",
+        "auth.internal",
+        "admin@example.com",
+        "db.internal:5432",
+        "mail.internal",
+        "backups/private.dump",
+        "192.0.2.10",
+        "/root",
+    ):
+        assert secret not in rendered
+
+
+def test_overview_reports_delivery_and_report_backlogs(db_session, monkeypatch):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _install_healthy_probes(monkeypatch, now)
+
+    integration = IntegrationInstance(
+        id=uuid.uuid4(),
+        name="Operations test integration",
+        integration_type="webhook",
+        direction="outbound",
+        enabled=True,
+        config_json={},
+    )
+    db_session.add(integration)
+    db_session.flush()
+    db_session.add_all(
+        [
+            IntegrationDelivery(
+                integration_id=integration.id,
+                connector_type="webhook",
+                event_type="item_processed",
+                state="pending",
+                idempotency_key=f"operations-pending-{uuid.uuid4()}",
+                payload_json={},
+                created_at=now - timedelta(minutes=15),
+            ),
+            IntegrationDelivery(
+                integration_id=integration.id,
+                connector_type="webhook",
+                event_type="item_processed",
+                state="sending",
+                idempotency_key=f"operations-sending-{uuid.uuid4()}",
+                payload_json={},
+                claimed_at=now - timedelta(minutes=10),
+                created_at=now - timedelta(minutes=10),
+            ),
+            IntegrationDelivery(
+                integration_id=integration.id,
+                connector_type="webhook",
+                event_type="item_processed",
+                state="dead_letter",
+                idempotency_key=f"operations-failed-{uuid.uuid4()}",
+                payload_json={},
+                created_at=now - timedelta(minutes=5),
+            ),
+        ]
+    )
+    db_session.add_all(
+        [
+            _report(status="queued", now=now, queued_at=now - timedelta(hours=2)),
+            _report(
+                status="running",
+                now=now,
+                queued_at=now - timedelta(hours=1),
+                started_at=now - timedelta(minutes=20),
+                generation_lease_expires_at=now - timedelta(minutes=1),
+            ),
+            _report(status="error", now=now, queued_at=now - timedelta(hours=3)),
+        ]
+    )
+    db_session.add_all(
+        [
+            _operation_run("backup", "succeeded", now - timedelta(hours=1)),
+            _operation_run("restore_drill", "succeeded", now - timedelta(days=1)),
+        ]
+    )
+    db_session.commit()
+
+    overview = operations.collect_operations_overview(db_session, now=now)
+    backlogs = {entry.key: entry for entry in overview.backlogs}
+
+    assert overview.application.schema_current is True
+    assert backlogs["integration_deliveries"].pending_count == 1
+    assert backlogs["integration_deliveries"].active_count == 1
+    assert backlogs["integration_deliveries"].stale_count == 1
+    assert backlogs["integration_deliveries"].failed_count == 1
+    assert backlogs["integration_deliveries"].oldest_pending_age_seconds == 900
+    assert backlogs["reports"].pending_count == 1
+    assert backlogs["reports"].active_count == 1
+    assert backlogs["reports"].stale_count == 1
+    assert backlogs["reports"].failed_count == 1
+    assert backlogs["reports"].oldest_pending_age_seconds == 7200
+    assert {issue.code for issue in overview.issues} >= {
+        "integration_deliveries_stale",
+        "reports_stale",
+    }
+
+
+def test_overview_degrades_without_leaking_probe_errors(db_session, monkeypatch):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: True)
+    monkeypatch.setattr(operations_probes.health_routes, "_redis_health_ok", lambda _settings: False)
+    monkeypatch.setattr(
+        operations_probes.health_routes,
+        "_worker_health_snapshot",
+        lambda settings: (
+            False,
+            {"worker@sensitive.internal": "pong"},
+            {
+                "required": operations_probes.health_routes._required_worker_queues(settings),
+                "covered": [],
+                "missing": operations_probes.health_routes._required_worker_queues(settings),
+                "by_worker": {"worker@sensitive.internal": []},
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        operations_probes.health_routes,
+        "_beat_health_snapshot",
+        lambda _settings: (_ for _ in ()).throw(RuntimeError("redis://admin:secret@private.internal/0")),
+    )
+    monkeypatch.setattr(
+        operations_probes,
+        "scan_encrypted_data_inventory",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("OIDC client_secret=do-not-leak")),
+    )
+    monkeypatch.setattr(
+        operations_probes.shutil,
+        "disk_usage",
+        lambda _path: (_ for _ in ()).throw(OSError("/private/storage/path")),
+    )
+    monkeypatch.setattr(
+        operations_probes,
+        "_load_database_size",
+        lambda _db: (_ for _ in ()).throw(RuntimeError("postgresql://private.internal/db")),
+    )
+    monkeypatch.setattr(
+        operations_projections,
+        "_load_delivery_backlog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("smtp_password=mail-secret")),
+    )
+    monkeypatch.setattr(
+        operations_projections,
+        "_load_report_backlog",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("/srv/reports/private")),
+    )
+    monkeypatch.setattr(
+        operations_projections,
+        "_load_recovery_snapshot",
+        lambda _db: (_ for _ in ()).throw(RuntimeError("token=recovery-secret")),
+    )
+
+    overview = operations.collect_operations_overview(db_session, now=now)
+    rendered = overview.model_dump_json()
+    components = {entry.key: entry for entry in overview.components}
+
+    assert overview.overall_status == "critical"
+    assert components["redis"].status == "unavailable"
+    assert components["workers"].status == "critical"
+    assert components["workers"].metrics["worker_count"] == 1
+    assert components["scheduler"].status == "unavailable"
+    assert components["encrypted_data"].status == "unavailable"
+    assert all(issue.effect and issue.recommended_action for issue in overview.issues)
+    issue_codes = {issue.code for issue in overview.issues}
+    assert "recovery_history_unavailable" in issue_codes
+    assert "backup_not_recorded" not in issue_codes
+    assert "restore_drill_not_recorded" not in issue_codes
+    for secret in (
+        "sensitive.internal",
+        "admin:secret",
+        "do-not-leak",
+        "/private/storage",
+        "private.internal",
+        "mail-secret",
+        "/srv/reports",
+        "recovery-secret",
+    ):
+        assert secret not in rendered
+
+
+def test_overview_skips_database_dependent_probes_when_database_is_unavailable(
+    db_session,
+    monkeypatch,
+):
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    _install_healthy_probes(monkeypatch, now)
+    monkeypatch.setattr(operations_probes.health_routes, "_database_health_ok", lambda _db: False)
+    encrypted_inventory_called = False
+
+    def unexpected_inventory(*_args, **_kwargs):
+        nonlocal encrypted_inventory_called
+        encrypted_inventory_called = True
+        raise AssertionError("database-dependent inventory should have been skipped")
+
+    monkeypatch.setattr(
+        operations_probes,
+        "scan_encrypted_data_inventory",
+        unexpected_inventory,
+    )
+
+    overview = operations.collect_operations_overview(db_session, now=now)
+    components = {entry.key: entry for entry in overview.components}
+
+    assert overview.overall_status == "critical"
+    assert components["database"].status == "unavailable"
+    assert components["encrypted_data"].status == "unknown"
+    assert all(backlog.status == "unknown" for backlog in overview.backlogs)
+    assert overview.application.schema_revision is None
+    assert overview.application.schema_current is None
+    assert encrypted_inventory_called is False
+    issue_codes = {entry.code for entry in overview.issues}
+    assert "database_unavailable" in issue_codes
+    assert "backup_not_recorded" not in issue_codes
+
+
+def _report(
+    *,
+    status: str,
+    now: datetime,
+    queued_at: datetime,
+    started_at: datetime | None = None,
+    generation_lease_expires_at: datetime | None = None,
+) -> Report:
+    return Report(
+        id=uuid.uuid4(),
+        title=f"Operations {status} report",
+        status=status,
+        generation_stage=status,
+        period_start=now - timedelta(days=1),
+        period_end=now,
+        filters_json={},
+        prompt_config_json={},
+        generation_context_json={},
+        sections_config_json=[],
+        metrics_json={},
+        coverage_json={},
+        queued_at=queued_at,
+        started_at=started_at,
+        generation_lease_expires_at=generation_lease_expires_at,
+    )
+
+
+def _operation_run(operation_type: str, status: str, started_at: datetime):
+    return SystemOperationRun(
+        id=uuid.uuid4(),
+        operation_type=operation_type,
+        status=status,
+        initiated_by="pytest",
+        source="test",
+        metadata_json={},
+        started_at=started_at,
+        finished_at=started_at + timedelta(minutes=1),
+    )
