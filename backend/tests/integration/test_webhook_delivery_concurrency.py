@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from threading import Event
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 from sqlalchemy.orm import Session
 
 from app.models.integration import (
@@ -18,7 +20,13 @@ from app.models.integration import (
 from app.models.notification_webhook import NotificationWebhook
 from app.models.notification_webhook_delivery import NotificationWebhookDelivery
 from app.models.user import User
-from app.services.integration_compat import ensure_webhook_integration
+from app.services.integration_compat import (
+    delete_webhook_integration,
+    ensure_webhook_integration,
+)
+from app.services.integration_delivery import (
+    lock_webhook_delivery_external_io_eligibility,
+)
 from app.services.notification_delivery_processing import (
     process_reserved_notification_deliveries,
 )
@@ -174,9 +182,11 @@ def test_webhook_delivery_rechecks_eligibility_after_concurrent_revocation(
             cleanup_db.commit()
 
 
+@pytest.mark.parametrize("disable_after_takeover", [False, True])
 def test_stale_webhook_worker_cannot_mutate_replacement_attempt(
     database_engine,
     monkeypatch,
+    disable_after_takeover: bool,
 ):
     owner_id = uuid.uuid4()
     webhook_id = uuid.uuid4()
@@ -304,6 +314,18 @@ def test_stale_webhook_worker_cannot_mutate_replacement_attempt(
                 assert replacement is not None
                 assert replacement.attempt_count == 2
 
+            if disable_after_takeover:
+                with Session(database_engine) as disable_db:
+                    webhook = disable_db.scalar(
+                        select(NotificationWebhook)
+                        .where(NotificationWebhook.id == webhook_id)
+                        .with_for_update()
+                    )
+                    assert webhook is not None
+                    webhook.enabled = False
+                    disable_db.add(webhook)
+                    disable_db.commit()
+
             allow_first_worker_to_continue.set()
             result = first_worker.result(timeout=5)
 
@@ -333,6 +355,159 @@ def test_stale_webhook_worker_cannot_mutate_replacement_attempt(
             ]
     finally:
         allow_first_worker_to_continue.set()
+        with Session(database_engine) as cleanup_db:
+            owner = cleanup_db.get(User, owner_id)
+            if owner is not None:
+                cleanup_db.delete(owner)
+            cleanup_db.commit()
+
+
+def test_webhook_delete_and_delivery_fence_use_parent_first_lock_order(
+    database_engine,
+):
+    owner_id = uuid.uuid4()
+    webhook_id = uuid.uuid4()
+    delivery_id = uuid.uuid4()
+    integration_delivery_id: uuid.UUID
+    with Session(database_engine) as setup_db:
+        owner = User(
+            id=owner_id,
+            email=f"webhook-delete-race-{uuid.uuid4().hex}@example.com",
+            password_hash="x",
+            role="analyst",
+            is_active=True,
+            is_approved=True,
+        )
+        webhook = NotificationWebhook(
+            id=webhook_id,
+            user_id=owner_id,
+            name="Concurrent deletion webhook",
+            enabled=True,
+            event_type="rss_item_new",
+            url_template="https://hooks.example.com/events",
+            method="POST",
+            feed_scope="all",
+            feed_ids_json=[],
+            query_params_json=[],
+            headers_json=[],
+            body_mode="none",
+            body_fields_json=[],
+            timeout_seconds=10,
+        )
+        setup_db.add(owner)
+        setup_db.flush()
+        setup_db.add(webhook)
+        setup_db.flush()
+        ensure_webhook_integration(setup_db, webhook)
+        setup_db.add(
+            NotificationWebhookDelivery(
+                id=delivery_id,
+                webhook_id=webhook_id,
+                user_id=owner_id,
+                event_type_snapshot="rss_item_new",
+                delivery_kind="live",
+                delivery_state="pending",
+                attempt_count=0,
+                success=False,
+                timeout_seconds=10,
+                rendered_url="https://hooks.example.com/events",
+                rendered_method="POST",
+                rendered_headers_json=[],
+                rendered_query_params_json=[],
+                rendered_body=None,
+                attempted_at=datetime.now(timezone.utc),
+            )
+        )
+        setup_db.commit()
+
+    with Session(database_engine) as claim_db:
+        claimed = claim_notification_webhook_delivery(
+            claim_db,
+            delivery_id=delivery_id,
+        )
+        assert claimed is not None
+        assert claimed.integration_delivery_id is not None
+        integration_delivery_id = claimed.integration_delivery_id
+
+    worker_thread_id: list[int] = []
+    deleter_thread_id: list[int] = []
+    worker_locked_delivery = Event()
+    allow_worker_to_commit = Event()
+    delete_statement_started = Event()
+
+    def _pause_worker_after_delivery_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            worker_thread_id
+            and threading.get_ident() == worker_thread_id[0]
+            and "notification_webhook_deliveries" in statement.lower()
+            and "for update" in statement.lower()
+            and not worker_locked_delivery.is_set()
+        ):
+            worker_locked_delivery.set()
+            assert allow_worker_to_commit.wait(timeout=10)
+
+    def _observe_delete_statement(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ) -> None:
+        if (
+            deleter_thread_id
+            and threading.get_ident() == deleter_thread_id[0]
+            and statement.lstrip().lower().startswith("delete from notification_webhooks")
+        ):
+            delete_statement_started.set()
+
+    def _fence_delivery() -> None:
+        worker_thread_id.append(threading.get_ident())
+        with Session(database_engine) as worker_db:
+            lock_webhook_delivery_external_io_eligibility(
+                worker_db,
+                webhook_id=webhook_id,
+                legacy_delivery_id=delivery_id,
+                integration_delivery_id=integration_delivery_id,
+                expected_attempt_number=1,
+            )
+            worker_db.commit()
+
+    def _delete_webhook() -> None:
+        deleter_thread_id.append(threading.get_ident())
+        with Session(database_engine) as delete_db:
+            webhook = delete_db.get(NotificationWebhook, webhook_id)
+            assert webhook is not None
+            delete_webhook_integration(delete_db, webhook)
+            delete_db.commit()
+
+    event.listen(database_engine, "after_cursor_execute", _pause_worker_after_delivery_lock)
+    event.listen(database_engine, "before_cursor_execute", _observe_delete_statement)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            worker = executor.submit(_fence_delivery)
+            assert worker_locked_delivery.wait(timeout=5)
+            deleter = executor.submit(_delete_webhook)
+            assert delete_statement_started.wait(timeout=5)
+            time.sleep(0.1)
+            assert not deleter.done()
+            allow_worker_to_commit.set()
+            worker.result(timeout=10)
+            deleter.result(timeout=10)
+
+        with Session(database_engine) as verify_db:
+            assert verify_db.get(NotificationWebhook, webhook_id) is None
+            assert verify_db.get(NotificationWebhookDelivery, delivery_id) is None
+            assert verify_db.get(IntegrationDelivery, integration_delivery_id) is None
+    finally:
+        allow_worker_to_commit.set()
+        event.remove(
+            database_engine,
+            "after_cursor_execute",
+            _pause_worker_after_delivery_lock,
+        )
+        event.remove(
+            database_engine,
+            "before_cursor_execute",
+            _observe_delete_statement,
+        )
         with Session(database_engine) as cleanup_db:
             owner = cleanup_db.get(User, owner_id)
             if owner is not None:
